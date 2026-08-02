@@ -1,6 +1,8 @@
 import { WebsocketProvider } from 'y-websocket'
 import type * as Y from 'yjs'
 
+import { ApiError, type BoardRole, mintWsToken } from '../lib/api'
+
 /**
  * ws-tokens are single-use with a 60s TTL, which fights y-websocket's built-in
  * reconnect: the provider builds its URL once and retries on its own schedule, so
@@ -15,34 +17,32 @@ import type * as Y from 'yjs'
 const MIN_RETRY_MS = 500
 const MAX_RETRY_MS = 15_000
 
-export type ConnectionState = 'connecting' | 'connected' | 'disconnected'
+/**
+ * Server close codes, from ARCHITECTURE 6. 4401 (bad or expired credential) is not
+ * listed because it needs no special handling: the retry mints a new ws-token, and
+ * the API client refreshes the access token behind it on the way.
+ */
+const CLOSE_FORBIDDEN = 4403
+const CLOSE_ROOM_FULL = 4429
+
+export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'denied'
 
 type Options = {
   boardId: string
   doc: Y.Doc
   onState: (state: ConnectionState, detail?: string) => void
+  /** Fires whenever the server reports a role, including a change after reconnect. */
+  onRole: (role: BoardRole) => void
 }
 
 export type BoardConnection = {
   provider: WebsocketProvider
   disconnect: () => void
   reconnect: () => void
+  destroy: () => void
 }
 
-async function mintToken(boardId: string): Promise<string> {
-  const response = await fetch('/api/v1/ws-token', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ board_id: boardId }),
-  })
-  if (!response.ok) {
-    throw new Error(`ws-token failed: ${response.status}`)
-  }
-  const body: { token: string } = await response.json()
-  return body.token
-}
-
-export function connectBoard({ boardId, doc, onState }: Options): BoardConnection {
+export function connectBoard({ boardId, doc, onState, onRole }: Options): BoardConnection {
   const wsBase = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/board`
 
   const provider = new WebsocketProvider(wsBase, boardId, doc, {
@@ -53,32 +53,43 @@ export function connectBoard({ boardId, doc, onState }: Options): BoardConnectio
   let retryMs = MIN_RETRY_MS
   let timer: number | undefined
   let wantConnection = true
-  let closed = false
+  let destroyed = false
 
-  const clearTimer = () => {
+  const clearTimer = (): void => {
     if (timer !== undefined) {
       clearTimeout(timer)
       timer = undefined
     }
   }
 
-  const attempt = async () => {
-    if (!wantConnection || closed) return
+  const schedule = (): void => {
+    if (!wantConnection || destroyed) return
+    clearTimer()
+    timer = window.setTimeout(() => void attempt(), retryMs)
+    retryMs = Math.min(retryMs * 2, MAX_RETRY_MS)
+  }
+
+  const attempt = async (): Promise<void> => {
+    if (!wantConnection || destroyed) return
     onState('connecting')
     try {
-      provider.params = { token: await mintToken(boardId) }
+      const minted = await mintWsToken(boardId)
+      // Re-read on every attempt: a role change is exactly why the server closed the
+      // previous socket, so the reconnect is where the client learns the new one.
+      onRole(minted.role)
+      provider.params = { token: minted.token }
       provider.connect()
     } catch (error) {
+      // 403 from the mint endpoint means access is gone, not that the network is
+      // flaky. Retrying cannot help and only burns the rate limit.
+      if (error instanceof ApiError && error.status === 403) {
+        wantConnection = false
+        onState('denied', 'you no longer have access to this field')
+        return
+      }
       onState('disconnected', error instanceof Error ? error.message : String(error))
       schedule()
     }
-  }
-
-  const schedule = () => {
-    if (!wantConnection || closed) return
-    clearTimer()
-    timer = window.setTimeout(attempt, retryMs)
-    retryMs = Math.min(retryMs * 2, MAX_RETRY_MS)
   }
 
   provider.on('status', (event: { status: string }) => {
@@ -92,8 +103,24 @@ export function connectBoard({ boardId, doc, onState }: Options): BoardConnectio
   // with the spent token, then drive the retry from here with a fresh one.
   provider.on('connection-close', (event: CloseEvent | null) => {
     if (!wantConnection) return
-    onState('disconnected', event ? `close ${event.code}` : 'closed')
     provider.disconnect()
+
+    if (event?.code === CLOSE_FORBIDDEN) {
+      // Access was revoked, or the role changed mid-session. Reconnecting re-mints,
+      // which re-resolves the role - and a genuine revocation fails at the mint.
+      onState('disconnected', 'access changed, reconnecting')
+      retryMs = MIN_RETRY_MS
+      schedule()
+      return
+    }
+    if (event?.code === CLOSE_ROOM_FULL) {
+      onState('disconnected', 'this field is full, retrying')
+      schedule()
+      return
+    }
+    // 4401 included: the access token behind the session expired, and the API client
+    // refreshes it transparently on the next mint.
+    onState('disconnected', event ? `closed ${event.code}` : 'closed')
     schedule()
   })
 
@@ -118,6 +145,12 @@ export function connectBoard({ boardId, doc, onState }: Options): BoardConnectio
       wantConnection = true
       retryMs = MIN_RETRY_MS
       void attempt()
+    },
+    destroy: () => {
+      destroyed = true
+      wantConnection = false
+      clearTimer()
+      provider.destroy()
     },
   }
 }

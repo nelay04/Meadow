@@ -37,6 +37,11 @@ stop_api() {
 
 trap stop_api EXIT
 
+# Alembic owns the schema from M1 on, and the API no longer creates tables at boot.
+# Idempotent, so running the gate twice is fine.
+echo "== applying migrations"
+(cd "$API_DIR" && .venv/bin/alembic upgrade head >/dev/null)
+
 echo "== starting api on :${API_PORT}"
 start_api
 

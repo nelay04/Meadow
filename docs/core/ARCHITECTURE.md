@@ -537,11 +537,23 @@ Handshake sequence — **this is the security boundary**:
 
 1. Accept connection
 2. Validate `ws_token` (60s TTL, single-use, scoped to one board_id)
-3. Resolve the user's effective role on the board
+3. Resolve the user's effective role on the board — **live, at connect time**, never
+   from a role baked into the token. The 60s lifetime is a window in which access can
+   be revoked or the board deleted.
 4. Reject with close code 4403 if no access
 5. Reject with 4401 if the token is invalid/expired
 6. Join the pycrdt room; attach role to the connection
 7. If role is `viewer`, drop inbound updates (accept awareness only)
+
+**4401 means the credential is bad; 4403 means it is good but does not authorise this
+board.** The split matters for a token presented to the wrong board: it is authentic
+and unexpired, so 4401 would tell a client holding a perfectly valid token to go and
+refresh it, which cannot help, and would bury a real access violation in ordinary
+expiry noise. Scope mismatch is checked *before* the token is consumed, so presenting
+A's token to board B does not burn it for the legitimate holder.
+
+Never distinguish "no access" from "no such board" — same 4403 for both, or the
+socket becomes an oracle for which board ids exist.
 
 **Server-side dropping is defense-in-depth, not the UX.** A viewer's local Y.Doc still
 applies their own edits — they will see changes appear, persist, and then silently
@@ -549,10 +561,16 @@ vanish on reload. The handshake must return the resolved role to the client, and
 client must disable the tool palette and refuse writes in `doc/mutations.ts`. Build
 both halves together in M1; don't leave the client half for M5.
 
-Re-validate every 15 minutes; force reconnect on failure.
+Re-validate every 15 minutes, **and whenever the access token behind the connection
+expires, whichever comes first**. Otherwise the handshake is a one-time check: a
+socket held open for days keeps the role it was granted on day one, and revoking
+access does nothing until the user happens to reconnect. The watchdog closes on 4401
+when the session lapses and 4403 when the role changes; either way the client
+reconnects and is re-evaluated from scratch.
 
 **The websocket is the door.** REST permission checks are decorative if this is
-wrong. Write tests for it first.
+wrong. Write tests for it first — see `services/api/tests/test_ws_handshake.py`,
+which was written before the implementation.
 
 ### Room manager
 
@@ -567,6 +585,19 @@ class RoomManager:
 - Persist updates debounced: every 2s of quiet, or every 50 updates, whichever first
 - Always persist on last-client-disconnect
 - Cap: reject a room join beyond 50 concurrent clients
+
+⚠️ **"Always persist on last-client-disconnect" is not free with pycrdt-websocket.**
+`YRoom` spawns each store write on the *room's* task group, and `YRoom.stop()` cancels
+that group without waiting for its children. With `auto_clean_rooms` on, the last
+client leaving stops the room — so an update that arrived moments earlier races its own
+persistence and loses. A user types, closes the tab, and the edit is gone on reload.
+`PostgresYStore.write` therefore shields its transaction from cancellation. Regression
+test: `tests/test_persistence.py::test_last_client_disconnect_persists_the_update`.
+
+Also note `WebsocketServer.delete_room` is not idempotent, and `serve` calls it
+whenever the client it was serving was the last one out — two clients disconnecting
+together both see an empty client set and the second raises out of the teardown path.
+`MeadowWebsocketServer` overrides it.
 
 ### Background jobs (arq)
 
@@ -583,13 +614,24 @@ class RoomManager:
 ## 7. Auth specifics
 
 - Passwords: argon2id
-- Access token: JWT, 15 min, `{ sub, workspace_ids, jti, exp }`
+- Access token: JWT, 15 min, `{ sub, jti, exp }`
+
+  `workspace_ids` was in this list and is deliberately **not** implemented. Putting
+  memberships in a bearer token means authorisation data that is 15 minutes stale by
+  design: a user removed from a workspace keeps access until their token expires.
+  Every path that needs a role already resolves it live through `permissions.py`, so
+  the claim would be either unused or a bug waiting to be written. `sub` is the
+  identity; roles are resolved, never asserted by the client.
 - Refresh token: opaque 32-byte random, sha256-hashed in DB, 30 days, **rotated on
   every use**. On reuse of an already-rotated token, revoke the entire `family_id`
   (theft detection).
 - Refresh token in httpOnly + secure + SameSite=Lax cookie. Access token in memory
   only — never localStorage.
-- ws-token: separate short-lived JWT, 60s, single board scope, consumed on use.
+- ws-token: separate short-lived token, 60s, single board scope, consumed on use.
+  Carries `sub` and the *parent access token's* expiry, so a ws-token can never
+  outlive the session that minted it — otherwise it is a way to launder an expiring
+  session into a connection that stays open past it. It does **not** carry a role,
+  for the same reason the access token does not carry `workspace_ids`.
 
   ⚠️ Single-use tokens fight `y-websocket`'s auto-reconnect: the provider composes its
   URL once and retries on its own schedule, so a flaky connection loops forever on a
@@ -607,6 +649,12 @@ Owner > editor > commenter > viewer. Implement once in
 Note: `commenter` exists in the enum and the hierarchy but is **inert in v1** —
 comments are v2 scope. In v1 it resolves with the same capabilities as `viewer`.
 Keep the enum value so the migration isn't needed later.
+
+An explicit `board_members` row can only *raise* the effective role, never lower it —
+`max()` of the two grants means a board-level downgrade would be silently undone by
+the workspace grant. So a board-level downgrade is not offered in the UI, and the
+members endpoint returns the *effective* role rather than the one just written, so a
+caller is never told a downgrade took effect when it did not.
 
 ---
 
@@ -676,9 +724,12 @@ features — off the request path, no shared ORM, no duplicated auth. Do **not**
 pre-build that worker now; a third service before v1 exists is how this project dies
 at week four.
 
-### M1 — Auth & boards CRUD (1 week)
+### M1 — Auth & boards CRUD (1 week) ✅ done
 Users, workspaces, boards, membership, JWT + refresh rotation, ws-token endpoint,
 permission service, board list UI, login/register.
+
+The handshake's five rejection paths were written as failing tests before any of it
+existed. Alembic owns the schema from here; the API no longer creates tables at boot.
 
 ### M2 — Canvas core (2 weeks)
 Camera, pan/zoom, rect/ellipse/diamond, rbush hit-testing, viewport culling,

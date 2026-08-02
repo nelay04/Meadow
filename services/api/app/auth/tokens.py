@@ -1,0 +1,86 @@
+"""Access tokens (JWT) and refresh tokens (opaque), per ARCHITECTURE 7.
+
+Deliberate deviation from the spec's access-token claims: it lists
+`{ sub, workspace_ids, jti, exp }`, and `workspace_ids` is omitted here.
+
+Embedding memberships in a bearer token means authorisation data that is 15 minutes
+stale by design, and the moment anything reads it the revocation story breaks - a user
+removed from a workspace keeps access until their token expires. Every path that needs
+a role already resolves it live through `app/services/permissions.py`, so the claim
+would be either unused or a bug waiting to be written. `sub` is the identity; roles are
+resolved, never asserted by the client.
+"""
+
+import hashlib
+import secrets
+import time
+import uuid
+from dataclasses import dataclass
+
+import jwt
+
+from app.config import settings
+
+_ALGORITHM = "HS256"
+TOKEN_TYPE_ACCESS = "access"
+
+
+class AccessTokenError(Exception):
+    """Access token rejected. Maps to HTTP 401."""
+
+
+@dataclass(frozen=True)
+class AccessClaims:
+    user_id: uuid.UUID
+    jti: str
+    expires_at: int
+
+
+def create_access_token(user_id: uuid.UUID) -> tuple[str, int]:
+    """Return (token, expires_at as a unix timestamp)."""
+    issued_at = int(time.time())
+    expires_at = issued_at + settings.access_token_ttl_seconds
+    payload = {
+        "sub": str(user_id),
+        "jti": uuid.uuid4().hex,
+        "iat": issued_at,
+        "exp": expires_at,
+        "typ": TOKEN_TYPE_ACCESS,
+    }
+    return jwt.encode(payload, settings.jwt_secret, algorithm=_ALGORITHM), expires_at
+
+
+def decode_access_token(token: str) -> AccessClaims:
+    try:
+        payload = jwt.decode(token, settings.jwt_secret, algorithms=[_ALGORITHM])
+    except jwt.PyJWTError as exc:
+        raise AccessTokenError(str(exc)) from exc
+
+    # ws-tokens are signed with the same key. Without this check one would be
+    # accepted as a bearer token for the whole API.
+    if payload.get("typ") != TOKEN_TYPE_ACCESS:
+        raise AccessTokenError("wrong token type")
+
+    try:
+        user_id = uuid.UUID(payload["sub"])
+    except (KeyError, ValueError) as exc:
+        raise AccessTokenError("bad subject") from exc
+
+    return AccessClaims(user_id=user_id, jti=payload.get("jti", ""), expires_at=int(payload["exp"]))
+
+
+def new_refresh_token() -> tuple[str, str]:
+    """Return (raw token, sha256 hex digest).
+
+    Opaque random rather than a JWT: refresh tokens have to be revocable, which means
+    a database lookup on every use, which means there is nothing for a self-contained
+    token to buy. Only the digest is stored, so a database leak yields no sessions.
+    """
+    raw = secrets.token_urlsafe(32)
+    return raw, hash_refresh_token(raw)
+
+
+def hash_refresh_token(raw: str) -> str:
+    # Plain sha256, not a password KDF: this is a 256-bit random value, so there is no
+    # guessable input to slow an attacker down over.
+    return hashlib.sha256(raw.encode()).hexdigest()

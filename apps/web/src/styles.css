@@ -1,0 +1,231 @@
+/*
+ * Plain CSS for M1. Tailwind arrives with the canvas UI in M2, where there is enough
+ * markup for it to earn its build step.
+ *
+ * Fonts are referenced by family name only. Self-hosted woff2 @font-face rules land
+ * in M3 with the text objects that need the metrics (ARCHITECTURE 1, Typography).
+ */
+
+:root {
+  color-scheme: light dark;
+  --fg: light-dark(#1a1a1a, #e8e8e8);
+  --muted: light-dark(#6b6b6b, #9a9a9a);
+  --line: light-dark(#e0e0e0, #333);
+  --accent: light-dark(#2f7d4f, #6fcf97);
+  --danger: light-dark(#b42318, #f97066);
+}
+
+body {
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  margin: 0;
+  padding: 1.5rem;
+  line-height: 1.5;
+  color: var(--fg);
+}
+
+h1 {
+  font-size: 1.15rem;
+  margin: 0;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.mono,
+code {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.8rem;
+}
+
+button {
+  font: inherit;
+  padding: 0.4rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+button.link {
+  border: none;
+  padding: 0.2rem;
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+button.danger {
+  color: var(--danger);
+}
+
+input {
+  font: inherit;
+  padding: 0.45rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: inherit;
+}
+
+.error {
+  color: var(--danger);
+  font-size: 0.9rem;
+}
+
+.banner {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  padding: 0.5rem 0.75rem;
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+
+/* auth */
+.auth {
+  max-width: 22rem;
+  margin: 4rem auto;
+}
+
+.auth .tagline {
+  color: var(--muted);
+  margin-top: 0.25rem;
+}
+
+.auth form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin: 1.5rem 0 1rem;
+}
+
+.auth label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+/* boards */
+.boards header,
+.board header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.boards header {
+  justify-content: space-between;
+}
+
+.new-board {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.board-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-width: 40rem;
+}
+
+.board-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.board-open {
+  flex: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border: none;
+  padding: 0.7rem 0.2rem;
+  text-align: left;
+}
+
+.role {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+  color: var(--muted);
+}
+
+.role-owner {
+  color: var(--accent);
+  border-color: currentColor;
+}
+
+/* board */
+.tools {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 1rem 0;
+}
+
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #888;
+  display: inline-block;
+}
+
+.dot.connected {
+  background: #22c55e;
+}
+.dot.connecting {
+  background: #eab308;
+}
+.dot.disconnected {
+  background: #ef4444;
+}
+.dot.denied {
+  background: #b42318;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  max-width: 60rem;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 0.35rem 0.6rem;
+  border-bottom: 1px solid var(--line);
+}
+
+th {
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.empty {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.loading {
+  color: var(--muted);
+}

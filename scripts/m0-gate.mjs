@@ -6,9 +6,17 @@
  * be fully restarted between them; the restart is the part that actually tests the
  * persistence design.
  *
- *   node scripts/m0-gate.mjs seal      create board, two clients, assert convergence
+ *   node scripts/m0-gate.mjs seed      create board, two clients, assert convergence
  *   node scripts/m0-gate.mjs verify    after a server restart, assert state reloaded
  *   node scripts/m0-gate.mjs offline   edit while disconnected, reconnect, converge
+ *   node scripts/m0-gate.mjs reject    handshake rejection paths
+ *
+ * Scope stays M0 on purpose: the foundation, over a real socket, with the real
+ * y-websocket client. M1's role and permission assertions live in
+ * services/api/tests/, which can set up ten users far more cheaply than this can.
+ *
+ * Each phase is its own process (the server restarts between them), so credentials
+ * are written to the state file and the phase logs back in.
  */
 
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -28,14 +36,47 @@ function log(ok, message) {
   if (!ok) process.exitCode = 1
 }
 
-async function mintToken(boardId) {
-  const response = await fetch(`${API}/api/v1/ws-token`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ board_id: boardId }),
+const saveState = (state) => writeFileSync(STATE_FILE, JSON.stringify(state, null, 2))
+const loadState = () => JSON.parse(readFileSync(STATE_FILE, 'utf8'))
+
+/** Session state for the current process. */
+let accessToken = null
+
+async function call(path, { method = 'GET', body } = {}) {
+  const headers = {}
+  if (body !== undefined) headers['content-type'] = 'application/json'
+  if (accessToken !== null) headers.authorization = `Bearer ${accessToken}`
+
+  const response = await fetch(`${API}${path}`, {
+    method,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
   })
-  if (!response.ok) throw new Error(`ws-token ${response.status}`)
-  return (await response.json()).token
+  if (!response.ok) throw new Error(`${method} ${path} -> ${response.status}`)
+  return response.status === 204 ? null : response.json()
+}
+
+/** Register a throwaway account. M1 made every board endpoint require identity. */
+async function registerActor() {
+  const credentials = {
+    email: `gate-${Date.now().toString(36)}@meadow-gate.dev`,
+    password: 'gate-harness-password',
+  }
+  const body = await call('/api/v1/auth/register', {
+    method: 'POST',
+    body: { ...credentials, display_name: 'Gate Harness' },
+  })
+  accessToken = body.access_token
+  return { credentials, workspaceId: body.user.default_workspace_id }
+}
+
+async function login(credentials) {
+  const body = await call('/api/v1/auth/login', { method: 'POST', body: credentials })
+  accessToken = body.access_token
+}
+
+async function mintToken(boardId) {
+  return (await call('/api/v1/ws-token', { method: 'POST', body: { board_id: boardId } })).token
 }
 
 /** Connect one client with a freshly minted single-use token. */
@@ -85,13 +126,12 @@ function addObject(doc, objects, type, x) {
 }
 
 async function phaseSeed() {
-  const created = await fetch(`${API}/api/v1/boards`, {
+  const { credentials, workspaceId } = await registerActor()
+  const board = await call('/api/v1/boards', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ title: 'M0 gate' }),
+    body: { workspace_id: workspaceId, title: 'M0 gate' },
   })
-  const board = await created.json()
-  writeFileSync(STATE_FILE, board.id)
+  saveState({ boardId: board.id, credentials })
   console.log(`board ${board.id}`)
 
   const a = await connect(board.id, 'A')
@@ -119,7 +159,9 @@ async function phaseSeed() {
 }
 
 async function phaseVerify() {
-  const boardId = readFileSync(STATE_FILE, 'utf8').trim()
+  const { boardId, credentials } = loadState()
+  await login(credentials)
+
   const c = await connect(boardId, 'C')
   await sleep(1000)
   log(
@@ -136,7 +178,8 @@ async function phaseVerify() {
 }
 
 async function phaseOffline() {
-  const boardId = readFileSync(STATE_FILE, 'utf8').trim()
+  const { boardId, credentials } = loadState()
+  await login(credentials)
 
   const d = await connect(boardId, 'D')
   await sleep(600)
@@ -166,7 +209,8 @@ async function phaseOffline() {
 }
 
 async function phaseReject() {
-  const boardId = readFileSync(STATE_FILE, 'utf8').trim()
+  const { boardId, credentials } = loadState()
+  await login(credentials)
 
   // A spent token must not open a second connection.
   const token = await mintToken(boardId)

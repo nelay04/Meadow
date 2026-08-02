@@ -58,6 +58,33 @@ class MeadowWebsocketServer(WebsocketServer):
         # gate needs to prove.
         super().__init__(auto_clean_rooms=True, log=log or logger)
 
+    async def delete_room(self, *, name: str | None = None, room: YRoom | None = None) -> None:
+        """Idempotent room deletion.
+
+        `WebsocketServer.serve` deletes the room whenever the client it was serving
+        was the last one out. Two clients disconnecting at the same instant both
+        observe an empty client set, so both call this - and upstream's version
+        resolves the name with `list(...).index(room)`, which raises ValueError once
+        the first call has already removed it. The exception surfaces from the
+        teardown path of a perfectly ordinary disconnect.
+
+        Resolving the name defensively and popping once makes the second call a no-op.
+        """
+        if name is not None and room is not None:
+            raise RuntimeError("Cannot pass name and room")
+
+        if name is None:
+            if room is None:
+                return
+            name = next((key for key, value in self.rooms.items() if value is room), None)
+            if name is None:
+                return
+
+        existing = self.rooms.pop(name, None)
+        if existing is None:
+            return
+        await existing.stop()
+
     async def get_room(self, name: str) -> YRoom:
         if name not in self.rooms:
             # Doc is generic over its root types. The server only relays and persists

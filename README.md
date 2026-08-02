@@ -6,8 +6,8 @@ objects on one shared surface.
 
 A board is called a **field**. Remote cursors are **wanderers**.
 
-> **Status: M0 (spike) complete.** The realtime foundation is proven and the gate
-> passes. There is no canvas yet. See [Build status](#build-status).
+> **Status: M1 complete.** Realtime foundation proven, auth and permissions in place.
+> There is no canvas yet — that is M2. See [Build status](#build-status).
 
 ---
 
@@ -33,6 +33,7 @@ Full design, schema, and milestone order: [`docs/core/ARCHITECTURE.md`](docs/cor
 | Frontend | React 19, TypeScript, Vite 6, PixiJS 8, TipTap 2, yjs, rbush, Zustand, Tailwind 4 |
 | Realtime | yjs CRDT over websocket, y-indexeddb for offline, awareness for presence |
 | Backend | FastAPI, pycrdt + pycrdt-websocket (Rust-backed yjs bindings), SQLAlchemy 2 async, Alembic, arq |
+| Auth | argon2id, JWT access tokens, rotating refresh tokens with reuse detection |
 | Data | PostgreSQL 16, Redis 7, MinIO |
 | Infra | Docker Compose, nginx, GitHub Actions to GHCR to VPS |
 
@@ -48,8 +49,8 @@ Milestones ship in order; a milestone does not start before the previous one wor
 | Milestone | Scope | Status |
 |---|---|---|
 | M0 | Realtime spike: ws auth, CRDT convergence, Postgres persistence | Complete |
-| M1 | Auth and boards CRUD, JWT with refresh rotation, permissions | Not started |
-| M2 | Canvas core: camera, shapes, hit-testing, transforms, undo | Not started |
+| M1 | Auth and boards CRUD, JWT with refresh rotation, permissions | Complete |
+| M2 | Canvas core: camera, shapes, hit-testing, transforms, undo | Next |
 | M3 | Text objects: DOM overlay, TipTap per object, sticky notes | Not started |
 | M4 | Arrows and bindings | Not started |
 | M5 | Realtime polish: awareness, compaction job, thumbnails | Not started |
@@ -91,11 +92,44 @@ restart phase kills the server process entirely and starts a cold one; reloading
 a mere client reconnect would prove nothing, since the document would still be in
 server memory.
 
-### What M0 deliberately does not include
+## What M1 adds
 
-No canvas, no rendering, no users, no workspaces, no roles. The web app at
-`apps/web` is a table of objects with buttons, not a product. Auth is an HMAC stub
-with no user identity. Alembic is not wired up yet; M0 creates tables directly.
+Users, workspaces, boards, membership, and the permission layer the handshake needs
+to stop being a stub.
+
+**The five rejection paths were written as failing tests before the implementation.**
+That ordering is the point: tests written afterwards get shaped by the code and pass
+without proving anything.
+
+| The socket must refuse | Close code |
+|---|---|
+| Valid token, real board, caller has no membership | 4403 |
+| Token minted for board A, presented to board B | 4403 |
+| Board deleted between mint and connect | 4403 |
+| Access token expires mid-session | 4401, watchdog closes the live socket |
+| Unknown board id (never distinguished from "no access") | 4403 |
+
+Plus the viewer story, both halves together: the server drops a viewer's document
+writes, and the client is told its role at mint time so it disables the tools and
+refuses the write in `doc/mutations.ts`. Server-side dropping alone is not enough —
+a viewer's own `Y.Doc` still applies their edits locally, so they would watch them
+appear, survive a refresh via IndexedDB, and then vanish. That is the first bug report
+a demo user files.
+
+```bash
+cd services/api && .venv/bin/python -m pytest    # 35 tests
+```
+
+Also in M1: argon2id passwords, refresh-token rotation with reuse detection, citext
+emails, Redis rate limits, Alembic owning the schema, and a React app with
+login/register and a board list.
+
+### What is still deliberately missing
+
+No canvas and no rendering — that is M2. The board view is a table of objects with
+buttons, exercising the real CRDT schema and the real provider so M2 replaces the
+rendering and nothing underneath it. Share links, assets, and comments are later
+milestones.
 
 ---
 
@@ -109,7 +143,8 @@ docker compose up -d          # postgres, redis, pgadmin
 
 cd services/api
 uv venv --python 3.13
-uv pip install -e .           # or: uv sync
+uv pip install -e . --group dev
+.venv/bin/alembic upgrade head    # Alembic owns the schema from M1
 cd ../..
 
 pnpm install
@@ -131,37 +166,54 @@ pnpm --filter web dev
 | API | http://localhost:8012 |
 | API docs | http://localhost:8012/docs |
 | pgAdmin | http://localhost:5051 |
-| Postgres | localhost:5435 |
-| Redis | localhost:6380 |
+| Postgres | localhost:5435 (`meadow`, and `meadow_test` for the suite) |
+| Redis | localhost:6380 (db 0 dev, db 1 tests) |
 
 Ports are read from `.env` by docker-compose, the API (via pydantic-settings), and
 Vite alike, so there is one place to change them. Postgres sits on 5435 and Redis on
 6380 to avoid colliding with native instances commonly already running on the
 default ports.
 
-To see convergence in a browser, open http://localhost:3012 in two tabs and add
-objects in either. To see persistence, stop the API, restart it, and reload.
+Register an account, create a field, and open it. To see convergence, open the same
+field in two browsers (two tabs of the same browser also work, but they sync through a
+BroadcastChannel as well as the server, so a tab pair cannot tell you whether the
+server is doing its job). To see persistence, stop the API, restart it, and reload.
 
-### Gate and checks
+### Tests and checks
 
 ```bash
-./scripts/m0-gate.sh                       # full gate, restarts the server mid-run
-node scripts/m0-gate.mjs seed|verify|offline|reject   # individual phases
+cd services/api
+.venv/bin/python -m pytest                 # 35 tests, against real Postgres and Redis
+.venv/bin/ruff check . && .venv/bin/mypy app/
 
-cd services/api && .venv/bin/ruff check . && .venv/bin/mypy app/
 pnpm --filter web lint
+
+./scripts/m0-gate.sh                       # end-to-end, restarts the server mid-run
+node scripts/m0-gate.mjs seed|verify|offline|reject   # individual phases
 ```
+
+The test suite creates and migrates a `meadow_test` database and uses Redis db 1, so
+it never touches dev data. The M0 gate stays scoped to the foundation over a real
+socket with the real `y-websocket` client; M1's permission assertions live in pytest,
+which can set up ten users far more cheaply.
 
 ---
 
 ## Layout
 
 ```
-apps/web/              M0 harness today; the React canvas app from M2
-  src/sync/            provider setup, token refresh, awareness
+apps/web/
+  src/doc/             CRDT schema, mutations (every Y.Doc write), useObjects
+  src/sync/            provider setup, reconnection, token minting
+  src/features/        auth, boards list, board view
+  src/lib/api.ts       REST client, access token in memory only
 services/api/
-  app/realtime/        ws endpoint, room manager, Postgres YStore, ws-tokens
-  app/models.py        SQLAlchemy models
+  app/api/v1/          REST routers
+  app/auth/            password hashing, JWT, refresh rotation, dependencies
+  app/realtime/        ws endpoint, room manager, Postgres YStore, ws-tokens, guard
+  app/services/        permissions.py (the single authority), rate limiting
+  alembic/             migrations
+  tests/               handshake, auth, permissions, persistence
 docs/core/             ARCHITECTURE.md, the source of truth
 scripts/               M0 gate harness
 docker/                nginx and pgadmin config
@@ -203,6 +255,23 @@ its URL once and retries on its own schedule, so its built-in reconnect would re
 spent token forever. `apps/web/src/sync/provider.ts` disables autoconnect and mints a
 fresh token per attempt with capped backoff.
 
+**Tokens carry identity, never authorisation.** The access token does not contain
+`workspace_ids` and the ws-token does not contain a role, both departures from the
+original spec. Memberships in a bearer token are authorisation data that is stale by
+design: a user removed from a workspace would keep access until their token expired.
+Roles are resolved live from the database on every request and at every connect, by
+one function — `app/services/permissions.py`. The ws-token does carry its parent
+access token's expiry, so a connection can never outlive the session that authorised
+it.
+
+**Compaction takes a Postgres advisory lock, not a Redis one.** `pg_advisory_xact_lock`
+releases on commit or rollback, so a worker killed mid-run cannot strand a board behind
+a TTL, and the lock lives in the same transaction as the work it guards — a separate
+Redis TTL can lapse while the compaction transaction is still open. The key uses the
+two-int form with a namespace constant rather than truncating the board uuid into the
+single-bigint form; collisions only cost two unrelated boards serialising against each
+other, but they are near-undiagnosable after the fact.
+
 ### Known sharp edges
 
 - Local undo can resurrect an object that a remote user deleted. This is inherent to
@@ -211,6 +280,19 @@ fresh token per attempt with capped backoff.
 - `pycrdt-websocket` 0.16 dropped the server-level `ystore` argument; persistence is
   per-room, so `MeadowWebsocketServer.get_room` attaches the store and loads state
   before the room starts.
+- **`YRoom.stop()` cancels in-flight store writes.** It cancels the task group that
+  `ystore.write` was spawned on, without waiting — and with `auto_clean_rooms` on, the
+  last client leaving stops the room. So an update that arrived moments earlier races
+  its own persistence and loses: type, close the tab, edit gone. `PostgresYStore.write`
+  shields its transaction from cancellation. This survived M0 only because real clients
+  stayed connected long enough for the write to win the race.
+- **`WebsocketServer.delete_room` is not idempotent**, and `serve` calls it whenever
+  the client it was serving was the last one out. Two clients disconnecting together
+  both observe an empty client set, and the second raises `ValueError` out of the
+  teardown path of an ordinary disconnect. `MeadowWebsocketServer` overrides it.
+- Two tabs of the same browser sync through a `BroadcastChannel` as well as the
+  server, so a tab pair cannot verify server behaviour. Use two browsers, or
+  `disableBc: true`.
 
 ---
 

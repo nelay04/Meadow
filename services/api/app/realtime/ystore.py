@@ -10,9 +10,11 @@ import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from logging import Logger, getLogger
 
+import anyio
 from pycrdt import merge_updates
 from pycrdt.store import BaseYStore
 from sqlalchemy import Integer, cast, delete, func, literal, select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db import SessionLocal
 from app.models import BoardSnapshot, BoardUpdate
@@ -54,10 +56,27 @@ class PostgresYStore(BaseYStore):
         self.log = log or getLogger(__name__)
 
     async def write(self, data: bytes) -> None:
-        """Append one Yjs update. Never updates in place."""
-        async with SessionLocal() as session:
-            session.add(BoardUpdate(board_id=self.board_id, update=data))
-            await session.commit()
+        """Append one Yjs update. Never updates in place.
+
+        Shielded from cancellation, and that is load-bearing rather than defensive.
+        YRoom spawns this with `start_soon` on the *room's* task group, and
+        `YRoom.stop()` cancels that group without waiting for its children. With
+        auto_clean_rooms on, the last client leaving stops the room - so an update
+        that arrived moments earlier races its own persistence and loses.
+
+        That is the exact failure ARCHITECTURE 6 rules out with "always persist on
+        last-client-disconnect": a user types, closes the tab, and the edit is gone on
+        reload. The shield makes a started write run to completion regardless of who
+        cancels the scope around it.
+
+        Found by tests/test_persistence.py, which disconnects immediately after
+        writing. It survived M0 only because real clients stayed connected long enough
+        for the write to win the race.
+        """
+        with anyio.CancelScope(shield=True):
+            async with SessionLocal() as session:
+                session.add(BoardUpdate(board_id=self.board_id, update=data))
+                await session.commit()
 
     async def read(self) -> AsyncIterator[tuple[bytes, bytes, float]]:
         """Yield the latest snapshot, then every surviving update row.
@@ -92,7 +111,9 @@ class PostgresYStore(BaseYStore):
                 yield row.update, b"", row.created_at.timestamp()
 
 
-async def compact_board(board_id: uuid.UUID) -> int:
+async def compact_board(
+    board_id: uuid.UUID, session_factory: async_sessionmaker[AsyncSession] | None = None
+) -> int:
     """Fold surviving updates into a new snapshot. Returns rows folded.
 
     Not scheduled until M5; exercised manually in M0 to prove the transaction shape.
@@ -100,8 +121,14 @@ async def compact_board(board_id: uuid.UUID) -> int:
     Serialised by a Postgres transaction-level advisory lock, per ARCHITECTURE 3: it
     releases on commit or rollback, so a worker killed mid-run cannot strand a board
     behind a TTL, and the lock lives in the same transaction as the work it guards.
+
+    `session_factory` exists because this does not run inside the API process. From
+    M5 it is an arq job with its own event loop and its own engine, and an asyncpg
+    pool belongs to the loop that first used it. Defaults to the API's for the manual
+    and test call paths.
     """
-    async with SessionLocal() as session, session.begin():
+    factory = session_factory or SessionLocal
+    async with factory() as session, session.begin():
         # Two-int form. Both arguments are int4, and asyncpg would otherwise send
         # Python ints as int8 and resolve to the single-bigint overload instead.
         await session.execute(
