@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Meadow M0 spike</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+        margin: 0; padding: 1.5rem; line-height: 1.5;
+      }
+      h1 { font-size: 1.1rem; margin: 0 0 0.25rem; }
+      .sub { opacity: 0.7; font-size: 0.85rem; margin-bottom: 1.25rem; }
+      .bar { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem; }
+      button {
+        font: inherit; padding: 0.4rem 0.75rem; border-radius: 6px;
+        border: 1px solid currentColor; background: transparent; cursor: pointer;
+      }
+      .status { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; }
+      .dot { width: 9px; height: 9px; border-radius: 50%; background: #888; }
+      .dot.connected { background: #22c55e; }
+      .dot.connecting { background: #eab308; }
+      .dot.disconnected { background: #ef4444; }
+      code, pre, .mono {
+        font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.8rem;
+      }
+      table { border-collapse: collapse; width: 100%; max-width: 60rem; }
+      th, td { text-align: left; padding: 0.35rem 0.6rem; border-bottom: 1px solid #8883; }
+      th { font-weight: 600; font-size: 0.75rem; text-transform: uppercase; opacity: 0.6; }
+      .empty { opacity: 0.55; font-style: italic; }
+    </style>
+  </head>
+  <body>
+    <h1>Meadow M0 spike</h1>
+    <div class="sub">
+      Proving ws auth, CRDT convergence, and Postgres persistence across a server
+      restart. No canvas until this gate passes.
+    </div>
+
+    <div class="bar">
+      <button id="add">Add object</button>
+      <button id="move">Move random</button>
+      <button id="clear">Clear all</button>
+      <button id="offline">Go offline</button>
+      <span class="status"><span class="dot" id="dot"></span><span id="state">booting</span></span>
+    </div>
+
+    <div class="sub mono" id="meta"></div>
+
+    <table>
+      <thead>
+        <tr><th>id</th><th>type</th><th>x</th><th>y</th><th>w</th><th>h</th></tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

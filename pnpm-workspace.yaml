@@ -1,0 +1,8 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+allowBuilds:
+  # vite needs its native binary
+  esbuild: true
+  # transitive optional dep of y-websocket's server bin; we only use the client
+  leveldown: false

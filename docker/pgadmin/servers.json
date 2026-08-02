@@ -1,0 +1,14 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "Meadow (dev)",
+      "Group": "Servers",
+      "Host": "postgres",
+      "Port": 5432,
+      "MaintenanceDB": "meadow",
+      "Username": "meadow",
+      "SSLMode": "prefer",
+      "Comment": "Pre-registered so the console opens straight onto the dev DB."
+    }
+  }
+}

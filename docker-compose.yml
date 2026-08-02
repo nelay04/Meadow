@@ -1,0 +1,60 @@
+# Dev stack. M0 runs postgres + redis here and the API on the host via uvicorn, so a
+# server restart (the real gate test) is fast. Ports and credentials come from .env at
+# the repo root; compose picks that file up automatically.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-meadow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-meadow}
+      POSTGRES_DB: ${POSTGRES_DB:-meadow}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    # Named volume, not a bind mount: avoids UID/GID startup failures. See ARCHITECTURE 8.
+    volumes:
+      - meadow_pgdata:/var/lib/postgresql/data
+    # The 64MB default causes confusing query failures under load.
+    shm_size: 1g
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-meadow} -d ${POSTGRES_DB:-meadow}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    # Host port defaults to 6380: a native redis commonly owns 6379 already. The
+    # container port stays 6379, so nothing inside the compose network changes.
+    ports:
+      - "${REDIS_PORT:-6380}:6379"
+    volumes:
+      - meadow_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Dev-only DB console. Not in docker-compose.prod.yml.
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-dev@meadow.dev}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-meadow}
+      # Skips the login screen; safe because this only ever binds to localhost.
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+    ports:
+      - "127.0.0.1:${PGADMIN_PORT:-5051}:80"
+    volumes:
+      - meadow_pgadmindata:/var/lib/pgadmin
+      - ./docker/pgadmin/servers.json:/pgadmin4/servers.json:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  meadow_pgdata:
+  meadow_redisdata:
+  meadow_pgadmindata:

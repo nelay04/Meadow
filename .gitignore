@@ -1,0 +1,26 @@
+*CLAUDE.md
+
+# Secrets and local config
+.env
+.env.local
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# JS
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Editors and OS
+.DS_Store
+*.swp
+
+# M0 gate scratch state
+.m0-gate-board

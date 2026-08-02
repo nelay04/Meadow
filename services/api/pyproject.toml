@@ -1,0 +1,41 @@
+[project]
+name = "meadow-api"
+version = "0.0.0"
+description = "Meadow API: REST plus the CRDT websocket."
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pycrdt>=0.14",
+    "pycrdt-websocket>=0.16",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30",
+    "redis>=5.2",
+    "pydantic-settings>=2.6",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "httpx>=0.28",
+    "ruff>=0.8",
+    "mypy>=1.13",
+]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "SIM", "UP", "BLE"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's dependency injection is function calls in argument defaults by design.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path"]
+
+[tool.mypy]
+strict = true
+files = ["app"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
