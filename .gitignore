@@ -24,3 +24,6 @@ dist/
 
 # M0 gate scratch state
 .m0-gate-board
+
+# Test artefacts
+board-e2e.png

@@ -250,6 +250,19 @@ every surviving row with no id filter. `up_to_update_id` is kept as a diagnostic
 column only. Yjs updates are commutative and idempotent, so a duplicate re-apply is
 harmless while a lost update is not.
 
+**One draw call for every primitive, via a signed distance field.** A `Container` plus
+`Graphics` per object is the structure everyone reaches for, and it issues a draw call
+per object. The measured table is above. The SDF approach also solves a problem the
+alternatives cannot: a texture atlas or scaled geometry distorts stroke width and
+corner radius as the shape grows, while an SDF evaluated in world units keeps both
+exact at any size and any zoom.
+
+**Document state never lives in React.** The engine keeps a cache built from Y
+observers, and a tool's write goes to the Y.Doc first, with the observer feeding the
+cache afterwards. A local drag takes exactly the same path as a remote peer's edit, so
+there is no second code path to keep correct. React re-renders the chrome, never the
+canvas.
+
 **Single-use ws-tokens require driving reconnection manually.** `y-websocket` composes
 its URL once and retries on its own schedule, so its built-in reconnect would replay a
 spent token forever. `apps/web/src/sync/provider.ts` disables autoconnect and mints a
@@ -280,6 +293,14 @@ other, but they are near-undiagnosable after the fact.
 - `pycrdt-websocket` 0.16 dropped the server-level `ystore` argument; persistence is
   per-room, so `MeadowWebsocketServer.get_room` attaches the store and loads state
   before the room starts.
+- PixiJS 8 supplies its global and mesh-local uniforms as individual uniforms, not as
+  interface blocks, and it looks up a location for every uniform it declares. A custom
+  shader must therefore declare them plainly and reference all of them, since the GLSL
+  compiler strips unused ones and Pixi then reads a location off `undefined`.
+- Pixi derives a container's bounds from its geometry. An instanced batch is one unit
+  quad no matter how many objects it draws, so `ShapeBatch` sets `boundsArea`
+  explicitly. Without it the batch reports itself as 1x1 and anything reading bounds,
+  including `renderer.extract`, silently sees almost nothing.
 - **`YRoom.stop()` cancels in-flight store writes.** It cancels the task group that
   `ystore.write` was spawned on, without waiting — and with `auto_clean_rooms` on, the
   last client leaving stops the room. So an update that arrived moments earlier races

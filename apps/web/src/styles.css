@@ -229,3 +229,103 @@ th {
 .loading {
   color: var(--muted);
 }
+
+/* --- M2: the canvas board view ------------------------------------------------
+ *
+ * The board is full-bleed. ARCHITECTURE 1: there is no page, only the canvas, so it
+ * takes the whole viewport rather than sitting in the padded document flow the rest
+ * of the app uses.
+ */
+
+.board {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: light-dark(#fbfbf9, #16181a);
+}
+
+.board-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.9rem;
+  border-bottom: 1px solid var(--line);
+  flex: 0 0 auto;
+}
+
+.board-bar .spacer {
+  flex: 1;
+}
+
+.board-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.toolbar {
+  flex: 0 0 auto;
+  width: 8.5rem;
+  border-right: 1px solid var(--line);
+  padding: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.toolbar hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 0.4rem 0;
+  width: 100%;
+}
+
+.tool {
+  font: inherit;
+  font-size: 0.85rem;
+  text-align: left;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.tool:hover:not(:disabled) {
+  background: light-dark(#00000008, #ffffff10);
+}
+
+.tool.active {
+  border-color: var(--accent);
+  background: light-dark(#2f7d4f14, #6fcf9722);
+}
+
+.tool:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/*
+ * The engine appends its canvas here and sizes to this element via Pixi's resizeTo.
+ * It must establish its own size independent of the canvas, or the two feed back into
+ * each other and the canvas grows without bound on every frame.
+ */
+.canvas-host {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.statusbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.3rem 0.9rem;
+  border-top: 1px solid var(--line);
+}

@@ -1,34 +1,37 @@
 /**
- * The board view.
+ * The board view: an infinite canvas, per ARCHITECTURE 1.
  *
- * Still a table of objects, not a canvas - the canvas is M2. What it does exercise is
- * the real CRDT schema, the real provider, and the role-aware write path, so M2
- * replaces the rendering and nothing underneath it.
+ * There is no page and no document editor. The canvas fills the view and everything
+ * the user makes is an object at an (x, y) on it.
+ *
+ * React owns the chrome only. Objects are never held in React state: the engine reads
+ * the Y.Doc through its own observers, so a drag at 60fps does not re-render this
+ * component once.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { IndexeddbPersistence } from 'y-indexeddb'
 import * as Y from 'yjs'
 
-import {
-  ReadOnlyError,
-  addObject,
-  clearObjects,
-  createDocSession,
-  deleteObject,
-  moveObject,
-  roleCanWrite,
-} from '../../doc/mutations'
-import { OBJECT_TYPES } from '../../doc/schema'
-import { useObjects } from '../../doc/useObjects'
+import type { ToolId } from '../../canvas/tools/types'
+import { createDocSession, roleCanWrite } from '../../doc/mutations'
 import type { BoardRole } from '../../lib/api'
 import * as api from '../../lib/api'
 import { type BoardConnection, type ConnectionState, connectBoard } from '../../sync/provider'
+import { useCanvas } from './useCanvas'
 
 type Props = {
   boardId: string
   onBack: () => void
 }
+
+const TOOLS: { id: ToolId; label: string; hint: string }[] = [
+  { id: 'select', label: 'Select', hint: 'V' },
+  { id: 'hand', label: 'Pan', hint: 'H' },
+  { id: 'rect', label: 'Rectangle', hint: 'R' },
+  { id: 'ellipse', label: 'Ellipse', hint: 'O' },
+  { id: 'diamond', label: 'Diamond', hint: 'D' },
+]
 
 export default function BoardPage({ boardId, onBack }: Props) {
   const [title, setTitle] = useState('')
@@ -37,14 +40,12 @@ export default function BoardPage({ boardId, onBack }: Props) {
   const [role, setRole] = useState<BoardRole>('viewer')
   const [state, setState] = useState<ConnectionState>('connecting')
   const [detail, setDetail] = useState('')
-  const [notice, setNotice] = useState<string | null>(null)
-  const [online, setOnline] = useState(true)
   const connection = useRef<BoardConnection | null>(null)
 
   // One Y.Doc per board, for the lifetime of this view.
   const doc = useMemo(() => new Y.Doc(), [boardId])
   const session = useMemo(() => createDocSession(doc, role), [doc, role])
-  const objects = useObjects(session)
+  const canvas = useCanvas(session)
 
   useEffect(() => {
     void api
@@ -82,30 +83,9 @@ export default function BoardPage({ boardId, onBack }: Props) {
 
   const canWrite = roleCanWrite(role)
 
-  const guard = (fn: () => void) => () => {
-    try {
-      fn()
-      setNotice(null)
-    } catch (error) {
-      // Should be unreachable while the buttons are disabled, but a refused write is
-      // still better than a silent one that vanishes on reload.
-      if (error instanceof ReadOnlyError) setNotice(error.message)
-      else throw error
-    }
-  }
-
-  // Manual offline toggle, for exercising the offline-edit-and-reconnect path by hand.
-  // Reconnecting goes through the provider rather than the raw socket, because a
-  // single-use ws-token means every attempt needs a freshly minted one.
-  const toggleOffline = () => {
-    if (online) connection.current?.disconnect()
-    else connection.current?.reconnect()
-    setOnline(!online)
-  }
-
   return (
     <main className="board">
-      <header>
+      <header className="board-bar">
         <button type="button" className="link" onClick={onBack}>
           &larr; Fields
         </button>
@@ -113,97 +93,74 @@ export default function BoardPage({ boardId, onBack }: Props) {
         <span className={`role role-${role}`}>{role}</span>
         <span className={`dot ${state}`} />
         <span className="muted">{detail === '' ? state : `${state} (${detail})`}</span>
+
+        <div className="spacer" />
+
+        <span className="muted mono">{Math.round(canvas.zoom * 100)}%</span>
+        <button type="button" className="link" onClick={canvas.resetZoom}>
+          100%
+        </button>
+        <button type="button" className="link" onClick={canvas.zoomToFit}>
+          Fit
+        </button>
       </header>
 
-      {!canWrite && (
-        <p className="banner">
-          You have {role} access to this field. Editing is disabled.
-        </p>
-      )}
-      {notice !== null && <p className="error">{notice}</p>}
+      <div className="board-body">
+        <nav className="toolbar" aria-label="Tools">
+          {TOOLS.map((tool) => (
+            <button
+              key={tool.id}
+              type="button"
+              title={`${tool.label} (${tool.hint})`}
+              aria-pressed={canvas.tool === tool.id}
+              className={canvas.tool === tool.id ? 'tool active' : 'tool'}
+              // Pan stays available to a viewer. Only the creation tools are gated.
+              disabled={!canWrite && tool.id !== 'select' && tool.id !== 'hand'}
+              onClick={() => canvas.setTool(tool.id)}
+            >
+              {tool.label}
+            </button>
+          ))}
 
-      <div className="tools">
-        <button
-          type="button"
-          disabled={!canWrite}
-          onClick={guard(() =>
-            addObject(session, {
-              type: OBJECT_TYPES[Math.floor(Math.random() * OBJECT_TYPES.length)],
-            }),
-          )}
-        >
-          Add object
-        </button>
-        <button
-          type="button"
-          disabled={!canWrite || objects.length === 0}
-          onClick={guard(() => {
-            const target = objects[Math.floor(Math.random() * objects.length)]
-            if (target !== undefined) {
-              moveObject(session, target.id, Math.random() * 2000, Math.random() * 2000)
-            }
-          })}
-        >
-          Move one
-        </button>
-        <button
-          type="button"
-          disabled={!canWrite || objects.length === 0}
-          onClick={guard(() => clearObjects(session))}
-        >
-          Clear
-        </button>
-        <button type="button" onClick={toggleOffline} className="link">
-          {online ? 'Go offline' : 'Go online'}
-        </button>
-        <span className="muted">
-          {objects.length} object{objects.length === 1 ? '' : 's'}
-        </span>
+          <hr />
+
+          <button
+            type="button"
+            className="tool"
+            disabled={!canWrite || canvas.selection.length === 0}
+            onClick={canvas.deleteSelection}
+          >
+            Delete
+          </button>
+        </nav>
+
+        {/* The engine mounts its own canvas here and sizes to this element. */}
+        <div className="canvas-host" ref={canvas.containerRef} />
       </div>
 
-      <table>
-        <thead>
-          <tr>
-            <th>id</th>
-            <th>type</th>
-            <th>x</th>
-            <th>y</th>
-            <th>w</th>
-            <th>h</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {objects.length === 0 ? (
-            <tr>
-              <td colSpan={7} className="empty">
-                no objects yet
-              </td>
-            </tr>
-          ) : (
-            objects.map((object) => (
-              <tr key={object.id} className="mono">
-                <td>{object.id}</td>
-                <td>{object.type}</td>
-                <td>{object.x}</td>
-                <td>{object.y}</td>
-                <td>{object.w}</td>
-                <td>{object.h}</td>
-                <td>
-                  <button
-                    type="button"
-                    className="link danger"
-                    disabled={!canWrite}
-                    onClick={guard(() => deleteObject(session, object.id))}
-                  >
-                    delete
-                  </button>
-                </td>
-              </tr>
-            ))
-          )}
-        </tbody>
-      </table>
+      {!canWrite && (
+        <p className="banner">You have {role} access to this field. Editing is disabled.</p>
+      )}
+      {canvas.notice !== null && (
+        <p className="error" onClick={canvas.dismissNotice}>
+          {canvas.notice}
+        </p>
+      )}
+
+      <footer className="statusbar muted">
+        <span>
+          <span data-testid="object-count">
+            {canvas.objectCount} object{canvas.objectCount === 1 ? '' : 's'}
+          </span>
+          {' | '}
+          {canvas.selection.length === 0
+            ? 'nothing selected'
+            : `${canvas.selection.length} selected`}
+        </span>
+        <span className="mono">
+          drag to marquee, shift-click to add, space or middle-drag to pan, ctrl+wheel to zoom
+        </span>
+      </footer>
     </main>
   )
 }

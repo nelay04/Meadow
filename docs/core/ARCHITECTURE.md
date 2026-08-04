@@ -731,10 +731,19 @@ permission service, board list UI, login/register.
 The handshake's five rejection paths were written as failing tests before any of it
 existed. Alembic owns the schema from here; the API no longer creates tables at boot.
 
-### M2 — Canvas core (2 weeks)
+### M2 — Canvas core (2 weeks) ✅ done
 Camera, pan/zoom, rect/ellipse/diamond, rbush hit-testing, viewport culling,
 multi-select, transform handles, snapping, z-order, `Y.UndoManager`.
 **Exit criteria: 60fps with 5,000 objects.**
+
+The renderer was benchmarked on day one, as §5 demands, and the batching caveat proved
+real: a `Graphics` per object issued ~2,700 draw calls per frame at 5,000 objects, and
+sharing a `GraphicsContext` per style bucket did not help (~2,760, since each instance
+still has its own transform). The instanced SDF renderer issues **one**. See
+`apps/web/src/canvas/renderers/shapeBatch.ts` and `pnpm bench:renderer`.
+
+`packages/schema` now exists and owns the object model, per §4: a plain `ObjectData`
+type plus accessors over the live `Y.Map`. The two are deliberately not the same type.
 
 ### M3 — Text objects (1.5 weeks)
 DOM overlay glued to camera, TipTap per object, `Y.XmlFragment` binding, sticky
@@ -747,6 +756,10 @@ routing option, survival on target delete.
 ### M5 — Realtime polish (1 week)
 Awareness cursors + selection highlights, offline reconnect convergence, snapshot
 compaction job, thumbnails, presence avatars.
+
+Also owns the concurrency and extreme-condition suite in §12. Those scenarios need a
+real second peer and a real failure to inject, so they cannot be retrofitted cheaply
+once the realtime surface is finished.
 
 ### M6 — Ship v1
 README with architecture diagram, CRDT-vs-OT rationale, measured numbers, known
@@ -794,7 +807,91 @@ Numbers are what separate "I built a collaborative app" from a conversation.
 
 ---
 
-## 12. Explicitly out of scope for v1
+## 12. Concurrency and extreme conditions
+
+In scope for v1, and owned by M5 rather than left to "later". Everything below is a
+class of bug that unit tests cannot reach, because each one needs either two peers, a
+hostile input, or a resource limit to reproduce. They are listed as scenarios with an
+expected outcome so each can become a test rather than a worry.
+
+The rule for this whole section: **a failure must be one of correct, degraded, or
+refused. Never silently wrong.** A dropped update, a resurrected object, or a board
+that renders differently for two people who are looking at the same thing is worse
+than an error, because nobody finds out.
+
+### Convergence under concurrency
+
+The property to assert is that every peer ends at byte-identical state once traffic
+stops, regardless of ordering. Drive real `yjs` clients, as the M0 gate does.
+
+- N peers editing **distinct** objects. Trivial, and the control case.
+- N peers editing the **same field** of the same object. Last-writer-wins per field is
+  correct; losing an unrelated field on the same object is not.
+- Concurrent **reparent** of one object into two different frames. The flat map makes
+  this a single `parentId` write, so one wins cleanly. This is the case a nested tree
+  would corrupt, and the reason §4 is locked.
+- Concurrent **delete plus edit**: A deletes an object while B drags it. Yjs resolves
+  to deleted. B's drag must not resurrect a tombstoned object.
+- Concurrent **z-order** changes. `order` is a `Y.Array` rewritten wholesale by
+  `applyOrder`, so two simultaneous restacks can interleave into duplicate or missing
+  ids. `reconcileOrder` repairs it; the test is that it converges and that no object
+  ends up absent from `order`, which would make it invisible and unclickable while
+  still occupying the map.
+- **Undo across peers.** Local undo can resurrect an object a remote user deleted. This
+  is inherent to `Y.UndoManager` and Figma behaves the same way. Assert the documented
+  behaviour so a future change to undo scoping cannot alter it unnoticed.
+- **Offline divergence.** Two peers both go offline, both edit, both return. Neither
+  set of edits may be lost.
+
+### Adversarial and malformed input
+
+The websocket handshake is the security boundary (§7), so the tests that matter are
+the ones where the client is not cooperating.
+
+- A **viewer** sending updates over a valid socket. Dropped server-side, with the
+  client-side refusal in `mutations.ts` as the second line rather than the only one.
+- A tampered client that skips the client-side check entirely. The server drop must
+  hold on its own.
+- A **role downgrade mid-session**: editor demoted to viewer while connected. The open
+  room must stop accepting that peer's writes without waiting for a reconnect.
+- **Garbage on the wire**: truncated frames, random bytes, a valid update for a
+  different document. Reject and close; never crash the room or the process.
+- **Update flooding** from one peer. Rate-limit or disconnect. One client must not be
+  able to starve the others or fill the disk.
+- **Oversized payloads**: a single object with a megabyte of props, or a paste of
+  50,000 objects in one transaction.
+
+### Resource limits and failure injection
+
+- **Room capacity**: connections past `max_clients_per_room` are refused with 4429, and
+  the refusal does not disturb the peers already in the room.
+- **Compaction racing live edits.** The §3 transaction is the load-bearing part: an
+  update committing *while* compaction runs must survive. Sequences are
+  non-transactional, so this is the scenario that motivated deleting exactly the folded
+  ids rather than filtering on a watermark. Test it with a concurrent writer, not by
+  inspection.
+- **Two compaction workers on one board.** The advisory lock serialises them. Assert
+  the second is a no-op rather than a double-fold.
+- **Postgres or Redis dropping mid-session.** Degrade to in-memory relay if that is the
+  chosen behaviour, or refuse new joins. Decide which, then test it.
+- **Server killed mid-write.** No partially-applied update may survive; this is what
+  the M0 gate's cold-restart phase already checks, extended to a kill during traffic.
+- **Clock skew** between the API and the token issuer, which decides whether a valid
+  ws-token is rejected as expired.
+
+### Scale and endurance
+
+- Frame time at 1k / 5k / 20k objects, on real hardware. The headless harness measures
+  CPU-side cost only and cannot answer this; see `scripts/canvas-perf.mjs`.
+- Time to first render on a 5k-object board, cold, including document load.
+- A **soak test**: one board edited continuously for hours. Watch for growth in the
+  update log, the room's memory, and the awareness map, which leaks if disconnected
+  peers are never reaped.
+- Many rooms at once, to find the per-room memory cost that sets the VPS ceiling.
+
+---
+
+## 13. Explicitly out of scope for v1
 
 Voice/video · mobile native apps · real-time cursors in text (only object-level
 awareness) · version history UI · multi-region · SSO/SAML · offline conflict UI

@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Meadow canvas harness</title>
+    <style>
+      :root { color-scheme: light dark; }
+      * { box-sizing: border-box; }
+      body {
+        font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+        margin: 0;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.5rem 0.75rem;
+        border-bottom: 1px solid #8883;
+        flex: 0 0 auto;
+      }
+      button {
+        font: inherit;
+        font-size: 0.82rem;
+        padding: 0.25rem 0.6rem;
+        border: 1px solid #8884;
+        border-radius: 5px;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+      }
+      button.active { border-color: #2f7d4f; background: #2f7d4f22; }
+      #readout {
+        margin-left: auto;
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-size: 0.75rem;
+        opacity: 0.75;
+      }
+      #canvas { flex: 1; min-height: 0; position: relative; overflow: hidden; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <button data-tool="select" class="active">Select</button>
+      <button data-tool="hand">Pan</button>
+      <button data-tool="rect">Rect</button>
+      <button data-tool="ellipse">Ellipse</button>
+      <button data-tool="diamond">Diamond</button>
+      <span id="readout">starting...</span>
+    </header>
+    <div id="canvas"></div>
+    <script type="module" src="/src/dev/canvasHarness.ts"></script>
+  </body>
+</html>

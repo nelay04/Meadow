@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>ShapeBatch shader check</title>
+    <style>
+      body {
+        font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+        margin: 0;
+        padding: 1rem;
+        color-scheme: light dark;
+      }
+      h1 { font-size: 1rem; margin: 0 0 0.75rem; }
+      h2 { font-size: 0.8rem; margin: 0 0 0.25rem; font-weight: 500; opacity: 0.7; }
+      .panel { margin-bottom: 1rem; }
+      canvas { border: 1px solid #8883; border-radius: 4px; display: block; }
+    </style>
+  </head>
+  <body>
+    <h1>ShapeBatch: rect, ellipse, diamond at awkward zoom levels</h1>
+    <div id="root"></div>
+    <script type="module" src="/src/bench/shaderCheck.ts"></script>
+  </body>
+</html>

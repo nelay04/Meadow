@@ -6,9 +6,14 @@
     "dev": "pnpm --filter web dev",
     "build": "pnpm --filter web build",
     "lint": "pnpm --filter web lint",
-    "gate": "node scripts/m0-gate.mjs"
+    "gate": "node scripts/m0-gate.mjs",
+    "bench:renderer": "node scripts/bench-renderer.mjs",
+    "bench:canvas": "node scripts/canvas-perf.mjs",
+    "smoke:canvas": "node scripts/canvas-smoke.mjs",
+    "e2e:board": "node scripts/board-e2e.mjs"
   },
   "devDependencies": {
+    "playwright": "^1.62.1",
     "ws": "^8.21.1",
     "y-websocket": "^2.1.0",
     "yjs": "^13.6.31"

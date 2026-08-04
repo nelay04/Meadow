@@ -1,41 +1,33 @@
 /**
- * The CRDT document shape, from ARCHITECTURE 4.
+ * Re-export of the shared CRDT schema.
  *
- * A flat `objects` map keyed by id, with `parentId` pointers rather than a nested
- * tree. Reparenting - dragging a shape into a frame - is then one field write instead
- * of a delete-and-recreate that would drop a concurrent edit to the moved object.
- *
- * This mirrors what `packages/schema` will hold once M2 needs it in more than one
- * place. It is kept here until then rather than being a package with one consumer.
+ * The types moved to `packages/schema` in M2, once the canvas engine, the doc layer,
+ * and the renderer all needed them. This file stays as the app-facing entry point so
+ * imports read as document concerns rather than package plumbing.
  */
 
-export const OBJECTS_KEY = 'objects'
+export {
+  OBJECT_TYPES,
+  PRIMITIVE_SHAPES,
+  ROOT_BINDINGS,
+  ROOT_META,
+  ROOT_OBJECTS,
+  ROOT_ORDER,
+  type Bounds,
+  type ObjectData,
+  type ObjectType,
+  type PrimitiveShape,
+  type ShapeProps,
+  docRoots,
+  isPrimitiveShape,
+  isTextBearing,
+  nanoid,
+  objectBounds,
+  readObject,
+} from '@meadow/schema'
 
-export type ObjectType = 'rect' | 'ellipse' | 'diamond' | 'sticky' | 'text'
+/** Legacy alias. `ObjectData` is the name to use in new code. */
+export type { ObjectData as CanvasObject } from '@meadow/schema'
 
-export type CanvasObject = {
-  id: string
-  type: ObjectType
-  x: number
-  y: number
-  w: number
-  h: number
-  rotation: number
-  opacity: number
-  locked: boolean
-  parentId: string | null
-}
-
-export const OBJECT_TYPES: readonly ObjectType[] = [
-  'rect',
-  'ellipse',
-  'diamond',
-  'sticky',
-  'text',
-]
-
-export function nanoid(size = 12): string {
-  const alphabet = 'useandom26T198340PX75pxJACKVERYMINDBUSHWOLFGQZbfghjklqvwyzrict'
-  const bytes = crypto.getRandomValues(new Uint8Array(size))
-  return Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join('')
-}
+/** The subset of types the M2 toolbar can create. */
+export const CREATABLE_TYPES = ['rect', 'ellipse', 'diamond'] as const
