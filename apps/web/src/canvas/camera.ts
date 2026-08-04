@@ -16,6 +16,43 @@ export const MAX_ZOOM = 8
 export type Point = { x: number; y: number }
 export type WorldRect = { minX: number; minY: number; maxX: number; maxY: number }
 
+/**
+ * The transform both layers actually render with.
+ *
+ *   screen = world * scale + t
+ *
+ * Same form as `worldToScreen`, with one difference: the translation is snapped to a
+ * whole device pixel. That snap is the entire fix for overlay drift. The browser and
+ * the GPU round a fractional translation differently, so two layers handed
+ * `-camera.x * zoom` directly will sit up to a pixel apart at zoom 1.37 even though
+ * they agree on the camera. Snapping once, here, and handing the result to both means
+ * they cannot disagree.
+ *
+ * Deliberately not folded into the camera. The camera's position stays continuous,
+ * because quantising it would round a fractional trackpad delta down to nothing and
+ * the pan would stall. Input reads the continuous camera, rendering reads this. The
+ * two differ by at most half a device pixel and that error never accumulates.
+ */
+export type ViewTransform = { tx: number; ty: number; scale: number }
+
+export function viewTransform(camera: Camera, devicePixelRatio: number): ViewTransform {
+  const ratio = devicePixelRatio > 0 ? devicePixelRatio : 1
+  const snap = (value: number): number => Math.round(value * ratio) / ratio
+  return {
+    tx: snap(-camera.x * camera.zoom),
+    ty: snap(-camera.y * camera.zoom),
+    scale: camera.zoom,
+  }
+}
+
+/** Project a world point with a `ViewTransform`. Chrome and the overlay share this. */
+export function projectPoint(transform: ViewTransform, worldX: number, worldY: number): Point {
+  return {
+    x: worldX * transform.scale + transform.tx,
+    y: worldY * transform.scale + transform.ty,
+  }
+}
+
 export class Camera {
   x = 0
   y = 0

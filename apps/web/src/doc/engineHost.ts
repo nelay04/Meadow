@@ -11,7 +11,7 @@
  * restacked.
  */
 
-import { type ObjectData, readObject } from '@meadow/schema'
+import { type ObjectData, type TextProps, readObject, resolveTextProps } from '@meadow/schema'
 import type * as Y from 'yjs'
 
 import type { EngineHost } from '../canvas/engine'
@@ -23,14 +23,31 @@ import {
   bringToFront,
   deleteObjects,
   endGesture,
+  objectFragment,
   sendBackward,
   sendToBack,
   updateObjects,
 } from './mutations'
+import { fragmentToHtml } from './richText'
+
+/**
+ * Mounts a rich-text editor onto a fragment. Supplied by the caller rather than
+ * imported, so neither the engine nor this file pulls in ProseMirror. A host built
+ * without one renders text but cannot edit it, which is exactly what the dev harness
+ * and a read-only embed want.
+ */
+export type EditorFactory = (options: {
+  element: HTMLElement
+  fragment: Y.XmlFragment
+  props: TextProps
+  editable: boolean
+  onExit(): void
+}) => { destroy(): void }
 
 export type HostOptions = {
   /** Called when a write is refused because the role is read-only. */
   onRefused?(message: string): void
+  createEditor?: EditorFactory
 }
 
 export class DocEngineHost implements EngineHost {
@@ -134,6 +151,45 @@ export class DocEngineHost implements EngineHost {
 
   sendToBack(ids: readonly string[]): void {
     this.guard(() => sendToBack(this.session, ids), undefined)
+  }
+
+  /**
+   * Static HTML for an idle text object.
+   *
+   * Not cached here. The overlay only asks when its own observer said the fragment
+   * changed, so a cache at this level would be a second copy of that bookkeeping with
+   * nothing to invalidate it correctly.
+   */
+  textHtml(id: string): string {
+    const fragment = objectFragment(this.session, id)
+    return fragment === null ? '' : fragmentToHtml(fragment)
+  }
+
+  /**
+   * Mount an editor into an overlay element. Returns the teardown, or null when this
+   * host has no editor factory or the object carries no fragment.
+   */
+  beginEdit(id: string, element: HTMLElement, onExit: () => void): (() => void) | null {
+    const factory = this.options.createEditor
+    if (factory === undefined) return null
+
+    const fragment = objectFragment(this.session, id)
+    if (fragment === null) return null
+
+    const object = this.object(id)
+    if (object === undefined) return null
+
+    const editor = factory({
+      element,
+      fragment,
+      props: resolveTextProps(object),
+      // A viewer still gets a caret and can select and copy. The write path is what is
+      // closed off, in exactly one place, the same as every other mutation.
+      editable: this.session.canWrite,
+      onExit,
+    })
+
+    return () => editor.destroy()
   }
 }
 

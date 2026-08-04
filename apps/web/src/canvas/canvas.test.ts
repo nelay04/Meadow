@@ -9,7 +9,7 @@
 import type { ObjectData } from '@meadow/schema'
 import { describe, expect, it } from 'vitest'
 
-import { Camera, MAX_ZOOM, MIN_ZOOM } from './camera'
+import { Camera, MAX_ZOOM, MIN_ZOOM, projectPoint, viewTransform } from './camera'
 import { containedBy, hitsObject, pickTop, toLocal, unionBounds } from './hitTest'
 import { SNAP_THRESHOLD_PX, snapMove } from './snapping'
 import { SpatialIndex } from './spatialIndex'
@@ -84,6 +84,73 @@ describe('Camera', () => {
     camera.zoom = 2
     const rect = camera.visibleWorld(800, 400)
     expect(rect).toEqual({ minX: 10, minY: 20, maxX: 410, maxY: 220 })
+  })
+})
+
+/**
+ * ARCHITECTURE 5 calls layer drift the hard part of the DOM overlay, and names the
+ * awkward zooms to check. These tests cover the arithmetic; scripts/overlay-smoke.mjs
+ * covers what the browser actually paints.
+ */
+describe('viewTransform', () => {
+  const AWKWARD_ZOOMS = [0.33, 0.67, 1, 1.37, 2, 2.5]
+
+  it('agrees with the camera to within half a device pixel', () => {
+    for (const zoom of AWKWARD_ZOOMS) {
+      for (const dpr of [1, 2]) {
+        const camera = new Camera()
+        camera.x = 137.5
+        camera.y = -42.25
+        camera.zoom = zoom
+
+        const transform = viewTransform(camera, dpr)
+        for (const world of [
+          { x: 0, y: 0 },
+          { x: 813.5, y: -211.75 },
+          { x: -1e4, y: 1e4 },
+        ]) {
+          const exact = camera.worldToScreen(world.x, world.y)
+          const drawn = projectPoint(transform, world.x, world.y)
+
+          // Input reads the continuous camera and rendering reads the snapped
+          // transform. They may differ by the snap, and never by more.
+          expect(Math.abs(drawn.x - exact.x)).toBeLessThanOrEqual(0.5 / dpr + 1e-9)
+          expect(Math.abs(drawn.y - exact.y)).toBeLessThanOrEqual(0.5 / dpr + 1e-9)
+        }
+      }
+    }
+  })
+
+  it('lands the translation on a whole device pixel at every zoom', () => {
+    for (const zoom of AWKWARD_ZOOMS) {
+      for (const dpr of [1, 1.5, 2, 3]) {
+        const camera = new Camera()
+        camera.x = 137.5
+        camera.y = -42.25
+        camera.zoom = zoom
+
+        const { tx, ty } = viewTransform(camera, dpr)
+        expect(Math.abs(tx * dpr - Math.round(tx * dpr))).toBeLessThan(1e-9)
+        expect(Math.abs(ty * dpr - Math.round(ty * dpr))).toBeLessThan(1e-9)
+      }
+    }
+  })
+
+  it('does not quantise the camera itself, so a sub-pixel pan still accumulates', () => {
+    const camera = new Camera()
+    camera.zoom = 0.33
+
+    // A trackpad emits fractional deltas. Rounding the camera rather than the render
+    // transform would swallow every one of these and the pan would sit still.
+    for (let i = 0; i < 20; i += 1) camera.panByScreen(0.4, 0)
+
+    expect(camera.x).toBeCloseTo(-8 / 0.33, 6)
+  })
+
+  it('keeps the scale exact, since only the translation can be snapped', () => {
+    const camera = new Camera()
+    camera.zoom = 1.37
+    expect(viewTransform(camera, 2).scale).toBe(1.37)
   })
 })
 

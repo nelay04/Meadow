@@ -28,6 +28,8 @@ type Props = {
 const TOOLS: { id: ToolId; label: string; hint: string }[] = [
   { id: 'select', label: 'Select', hint: 'V' },
   { id: 'hand', label: 'Pan', hint: 'H' },
+  { id: 'text', label: 'Text', hint: 'T' },
+  { id: 'sticky', label: 'Sticky', hint: 'S' },
   { id: 'rect', label: 'Rectangle', hint: 'R' },
   { id: 'ellipse', label: 'Ellipse', hint: 'O' },
   { id: 'diamond', label: 'Diamond', hint: 'D' },
@@ -158,7 +160,9 @@ export default function BoardPage({ boardId, onBack }: Props) {
             : `${canvas.selection.length} selected`}
         </span>
         <span className="mono">
-          drag to marquee, shift-click to add, space or middle-drag to pan, ctrl+wheel to zoom
+          {canvas.editingId === null
+            ? 'double-click text to edit, drag to marquee, space or middle-drag to pan, ctrl+wheel to zoom'
+            : 'editing text, escape to finish'}
         </span>
       </footer>
     </main>

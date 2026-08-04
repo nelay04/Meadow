@@ -10,6 +10,8 @@
     "bench:renderer": "node scripts/bench-renderer.mjs",
     "bench:canvas": "node scripts/canvas-perf.mjs",
     "smoke:canvas": "node scripts/canvas-smoke.mjs",
+    "smoke:overlay": "node scripts/overlay-smoke.mjs",
+    "fonts": "node scripts/fetch-fonts.mjs",
     "e2e:board": "node scripts/board-e2e.mjs"
   },
   "devDependencies": {

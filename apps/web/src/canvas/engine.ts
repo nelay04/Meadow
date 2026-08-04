@@ -12,13 +12,22 @@
  * This module must not import from src/features. The engine stays extractable.
  */
 
-import { type ObjectData, objectBounds } from '@meadow/schema'
+import { type ObjectData, isTextBearing, objectBounds } from '@meadow/schema'
 import { Application, Container, Graphics } from 'pixi.js'
 
-import { Camera, type Point, type WorldRect } from './camera'
+import {
+  Camera,
+  type Point,
+  type ViewTransform,
+  type WorldRect,
+  projectPoint,
+  viewTransform,
+} from './camera'
+import { TextLayer } from './overlay/textLayer'
 import { SpatialIndex } from './spatialIndex'
 import { ShapeBatch } from './renderers/shapeBatch'
 import type { SnapGuide } from './snapping'
+import { whenFontsReady } from './text/measure'
 import {
   GUIDE_COLOR,
   MARQUEE_FILL,
@@ -36,6 +45,7 @@ import { unionBounds } from './hitTest'
 import { createHandTool } from './tools/handTool'
 import { createSelectTool } from './tools/selectTool'
 import { createShapeTool } from './tools/shapeTool'
+import { createTextTool } from './tools/textTool'
 import type { CanvasPointerEvent, Tool, ToolContext, ToolId } from './tools/types'
 
 /** Minimum instance capacity, so small boards do not reallocate on the first few adds. */
@@ -58,6 +68,13 @@ export type EngineHost = {
   sendBackward(ids: readonly string[]): void
   bringToFront(ids: readonly string[]): void
   sendToBack(ids: readonly string[]): void
+  /** Static HTML for a text-bearing object, for the idle overlay. */
+  textHtml(id: string): string
+  /**
+   * Mount a rich-text editor into an overlay element. Returns the teardown, or null
+   * when this host cannot edit. The engine never learns what the editor is.
+   */
+  beginEdit(id: string, element: HTMLElement, onExit: () => void): (() => void) | null
 }
 
 export type EngineEvents = {
@@ -66,6 +83,8 @@ export type EngineEvents = {
   onObjectCountChange?(count: number): void
   onToolChange?(tool: ToolId): void
   onCameraChange?(camera: { x: number; y: number; zoom: number }): void
+  /** The id of the object currently being text-edited, or null. */
+  onEditingChange?(id: string | null): void
 }
 
 export class CanvasEngine {
@@ -78,6 +97,24 @@ export class CanvasEngine {
   private world!: Container
   private overlay!: Graphics
   private batch!: ShapeBatch
+  private textLayer!: TextLayer
+
+  /**
+   * Auto-height measurements taken during a render, flushed after it.
+   *
+   * Writing to the document from inside the render walk would fire a Y observer that
+   * marks the scene dirty while it is still being drawn. Collecting and flushing keeps
+   * the write out of the render, and batches a screenful of text objects into one
+   * transaction instead of one each.
+   */
+  private readonly pendingHeights = new Map<string, number>()
+
+  private editing: { id: string; teardown(): void } | null = null
+  private closingEditor = false
+
+  /** Reused across frames so the render walk allocates nothing. */
+  private readonly overlayObjects: { object: ObjectData; z: number }[] = []
+  private lastTransform: ViewTransform = { tx: 0, ty: 0, scale: 1 }
 
   private tool!: Tool
   private toolId: ToolId = 'select'
@@ -106,6 +143,13 @@ export class CanvasEngine {
   }
 
   async init(): Promise<void> {
+    // ARCHITECTURE 1: text metrics feed CRDT bounds, so the first frame must not be
+    // measured against fallback faces. Waiting here is the cheapest way to guarantee
+    // that; the alternative is every client writing a different height for the same
+    // paragraph depending on how fast its fonts arrived.
+    await whenFontsReady()
+    if (this.disposed) return
+
     this.app = new Application()
     await this.app.init({
       resizeTo: this.element,
@@ -123,9 +167,21 @@ export class CanvasEngine {
       return
     }
 
+    // The overlay is positioned against this element, so it cannot be static.
+    if (getComputedStyle(this.element).position === 'static') {
+      this.element.style.position = 'relative'
+    }
+
     this.element.appendChild(this.app.canvas)
     this.app.canvas.style.touchAction = 'none'
     this.app.canvas.style.display = 'block'
+
+    this.textLayer = new TextLayer(this.element, {
+      html: (id) => this.host.textHtml(id),
+      onMeasured: (id, height) => {
+        this.pendingHeights.set(id, height)
+      },
+    })
 
     this.world = new Container()
     this.batch = new ShapeBatch(MIN_BATCH_CAPACITY)
@@ -145,7 +201,9 @@ export class CanvasEngine {
   destroy(): void {
     this.disposed = true
     cancelAnimationFrame(this.frame)
+    this.stopEditing()
     this.detachInput()
+    if (this.textLayer !== undefined) this.textLayer.destroy()
     if (this.app !== undefined) this.app.destroy(true, { children: true })
   }
 
@@ -222,6 +280,7 @@ export class CanvasEngine {
    */
   resync(): void {
     this.cache.clear()
+    if (this.textLayer !== undefined) this.textLayer.invalidateAll()
     const entries: { id: string; bounds: WorldRect }[] = []
     for (const object of this.host.allObjects()) {
       this.cache.set(object.id, object)
@@ -239,7 +298,13 @@ export class CanvasEngine {
       this.cache.delete(id)
       this.index.remove(id)
       this.selected.delete(id)
+      if (this.editing?.id === id) this.stopEditing()
     }
+    // A change to an object's `text` arrives here with the same id as a change to its
+    // geometry, because observeDeep reports both under the object. The overlay is told
+    // either way; re-serialising a fragment that did not change is cheap next to
+    // tracking which of the two it was.
+    if (this.textLayer !== undefined) this.textLayer.invalidate(changed)
     for (const id of changed) {
       const object = this.host.object(id)
       if (object === undefined) {
@@ -263,6 +328,82 @@ export class CanvasEngine {
 
   requestRender(): void {
     this.dirty = true
+  }
+
+  // --- text editing -----------------------------------------------------------
+
+  get editingId(): string | null {
+    return this.editing?.id ?? null
+  }
+
+  /**
+   * The transform the last frame was drawn with.
+   *
+   * Exposed so a test can assert the WebGL scene and the DOM overlay were handed the
+   * same numbers, which is the invariant the whole two-layer design rests on.
+   */
+  get renderTransform(): ViewTransform {
+    return this.lastTransform
+  }
+
+  /** The overlay element for an object, or null when it is not mounted. */
+  overlayElement(id: string): HTMLElement | null {
+    return this.textLayer?.root.querySelector(`[data-object-id="${CSS.escape(id)}"]`) ?? null
+  }
+
+  /**
+   * Enter text editing on an object. ARCHITECTURE 5, step 2 of the lifecycle.
+   *
+   * A render has to happen first. The editor mounts into the object's overlay element,
+   * and that element only exists once the object has been through a sync, so a text
+   * object created a microsecond ago has nowhere to put an editor yet.
+   */
+  beginTextEdit(id: string): boolean {
+    const object = this.cache.get(id)
+    if (object === undefined || !isTextBearing(object.type) || object.locked) return false
+    if (this.editing?.id === id) return true
+
+    this.stopEditing()
+    this.setSelection([id])
+    // Editing and a creation tool are mutually exclusive modes. Dropping back to
+    // select means Escape leaves the user somewhere sensible.
+    this.setTool('select')
+
+    this.render()
+    const element = this.textLayer.beginEdit(id)
+    if (element === null) return false
+
+    const teardown = this.host.beginEdit(id, element, () => this.stopEditing())
+    if (teardown === null) {
+      this.textLayer.endEdit()
+      return false
+    }
+
+    this.editing = { id, teardown }
+    this.events.onEditingChange?.(id)
+    this.requestRender()
+    return true
+  }
+
+  stopEditing(): void {
+    const active = this.editing
+    // The teardown blurs the editor, and blur is what called this. Without the guard
+    // that recurses straight back in through the exit callback.
+    if (active === null || this.closingEditor) return
+
+    this.closingEditor = true
+    try {
+      active.teardown()
+    } finally {
+      this.editing = null
+      this.closingEditor = false
+    }
+
+    this.textLayer.endEdit()
+    this.host.commit()
+    this.events.onEditingChange?.(null)
+    this.requestRender()
+    if (this.app !== undefined) this.app.canvas.focus()
   }
 
   // --- internals --------------------------------------------------------------
@@ -294,6 +435,9 @@ export class CanvasEngine {
       case 'ellipse':
       case 'diamond':
         return createShapeTool(this.context, id)
+      case 'text':
+      case 'sticky':
+        return createTextTool(this.context, id)
       default:
         return createSelectTool(this.context)
     }
@@ -323,6 +467,7 @@ export class CanvasEngine {
       createObject: (input) => this.host.createObject(input),
       applyPatches: (patches) => this.host.applyPatches(patches),
       commit: () => this.host.commit(),
+      beginTextEdit: (id) => this.beginTextEdit(id),
       requestRender: () => this.requestRender(),
       setCursor: (cursor) => this.setCursor(cursor),
     }
@@ -365,13 +510,41 @@ export class CanvasEngine {
     this.render()
     this.app.render()
     this.lastRenderMs = performance.now() - start
+
+    this.flushHeights()
+  }
+
+  /**
+   * Push measured auto-heights into the document.
+   *
+   * Idempotent by construction: every client measures the same text with the same
+   * fonts and arrives at the same number, so the first write settles it and the
+   * tolerance in the text layer stops the rest. A read-only role never gets here,
+   * because the host refuses the patch.
+   */
+  private flushHeights(): void {
+    if (this.pendingHeights.size === 0) return
+
+    const patches: { id: string; patch: Partial<ObjectData> }[] = []
+    for (const [id, height] of this.pendingHeights) {
+      const object = this.cache.get(id)
+      if (object !== undefined && Math.abs(object.h - height) > 1) {
+        patches.push({ id, patch: { h: height } })
+      }
+    }
+    this.pendingHeights.clear()
+
+    if (patches.length > 0 && this.host.canWrite) this.host.applyPatches(patches)
   }
 
   private render(): void {
-    // One container transform carries the camera for the whole scene, so panning and
-    // zooming never touch per-object state.
-    this.world.position.set(-this.camera.x * this.camera.zoom, -this.camera.y * this.camera.zoom)
-    this.world.scale.set(this.camera.zoom)
+    // One transform, snapped to device pixels once, handed to both layers. See
+    // camera.ts: this is the whole reason the DOM text sits exactly on its shape.
+    const transform = viewTransform(this.camera, window.devicePixelRatio || 1)
+    this.lastTransform = transform
+
+    this.world.position.set(transform.tx, transform.ty)
+    this.world.scale.set(transform.scale)
 
     this.ensureCapacity()
 
@@ -381,11 +554,20 @@ export class CanvasEngine {
 
     // Walk the z-order so painting order matches `order`, and skip anything culled.
     this.batch.begin()
+    this.overlayObjects.length = 0
     let drawn = 0
+    let depth = 0
     for (const id of this.host.order()) {
+      depth += 1
       if (!visible.has(id)) continue
       const object = this.cache.get(id)
       if (object === undefined) continue
+
+      // A text-bearing object is drawn twice on purpose: the batch paints its box, the
+      // DOM overlay paints its glyphs on top. A sticky note is a rounded rectangle
+      // plus real selectable text, not a picture of one.
+      if (isTextBearing(object.type)) this.overlayObjects.push({ object, z: depth })
+
       const kind = shapeKindFor(object.type)
       if (kind === null) continue
 
@@ -409,7 +591,8 @@ export class CanvasEngine {
     this.batch.end()
     this.lastVisible = drawn
 
-    this.drawOverlay()
+    this.textLayer.sync(transform, this.overlayObjects)
+    this.drawOverlay(transform)
   }
 
   private ensureCapacity(): void {
@@ -430,17 +613,17 @@ export class CanvasEngine {
    * Handles must stay the same pixel size at every zoom, so this cannot live in the
    * world container. It reads the same camera to project, never a second copy.
    */
-  private drawOverlay(): void {
+  private drawOverlay(transform: ViewTransform): void {
     const graphics = this.overlay
     graphics.clear()
 
     for (const guide of this.guides) {
       const isVertical = guide.axis === 'x'
-      const from = this.camera.worldToScreen(
+      const from = projectPoint(transform, 
         isVertical ? guide.position : guide.from,
         isVertical ? guide.from : guide.position,
       )
-      const to = this.camera.worldToScreen(
+      const to = projectPoint(transform, 
         isVertical ? guide.position : guide.to,
         isVertical ? guide.to : guide.position,
       )
@@ -449,8 +632,8 @@ export class CanvasEngine {
     if (this.guides.length > 0) graphics.stroke({ width: 1, color: GUIDE_COLOR })
 
     if (this.marquee !== null) {
-      const topLeft = this.camera.worldToScreen(this.marquee.minX, this.marquee.minY)
-      const bottomRight = this.camera.worldToScreen(this.marquee.maxX, this.marquee.maxY)
+      const topLeft = projectPoint(transform, this.marquee.minX, this.marquee.minY)
+      const bottomRight = projectPoint(transform, this.marquee.maxX, this.marquee.maxY)
       graphics
         .rect(topLeft.x, topLeft.y, bottomRight.x - topLeft.x, bottomRight.y - topLeft.y)
         .fill({ color: MARQUEE_FILL, alpha: 0.08 })
@@ -468,8 +651,8 @@ export class CanvasEngine {
     if (selectedObjects.length > 1) {
       for (const object of selectedObjects) {
         const bounds = objectBounds(object)
-        const topLeft = this.camera.worldToScreen(bounds.minX, bounds.minY)
-        const bottomRight = this.camera.worldToScreen(bounds.maxX, bounds.maxY)
+        const topLeft = projectPoint(transform, bounds.minX, bounds.minY)
+        const bottomRight = projectPoint(transform, bounds.maxX, bounds.maxY)
         graphics.rect(
           topLeft.x,
           topLeft.y,
@@ -483,8 +666,8 @@ export class CanvasEngine {
     const box = unionBounds(selectedObjects)
     if (box === null) return
 
-    const topLeft = this.camera.worldToScreen(box.minX, box.minY)
-    const bottomRight = this.camera.worldToScreen(box.maxX, box.maxY)
+    const topLeft = projectPoint(transform, box.minX, box.minY)
+    const bottomRight = projectPoint(transform, box.maxX, box.maxY)
     graphics
       .rect(topLeft.x, topLeft.y, bottomRight.x - topLeft.x, bottomRight.y - topLeft.y)
       .stroke({ width: 1.5, color: SELECTION_COLOR })
@@ -494,14 +677,14 @@ export class CanvasEngine {
     const positions = handlePositions(box)
     const half = HANDLE_SIZE_PX / 2
 
-    const rotate = this.camera.worldToScreen(positions.rotate.x, positions.rotate.y)
+    const rotate = projectPoint(transform, positions.rotate.x, positions.rotate.y)
     graphics
       .circle(rotate.x, rotate.y - ROTATE_HANDLE_OFFSET_PX, half)
       .fill({ color: 0xffffff })
       .stroke({ width: 1.5, color: SELECTION_COLOR })
 
     for (const id of RESIZE_HANDLES) {
-      const point = this.camera.worldToScreen(positions[id].x, positions[id].y)
+      const point = projectPoint(transform, positions[id].x, positions[id].y)
       graphics.rect(point.x - half, point.y - half, HANDLE_SIZE_PX, HANDLE_SIZE_PX)
     }
     graphics.fill({ color: 0xffffff }).stroke({ width: 1.5, color: SELECTION_COLOR })
@@ -632,6 +815,7 @@ export class CanvasEngine {
         this.deleteSelection()
         return
       case 'Escape':
+        this.stopEditing()
         this.tool.cancel?.()
         this.setSelection([])
         return
@@ -667,6 +851,22 @@ export class CanvasEngine {
       case 'D':
         this.setTool('diamond')
         return
+      case 't':
+      case 'T':
+        this.setTool('text')
+        return
+      case 's':
+      case 'S':
+        this.setTool('sticky')
+        return
+      case 'Enter':
+        // Enter edits the selected text object, the keyboard equivalent of a
+        // double-click. Ignored for anything else.
+        if (this.selected.size === 1) {
+          const [id] = this.selected
+          if (this.beginTextEdit(id)) event.preventDefault()
+        }
+        return
       default:
         this.tool.onKeyDown?.(event)
     }
@@ -682,6 +882,40 @@ export class CanvasEngine {
     event.preventDefault()
   }
 
+  /**
+   * Double-click enters text editing. ARCHITECTURE 5, step 2.
+   *
+   * Only text-bearing types respond. Double-clicking a rectangle does nothing rather
+   * than growing a text field on it, because "everything is secretly a text box" is
+   * the behaviour that makes a canvas feel unpredictable.
+   */
+  private onDoubleClick = (event: MouseEvent): void => {
+    const screen = this.toCanvasPoint(event as unknown as PointerEvent)
+    const world = this.camera.screenToWorld(screen.x, screen.y)
+    const tolerance = this.camera.toWorldDistance(8)
+
+    const rect = {
+      minX: world.x - tolerance,
+      minY: world.y - tolerance,
+      maxX: world.x + tolerance,
+      maxY: world.y + tolerance,
+    }
+    const candidates = new Set(this.index.search(rect))
+
+    // Reverse z-order: the topmost object under the pointer wins, same rule as a click.
+    const order = this.host.order()
+    for (let index = order.length - 1; index >= 0; index -= 1) {
+      const id = order[index]
+      if (!candidates.has(id)) continue
+      const object = this.cache.get(id)
+      if (object === undefined || !isTextBearing(object.type)) continue
+
+      event.preventDefault()
+      this.beginTextEdit(id)
+      return
+    }
+  }
+
   private attachInput(): void {
     const canvas = this.app.canvas
     canvas.addEventListener('pointerdown', this.onPointerDown)
@@ -689,6 +923,7 @@ export class CanvasEngine {
     canvas.addEventListener('pointerup', this.onPointerUp)
     canvas.addEventListener('pointercancel', this.onPointerUp)
     canvas.addEventListener('wheel', this.onWheel, { passive: false })
+    canvas.addEventListener('dblclick', this.onDoubleClick)
     canvas.addEventListener('contextmenu', this.onContextMenu)
     window.addEventListener('keydown', this.onKeyDown)
     window.addEventListener('keyup', this.onKeyUp)
@@ -702,6 +937,7 @@ export class CanvasEngine {
       canvas.removeEventListener('pointerup', this.onPointerUp)
       canvas.removeEventListener('pointercancel', this.onPointerUp)
       canvas.removeEventListener('wheel', this.onWheel)
+      canvas.removeEventListener('dblclick', this.onDoubleClick)
       canvas.removeEventListener('contextmenu', this.onContextMenu)
     }
     window.removeEventListener('keydown', this.onKeyDown)

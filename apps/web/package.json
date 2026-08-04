@@ -11,6 +11,10 @@
   },
   "dependencies": {
     "@meadow/schema": "workspace:*",
+    "@tiptap/core": "^3.29.2",
+    "@tiptap/extension-collaboration": "^3.29.2",
+    "@tiptap/pm": "^3.29.2",
+    "@tiptap/starter-kit": "^3.29.2",
     "pixi.js": "^8.19.0",
     "rbush": "^4.0.1",
     "react": "^19.0.0",

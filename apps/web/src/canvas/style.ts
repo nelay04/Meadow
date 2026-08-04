@@ -55,16 +55,26 @@ function numberProp(props: Record<string, unknown>, key: string, fallback: numbe
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback
 }
 
+/**
+ * A plain text object has no box of its own.
+ *
+ * It is drawn by the batch only so it has a hit target and so a selection rectangle
+ * has something to sit on. Painting a white card behind every caption would make a
+ * board of annotations look like a board of index cards.
+ */
+const TRANSPARENT_BOX = new Set<ObjectType>(['text'])
+
 /** Read style off an object without running a validator. Called once per visible object per frame. */
 export function resolveStyle(object: ObjectData, kind: ShapeKind): ResolvedStyle {
   const props = object.props
+  const bare = TRANSPARENT_BOX.has(object.type)
   return {
     kind,
     fill: numberProp(props, 'fill', DEFAULT_FILL[object.type] ?? 0x9ec9b0),
-    fillAlpha: numberProp(props, 'fillAlpha', 1) * object.opacity,
+    fillAlpha: numberProp(props, 'fillAlpha', bare ? 0 : 1) * object.opacity,
     stroke: numberProp(props, 'stroke', 0x1f2a24),
-    strokeAlpha: numberProp(props, 'strokeAlpha', 1) * object.opacity,
-    strokeWidth: numberProp(props, 'strokeWidth', 2),
+    strokeAlpha: numberProp(props, 'strokeAlpha', bare ? 0 : 1) * object.opacity,
+    strokeWidth: numberProp(props, 'strokeWidth', bare ? 0 : 2),
     radius: numberProp(props, 'cornerRadius', object.type === 'sticky' ? 6 : 0),
   }
 }

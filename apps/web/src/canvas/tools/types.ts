@@ -11,7 +11,7 @@ import type { ObjectData } from '@meadow/schema'
 import type { Camera, Point, WorldRect } from '../camera'
 import type { SnapGuide } from '../snapping'
 
-export type ToolId = 'select' | 'hand' | 'rect' | 'ellipse' | 'diamond'
+export type ToolId = 'select' | 'hand' | 'rect' | 'ellipse' | 'diamond' | 'text' | 'sticky'
 
 export type CanvasPointerEvent = {
   /** Position in world coordinates. */
@@ -49,6 +49,11 @@ export type ToolContext = {
   applyPatches(patches: { id: string; patch: Partial<ObjectData> }[]): void
   /** Close the current undo step. Call when a gesture completes. */
   commit(): void
+  /**
+   * Enter text editing on an object. False when it is not editable, which a tool
+   * treats as "created it, leave it empty" rather than an error.
+   */
+  beginTextEdit(id: string): boolean
 
   requestRender(): void
   setCursor(cursor: string): void

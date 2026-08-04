@@ -41,7 +41,15 @@ const api = spawn(
     '-c',
     `cd services/api && exec .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port ${API_PORT} --log-level warning`,
   ],
-  { stdio: ['ignore', 'pipe', 'pipe'] },
+  {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    // Registration is capped at 3 per hour per IP, which is correct in production and
+    // makes this script runnable three times a day. The limiter itself is covered by
+    // tests/test_auth.py::test_login_is_rate_limited; nothing here is about it, and
+    // every request comes from 127.0.0.1 so the cap is hit by the check suite rather
+    // than by anything under test.
+    env: { ...process.env, MEADOW_RATE_LIMIT_ENABLED: 'false' },
+  },
 )
 procs.push(api)
 
@@ -159,6 +167,24 @@ check('drawing on the real board selects the new object', true)
 const drawnCount = await page.textContent('[data-testid="object-count"]')
 check('the object is in the document', drawnCount?.trim() === '1 object', `read "${drawnCount?.trim()}"`)
 
+// Text objects, over the same socket. The canvas smoke test drives TipTap against a
+// local Y.Doc; this is the only check that a Y.XmlFragment written by ProseMirror
+// survives the provider and pycrdt on the way to Postgres and back.
+await page.click('button[title^="Sticky"]')
+await page.mouse.click(box.x + 700, box.y + 300)
+await page.waitForSelector('.meadow-overlay .ProseMirror', { timeout: 20000 })
+check('placing a sticky opens an editor on it straight away', true)
+
+const TYPED = 'meadow sticky'
+await page.keyboard.type(TYPED)
+await page.keyboard.press('Escape')
+await page.waitForFunction(
+  (text) => document.querySelector('.meadow-overlay [data-object-id]')?.textContent === text,
+  TYPED,
+  { timeout: 10000 },
+)
+check('the typed text renders as static HTML once editing ends', true)
+
 // Opt-in, so a normal run leaves no artefact behind: E2E_SHOT=/tmp/board.png
 if (process.env.E2E_SHOT) await page.screenshot({ path: process.env.E2E_SHOT })
 
@@ -171,10 +197,18 @@ await delay(2500)
 
 const countText = await page.textContent('[data-testid="object-count"]')
 check(
-  'the drawn object survives a reload',
-  countText?.trim() === '1 object',
+  'the drawn objects survive a reload',
+  countText?.trim() === '2 objects',
   `status bar read "${countText?.trim()}"`,
 )
+
+const reloadedText = await page.textContent('.meadow-overlay [data-object-id]')
+check(
+  'the typed text survives a reload, so the fragment reached Postgres',
+  reloadedText === TYPED,
+  `overlay read "${reloadedText}"`,
+)
+
 check('no uncaught page errors', pageErrors.length === 0, pageErrors.join('; '))
 
 await browser.close()

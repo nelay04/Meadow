@@ -1,10 +1,14 @@
 /*
- * Plain CSS for M1. Tailwind arrives with the canvas UI in M2, where there is enough
- * markup for it to earn its build step.
+ * Plain CSS. Tailwind is still not pulled in: the chrome is a toolbar, a header and a
+ * status bar, and everything visually interesting happens on the canvas.
  *
- * Fonts are referenced by family name only. Self-hosted woff2 @font-face rules land
- * in M3 with the text objects that need the metrics (ARCHITECTURE 1, Typography).
+ * The three faces are self-hosted per ARCHITECTURE 1, downloaded by
+ * scripts/fetch-fonts.mjs. Metrics from these faces are written into the CRDT as text
+ * object bounds, so a client that fell back to a system font would disagree with every
+ * other client about how tall a paragraph is.
  */
+
+@import url('/fonts/fonts.css');
 
 :root {
   color-scheme: light dark;

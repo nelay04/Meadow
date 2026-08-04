@@ -16,11 +16,22 @@ import * as Y from 'yjs'
 import { CanvasEngine } from '../canvas/engine'
 import type { ToolId } from '../canvas/tools/types'
 import { DocEngineHost, observeDocument } from '../doc/engineHost'
-import { addObjects, createDocSession, endGesture } from '../doc/mutations'
+import {
+  addObjects,
+  createDocSession,
+  endGesture,
+  objectFragment,
+  setObjectText,
+} from '../doc/mutations'
+import { fragmentToPlainText } from '../doc/richText'
+import { createTextEditor } from '../overlay/textEditor'
 
 const params = new URLSearchParams(location.search)
 const count = Number(params.get('n') ?? '2000')
 const stress = params.has('stress')
+// Off by default. The interaction smoke test starts from ?n=0 and asserts exact
+// counts, so seeded content has to be opted into rather than assumed.
+const withText = params.has('text')
 
 const TYPES = ['rect', 'ellipse', 'diamond'] as const
 const PALETTE = [0x9ec9b0, 0x6fcf97, 0x2f7d4f, 0xe8c468, 0xd88c5a, 0x7b8fd4, 0xc47ba0, 0x5aa7c4]
@@ -39,7 +50,9 @@ function seeded(seed: number): () => number {
 const doc = new Y.Doc()
 const session = createDocSession(doc, 'owner')
 
-const host = new DocEngineHost(() => session)
+// The harness gets the real editor. A smoke test that drove a stub would prove the
+// wiring and nothing about ProseMirror binding to the fragment.
+const host = new DocEngineHost(() => session, { createEditor: createTextEditor })
 host.observe()
 
 const host_element = document.getElementById('canvas') as HTMLElement
@@ -78,6 +91,27 @@ function seed(): void {
   })
 
   addObjects(session, inputs)
+  endGesture(session)
+
+  if (!withText) return
+
+  // One sticky and one text object at fixed coordinates, so the overlay has something
+  // mounted and a test knows where to click without hunting for it.
+  const [stickyId, textId] = addObjects(session, [
+    // No stroke and no corner radius: the drift check finds this note by its fill
+    // colour, and a dark outline or a rounded corner blurs the edge it measures.
+    {
+      type: 'sticky',
+      x: 120,
+      y: 120,
+      w: 180,
+      h: 180,
+      props: { fill: 0xf5e6a3, strokeWidth: 0, cornerRadius: 0 },
+    },
+    { type: 'text', x: 380, y: 140, w: 260, h: 40 },
+  ])
+  setObjectText(session, stickyId, 'sticky note')
+  setObjectText(session, textId, 'A text object on the canvas.')
   endGesture(session)
 }
 
@@ -127,7 +161,32 @@ void engine.init().then(() => {
 
   // Exposed so the headless perf and smoke checks read the same numbers the page
   // shows, rather than a parallel measurement that could disagree with it.
-  window.__canvas = { engine, stats: () => ({ ...engine.stats, fps }) }
+  window.__canvas = {
+    engine,
+    stats: () => ({ ...engine.stats, fps }),
+    // Place the camera exactly, rather than through a gesture. The overlay drift
+    // check has to compare the two layers at specific awkward zoom levels, and a
+    // wheel event cannot land on 1.37 reliably.
+    setCamera: (next) => {
+      engine.camera.x = next.x
+      engine.camera.y = next.y
+      engine.camera.zoom = next.zoom
+      engine.camera.version += 1
+      engine.requestRender()
+    },
+    transform: () => ({ ...engine.renderTransform }),
+    overlayRect: (id) => {
+      const element = engine.overlayElement(id)
+      if (element === null) return null
+      const canvas = document.querySelector('#canvas canvas')
+      if (canvas === null) return null
+      const box = element.getBoundingClientRect()
+      const origin = canvas.getBoundingClientRect()
+      return { x: box.x - origin.x, y: box.y - origin.y, w: box.width, h: box.height }
+    },
+    overlayCount: () => document.querySelectorAll('.meadow-overlay [data-object-id]').length,
+    editingId: () => engine.editingId,
+  }
 })
 
 // Document introspection for the smoke test. Reads straight from the Y.Doc, so an
@@ -146,6 +205,21 @@ window.__doc = {
   },
   orderLength: () => session.order.length,
   objectCount: () => session.objects.size,
+  setText: (id: string, value: string) => {
+    setObjectText(session, id, value)
+    endGesture(session)
+  },
+  text: (id: string) => {
+    const fragment = objectFragment(session, id)
+    return fragment === null ? null : fragmentToPlainText(fragment)
+  },
+  // Ids are generated, so a test needs a way to ask for one by type.
+  findByType: (type: string) => {
+    for (const id of session.order.toArray()) {
+      if (String(session.objects.get(id)?.get('type')) === type) return id
+    }
+    return null
+  },
 }
 
 declare global {
@@ -153,11 +227,19 @@ declare global {
     __canvas?: {
       engine: CanvasEngine
       stats(): { renderMs: number; visible: number; total: number; zoom: number; fps: number }
+      setCamera(next: { x: number; y: number; zoom: number }): void
+      transform(): { tx: number; ty: number; scale: number }
+      overlayRect(id: string): { x: number; y: number; w: number; h: number } | null
+      overlayCount(): number
+      editingId(): string | null
     }
     __doc?: {
       read(id: string): { x: number; y: number; w: number; h: number; type: string } | null
       orderLength(): number
       objectCount(): number
+      setText(id: string, value: string): void
+      text(id: string): string | null
+      findByType(type: string): string | null
     }
   }
 }

@@ -14,6 +14,7 @@ import { CanvasEngine } from '../../canvas/engine'
 import type { ToolId } from '../../canvas/tools/types'
 import { DocEngineHost, observeDocument } from '../../doc/engineHost'
 import { type DocSession, reconcileOrder } from '../../doc/mutations'
+import { createTextEditor } from '../../overlay/textEditor'
 
 export type CanvasHandle = {
   containerRef: (element: HTMLDivElement | null) => void
@@ -23,6 +24,8 @@ export type CanvasHandle = {
   selection: string[]
   objectCount: number
   zoom: number
+  /** The object currently being text-edited, or null. */
+  editingId: string | null
   notice: string | null
   dismissNotice(): void
   zoomToFit(): void
@@ -36,6 +39,7 @@ export function useCanvas(session: DocSession): CanvasHandle {
   const [selection, setSelection] = useState<string[]>([])
   const [zoom, setZoom] = useState(1)
   const [objectCount, setObjectCount] = useState(0)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const engineRef = useRef<CanvasEngine | null>(null)
 
@@ -50,7 +54,13 @@ export function useCanvas(session: DocSession): CanvasHandle {
 
     const current = () => sessionRef.current
 
-    const host = new DocEngineHost(current, { onRefused: setNotice })
+    const host = new DocEngineHost(current, {
+      onRefused: setNotice,
+      // The engine asks for an editor and never learns what it is. This is the only
+      // place ProseMirror is named on the board path, which is what keeps src/canvas
+      // free of it.
+      createEditor: createTextEditor,
+    })
     const unobserveHost = host.observe()
 
     const engine = new CanvasEngine(element, host, {
@@ -58,6 +68,7 @@ export function useCanvas(session: DocSession): CanvasHandle {
       onObjectCountChange: setObjectCount,
       onToolChange: setToolState,
       onCameraChange: (camera) => setZoom(camera.zoom),
+      onEditingChange: setEditingId,
     })
     engineRef.current = engine
 
@@ -92,6 +103,7 @@ export function useCanvas(session: DocSession): CanvasHandle {
     selection,
     objectCount,
     zoom,
+    editingId,
     notice,
     dismissNotice: () => setNotice(null),
     zoomToFit: () => engineRef.current?.zoomToFit(),

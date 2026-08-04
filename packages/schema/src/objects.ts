@@ -42,15 +42,21 @@ export type ObjectType = (typeof OBJECT_TYPES)[number]
 export const PRIMITIVE_SHAPES = ['rect', 'ellipse', 'diamond'] as const
 export type PrimitiveShape = (typeof PRIMITIVE_SHAPES)[number]
 
-export function isPrimitiveShape(type: ObjectType): type is PrimitiveShape {
-  return (PRIMITIVE_SHAPES as readonly string[]).includes(type)
-}
-
 /** Types that carry a `Y.XmlFragment`. Only these ever get one. */
 export const TEXT_BEARING = ['text', 'sticky'] as const
 
+// Set lookups rather than `Array.includes`. Both predicates run once per visible
+// object per frame, so at 5,000 objects they are called 10,000 times inside the
+// budget that has to fit in 16ms.
+const PRIMITIVE_SET: ReadonlySet<string> = new Set(PRIMITIVE_SHAPES)
+const TEXT_BEARING_SET: ReadonlySet<string> = new Set(TEXT_BEARING)
+
+export function isPrimitiveShape(type: ObjectType): type is PrimitiveShape {
+  return PRIMITIVE_SET.has(type)
+}
+
 export function isTextBearing(type: ObjectType): boolean {
-  return (TEXT_BEARING as readonly string[]).includes(type)
+  return TEXT_BEARING_SET.has(type)
 }
 
 export const shapeProps = z.object({

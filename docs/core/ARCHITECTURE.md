@@ -129,9 +129,11 @@ meadow/
 │       │   │   ├── engine.ts
 │       │   │   ├── camera.ts
 │       │   │   ├── spatial-index.ts
-│       │   │   ├── renderers/   # one per shape type
+│       │   │   ├── renderers/   # shapeBatch — instanced SDF, one draw call
+│       │   │   ├── overlay/     # textLayer — mounting and camera sync, no editor
+│       │   │   ├── text/        # measurement, font loading, shared text styles
 │       │   │   └── tools/       # select, rect, arrow, text, pen...
-│       │   ├── overlay/         # DOM layer — text, tables, charts
+│       │   ├── overlay/         # TipTap editing session; ProseMirror lives only here
 │       │   ├── doc/             # yjs schema helpers, mutations, undo
 │       │   ├── sync/            # provider setup, awareness, offline
 │       │   ├── features/        # auth, boards list, sharing, settings
@@ -142,7 +144,9 @@ meadow/
 │   └── schema/              # CRDT doc types + Zod validators (TS)
 │       └── src/
 │           ├── objects.ts   # ObjectType, BaseObject, per-type props
+│           ├── text.ts      # text props and defaults — layout is measurement input
 │           ├── bindings.ts
+│           ├── doc.ts
 │           └── index.ts
 ├── services/
 │   └── api/
@@ -476,7 +480,20 @@ zoom 1.37 — which reads as "broken app" rather than "minor bug". Mitigations:
 - Set `will-change: transform` and avoid nested transformed ancestors
 - Test explicitly at zoom 0.33 / 0.67 / 1.37 / 2.5, not just 1 and 2
 
-Budget real time for this in M3.
+**Resolved in M3.** `viewTransform(camera, dpr)` in `src/canvas/camera.ts` is computed
+once per frame and handed to three consumers: the Pixi world container, the overlay
+root's CSS transform, and the screen-space selection chrome. Nobody else projects.
+
+One decision worth keeping: the snap lives in the render transform, not in the camera.
+Quantising `camera.x` itself would look tidier and would break trackpad panning, since
+a fractional delta would round to zero and never accumulate. So input reads the
+continuous camera and rendering reads the snapped transform. They differ by at most
+half a device pixel and that error cannot compound.
+
+Verified against pixels, not arithmetic, by `scripts/overlay-smoke.mjs`: it screenshots
+the canvas at each of the zooms above at dpr 1 and 2, finds the sticky note's fill
+colour in the image, and compares that rectangle with the overlay element's client
+rect. Both must land within one CSS pixel of where the shared transform says.
 
 Only mount overlay elements for objects **in the viewport**. A board with 500 text
 objects must not create 500 contenteditable nodes.
@@ -485,6 +502,28 @@ Text object lifecycle:
 1. Idle → rendered as static HTML in the overlay
 2. Double-click → mount a TipTap instance bound to that object's `Y.XmlFragment`
 3. Blur/Escape → destroy the instance, revert to static HTML
+
+The static half of that lifecycle is `src/doc/richText.ts`, which serialises a
+`Y.XmlFragment` to HTML directly rather than mounting a headless editor to read one.
+It is also an escaping boundary: the server never inspects CRDT payloads, so any
+string a peer writes into a fragment reaches `innerHTML` through this function.
+
+The set of node types the editor can produce and the set the serialiser can render are
+one decision in two files. A node type only the editor knows would look right while
+being typed and vanish when the editor closed.
+
+**Undo is deliberately two stacks.** The Collaboration extension brings its own
+`Y.UndoManager` over the fragment, so Ctrl+Z inside an editor undoes typing. The
+session's UndoManager in `doc/mutations.ts` tracks only `LOCAL_ORIGIN`, which the
+editor's writes do not use, so an object-level undo never reaches inside a paragraph.
+One stack for both would mean undoing a move reverted someone's sentence.
+
+**Text metrics are CRDT data, not layout.** A text object's height is measured from
+rendered glyphs and written back to the document, so the measurement has to be
+zoom-independent (it happens in an offscreen element outside the camera transform) and
+font-dependent (the engine gates its first render on the three faces being loaded). A
+client that measured against a fallback face would write a height every other client
+disagreed with.
 
 Tables are real `<table>` elements in the overlay. Each cell's content is a
 `Y.XmlFragment` in the table object's `props`. Do not reimplement cell editing on
@@ -745,9 +784,20 @@ still has its own transform). The instanced SDF renderer issues **one**. See
 `packages/schema` now exists and owns the object model, per §4: a plain `ObjectData`
 type plus accessors over the live `Y.Map`. The two are deliberately not the same type.
 
-### M3 — Text objects (1.5 weeks)
+### M3 — Text objects (1.5 weeks) ✅ done
 DOM overlay glued to camera, TipTap per object, `Y.XmlFragment` binding, sticky
 notes, mount/unmount lifecycle, viewport-only mounting.
+
+Layer drift was the budgeted risk and it is closed: one `viewTransform` feeds both
+layers, and `scripts/overlay-smoke.mjs` proves it against screenshots at every zoom in
+§5 at dpr 1 and 2. Inter, Comic Neue and JetBrains Mono are self-hosted under
+`apps/web/public/fonts` (236KB, latin and latin-ext), fetched reproducibly by
+`pnpm fonts`, and the engine waits on them before its first frame because their metrics
+end up in the document.
+
+Not built, and deliberately: tables. §5 describes them as `<table>` elements in the
+overlay, which the mount and camera machinery now supports, but they are a v2 feature
+and jumping to them before v1 ships would violate the milestone order.
 
 ### M4 — Arrows & binding (1 week)
 Arrow tool, endpoint attachment, anchor recalculation on target move, orthogonal
@@ -804,6 +854,20 @@ simulated concurrent edits.
 - Update log size before vs after compaction
 
 Numbers are what separate "I built a collaborative app" from a conversation.
+
+### Measured so far, and what is still unverified
+
+Report these honestly. A number taken under software rasterisation is not the number
+the target is about.
+
+| | Status |
+|---|---|
+| Draw calls at 5,000 objects | **1**, measured. See M2 above. |
+| CPU frame cost at 5,000 objects | **3.5ms median**, measured by `pnpm bench:canvas`. |
+| Overlay drift, zoom 0.33 to 2.5, dpr 1 and 2 | **within 1 CSS pixel**, measured against screenshots by `pnpm smoke:overlay`. |
+| 60fps at 5,000 objects | **not verified.** Every run so far rasterised in software (SwiftShader), where `app.render()` returns before rasterisation finishes, so it measures CPU work only. Needs `/canvas-dev.html?n=5000&stress` on real hardware. |
+| 20,000 objects | **never measured.** The dev machine OOM-kills the run at that size, so the benchmark takes one object count per invocation. |
+| Concurrent editors, cursor latency, compaction | not yet applicable. M5. |
 
 ---
 

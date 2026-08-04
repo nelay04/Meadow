@@ -22,12 +22,14 @@ import {
   docRoots,
   nanoid,
   objectData,
+  objectText,
   readObject,
   writeObject,
 } from '@meadow/schema'
 import * as Y from 'yjs'
 
 import type { BoardRole } from '../lib/api'
+import { setFragmentPlainText } from './richText'
 
 /** Origin tag for local edits. Undo filters on it; the provider ignores it. */
 export const LOCAL_ORIGIN = 'local'
@@ -166,6 +168,36 @@ export function deleteObjects(session: DocSession, ids: readonly string[]): void
     for (const binding of session.bindings.values()) {
       if (doomed.has(binding.get('targetId') as string)) binding.set('targetId', null)
     }
+  })
+}
+
+// --- text ---------------------------------------------------------------------
+
+/**
+ * The live `Y.XmlFragment` for a text-bearing object, or null.
+ *
+ * Handed straight to TipTap. Deliberately not snapshotted: the editor binds to the
+ * CRDT node itself, which is what makes two people typing in one object merge rather
+ * than overwrite. A copy would be a save step, and a save step can be missed.
+ */
+export function objectFragment(session: DocSession, id: string): Y.XmlFragment | null {
+  const map = session.objects.get(id)
+  return map === undefined ? null : objectText(map)
+}
+
+/**
+ * Replace an object's text with plain text.
+ *
+ * For seeding and for callers with no editor, such as the dev harness and tests. Real
+ * editing goes through TipTap and never comes here.
+ */
+export function setObjectText(session: DocSession, id: string, value: string): void {
+  write(session, () => {
+    const map = session.objects.get(id)
+    if (map === undefined) return
+    const fragment = objectText(map)
+    if (fragment === null) return
+    setFragmentPlainText(fragment, value)
   })
 }
 
