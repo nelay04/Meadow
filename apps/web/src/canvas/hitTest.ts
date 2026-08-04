@@ -9,7 +9,7 @@
  * on top is the object selected.
  */
 
-import type { ObjectData } from '@meadow/schema'
+import { type ObjectData, isArrowLike, resolveArrowProps } from '@meadow/schema'
 
 import type { Point, WorldRect } from './camera'
 
@@ -31,6 +31,27 @@ export function toLocal(object: ObjectData, point: Point): Point {
   return { x: dx * cos - dy * sin, y: dx * sin + dy * cos }
 }
 
+/** Distance from a point to a segment, clamped to the segment's ends. */
+export function distanceToSegment(
+  px: number,
+  py: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+): number {
+  const dx = bx - ax
+  const dy = by - ay
+  const lengthSquared = dx * dx + dy * dy
+
+  if (lengthSquared === 0) return Math.hypot(px - ax, py - ay)
+
+  // Clamped projection, so the nearest point is on the segment rather than its
+  // infinite line. Without the clamp, a click far past an arrow's tip would hit it.
+  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lengthSquared))
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+}
+
 /**
  * Is a world point inside this object?
  *
@@ -38,6 +59,28 @@ export function toLocal(object: ObjectData, point: Point): Point {
  * stay clickable when zoomed out.
  */
 export function hitsObject(object: ObjectData, point: Point, tolerance = 0): boolean {
+  // An arrow is a path, not a box. Testing its bounding box would make a long diagonal
+  // arrow select from anywhere in the large empty rectangle it spans.
+  if (isArrowLike(object.type)) {
+    const props = resolveArrowProps(object)
+    const points = props.points
+    // Half the stroke, so a thick arrow is clickable across its full painted width.
+    const reach = tolerance + props.strokeWidth / 2
+
+    for (let index = 0; index + 3 < points.length; index += 2) {
+      const distance = distanceToSegment(
+        point.x - object.x,
+        point.y - object.y,
+        points[index],
+        points[index + 1],
+        points[index + 2],
+        points[index + 3],
+      )
+      if (distance <= reach) return true
+    }
+    return false
+  }
+
   const local = toLocal(object, point)
   const halfW = object.w / 2 + tolerance
   const halfH = object.h / 2 + tolerance

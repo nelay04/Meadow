@@ -199,6 +199,90 @@ await delay(120)
 now = await state()
 check('ctrl+wheel zooms', now.zoom > zoomBefore, `zoom ${zoomBefore} -> ${now.zoom}`)
 
+// --- arrows and bindings ------------------------------------------------------
+//
+// The unit tests cover the binding maths against plain snapshots. This covers the part
+// they cannot: that a real drag with the arrow tool, landing on a real shape, produces
+// a binding at all.
+
+await page.evaluate(() => {
+  window.__doc.clear()
+  window.__canvas.setCamera({ x: 0, y: 0, zoom: 1 })
+})
+await delay(150)
+
+await page.click('[data-tool="rect"]')
+await drag(at(200, 400), at(320, 520))
+await page.click('[data-tool="rect"]')
+await drag(at(700, 400), at(820, 520))
+
+const boxes = await page.evaluate(() => window.__canvas.engine.stats.total)
+check('two boxes to connect', boxes === 2, `total=${boxes}`)
+
+await page.click('[data-tool="arrow"]')
+// Start and finish inside the two boxes, so both ends should attach.
+await drag(at(260, 460), at(760, 460))
+await delay(150)
+
+let bindings = await page.evaluate(() => window.__doc.bindings())
+check('dragging an arrow between two shapes binds both ends', bindings.length === 2, JSON.stringify(bindings))
+check(
+  'both bindings point at a real target',
+  // The length matters: `[].every()` is true, and a vacuous pass next to a failing
+  // count is exactly the sort of green tick that hides a bug.
+  bindings.length === 2 && bindings.every((binding) => binding.targetId !== null),
+  JSON.stringify(bindings),
+)
+
+const arrowId = await page.evaluate(() => window.__doc.findByType('arrow'))
+const drawn = await page.evaluate((id) => window.__doc.points(id), arrowId)
+check(
+  'the endpoints are solved onto the shape edges, not left where the pointer was',
+  Math.abs(drawn[0] - 320) < 8 && Math.abs(drawn[2] - 700) < 8,
+  `points ${drawn.map((value) => value.toFixed(1)).join(', ')}`,
+)
+
+// Move the right-hand box and check the arrow comes with it.
+await page.click('[data-tool="select"]')
+await page.mouse.click(at(760, 460).x, at(760, 460).y)
+await drag(at(760, 460), at(760, 620))
+await delay(150)
+
+const followed = await page.evaluate((id) => window.__doc.points(id), arrowId)
+check(
+  'the arrow follows its target when the target moves',
+  followed[3] > drawn[3] + 80,
+  `end y ${drawn[3].toFixed(1)} -> ${followed[3].toFixed(1)}`,
+)
+
+// Delete that box. ARCHITECTURE 4: the arrow survives with a loose end.
+await page.keyboard.press('Delete')
+await delay(150)
+
+const survivors = await page.evaluate(() => ({
+  total: window.__canvas.engine.stats.total,
+  bindings: window.__doc.bindings(),
+  points: window.__doc.points(window.__doc.findByType('arrow')),
+}))
+check(
+  'deleting a target leaves the arrow alive',
+  survivors.total === 2 && survivors.points !== null,
+  `total=${survivors.total}`,
+)
+check(
+  'the binding to the deleted shape goes free rather than vanishing',
+  survivors.bindings.length === 2 &&
+    survivors.bindings.filter((binding) => binding.targetId === null).length === 1,
+  JSON.stringify(survivors.bindings),
+)
+check(
+  'the loose end stays where the shape was',
+  survivors.points !== null && Math.abs(survivors.points[3] - followed[3]) < 1,
+  survivors.points === null
+    ? 'the arrow is gone'
+    : `${followed[3].toFixed(1)} -> ${survivors.points[3].toFixed(1)}`,
+)
+
 await browser.close()
 stop()
 

@@ -12,7 +12,15 @@
  * This module must not import from src/features. The engine stays extractable.
  */
 
-import { type ObjectData, isTextBearing, objectBounds } from '@meadow/schema'
+import {
+  type BindingData,
+  type ObjectData,
+  absolutePoints,
+  isArrowLike,
+  isTextBearing,
+  objectBounds,
+  resolveArrowProps,
+} from '@meadow/schema'
 import { Application, Container, Graphics } from 'pixi.js'
 
 import {
@@ -25,10 +33,12 @@ import {
 } from './camera'
 import { TextLayer } from './overlay/textLayer'
 import { SpatialIndex } from './spatialIndex'
+import { ArrowPass } from './renderers/arrowPass'
 import { ShapeBatch } from './renderers/shapeBatch'
 import type { SnapGuide } from './snapping'
 import { whenFontsReady } from './text/measure'
 import {
+  BINDING_COLOR,
   GUIDE_COLOR,
   MARQUEE_FILL,
   SELECTION_COLOR,
@@ -45,6 +55,7 @@ import { unionBounds } from './hitTest'
 import { createHandTool } from './tools/handTool'
 import { createSelectTool } from './tools/selectTool'
 import { createShapeTool } from './tools/shapeTool'
+import { createArrowTool } from './tools/arrowTool'
 import { createTextTool } from './tools/textTool'
 import type { CanvasPointerEvent, Tool, ToolContext, ToolId } from './tools/types'
 
@@ -68,6 +79,8 @@ export type EngineHost = {
   sendBackward(ids: readonly string[]): void
   bringToFront(ids: readonly string[]): void
   sendToBack(ids: readonly string[]): void
+  setArrowPoints(id: string, absolute: readonly number[]): void
+  bindArrow(input: Omit<BindingData, 'id'>): void
   /** Static HTML for a text-bearing object, for the idle overlay. */
   textHtml(id: string): string
   /**
@@ -97,6 +110,7 @@ export class CanvasEngine {
   private world!: Container
   private overlay!: Graphics
   private batch!: ShapeBatch
+  private arrows!: ArrowPass
   private textLayer!: TextLayer
 
   /**
@@ -122,6 +136,7 @@ export class CanvasEngine {
 
   private marquee: WorldRect | null = null
   private guides: readonly SnapGuide[] = []
+  private hoverTarget: string | null = null
 
   private dirty = true
   private frame = 0
@@ -185,7 +200,11 @@ export class CanvasEngine {
 
     this.world = new Container()
     this.batch = new ShapeBatch(MIN_BATCH_CAPACITY)
+    this.arrows = new ArrowPass()
+    // Order is the z-order between the two passes, and it is fixed: connectors always
+    // draw over shapes.
     this.world.addChild(this.batch.view)
+    this.world.addChild(this.arrows.view)
 
     this.overlay = new Graphics()
 
@@ -204,6 +223,7 @@ export class CanvasEngine {
     this.stopEditing()
     this.detachInput()
     if (this.textLayer !== undefined) this.textLayer.destroy()
+    if (this.arrows !== undefined) this.arrows.destroy()
     if (this.app !== undefined) this.app.destroy(true, { children: true })
   }
 
@@ -438,6 +458,9 @@ export class CanvasEngine {
       case 'text':
       case 'sticky':
         return createTextTool(this.context, id)
+      case 'arrow':
+      case 'line':
+        return createArrowTool(this.context, id)
       default:
         return createSelectTool(this.context)
     }
@@ -464,8 +487,13 @@ export class CanvasEngine {
       setGuides: (guides) => {
         this.guides = guides
       },
+      setHoverTarget: (id) => {
+        this.hoverTarget = id
+      },
       createObject: (input) => this.host.createObject(input),
       applyPatches: (patches) => this.host.applyPatches(patches),
+      setArrowPoints: (id, absolute) => this.host.setArrowPoints(id, absolute),
+      bindArrow: (input) => this.host.bindArrow(input),
       commit: () => this.host.commit(),
       beginTextEdit: (id) => this.beginTextEdit(id),
       requestRender: () => this.requestRender(),
@@ -554,6 +582,7 @@ export class CanvasEngine {
 
     // Walk the z-order so painting order matches `order`, and skip anything culled.
     this.batch.begin()
+    this.arrows.begin()
     this.overlayObjects.length = 0
     let drawn = 0
     let depth = 0
@@ -567,6 +596,21 @@ export class CanvasEngine {
       // DOM overlay paints its glyphs on top. A sticky note is a rounded rectangle
       // plus real selectable text, not a picture of one.
       if (isTextBearing(object.type)) this.overlayObjects.push({ object, z: depth })
+
+      if (isArrowLike(object.type)) {
+        const style = resolveArrowProps(object)
+        this.arrows.push({
+          points: absolutePoints(object, style),
+          stroke: style.stroke,
+          strokeAlpha: style.strokeAlpha * object.opacity,
+          strokeWidth: style.strokeWidth,
+          startHead: style.startHead,
+          endHead: style.endHead,
+          headSize: style.headSize,
+        })
+        drawn += 1
+        continue
+      }
 
       const kind = shapeKindFor(object.type)
       if (kind === null) continue
@@ -589,6 +633,7 @@ export class CanvasEngine {
       drawn += 1
     }
     this.batch.end()
+    this.arrows.end()
     this.lastVisible = drawn
 
     this.textLayer.sync(transform, this.overlayObjects)
@@ -604,7 +649,9 @@ export class CanvasEngine {
     this.world.removeChild(this.batch.view)
     this.batch.destroy()
     this.batch = new ShapeBatch(next)
-    this.world.addChild(this.batch.view)
+    // At index 0, not appended: appending would put the shapes over the arrows and
+    // silently invert the layer order the first time a board outgrew its capacity.
+    this.world.addChildAt(this.batch.view, 0)
   }
 
   /**
@@ -630,6 +677,25 @@ export class CanvasEngine {
       graphics.moveTo(from.x, from.y).lineTo(to.x, to.y)
     }
     if (this.guides.length > 0) graphics.stroke({ width: 1, color: GUIDE_COLOR })
+
+    // What an arrow end would attach to. Drawn before the selection chrome so a
+    // selected shape's own outline stays on top of it.
+    if (this.hoverTarget !== null) {
+      const target = this.cache.get(this.hoverTarget)
+      if (target !== undefined) {
+        const bounds = objectBounds(target)
+        const topLeft = projectPoint(transform, bounds.minX, bounds.minY)
+        const bottomRight = projectPoint(transform, bounds.maxX, bounds.maxY)
+        graphics
+          .rect(
+            topLeft.x - 2,
+            topLeft.y - 2,
+            bottomRight.x - topLeft.x + 4,
+            bottomRight.y - topLeft.y + 4,
+          )
+          .stroke({ width: 2, color: BINDING_COLOR, alpha: 0.9 })
+      }
+    }
 
     if (this.marquee !== null) {
       const topLeft = projectPoint(transform, this.marquee.minX, this.marquee.minY)
@@ -858,6 +924,14 @@ export class CanvasEngine {
       case 's':
       case 'S':
         this.setTool('sticky')
+        return
+      case 'a':
+      case 'A':
+        this.setTool('arrow')
+        return
+      case 'l':
+      case 'L':
+        this.setTool('line')
         return
       case 'Enter':
         // Enter edits the selected text object, the keyboard equivalent of a

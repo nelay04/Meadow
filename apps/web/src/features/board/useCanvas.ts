@@ -13,7 +13,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { CanvasEngine } from '../../canvas/engine'
 import type { ToolId } from '../../canvas/tools/types'
 import { DocEngineHost, observeDocument } from '../../doc/engineHost'
-import { type DocSession, reconcileOrder } from '../../doc/mutations'
+import { type DocSession, reconcileBindings, reconcileOrder } from '../../doc/mutations'
 import { createTextEditor } from '../../overlay/textEditor'
 
 export type CanvasHandle = {
@@ -76,6 +76,9 @@ export function useCanvas(session: DocSession): CanvasHandle {
     void engine.init().then(() => {
       if (cancelled) return
       reconcileOrder(current())
+      // A target may have moved while this client was offline, or the document may
+      // have been written by a client that solved differently.
+      reconcileBindings(current())
       host.invalidate()
       engine.resync()
     })

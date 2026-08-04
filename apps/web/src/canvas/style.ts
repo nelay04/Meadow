@@ -80,5 +80,7 @@ export function resolveStyle(object: ObjectData, kind: ShapeKind): ResolvedStyle
 }
 
 export const SELECTION_COLOR = 0x2f7d4f
+/** The highlight on a shape an arrow end would attach to. */
+export const BINDING_COLOR = 0xd8456b
 export const GUIDE_COLOR = 0xd8456b
 export const MARQUEE_FILL = 0x2f7d4f

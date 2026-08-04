@@ -6,12 +6,21 @@
  * the transaction wrapping and the read-only check stay in one place.
  */
 
-import type { ObjectData } from '@meadow/schema'
+import type { BindingData, ObjectData } from '@meadow/schema'
 
 import type { Camera, Point, WorldRect } from '../camera'
 import type { SnapGuide } from '../snapping'
 
-export type ToolId = 'select' | 'hand' | 'rect' | 'ellipse' | 'diamond' | 'text' | 'sticky'
+export type ToolId =
+  | 'select'
+  | 'hand'
+  | 'rect'
+  | 'ellipse'
+  | 'diamond'
+  | 'text'
+  | 'sticky'
+  | 'arrow'
+  | 'line'
 
 export type CanvasPointerEvent = {
   /** Position in world coordinates. */
@@ -44,9 +53,15 @@ export type ToolContext = {
   /** Transient overlay state, cleared when a gesture ends. */
   setMarquee(rect: WorldRect | null): void
   setGuides(guides: readonly SnapGuide[]): void
+  /** The object an arrow end would attach to, highlighted while drawing. */
+  setHoverTarget(id: string | null): void
 
   createObject(input: Partial<ObjectData> & { type: ObjectData['type'] }): string | null
   applyPatches(patches: { id: string; patch: Partial<ObjectData> }[]): void
+  /** Move an arrow's endpoints. Bounds and relative points are written together. */
+  setArrowPoints(id: string, absolute: readonly number[]): void
+  /** Attach an arrow end to an object. Replaces any existing binding on that end. */
+  bindArrow(input: Omit<BindingData, 'id'>): void
   /** Close the current undo step. Call when a gesture completes. */
   commit(): void
   /**

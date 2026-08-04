@@ -1,3 +1,5 @@
+export * from './arrowBinding'
+export * from './arrows'
 export * from './bindings'
 export * from './doc'
 export * from './objects'

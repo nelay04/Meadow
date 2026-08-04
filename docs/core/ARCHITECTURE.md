@@ -80,15 +80,19 @@ Camera state lives in one place. Both layers read it. They must never drift.
 | Text objects | Inter (default) + Comic Neue (option) | user-selectable per object, stored in `props.fontFamily` |
 | Code | JetBrains Mono | code blocks inside text objects, and any monospace UI |
 
-Self-host all three as woff2 under `apps/web/public/fonts` with `font-display: swap`.
+Self-host all three as woff2 under `apps/web/public/fonts`, fetched by `pnpm fonts`.
 No Google Fonts CDN: the app is behind auth on a single VPS, and a third-party font
 request on every board load is a needless dependency and a privacy leak.
 
 Fonts are a canvas concern, not just CSS. Text objects are measured in the DOM overlay
 and their bounding boxes are written into the CRDT, so a font that loads late changes
 `w`/`h` after the fact and shifts layout for everyone. Preload the two text-object
-faces (`<link rel="preload">`) and gate first canvas render on `document.fonts.ready`.
-Adding a text-object face later is a schema-visible decision, not a style tweak.
+faces and gate first canvas render on `document.fonts.ready`. Adding a text-object face
+later is a schema-visible decision, not a style tweak.
+
+**Corrected in M3: `font-display: block`, not `swap`.** A swap paints fallback glyphs
+first, and the measurer would measure *those* and write the resulting height into the
+CRDT before the real face arrived. A short invisible period is the cheaper failure.
 
 ### Backend — `services/api`
 
@@ -129,7 +133,7 @@ meadow/
 │       │   │   ├── engine.ts
 │       │   │   ├── camera.ts
 │       │   │   ├── spatial-index.ts
-│       │   │   ├── renderers/   # shapeBatch — instanced SDF, one draw call
+│       │   │   ├── renderers/   # shapeBatch (instanced SDF) + arrowPass (Graphics)
 │       │   │   ├── overlay/     # textLayer — mounting and camera sync, no editor
 │       │   │   ├── text/        # measurement, font loading, shared text styles
 │       │   │   └── tools/       # select, rect, arrow, text, pen...
@@ -145,6 +149,8 @@ meadow/
 │       └── src/
 │           ├── objects.ts   # ObjectType, BaseObject, per-type props
 │           ├── text.ts      # text props and defaults — layout is measurement input
+│           ├── arrows.ts    # arrow props; points are relative to the object origin
+│           ├── arrowBinding.ts  # anchor resolution, outline intersection, routing
 │           ├── bindings.ts
 │           ├── doc.ts
 │           └── index.ts
@@ -436,6 +442,46 @@ becomes its own draw call, and you will not hit 5k at 60fps. Plan for:
 
 Prototype the renderer against 5k objects on day one of M2. Discovering this at the
 milestone exit means rewriting the renderer.
+
+### Arrows are a separate pass, and a separate layer
+
+Settled in M4, and it deliberately contradicts the batching rule above. That rule
+exists because 5,000 rectangles at one draw call each is 5,000 draw calls. Arrows do
+not have that problem: a board carries tens of them against thousands of shapes, so
+their draw calls are noise. What they do have is genuinely dynamic geometry, since any
+endpoint can move when an unrelated object is dragged, and instancing is the wrong tool
+for that.
+
+So: **one shared `Graphics`, cleared and re-recorded every frame**, not one per arrow.
+Arrowheads are part of the path rather than sprites, because the sprite batching win is
+worth nothing once the pass is not batched, and a path head rotates and scales for
+free. Within the pass, geometry is still grouped by stroke style before being recorded
+— that is the same "batch by material, not by logical object" rule, and it took the
+per-arrow cost from 19 microseconds to 10.9.
+
+Measured by `pnpm bench:arrows`, in the case that would have overturned it: one arrow
+moving among many static ones, which invalidates the whole pass every frame.
+
+| | |
+|---|---|
+| Per arrow | **10.9 µs** |
+| 200 arrows, a busy board | 2.2 ms of a 16.7 ms frame |
+| Arrow pass alone fills a frame at | ~1,500 arrows |
+
+Past roughly 400 arrows this wants dirty-rect rebuilding. That would be a change to
+*when* the pass is rebuilt, not to the layer or batching decisions.
+
+**Arrows always draw above shapes.** The pass is a sibling of the batch, added after,
+so z-order between an individual arrow and an individual rectangle is not expressible.
+Figma and most whiteboards behave the same way, and users essentially never want a
+connector tucked behind a box.
+
+> **Known constraint, chosen rather than inherited.** A global arrows-on-top layer
+> means arrows escape frame clipping. If frames later clip their contents visually, an
+> arrow inside a frame will spill over the frame's edge instead of being cut off.
+> Frames are v2 scope so this costs nothing now. The fix, when it matters, is one arrow
+> pass per frame rather than one globally, which is a change in how many `Graphics`
+> exist and nothing else.
 
 ### Hit-testing
 
@@ -799,9 +845,31 @@ Not built, and deliberately: tables. §5 describes them as `<table>` elements in
 overlay, which the mount and camera machinery now supports, but they are a v2 feature
 and jumping to them before v1 ships would violate the milestone order.
 
-### M4 — Arrows & binding (1 week)
+### M4 — Arrows & binding (1 week) ✅ done
 Arrow tool, endpoint attachment, anchor recalculation on target move, orthogonal
 routing option, survival on target delete.
+
+An arrow's endpoints are **derived, not authored**. The document stores a binding; the
+point is recomputed by a solver in `doc/mutations.ts` that runs inside the same
+transaction as the move that caused it. That placement is the whole design: a peer
+never observes an arrow detached from the shape it is attached to, and one undo step
+puts both back.
+
+A centre anchor is directional — it aims at the target's centre and stops at the real
+outline, so an arrow into an ellipse lands on the ellipse rather than in the corner of
+its bounding box. An explicit anchor is honoured exactly. `anchorFor` picks between the
+two by where the endpoint was dropped, which is what makes plain "drag between two
+boxes" do the right thing with no modifier key.
+
+Orthogonal routing regenerates its waypoints on every solve rather than storing and
+adjusting them, so a route cannot drift out of step with its endpoints. It is not
+obstacle-aware, on purpose: that is a genuinely hard problem, it is the part of arrows
+that matters least when missing, and a route that reshuffles itself as unrelated
+objects move is worse than one that runs straight through them.
+
+Arrow-to-arrow bindings are expressible in the schema and are refused by the tool. The
+target has no interior to aim at, so the anchor maths degenerates, and chains of them
+can cycle.
 
 ### M5 — Realtime polish (1 week)
 Awareness cursors + selection highlights, offline reconnect convergence, snapshot
@@ -865,6 +933,7 @@ the target is about.
 | Draw calls at 5,000 objects | **1**, measured. See M2 above. |
 | CPU frame cost at 5,000 objects | **3.5ms median**, measured by `pnpm bench:canvas`. |
 | Overlay drift, zoom 0.33 to 2.5, dpr 1 and 2 | **within 1 CSS pixel**, measured against screenshots by `pnpm smoke:overlay`. |
+| Arrow pass, per arrow | **10.9 µs**, measured by `pnpm bench:arrows`. 2.2 ms at 200 arrows. |
 | 60fps at 5,000 objects | **not verified.** Every run so far rasterised in software (SwiftShader), where `app.render()` returns before rasterisation finishes, so it measures CPU work only. Needs `/canvas-dev.html?n=5000&stress` on real hardware. |
 | 20,000 objects | **never measured.** The dev machine OOM-kills the run at that size, so the benchmark takes one object count per invocation. |
 | Concurrent editors, cursor latency, compaction | not yet applicable. M5. |

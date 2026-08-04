@@ -30,6 +30,8 @@ const TOOLS: { id: ToolId; label: string; hint: string }[] = [
   { id: 'hand', label: 'Pan', hint: 'H' },
   { id: 'text', label: 'Text', hint: 'T' },
   { id: 'sticky', label: 'Sticky', hint: 'S' },
+  { id: 'arrow', label: 'Arrow', hint: 'A' },
+  { id: 'line', label: 'Line', hint: 'L' },
   { id: 'rect', label: 'Rectangle', hint: 'R' },
   { id: 'ellipse', label: 'Ellipse', hint: 'O' },
   { id: 'diamond', label: 'Diamond', hint: 'D' },

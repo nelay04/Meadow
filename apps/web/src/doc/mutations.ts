@@ -16,14 +16,23 @@
  */
 
 import {
+  type BindingData,
   type ObjectData,
   type ObjectType,
+  absolutePoints,
+  arrowGeometry,
+  bindingData,
+  createBindingMap,
   createObjectMap,
   docRoots,
+  isArrowLike,
   nanoid,
   objectData,
   objectText,
+  readBinding,
   readObject,
+  resolveArrowProps,
+  solveArrowEnds,
   writeObject,
 } from '@meadow/schema'
 import * as Y from 'yjs'
@@ -128,6 +137,7 @@ export function updateObject(session: DocSession, id: string, patch: Partial<Obj
     const map = session.objects.get(id)
     if (map === undefined) return
     writeObject(map, patch)
+    reflowArrows(session, new Set([id]))
   })
 }
 
@@ -143,11 +153,16 @@ export function updateObjects(
   patches: { id: string; patch: Partial<ObjectData> }[],
 ): void {
   write(session, () => {
+    const touched = new Set<string>()
     for (const { id, patch } of patches) {
       const map = session.objects.get(id)
       if (map === undefined) continue
       writeObject(map, patch)
+      touched.add(id)
     }
+    // After every patch, not per patch. Dragging a shape and an arrow bound to it in
+    // one selection would otherwise solve the arrow against the shape's old position.
+    reflowArrows(session, touched)
   })
 }
 
@@ -165,10 +180,168 @@ export function deleteObjects(session: DocSession, ids: readonly string[]): void
 
     // ARCHITECTURE 4: a binding to a deleted object becomes a free endpoint. The
     // arrow survives with a loose end rather than disappearing along with its target.
-    for (const binding of session.bindings.values()) {
+    // The endpoint is deliberately left where it was: it was last solved against the
+    // target's final position, so the arrow stays pointing at the space the shape
+    // occupied instead of snapping somewhere arbitrary.
+    for (const [key, binding] of session.bindings.entries()) {
+      // A binding whose arrow is gone is garbage, and it would resurrect the arrow's
+      // geometry if the delete were undone and redone.
+      if (doomed.has(String(binding.get('arrowId')))) {
+        session.bindings.delete(key)
+        continue
+      }
       if (doomed.has(binding.get('targetId') as string)) binding.set('targetId', null)
     }
   })
+}
+
+// --- arrows and bindings ------------------------------------------------------
+//
+// An arrow's endpoints are derived, not authored. The document stores a binding, and
+// the point is recomputed whenever the target moves. Doing that here rather than in
+// the renderer is the whole design: the solved points land in the same transaction as
+// the move that caused them, so a peer never observes an arrow detached from the shape
+// it is attached to, and one undo step puts both back.
+
+/** Write solved world points back as an origin plus relative points, in step. */
+function writeArrowPoints(session: DocSession, arrowId: string, absolute: readonly number[]): void {
+  const map = session.objects.get(arrowId)
+  if (map === undefined) return
+
+  const geometry = arrowGeometry(absolute)
+  writeObject(map, {
+    x: geometry.x,
+    y: geometry.y,
+    w: geometry.w,
+    h: geometry.h,
+    props: { points: geometry.points },
+  })
+}
+
+type ArrowBindings = { start: BindingData | null; end: BindingData | null }
+
+/**
+ * Re-solve every arrow affected by a set of changed objects.
+ *
+ * Must be called inside a transaction. Two things make an arrow affected: one of its
+ * bindings points at something that moved, or the arrow itself moved. The second case
+ * matters as much as the first, since without it dragging a bound arrow's body would
+ * peel it off its target and leave it floating.
+ *
+ * O(bindings) per call, walked in full rather than kept as an index. A board has tens
+ * of bindings against thousands of objects, and an index would be a second structure
+ * to keep correct across undo, remote edits, and deletion.
+ */
+function reflowArrows(session: DocSession, changed: ReadonlySet<string>): void {
+  if (session.bindings.size === 0) return
+
+  const byArrow = new Map<string, ArrowBindings>()
+  const affected = new Set<string>()
+
+  for (const map of session.bindings.values()) {
+    const binding = readBinding(map)
+    let entry = byArrow.get(binding.arrowId)
+    if (entry === undefined) {
+      entry = { start: null, end: null }
+      byArrow.set(binding.arrowId, entry)
+    }
+    entry[binding.end] = binding
+
+    if (changed.has(binding.arrowId)) affected.add(binding.arrowId)
+    if (binding.targetId !== null && changed.has(binding.targetId)) affected.add(binding.arrowId)
+  }
+
+  for (const arrowId of affected) {
+    const arrowMap = session.objects.get(arrowId)
+    if (arrowMap === undefined) continue
+
+    const arrow = readObject(arrowMap)
+    if (!isArrowLike(arrow.type)) continue
+
+    const entry = byArrow.get(arrowId)
+    if (entry === undefined) continue
+
+    const target = (binding: BindingData | null): ObjectData | null => {
+      if (binding === null || binding.targetId === null) return null
+      const map = session.objects.get(binding.targetId)
+      return map === undefined ? null : readObject(map)
+    }
+
+    const style = resolveArrowProps(arrow)
+    const solved = solveArrowEnds(
+      absolutePoints(arrow, style),
+      target(entry.start),
+      entry.start,
+      target(entry.end),
+      entry.end,
+      style.routing,
+    )
+    writeArrowPoints(session, arrowId, solved)
+  }
+}
+
+/** Attach an arrow end to an object, or detach it by passing a null target. */
+export function bindArrow(
+  session: DocSession,
+  input: Omit<BindingData, 'id'> & { id?: string },
+): string {
+  return write(session, () => {
+    const data = bindingData.parse({ ...input, id: input.id ?? nanoid() })
+
+    // One binding per arrow end. Replacing rather than adding, because two bindings on
+    // the same end would both solve and the later one would silently win.
+    for (const [key, map] of session.bindings.entries()) {
+      const existing = readBinding(map)
+      if (existing.arrowId === data.arrowId && existing.end === data.end) {
+        session.bindings.delete(key)
+      }
+    }
+
+    session.bindings.set(data.id, createBindingMap(data))
+    reflowArrows(session, new Set([data.arrowId]))
+    return data.id
+  })
+}
+
+/** Drop an arrow end's attachment. The endpoint stays where it currently is. */
+export function unbindArrow(session: DocSession, arrowId: string, end: BindingData['end']): void {
+  write(session, () => {
+    for (const [key, map] of session.bindings.entries()) {
+      const binding = readBinding(map)
+      if (binding.arrowId === arrowId && binding.end === end) session.bindings.delete(key)
+    }
+  })
+}
+
+/** Every binding belonging to an arrow. */
+export function arrowBindings(session: DocSession, arrowId: string): ArrowBindings {
+  const entry: ArrowBindings = { start: null, end: null }
+  for (const map of session.bindings.values()) {
+    const binding = readBinding(map)
+    if (binding.arrowId === arrowId) entry[binding.end] = binding
+  }
+  return entry
+}
+
+/** Move an arrow's endpoints directly, for the arrow tool while drawing. */
+export function setArrowPoints(
+  session: DocSession,
+  arrowId: string,
+  absolute: readonly number[],
+): void {
+  write(session, () => writeArrowPoints(session, arrowId, absolute))
+}
+
+/**
+ * Re-solve every bound arrow on the board.
+ *
+ * For load, where the document may have been written by a client that solved
+ * differently, or where a target moved while this client was offline. Cheap, and it
+ * repairs rather than throws, like `reconcileOrder`.
+ */
+export function reconcileBindings(session: DocSession): void {
+  if (!session.canWrite || session.bindings.size === 0) return
+  write(session, () => reflowArrows(session, new Set(session.objects.keys())))
 }
 
 // --- text ---------------------------------------------------------------------

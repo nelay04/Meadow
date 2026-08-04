@@ -11,7 +11,13 @@
  * restacked.
  */
 
-import { type ObjectData, type TextProps, readObject, resolveTextProps } from '@meadow/schema'
+import {
+  type BindingData,
+  type ObjectData,
+  type TextProps,
+  readObject,
+  resolveTextProps,
+} from '@meadow/schema'
 import type * as Y from 'yjs'
 
 import type { EngineHost } from '../canvas/engine'
@@ -19,6 +25,7 @@ import {
   type DocSession,
   ReadOnlyError,
   addObject,
+  bindArrow,
   bringForward,
   bringToFront,
   deleteObjects,
@@ -26,6 +33,7 @@ import {
   objectFragment,
   sendBackward,
   sendToBack,
+  setArrowPoints,
   updateObjects,
 } from './mutations'
 import { fragmentToHtml } from './richText'
@@ -151,6 +159,14 @@ export class DocEngineHost implements EngineHost {
 
   sendToBack(ids: readonly string[]): void {
     this.guard(() => sendToBack(this.session, ids), undefined)
+  }
+
+  setArrowPoints(id: string, absolute: readonly number[]): void {
+    this.guard(() => setArrowPoints(this.session, id, absolute), undefined)
+  }
+
+  bindArrow(input: Omit<BindingData, 'id'>): void {
+    this.guard(() => bindArrow(this.session, input), undefined)
   }
 
   /**

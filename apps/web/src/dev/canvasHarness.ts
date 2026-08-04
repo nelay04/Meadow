@@ -11,6 +11,12 @@
  *   /canvas-dev.html?n=5000&stress   pan every frame and report sustained fps
  */
 
+import {
+  absolutePoints,
+  arrowGeometry,
+  readBinding,
+  resolveArrowProps,
+} from '@meadow/schema'
 import * as Y from 'yjs'
 
 import { CanvasEngine } from '../canvas/engine'
@@ -18,10 +24,13 @@ import type { ToolId } from '../canvas/tools/types'
 import { DocEngineHost, observeDocument } from '../doc/engineHost'
 import {
   addObjects,
+  clearObjects,
   createDocSession,
   endGesture,
   objectFragment,
+  readObjectById,
   setObjectText,
+  updateObject,
 } from '../doc/mutations'
 import { fragmentToPlainText } from '../doc/richText'
 import { createTextEditor } from '../overlay/textEditor'
@@ -32,6 +41,12 @@ const stress = params.has('stress')
 // Off by default. The interaction smoke test starts from ?n=0 and asserts exact
 // counts, so seeded content has to be opted into rather than assumed.
 const withText = params.has('text')
+// Arrows are seeded separately from shapes because the question they answer is
+// different: the batch scales with shape count, the arrow pass is re-recorded whole on
+// any change. `arrowdrag` moves one of them per frame through the real mutation path,
+// which is the case worth measuring.
+const arrowCount = Number(params.get('arrows') ?? '0')
+const arrowDrag = params.has('arrowdrag')
 
 const TYPES = ['rect', 'ellipse', 'diamond'] as const
 const PALETTE = [0x9ec9b0, 0x6fcf97, 0x2f7d4f, 0xe8c468, 0xd88c5a, 0x7b8fd4, 0xc47ba0, 0x5aa7c4]
@@ -49,6 +64,7 @@ function seeded(seed: number): () => number {
 
 const doc = new Y.Doc()
 const session = createDocSession(doc, 'owner')
+let arrowIds: string[] = []
 
 // The harness gets the real editor. A smoke test that drove a stub would prove the
 // wiring and nothing about ProseMirror binding to the fragment.
@@ -93,6 +109,35 @@ function seed(): void {
   addObjects(session, inputs)
   endGesture(session)
 
+  if (arrowCount > 0) {
+    arrowIds = addObjects(
+      session,
+      Array.from({ length: arrowCount }, () => {
+        const x = random() * spreadX
+        const y = random() * spreadY
+        const dx = (random() - 0.5) * 400
+        const dy = (random() - 0.5) * 300
+        const geometry = arrowGeometry([x, y, x + dx, y + dy])
+        return {
+          type: 'arrow' as const,
+          x: geometry.x,
+          y: geometry.y,
+          w: geometry.w,
+          h: geometry.h,
+          props: {
+            points: geometry.points,
+            // Quantised, like the shapes above and like a real document. A continuous
+            // width would give every arrow its own style and defeat grouping, which
+            // would make the benchmark measure a board nobody has.
+            stroke: PALETTE[Math.floor(random() * PALETTE.length)],
+            strokeWidth: 1 + Math.floor(random() * 3),
+          },
+        }
+      }),
+    )
+    endGesture(session)
+  }
+
   if (!withText) return
 
   // One sticky and one text object at fixed coordinates, so the overlay has something
@@ -131,6 +176,7 @@ void engine.init().then(() => {
   let since = performance.now()
   let fps = 0
   let direction = 1
+  let dragPhase = 0
 
   const tick = (): void => {
     if (stress) {
@@ -138,6 +184,18 @@ void engine.init().then(() => {
       // renders nothing and would report a meaningless fps.
       engine.camera.panByScreen(direction * 2, 0)
       if (Math.abs(engine.camera.x) > 900) direction = -direction
+    }
+
+    if (arrowDrag && arrowIds.length > 0) {
+      // One arrow moves; the rest are static. Through updateObject rather than by
+      // poking the cache, so the measurement includes the transaction, the observer
+      // and the cache update a real drag pays for.
+      const id = arrowIds[0]
+      const object = host.object(id)
+      if (object !== undefined) {
+        dragPhase += 0.08
+        updateObject(session, id, { x: object.x + Math.sin(dragPhase) * 4 })
+      }
     }
 
     frames += 1
@@ -213,6 +271,19 @@ window.__doc = {
     const fragment = objectFragment(session, id)
     return fragment === null ? null : fragmentToPlainText(fragment)
   },
+  clear: () => {
+    clearObjects(session)
+    endGesture(session)
+  },
+  points: (id: string) => {
+    const arrow = readObjectById(session, id)
+    return arrow === undefined ? null : absolutePoints(arrow, resolveArrowProps(arrow))
+  },
+  bindings: () =>
+    Array.from(session.bindings.values(), (map) => {
+      const binding = readBinding(map)
+      return { arrowId: binding.arrowId, end: binding.end, targetId: binding.targetId }
+    }),
   // Ids are generated, so a test needs a way to ask for one by type.
   findByType: (type: string) => {
     for (const id of session.order.toArray()) {
@@ -238,6 +309,9 @@ declare global {
       orderLength(): number
       objectCount(): number
       setText(id: string, value: string): void
+      clear(): void
+      points(id: string): number[] | null
+      bindings(): { arrowId: string; end: string; targetId: string | null }[]
       text(id: string): string | null
       findByType(type: string): string | null
     }
