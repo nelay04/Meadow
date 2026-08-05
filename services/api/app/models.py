@@ -156,6 +156,32 @@ class BoardMember(Base):
     created_at: Mapped[datetime] = _created_at()
 
 
+class BoardThumbnail(Base):
+    """A small preview image of the board, for the board list.
+
+    In Postgres rather than MinIO, and that is a deliberate departure from
+    ARCHITECTURE 1's "object storage: images, attachments, exports". A thumbnail is a
+    few kilobytes, there is exactly one per board, and it is rewritten in place rather
+    than accumulating versions. Standing up MinIO to hold one small row per board would
+    be a second storage system to back up, secure, and keep consistent with the row
+    that points at it, for no benefit at this size.
+
+    `Board.thumbnail_url` stays unused and reserved: user-uploaded images and exports in
+    v2 genuinely do need object storage, and that is when it earns its place.
+    """
+
+    __tablename__ = "board_thumbnails"
+
+    board_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("boards.id", ondelete="CASCADE"), primary_key=True
+    )
+    image: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    content_type: Mapped[str] = mapped_column(String, nullable=False, default="image/webp")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
 class BoardUpdate(Base):
     """Append-only Yjs update log.
 

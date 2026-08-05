@@ -20,8 +20,9 @@ import {
   isTextBearing,
   objectBounds,
   resolveArrowProps,
+  resolveTextProps,
 } from '@meadow/schema'
-import { Application, Container, Graphics } from 'pixi.js'
+import { Application, Container, Graphics, Rectangle } from 'pixi.js'
 
 import {
   Camera,
@@ -32,11 +33,13 @@ import {
   viewTransform,
 } from './camera'
 import { TextLayer } from './overlay/textLayer'
+import { type Wanderer, type WandererSelection, WandererLayer } from './overlay/wandererLayer'
 import { SpatialIndex } from './spatialIndex'
 import { ArrowPass } from './renderers/arrowPass'
 import { ShapeBatch } from './renderers/shapeBatch'
 import type { SnapGuide } from './snapping'
 import { whenFontsReady } from './text/measure'
+import { FONT_STACKS } from './text/textStyle'
 import {
   BINDING_COLOR,
   GUIDE_COLOR,
@@ -58,6 +61,38 @@ import { createShapeTool } from './tools/shapeTool'
 import { createArrowTool } from './tools/arrowTool'
 import { createTextTool } from './tools/textTool'
 import type { CanvasPointerEvent, Tool, ToolContext, ToolId } from './tools/types'
+
+/**
+ * Greedy word wrap for thumbnail text.
+ *
+ * Not a layout engine and not trying to be: the real wrapping is the browser's, in the
+ * DOM overlay. This only has to put roughly the right words on roughly the right lines
+ * at a size where a word is a few pixels wide.
+ */
+function wrapText(context: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
+  const lines: string[] = []
+
+  for (const paragraph of text.split('\n')) {
+    if (paragraph === '') {
+      lines.push('')
+      continue
+    }
+
+    let current = ''
+    for (const word of paragraph.split(/\s+/)) {
+      const candidate = current === '' ? word : `${current} ${word}`
+      if (current !== '' && context.measureText(candidate).width > maxWidth) {
+        lines.push(current)
+        current = word
+      } else {
+        current = candidate
+      }
+    }
+    if (current !== '') lines.push(current)
+  }
+
+  return lines
+}
 
 /** Minimum instance capacity, so small boards do not reallocate on the first few adds. */
 const MIN_BATCH_CAPACITY = 2048
@@ -83,6 +118,8 @@ export type EngineHost = {
   bindArrow(input: Omit<BindingData, 'id'>): void
   /** Static HTML for a text-bearing object, for the idle overlay. */
   textHtml(id: string): string
+  /** Plain text for the same object, for thumbnails and anything non-visual. */
+  textPlain(id: string): string
   /**
    * Mount a rich-text editor into an overlay element. Returns the teardown, or null
    * when this host cannot edit. The engine never learns what the editor is.
@@ -98,6 +135,12 @@ export type EngineEvents = {
   onCameraChange?(camera: { x: number; y: number; zoom: number }): void
   /** The id of the object currently being text-edited, or null. */
   onEditingChange?(id: string | null): void
+  /**
+   * The pointer in world coordinates, or null when it leaves the canvas. Fires at the
+   * raw event rate; throttling belongs to the consumer, which knows what it costs to
+   * publish.
+   */
+  onPointerWorld?(point: Point | null): void
 }
 
 export class CanvasEngine {
@@ -112,6 +155,10 @@ export class CanvasEngine {
   private batch!: ShapeBatch
   private arrows!: ArrowPass
   private textLayer!: TextLayer
+  private wanderers!: WandererLayer
+
+  /** Remote presence. Ephemeral, never read from or written to the document. */
+  private wandererState: readonly Wanderer[] = []
 
   /**
    * Auto-height measurements taken during a render, flushed after it.
@@ -208,8 +255,13 @@ export class CanvasEngine {
 
     this.overlay = new Graphics()
 
+    this.wanderers = new WandererLayer()
+
     this.app.stage.addChild(this.world)
     this.app.stage.addChild(this.overlay)
+    // Above the selection chrome: a remote cursor is the one thing that should never
+    // be hidden behind local UI.
+    this.app.stage.addChild(this.wanderers.view)
 
     this.setTool('select')
     this.attachInput()
@@ -223,6 +275,7 @@ export class CanvasEngine {
     this.stopEditing()
     this.detachInput()
     if (this.textLayer !== undefined) this.textLayer.destroy()
+    if (this.wanderers !== undefined) this.wanderers.destroy()
     if (this.arrows !== undefined) this.arrows.destroy()
     if (this.app !== undefined) this.app.destroy(true, { children: true })
   }
@@ -580,7 +633,141 @@ export class CanvasEngine {
       this.index.search(this.camera.visibleWorld(this.viewportWidth, this.viewportHeight, 64)),
     )
 
-    // Walk the z-order so painting order matches `order`, and skip anything culled.
+    this.lastVisible = this.paintScene(visible)
+
+    this.textLayer.sync(transform, this.overlayObjects)
+    this.drawOverlay(transform)
+    this.drawWanderers(transform)
+  }
+
+  /**
+   * Render the whole board, fitted, as a small image for the board list.
+   *
+   * Two things make this more than an `extract` call.
+   *
+   * Culling has to be off. The live scene only ever holds the objects on screen, and a
+   * thumbnail wants the ones that are not.
+   *
+   * And text lives in the DOM overlay, not in WebGL, so extracting the canvas alone
+   * produces a board with every sticky note blank. The glyphs are drawn on afterwards
+   * with plain 2D canvas text. Fidelity is not the goal at this size; a thumbnail that
+   * shows where the writing is beats one that pretends there is none.
+   */
+  async captureThumbnail(maxDimension = 512): Promise<Blob | null> {
+    if (this.app === undefined || this.cache.size === 0) return null
+
+    const bounds = unionBounds(Array.from(this.cache.values()))
+    if (bounds === null) return null
+
+    const worldWidth = Math.max(bounds.maxX - bounds.minX, 1)
+    const worldHeight = Math.max(bounds.maxY - bounds.minY, 1)
+    // Never upscale. A board with three small shapes should produce a small image, not
+    // a blurry large one.
+    const scale = Math.min(maxDimension / worldWidth, maxDimension / worldHeight, 1)
+    const width = Math.max(1, Math.round(worldWidth * scale))
+    const height = Math.max(1, Math.round(worldHeight * scale))
+
+    const transform: ViewTransform = { tx: -bounds.minX * scale, ty: -bounds.minY * scale, scale }
+
+    // Chrome and presence are this client's own state, not the board's.
+    const overlayVisible = this.overlay.visible
+    const wanderersVisible = this.wanderers.view.visible
+    this.overlay.visible = false
+    this.wanderers.view.visible = false
+
+    let source: HTMLCanvasElement
+    try {
+      this.world.position.set(transform.tx, transform.ty)
+      this.world.scale.set(transform.scale)
+      this.ensureCapacity()
+      this.paintScene(null)
+
+      source = this.app.renderer.extract.canvas({
+        target: this.app.stage,
+        frame: new Rectangle(0, 0, width, height),
+        resolution: 1,
+      }) as HTMLCanvasElement
+    } finally {
+      this.overlay.visible = overlayVisible
+      this.wanderers.view.visible = wanderersVisible
+      // The scene is now painted for the thumbnail rather than for the viewport, so
+      // the next frame has to rebuild it.
+      this.requestRender()
+    }
+
+    const surface = document.createElement('canvas')
+    surface.width = width
+    surface.height = height
+    const context = surface.getContext('2d')
+    if (context === null) return null
+
+    context.fillStyle = '#fbfbf9'
+    context.fillRect(0, 0, width, height)
+    context.drawImage(source, 0, 0, width, height)
+
+    this.paintThumbnailText(context, transform)
+
+    return await new Promise((resolve) => {
+      // webp over png: a canvas of flat fills compresses far better, and the endpoint
+      // accepts both.
+      surface.toBlob((blob) => resolve(blob), 'image/webp', 0.8)
+    })
+  }
+
+  /** Plain text for the thumbnail, since the real text is DOM and not in the capture. */
+  private paintThumbnailText(context: CanvasRenderingContext2D, transform: ViewTransform): void {
+    for (const { object } of this.overlayObjects) {
+      const props = resolveTextProps(object)
+      const size = props.fontSize * transform.scale
+      // Below about three pixels a glyph is noise. Skipping is more honest than
+      // drawing a grey smear where words would be.
+      if (size < 3) continue
+
+      const text = this.host.textPlain(object.id)
+      if (text === '') continue
+
+      const topLeft = projectPoint(transform, object.x, object.y)
+      const boxWidth = object.w * transform.scale
+      const boxHeight = object.h * transform.scale
+      const padding = props.padding * transform.scale
+
+      context.save()
+      context.beginPath()
+      context.rect(topLeft.x, topLeft.y, boxWidth, boxHeight)
+      context.clip()
+
+      context.fillStyle = `#${(props.color >>> 0).toString(16).padStart(6, '0').slice(-6)}`
+      context.font = `${size}px ${FONT_STACKS[props.fontFamily]}`
+      context.textAlign = props.align === 'center' ? 'center' : props.align === 'right' ? 'right' : 'left'
+      context.textBaseline = 'top'
+
+      const anchorX =
+        props.align === 'center'
+          ? topLeft.x + boxWidth / 2
+          : props.align === 'right'
+            ? topLeft.x + boxWidth - padding
+            : topLeft.x + padding
+
+      const lineHeight = size * props.lineHeight
+      let y = topLeft.y + padding
+      for (const line of wrapText(context, text, boxWidth - padding * 2)) {
+        if (y > topLeft.y + boxHeight) break
+        context.fillText(line, anchorX, y)
+        y += lineHeight
+      }
+
+      context.restore()
+    }
+  }
+
+  /**
+   * Fill the batch and the arrow pass from the z-order.
+   *
+   * `visible` is the cull set, or null to paint everything regardless of the camera.
+   * The thumbnail pass needs the second: it renders the whole board fitted into a
+   * small frame, so the objects it wants are exactly the ones culling would drop.
+   */
+  private paintScene(visible: ReadonlySet<string> | null): number {
     this.batch.begin()
     this.arrows.begin()
     this.overlayObjects.length = 0
@@ -588,7 +775,7 @@ export class CanvasEngine {
     let depth = 0
     for (const id of this.host.order()) {
       depth += 1
-      if (!visible.has(id)) continue
+      if (visible !== null && !visible.has(id)) continue
       const object = this.cache.get(id)
       if (object === undefined) continue
 
@@ -634,10 +821,7 @@ export class CanvasEngine {
     }
     this.batch.end()
     this.arrows.end()
-    this.lastVisible = drawn
-
-    this.textLayer.sync(transform, this.overlayObjects)
-    this.drawOverlay(transform)
+    return drawn
   }
 
   private ensureCapacity(): void {
@@ -756,6 +940,41 @@ export class CanvasEngine {
     graphics.fill({ color: 0xffffff }).stroke({ width: 1.5, color: SELECTION_COLOR })
   }
 
+  /**
+   * Remote presence for the next frame.
+   *
+   * Stored and drawn rather than pushed straight to the layer, because awareness
+   * arrives on its own schedule and rendering on receipt would break the one-render-
+   * per-frame rule for the busiest message on the socket.
+   */
+  setWanderers(wanderers: readonly Wanderer[]): void {
+    this.wandererState = wanderers
+    this.requestRender()
+  }
+
+  private drawWanderers(transform: ViewTransform): void {
+    if (this.wandererState.length === 0) {
+      this.wanderers.drawSelections(transform, [])
+      this.wanderers.drawCursors(transform, [])
+      return
+    }
+
+    const selections: WandererSelection[] = []
+    for (const wanderer of this.wandererState) {
+      for (const id of wanderer.selection) {
+        const object = this.cache.get(id)
+        // Silently skipped when the object is unknown here: a peer can have something
+        // selected that this client has not loaded yet, or has already seen deleted.
+        if (object !== undefined) {
+          selections.push({ color: wanderer.color, bounds: objectBounds(object) })
+        }
+      }
+    }
+
+    this.wanderers.drawSelections(transform, selections)
+    this.wanderers.drawCursors(transform, this.wandererState)
+  }
+
   // --- input ------------------------------------------------------------------
 
   private toCanvasPoint(event: PointerEvent | WheelEvent): Point {
@@ -790,7 +1009,13 @@ export class CanvasEngine {
   }
 
   private onPointerMove = (event: PointerEvent): void => {
-    this.tool.onPointerMove(this.toPointerEvent(event))
+    const canvasEvent = this.toPointerEvent(event)
+    this.events.onPointerWorld?.(canvasEvent.world)
+    this.tool.onPointerMove(canvasEvent)
+  }
+
+  private onPointerLeave = (): void => {
+    this.events.onPointerWorld?.(null)
   }
 
   private onPointerUp = (event: PointerEvent): void => {
@@ -997,6 +1222,7 @@ export class CanvasEngine {
     canvas.addEventListener('pointerup', this.onPointerUp)
     canvas.addEventListener('pointercancel', this.onPointerUp)
     canvas.addEventListener('wheel', this.onWheel, { passive: false })
+    canvas.addEventListener('pointerleave', this.onPointerLeave)
     canvas.addEventListener('dblclick', this.onDoubleClick)
     canvas.addEventListener('contextmenu', this.onContextMenu)
     window.addEventListener('keydown', this.onKeyDown)
@@ -1011,6 +1237,7 @@ export class CanvasEngine {
       canvas.removeEventListener('pointerup', this.onPointerUp)
       canvas.removeEventListener('pointercancel', this.onPointerUp)
       canvas.removeEventListener('wheel', this.onWheel)
+      canvas.removeEventListener('pointerleave', this.onPointerLeave)
       canvas.removeEventListener('dblclick', this.onDoubleClick)
       canvas.removeEventListener('contextmenu', this.onContextMenu)
     }

@@ -9,15 +9,18 @@
  * component once.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { IndexeddbPersistence } from 'y-indexeddb'
 import * as Y from 'yjs'
 
+import type { Wanderer } from '../../canvas/overlay/wandererLayer'
 import type { ToolId } from '../../canvas/tools/types'
 import { createDocSession, roleCanWrite } from '../../doc/mutations'
 import type { BoardRole } from '../../lib/api'
 import * as api from '../../lib/api'
+import { type PresenceHandle, colorFor, trackPresence } from '../../sync/awareness'
 import { type BoardConnection, type ConnectionState, connectBoard } from '../../sync/provider'
+import { useAuth } from '../auth/AuthContext'
 import { useCanvas } from './useCanvas'
 
 type Props = {
@@ -37,6 +40,25 @@ const TOOLS: { id: ToolId; label: string; hint: string }[] = [
   { id: 'diamond', label: 'Diamond', hint: 'D' },
 ]
 
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return '?'
+  return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase()
+}
+
+/** One avatar per person, however many tabs they have open. */
+function dedupe(wanderers: readonly Wanderer[]): Wanderer[] {
+  const seen = new Set<string>()
+  const out: Wanderer[] = []
+  for (const wanderer of wanderers) {
+    const key = `${wanderer.name}|${wanderer.color}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(wanderer)
+  }
+  return out
+}
+
 export default function BoardPage({ boardId, onBack }: Props) {
   const [title, setTitle] = useState('')
   // Seeded from the ws-token mint and refreshed on every reconnect. The server is
@@ -46,10 +68,40 @@ export default function BoardPage({ boardId, onBack }: Props) {
   const [detail, setDetail] = useState('')
   const connection = useRef<BoardConnection | null>(null)
 
+  const { user } = useAuth()
+  const [wanderers, setWanderers] = useState<Wanderer[]>([])
+  const presence = useRef<PresenceHandle | null>(null)
+
   // One Y.Doc per board, for the lifetime of this view.
   const doc = useMemo(() => new Y.Doc(), [boardId])
   const session = useMemo(() => createDocSession(doc, role), [doc, role])
-  const canvas = useCanvas(session)
+
+  // A stable object, so the engine is not rebuilt every render. The handle behind it
+  // is swapped when the connection is, and the ref indirection absorbs that.
+  const presenceBridge = useMemo(
+    () => ({
+      onPointer: (point: { x: number; y: number } | null) => presence.current?.setCursor(point),
+      onSelection: (ids: readonly string[]) => presence.current?.setSelection(ids),
+    }),
+    [],
+  )
+
+  const canvas = useCanvas(session, presenceBridge)
+
+  // Depends on the callback, not on `canvas`. `useCanvas` returns a fresh object every
+  // render, so closing over the whole handle would give this a new identity each time,
+  // and the connection effect below would tear down and rebuild the websocket on every
+  // React render. `setWanderers` is a stable useCallback; the handle around it is not.
+  const push = canvas.setWanderers
+  const applyWanderers = useCallback(
+    (next: Wanderer[]) => {
+      // Both the header avatars and the canvas read the same list, so a name in the
+      // header and a cursor on the board can never disagree.
+      setWanderers(next)
+      push(next)
+    },
+    [push],
+  )
 
   useEffect(() => {
     void api
@@ -77,15 +129,74 @@ export default function BoardPage({ boardId, onBack }: Props) {
     })
     connection.current = link
 
+    // Presence is bound to the provider's awareness, not to the doc, so it comes and
+    // goes with the connection.
+    const handle =
+      user === null
+        ? null
+        : trackPresence(
+            link.provider.awareness,
+            { id: user.id, name: user.display_name },
+            applyWanderers,
+          )
+    presence.current = handle
+
     return () => {
       connection.current = null
+      presence.current = null
+      handle?.destroy()
+      applyWanderers([])
       link.destroy()
       void idb.destroy()
       doc.destroy()
     }
-  }, [boardId, doc])
+  }, [boardId, doc, user, applyWanderers])
 
   const canWrite = roleCanWrite(role)
+
+  /*
+   * Capture a preview for the board list.
+   *
+   * Not on every edit: rendering the whole board uncilled and encoding a webp is far
+   * too expensive to do per keystroke, and the list only needs to be roughly current.
+   *
+   * Not on unmount either, which is the version that looks obvious and does not work.
+   * `useCanvas` registers its effect first, so its cleanup destroys the engine before
+   * this one runs and the capture would always find it gone. So: once after the board
+   * has settled, on a slow timer, and whenever the tab is hidden, all of which happen
+   * while the engine is alive.
+   */
+  useEffect(() => {
+    if (!canWrite) return
+
+    let disposed = false
+
+    const capture = async (): Promise<void> => {
+      const engine = canvas.engine
+      if (engine === null || disposed) return
+      try {
+        const image = await engine.captureThumbnail()
+        if (image !== null && !disposed) await api.putThumbnail(boardId, image)
+      } catch {
+        // Cosmetic. A board that will not render a preview must not become a board
+        // that will not open.
+      }
+    }
+
+    const settle = window.setTimeout(() => void capture(), 4_000)
+    const timer = window.setInterval(() => void capture(), 120_000)
+    const onHidden = (): void => {
+      if (document.visibilityState === 'hidden') void capture()
+    }
+    document.addEventListener('visibilitychange', onHidden)
+
+    return () => {
+      disposed = true
+      window.clearTimeout(settle)
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', onHidden)
+    }
+  }, [boardId, canWrite, canvas.engine])
 
   return (
     <main className="board">
@@ -99,6 +210,30 @@ export default function BoardPage({ boardId, onBack }: Props) {
         <span className="muted">{detail === '' ? state : `${state} (${detail})`}</span>
 
         <div className="spacer" />
+
+        {/* Presence avatars. Deduplicated by user id: one person with two tabs open is
+            two wanderers on the canvas but one face here. */}
+        <div className="wanderers" aria-label="People here">
+          {user !== null && (
+            <span
+              className="avatar avatar-self"
+              style={{ background: `#${colorFor(user.id).toString(16).padStart(6, '0')}` }}
+              title={`${user.display_name} (you)`}
+            >
+              {initials(user.display_name)}
+            </span>
+          )}
+          {dedupe(wanderers).map((wanderer) => (
+            <span
+              key={wanderer.clientId}
+              className="avatar"
+              style={{ background: `#${wanderer.color.toString(16).padStart(6, '0')}` }}
+              title={wanderer.name}
+            >
+              {initials(wanderer.name)}
+            </span>
+          ))}
+        </div>
 
         <span className="muted mono">{Math.round(canvas.zoom * 100)}%</span>
         <button type="button" className="link" onClick={canvas.resetZoom}>

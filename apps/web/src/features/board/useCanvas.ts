@@ -11,6 +11,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { CanvasEngine } from '../../canvas/engine'
+import type { Wanderer } from '../../canvas/overlay/wandererLayer'
 import type { ToolId } from '../../canvas/tools/types'
 import { DocEngineHost, observeDocument } from '../../doc/engineHost'
 import { type DocSession, reconcileBindings, reconcileOrder } from '../../doc/mutations'
@@ -28,12 +29,20 @@ export type CanvasHandle = {
   editingId: string | null
   notice: string | null
   dismissNotice(): void
+  /** Hand remote presence to the engine for the next frame. */
+  setWanderers(wanderers: readonly Wanderer[]): void
   zoomToFit(): void
   resetZoom(): void
   deleteSelection(): void
 }
 
-export function useCanvas(session: DocSession): CanvasHandle {
+export type CanvasPresence = {
+  /** Publish the local pointer, in world coordinates. */
+  onPointer(point: { x: number; y: number } | null): void
+  onSelection(ids: readonly string[]): void
+}
+
+export function useCanvas(session: DocSession, presence?: CanvasPresence): CanvasHandle {
   const [element, setElement] = useState<HTMLDivElement | null>(null)
   const [tool, setToolState] = useState<ToolId>('select')
   const [selection, setSelection] = useState<string[]>([])
@@ -48,6 +57,11 @@ export function useCanvas(session: DocSession): CanvasHandle {
   // would drop the camera and the selection on every reconnect.
   const sessionRef = useRef(session)
   sessionRef.current = session
+
+  // Same reason as the session: presence is rebuilt when the connection changes, and
+  // capturing it would pin the engine to a dead awareness instance.
+  const presenceRef = useRef(presence)
+  presenceRef.current = presence
 
   useEffect(() => {
     if (element === null) return
@@ -64,11 +78,15 @@ export function useCanvas(session: DocSession): CanvasHandle {
     const unobserveHost = host.observe()
 
     const engine = new CanvasEngine(element, host, {
-      onSelectionChange: setSelection,
+      onSelectionChange: (ids) => {
+        setSelection(ids)
+        presenceRef.current?.onSelection(ids)
+      },
       onObjectCountChange: setObjectCount,
       onToolChange: setToolState,
       onCameraChange: (camera) => setZoom(camera.zoom),
       onEditingChange: setEditingId,
+      onPointerWorld: (point) => presenceRef.current?.onPointer(point),
     })
     engineRef.current = engine
 
@@ -98,6 +116,10 @@ export function useCanvas(session: DocSession): CanvasHandle {
     engineRef.current?.setTool(next)
   }, [])
 
+  const setWanderers = useCallback((wanderers: readonly Wanderer[]) => {
+    engineRef.current?.setWanderers(wanderers)
+  }, [])
+
   return {
     containerRef: setElement,
     engine: engineRef.current,
@@ -108,6 +130,7 @@ export function useCanvas(session: DocSession): CanvasHandle {
     zoom,
     editingId,
     notice,
+    setWanderers,
     dismissNotice: () => setNotice(null),
     zoomToFit: () => engineRef.current?.zoomToFit(),
     resetZoom: () => engineRef.current?.resetZoom(),

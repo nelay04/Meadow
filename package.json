@@ -13,7 +13,8 @@
     "smoke:canvas": "node scripts/canvas-smoke.mjs",
     "smoke:overlay": "node scripts/overlay-smoke.mjs",
     "fonts": "node scripts/fetch-fonts.mjs",
-    "e2e:board": "node scripts/board-e2e.mjs"
+    "e2e:board": "node scripts/board-e2e.mjs",
+    "e2e:presence": "node scripts/presence-e2e.mjs"
   },
   "devDependencies": {
     "playwright": "^1.62.1",

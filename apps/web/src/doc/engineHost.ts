@@ -36,7 +36,7 @@ import {
   setArrowPoints,
   updateObjects,
 } from './mutations'
-import { fragmentToHtml } from './richText'
+import { fragmentToHtml, fragmentToPlainText } from './richText'
 
 /**
  * Mounts a rich-text editor onto a fragment. Supplied by the caller rather than
@@ -179,6 +179,12 @@ export class DocEngineHost implements EngineHost {
   textHtml(id: string): string {
     const fragment = objectFragment(this.session, id)
     return fragment === null ? '' : fragmentToHtml(fragment)
+  }
+
+  /** Plain text, for thumbnails, search, and anything that is not the overlay. */
+  textPlain(id: string): string {
+    const fragment = objectFragment(this.session, id)
+    return fragment === null ? '' : fragmentToPlainText(fragment)
   }
 
   /**

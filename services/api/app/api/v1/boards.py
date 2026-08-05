@@ -7,15 +7,20 @@ via the `board_*` dependencies. No router computes a role itself.
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import delete, or_, select
 
-from app.auth.deps import CurrentUser, Session, board_owner, board_viewer
-from app.models import Board, BoardMember, User, WorkspaceMember
+from app.auth.deps import CurrentUser, Session, board_editor, board_owner, board_viewer
+from app.models import Board, BoardMember, BoardThumbnail, User, WorkspaceMember
 from app.schemas.boards import BoardCreate, BoardMemberAdd, BoardOut, BoardPatch, MemberOut
 from app.services.permissions import BoardRole, at_least, resolve_role
 
 router = APIRouter(prefix="/boards", tags=["boards"])
+
+# A board preview, not an export. 512px of webp lands well under this; the cap exists
+# to keep a misbehaving client from writing megabytes into a row nobody reads closely.
+MAX_THUMBNAIL_BYTES = 512 * 1024
+ALLOWED_THUMBNAIL_TYPES = frozenset({"image/webp", "image/png"})
 
 
 def _out(board: Board, role: BoardRole) -> BoardOut:
@@ -142,6 +147,80 @@ async def delete_board(
     """
     await session.execute(delete(Board).where(Board.id == board_id))
     await session.commit()
+
+
+@router.put("/{board_id}/thumbnail", status_code=status.HTTP_204_NO_CONTENT)
+async def put_thumbnail(
+    board_id: uuid.UUID,
+    request: Request,
+    session: Session,
+    role: Annotated[BoardRole, Depends(board_editor)],
+) -> None:
+    """Store a preview image for the board list.
+
+    Editor and above: a thumbnail is a rendering of the board's content, so anyone who
+    could not have changed that content has nothing new to say about it.
+
+    Raw bytes rather than multipart. There is exactly one file, it comes from
+    `canvas.toBlob` on the client, and multipart would be a parser in the request path
+    for no gain.
+    """
+    content_type = request.headers.get("content-type", "")
+    if content_type not in ALLOWED_THUMBNAIL_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail=f"expected one of {sorted(ALLOWED_THUMBNAIL_TYPES)}",
+        )
+
+    image = await request.body()
+    if not image:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="empty image")
+    if len(image) > MAX_THUMBNAIL_BYTES:
+        # A cap, not a resize. The client decides the dimensions; this only refuses
+        # something that is clearly not a thumbnail before it reaches the database.
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"thumbnail exceeds {MAX_THUMBNAIL_BYTES} bytes",
+        )
+
+    existing = await session.get(BoardThumbnail, board_id)
+    if existing is None:
+        session.add(
+            BoardThumbnail(board_id=board_id, image=image, content_type=content_type)
+        )
+    else:
+        # Rewritten in place. One row per board, never a history.
+        existing.image = image
+        existing.content_type = content_type
+
+    await session.commit()
+
+
+@router.get("/{board_id}/thumbnail")
+async def get_thumbnail(
+    board_id: uuid.UUID,
+    session: Session,
+    role: Annotated[BoardRole, Depends(board_viewer)],
+) -> Response:
+    """The board's preview image, or 404 if it has never been rendered.
+
+    Behind the same role check as the board itself: a thumbnail is a picture of the
+    content, so serving it more freely than the content would leak it.
+    """
+    thumbnail = await session.get(BoardThumbnail, board_id)
+    if thumbnail is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no thumbnail")
+
+    return Response(
+        content=thumbnail.image,
+        media_type=thumbnail.content_type,
+        headers={
+            # Private: it is behind auth. must-revalidate so a board that changed does
+            # not keep showing a stale picture of itself.
+            "Cache-Control": "private, max-age=0, must-revalidate",
+            "ETag": f'"{thumbnail.updated_at.timestamp()}"',
+        },
+    )
 
 
 @router.get("/{board_id}/members", response_model=list[MemberOut])

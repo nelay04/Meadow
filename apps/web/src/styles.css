@@ -333,3 +333,61 @@ th {
   padding: 0.3rem 0.9rem;
   border-top: 1px solid var(--line);
 }
+
+/*
+ * Presence. ARCHITECTURE 6: remote cursors are wanderers, and these are the faces
+ * behind them. Colour comes from the same `colorFor` the canvas uses, so an avatar and
+ * the cursor it belongs to always match.
+ */
+/* The overlap comes from a negative margin on each avatar; `gap` cannot be negative. */
+.wanderers {
+  display: flex;
+  align-items: center;
+}
+
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.55rem;
+  height: 1.55rem;
+  margin-left: -0.35rem;
+  border-radius: 50%;
+  border: 2px solid light-dark(#fff, #1a1a1a);
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  user-select: none;
+}
+
+/* Yourself first and slightly set apart, so the row reads as "me, then them". */
+.avatar-self {
+  margin-left: 0;
+  margin-right: 0.15rem;
+}
+
+/* Board previews. Fixed size so a row's height does not change when one arrives. */
+.board-thumb {
+  flex: 0 0 auto;
+  width: 3.4rem;
+  height: 2.4rem;
+  margin-right: 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: light-dark(#fbfbf9, #16181a);
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.board-thumb img {
+  max-width: 100%;
+  max-height: 100%;
+  display: block;
+}
+
+.board-title {
+  flex: 1;
+}

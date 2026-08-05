@@ -324,6 +324,16 @@ Postgres's internal `hashtext`, which carries no cross-version stability guarant
 **This compaction job is not optional.** Yjs update logs grow without bound and
 will fill the VPS disk. Build it in Milestone 5, not "later".
 
+**Built in M5.** `app/workers/compaction.py`: an arq cron sweeps every ten minutes for
+boards past `COMPACTION_THRESHOLD` updates and enqueues one job per board, capped per
+sweep so a backlog is worked through over several ticks rather than flooding the queue.
+Jobs carry a per-board id, so a board still queued from the previous tick is not queued
+twice. The worker runs as its own process with its own engine: an asyncpg pool belongs
+to the loop that created it, and compaction merges whole documents in memory, which is
+not something a request-serving process should be doing.
+
+    cd services/api && .venv/bin/arq app.workers.settings.WorkerSettings
+
 ---
 
 ## 4. CRDT document schema
@@ -407,6 +417,20 @@ CRDT state under concurrency.
 
 Known sharp edge to document in the README: local undo can resurrect an object a
 remote user deleted. Accept it, document it; Figma has the same behaviour.
+
+**Measured in M5, and narrower than that sentence implies.** Only one of the three
+plausible readings is true, per `apps/web/src/doc/convergence.test.ts`:
+
+| | |
+|---|---|
+| You delete, a peer deletes concurrently, you undo | **resurrected, for everyone** |
+| You edit a field, a peer deletes, you undo the edit | not resurrected |
+| You create, a peer deletes, you undo then redo | not resurrected |
+
+Only undoing *your own* delete brings an object back, because the undo re-inserts and
+an insert beats a tombstone. Restoring a field value does not restore the map that
+held it. Worth stating precisely: the loose version implies undo is hazardous near any
+concurrent delete, and it is not.
 
 ---
 
@@ -871,13 +895,50 @@ Arrow-to-arrow bindings are expressible in the schema and are refused by the too
 target has no interior to aim at, so the anchor maths degenerates, and chains of them
 can cycle.
 
-### M5 — Realtime polish (1 week)
+### M5 — Realtime polish (1 week) ✅ done
 Awareness cursors + selection highlights, offline reconnect convergence, snapshot
 compaction job, thumbnails, presence avatars.
 
 Also owns the concurrency and extreme-condition suite in §12. Those scenarios need a
 real second peer and a real failure to inject, so they cannot be retrofitted cheaply
 once the realtime surface is finished.
+
+**Awareness never touches the Y.Doc.** It rides the same socket and the room relays it,
+but a cursor position written into the CRDT would land in the update log, the snapshot,
+and the undo stack, and a board would accumulate a permanent record of where everyone's
+mouse had been. Cursors publish at ~30Hz; selection is unthrottled, because it is
+discrete and rare and a late highlight reads worse than a late cursor.
+
+**A joining client learns who is already here from its peers, not from the server.**
+`YRoom.serve` sends a sync message and nothing else, so the newest peer used to sit in
+an apparently empty room until somebody re-announced on the keepalive, roughly fifteen
+seconds later. `pnpm e2e:presence` caught it as an asymmetry no single-page test could
+produce: the first peer saw two avatars, the second saw one.
+
+The fix is in `sync/awareness.ts`: when a peer we have not seen appears, re-publish our
+own state so they learn about us in the same round trip. It cannot ping-pong, because a
+re-announce arrives at the other side as an update to a client it already knows.
+
+**The server-side version of this was tried first and reverted.** Encoding the room's
+awareness and writing it to the socket during the handshake worked, and intermittently
+deadlocked the room: it writes to the channel before `YRoom.serve` has taken it over.
+The backend suite hung on `test_a_viewer_write_never_reaches_the_live_room` in three of
+five full runs, for fifteen minutes each time, and passed in isolation every time.
+Presence is a client concern and there is no race to have there.
+
+Compaction is scheduled from here, in `app/workers/`. The fold itself stayed in
+`realtime/ystore.py`, next to the read path it has to remain consistent with.
+
+Thumbnails are stored **in Postgres**, not MinIO, which is a deliberate departure from
+§1's "object storage: images, attachments, exports". A preview is a few kilobytes,
+there is one per board, and it is rewritten in place. Standing up MinIO to hold one
+small row per board would be a second system to back up, secure, and keep consistent
+with the row pointing at it. `boards.thumbnail_url` stays unused and reserved: v2's
+user-uploaded images and exports genuinely do need object storage.
+
+The capture renders the whole board unculled into a fitted frame, then draws the text
+on with 2D canvas calls. The real text lives in the DOM overlay, so extracting the
+WebGL canvas alone produces a board on which every sticky note is blank.
 
 ### M6 — Ship v1
 README with architecture diagram, CRDT-vs-OT rationale, measured numbers, known

@@ -63,7 +63,11 @@ export function hasAccessToken(): boolean {
 
 async function request(path: string, init: RequestInit): Promise<Response> {
   const headers = new Headers(init.headers)
-  if (init.body !== undefined) headers.set('content-type', 'application/json')
+  // JSON unless the caller said otherwise. The thumbnail upload sends image bytes and
+  // sets its own type, and stamping application/json over it would be rejected.
+  if (init.body !== undefined && !headers.has('content-type')) {
+    headers.set('content-type', 'application/json')
+  }
   if (accessToken !== null) headers.set('authorization', `Bearer ${accessToken}`)
   return fetch(`${BASE}${path}`, { ...init, headers, credentials: 'same-origin' })
 }
@@ -184,4 +188,34 @@ export function mintWsToken(boardId: string): Promise<WsToken> {
     method: 'POST',
     body: JSON.stringify({ board_id: boardId }),
   })
+}
+
+/**
+ * Store a board preview.
+ *
+ * Fire and forget at the call site: a failed thumbnail is a cosmetic problem, and it
+ * must never interrupt whatever the user was doing when it was captured.
+ */
+export function putThumbnail(boardId: string, image: Blob): Promise<void> {
+  return call<void>(`/boards/${boardId}/thumbnail`, {
+    method: 'PUT',
+    body: image,
+    headers: { 'content-type': image.type || 'image/webp' },
+  })
+}
+
+/**
+ * Fetch a board preview as an object URL, or null if it has none yet.
+ *
+ * Not a plain `<img src>`: every endpoint is behind a Bearer token and an `img` tag
+ * cannot send one, so pointing one at the path would 401 on every board in the list.
+ * Callers must revoke the URL when the image is unmounted.
+ */
+export async function fetchThumbnail(boardId: string): Promise<string | null> {
+  let response = await request(`/boards/${boardId}/thumbnail`, {})
+  if (response.status === 401 && (await refreshSession())) {
+    response = await request(`/boards/${boardId}/thumbnail`, {})
+  }
+  if (!response.ok) return null
+  return URL.createObjectURL(await response.blob())
 }
