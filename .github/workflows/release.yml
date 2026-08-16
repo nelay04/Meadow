@@ -1,18 +1,24 @@
 # Build both images, publish them to GHCR, and deploy to the VPS.
 #
 # Separate from ci.yml because it needs write permissions and secrets that a pull
-# request from a fork must never get. It runs only after ci has passed on main, so a
-# red build cannot become a deploy.
+# request from a fork must never get.
+#
+# Manual only, and deliberately so. This is the workflow that changes what the world
+# sees, and it is worth typing. Nothing about a green test run means the moment is
+# right to deploy.
+#
+# Because nothing gates this on ci any more, run ci first and read it. The `deploy`
+# input exists so publishing images and shipping them can be two separate decisions.
 
 name: release
 
 on:
-  workflow_run:
-    workflows: [ci]
-    types: [completed]
-    branches: [main]
-  # For redeploying a commit that already built, without pushing an empty commit.
   workflow_dispatch:
+    inputs:
+      deploy:
+        description: "Deploy to the VPS after publishing. Unticked, this only builds and pushes images."
+        type: boolean
+        default: false
 
 concurrency:
   # Never two deploys at once. The second would race the first's `up -d` and could
@@ -25,9 +31,6 @@ env:
 
 jobs:
   build:
-    # `workflow_run` fires on failure too, and its conclusion is the only thing that
-    # says which. Without this guard a red ci publishes an image.
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -38,10 +41,6 @@ jobs:
       backup_image: ${{ steps.names.outputs.backup }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          # workflow_run checks out the default branch tip by default, which is not
-          # necessarily the commit ci passed on.
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - uses: docker/setup-buildx-action@v3
 
@@ -68,7 +67,7 @@ jobs:
           # a rebuild of a commit whose dependencies may since have moved.
           tags: |
             ${{ steps.names.outputs.api }}:latest
-            ${{ steps.names.outputs.api }}:${{ github.event.workflow_run.head_sha || github.sha }}
+            ${{ steps.names.outputs.api }}:${{ github.sha }}
           cache-from: type=gha,scope=api
           cache-to: type=gha,scope=api,mode=max
 
@@ -80,7 +79,7 @@ jobs:
           push: true
           tags: |
             ${{ steps.names.outputs.web }}:latest
-            ${{ steps.names.outputs.web }}:${{ github.event.workflow_run.head_sha || github.sha }}
+            ${{ steps.names.outputs.web }}:${{ github.sha }}
           cache-from: type=gha,scope=web
           cache-to: type=gha,scope=web,mode=max
 
@@ -93,12 +92,15 @@ jobs:
           push: true
           tags: |
             ${{ steps.names.outputs.backup }}:latest
-            ${{ steps.names.outputs.backup }}:${{ github.event.workflow_run.head_sha || github.sha }}
+            ${{ steps.names.outputs.backup }}:${{ github.sha }}
           cache-from: type=gha,scope=backup
           cache-to: type=gha,scope=backup,mode=max
 
   deploy:
     needs: build
+    # Skipped unless the run asked for it, so the default press of the button
+    # publishes images and stops there.
+    if: inputs.deploy
     runs-on: ubuntu-latest
     # Gate the secrets behind an environment so a deploy can require approval, and so
     # the VPS credentials are not readable by every workflow in the repo.

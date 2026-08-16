@@ -7,14 +7,17 @@
 
 name: ci
 
+# Manual only. Nothing here starts on a push or a pull request.
+#
+# The e2e and stack jobs each stand up postgres, redis, a browser or a full docker
+# build, so a run is minutes of runner time rather than seconds. Deciding when to spend
+# that is a judgement call, and on a solo project with a local suite that already
+# covers the same ground it is usually "not on every commit".
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_dispatch:
 
 concurrency:
-  # A second push supersedes the first. Nothing here is worth spending a runner on
-  # once the commit it tested is no longer the tip.
+  # A second run supersedes the first for the same ref.
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
@@ -30,6 +33,9 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+          # The lockfile is not at the repo root, so the default glob would find
+          # nothing and the cache would silently never hit.
+          cache-dependency-glob: services/api/uv.lock
       - name: install
         working-directory: services/api
         run: |
@@ -92,6 +98,9 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+          # The lockfile is not at the repo root, so the default glob would find
+          # nothing and the cache would silently never hit.
+          cache-dependency-glob: services/api/uv.lock
       - name: install
         working-directory: services/api
         run: |
@@ -145,6 +154,9 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+          # The lockfile is not at the repo root, so the default glob would find
+          # nothing and the cache would silently never hit.
+          cache-dependency-glob: services/api/uv.lock
       - run: pnpm install --frozen-lockfile
       - name: install api
         working-directory: services/api
@@ -207,9 +219,13 @@ jobs:
           # run rather than a day later.
           ls -l backups/
           test -n "$(find backups -name 'meadow-*.dump' -type f)"
+      # Both guard on the env file rather than on the job's status. `if: always()` fires
+      # even when the job failed during setup, before the `env` step wrote .env.prod,
+      # and compose exits non-zero on a missing --env-file. That turns one real failure
+      # into two, and the second one is the one you read first.
       - name: logs
-        if: failure()
+        if: failure() && hashFiles('.env.prod') != ''
         run: docker compose --env-file .env.prod logs --tail 200
       - name: down
-        if: always()
+        if: always() && hashFiles('.env.prod') != ''
         run: docker compose --env-file .env.prod down -v

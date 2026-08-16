@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "meadow-api"
 version = "0.0.0"
@@ -27,6 +31,14 @@ dev = [
     "ruff>=0.8",
     "mypy>=1.13",
 ]
+
+# Without this, setuptools tries to guess and refuses: flat-layout discovery sees two
+# top-level packages, `app` and `alembic`, and stops rather than shipping the wrong one.
+# It only ever worked here because the local .venv was created before alembic/ existed
+# and has been reused since; a fresh clone fails on `uv pip install -e .`, which is what
+# CI does on every run.
+[tool.setuptools.packages.find]
+include = ["app*"]
 
 [tool.ruff]
 line-length = 100

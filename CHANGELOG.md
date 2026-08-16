@@ -41,6 +41,11 @@ The infrastructure to run the thing. Not deployed yet.
 - README architecture diagram and the CRDT-versus-OT rationale.
 
 ### Fixed
+- `services/api/pyproject.toml` had no `[build-system]` and no package configuration, so
+  a fresh `uv pip install -e .` failed outright: setuptools' flat-layout discovery finds
+  `app` and `alembic`, refuses to guess between them, and stops. It only ever worked
+  because the local virtualenv predated `alembic/` and was reused. A fresh clone could
+  not follow the README, which is what CI does on every run.
 - Forwarded headers could be forged. `--proxy-headers` without a trust list lets any
   caller choose their own rate-limit bucket and audit-log address, because
   X-Forwarded-For is client-supplied and uvicorn's permissive mode reads the leftmost
