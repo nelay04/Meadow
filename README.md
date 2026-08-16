@@ -1,13 +1,14 @@
 # Meadow
 
 An infinite-canvas collaborative notes app: OneNote-style freeform editing combined
-with FigJam-style whiteboarding. Text, shapes, arrows, tables, and charts all live as
-objects on one shared surface.
+with FigJam-style whiteboarding. Text, shapes and arrows all live as objects on one
+shared surface, and tables and charts join them in v2.
 
 A board is called a **field**. Remote cursors are **wanderers**.
 
-> **Status: M1 complete.** Realtime foundation proven, auth and permissions in place.
-> There is no canvas yet — that is M2. See [Build status](#build-status).
+> **Status: M0 through M5 complete, M6 in progress.** The canvas, realtime editing,
+> presence and the production infrastructure are built and exercised. It is not
+> deployed yet. See [Build status](#build-status).
 
 ---
 
@@ -19,10 +20,55 @@ object placed somewhere. That gives one object model, one selection system, one
 transform system, one undo stack, and one CRDT document per board.
 
 Rich text cannot be edited inside WebGL, so the canvas is two layers sharing a single
-camera: a PixiJS/WebGL layer for shapes, arrows, and ink, and a DOM overlay for text,
-tables, and charts. Both read the same camera matrix and must never drift.
+camera: a PixiJS/WebGL layer for shapes and arrows, and a DOM overlay for text. Both
+read the same camera matrix and must never drift.
+
+```mermaid
+flowchart TB
+    subgraph browser["Browser"]
+        direction TB
+        webgl["PixiJS layer<br/>shapes, arrows<br/>one instanced draw call"]
+        overlay["DOM overlay<br/>TipTap per text object"]
+        camera(["shared camera<br/>snapped to device pixels"])
+        ydoc[("Y.Doc<br/>flat objects map")]
+        camera --> webgl
+        camera --> overlay
+        ydoc -. "observers feed the render cache" .-> webgl
+        ydoc -. "observers feed the render cache" .-> overlay
+    end
+
+    subgraph edge["nginx"]
+        proxy["static SPA<br/>proxies /api and /ws"]
+    end
+
+    subgraph api["FastAPI"]
+        rest["REST<br/>auth, boards, membership"]
+        ws["websocket<br/>handshake is the security boundary"]
+        room["YRoom per board<br/>in process"]
+        ws --> room
+    end
+
+    worker["arq worker<br/>snapshot compaction"]
+    pg[("PostgreSQL<br/>rows, update log, snapshots")]
+    redis[("Redis<br/>ws-token replay, rate limits, job queue")]
+
+    ydoc <-- "yjs updates + awareness" --> proxy
+    proxy --> rest
+    proxy --> ws
+    rest --> pg
+    rest --> redis
+    room --> pg
+    worker --> pg
+    worker --> redis
+```
+
+Everything a user creates is an object in one flat `Y.Doc` map. The engine never reads
+through React: a tool writes to the document, and Y observers update the render cache,
+so a local drag and a remote peer's edit take the same path.
 
 Full design, schema, and milestone order: [`docs/core/ARCHITECTURE.md`](docs/core/ARCHITECTURE.md).
+What each phase actually delivered, and what was thrown away getting there:
+[`CHANGELOG.md`](CHANGELOG.md).
 
 ---
 
@@ -34,7 +80,7 @@ Full design, schema, and milestone order: [`docs/core/ARCHITECTURE.md`](docs/cor
 | Realtime | yjs CRDT over websocket, y-indexeddb for offline, awareness for presence |
 | Backend | FastAPI, pycrdt + pycrdt-websocket (Rust-backed yjs bindings), SQLAlchemy 2 async, Alembic, arq |
 | Auth | argon2id, JWT access tokens, rotating refresh tokens with reuse detection |
-| Data | PostgreSQL 16, Redis 7, MinIO |
+| Data | PostgreSQL 16, Redis 7. MinIO is planned for v2 uploads and is not deployed |
 | Infra | Docker Compose, nginx, GitHub Actions to GHCR to VPS |
 
 Fonts: Inter for UI and default text objects, Comic Neue as a text-object option,
@@ -50,11 +96,15 @@ Milestones ship in order; a milestone does not start before the previous one wor
 |---|---|---|
 | M0 | Realtime spike: ws auth, CRDT convergence, Postgres persistence | Complete |
 | M1 | Auth and boards CRUD, JWT with refresh rotation, permissions | Complete |
-| M2 | Canvas core: camera, shapes, hit-testing, transforms, undo | Next |
-| M3 | Text objects: DOM overlay, TipTap per object, sticky notes | Not started |
-| M4 | Arrows and bindings | Not started |
-| M5 | Realtime polish: awareness, compaction job, thumbnails | Not started |
-| M6 | Ship v1 | Not started |
+| M2 | Canvas core: camera, shapes, hit-testing, transforms, undo | Complete |
+| M3 | Text objects: DOM overlay, TipTap per object, sticky notes | Complete |
+| M4 | Arrows and bindings | Complete |
+| M5 | Realtime polish: awareness, compaction job, thumbnails | Complete |
+| M6 | Ship v1: images, production compose, proxy, CI | In progress |
+
+What is left in M6 is the deployment itself, a demo recording, and choosing a licence.
+The infrastructure is built and runs: `pnpm check:stack` brings the production compose
+up and asserts against it.
 
 M0 was a gate, not a feature. Its job was to answer one question before any canvas
 code existed: does a Python CRDT backend actually carry this workload, or does the
@@ -116,20 +166,48 @@ a viewer's own `Y.Doc` still applies their edits locally, so they would watch th
 appear, survive a refresh via IndexedDB, and then vanish. That is the first bug report
 a demo user files.
 
-```bash
-cd services/api && .venv/bin/python -m pytest    # 35 tests
-```
-
 Also in M1: argon2id passwords, refresh-token rotation with reuse detection, citext
 emails, Redis rate limits, Alembic owning the schema, and a React app with
 login/register and a board list.
 
-### What is still deliberately missing
+## What M2 to M5 add
 
-No canvas and no rendering — that is M2. The board view is a table of objects with
-buttons, exercising the real CRDT schema and the real provider so M2 replaces the
-rendering and nothing underneath it. Share links, assets, and comments are later
-milestones.
+The canvas, and everything that has to be true for two people to use it at once.
+
+**M2 — the engine.** Camera, viewport culling through an R-tree, hit-testing,
+selection and transforms, undo. Primitives render through an instanced signed-distance
+batch, which issues one draw call for the whole scene rather than one per object.
+
+**M3 — text.** Rich text cannot be edited inside WebGL, so text objects live in a DOM
+overlay driven by the same camera as the canvas, with a TipTap editor bound to a
+`Y.XmlFragment` per object. The two layers must not drift apart by so much as a pixel
+at any zoom, which is measured against screenshots rather than arithmetic.
+
+**M4 — arrows.** A separate `Graphics` pass above the shape batch, rebuilt each frame,
+with endpoints bound to shapes and resolved analytically against the real outline.
+Binding reflow happens inside the same `Y.transact` as the move that caused it, so a
+peer never observes a shape in its new position with the arrow still on the old one.
+
+**M5 — presence and upkeep.** Wanderers and selection highlights over awareness, which
+never touches the Y.Doc; snapshot compaction on an arq cron; board thumbnails.
+
+## What M6 adds
+
+The infrastructure to run it: an API image with three entrypoints, an nginx image with
+the SPA baked in, a production compose file with a migration gate, CI, and a
+development profile that runs the whole app in docker with hot reload.
+
+The piece worth reading the config for is the forwarded-header handling. `--proxy-headers`
+without a trust list is not a flag, it is a vulnerability: X-Forwarded-For is
+client-supplied, so anyone could choose their own rate-limit bucket and their own
+audit-log address. nginx uses `real_ip_recursive off` for the same reason, which is the
+counter-intuitive setting and the correct one. `pnpm check:stack` proves it by
+registering six times behind six forged addresses and requiring the API to refuse.
+
+```bash
+cd services/api && .venv/bin/python -m pytest    # 58 tests
+pnpm check:stack                                 # 15 assertions against the real stack
+```
 
 ---
 
@@ -139,7 +217,10 @@ Requires Docker, Node 22+, pnpm, Python 3.13, and uv.
 
 ```bash
 cp .env.example .env          # ports and credentials live here
-docker compose up -d          # postgres, redis, pgadmin
+
+# postgres, redis, pgadmin. The -f is not optional: docker-compose.yml is the
+# production stack, and a bare `docker compose up -d` here starts that instead.
+docker compose -f docker-compose.local.yml up -d
 
 cd services/api
 uv venv --python 3.13
@@ -160,6 +241,45 @@ cd services/api && .venv/bin/python -m uvicorn app.main:app --port 8012
 pnpm --filter web dev
 ```
 
+### Or run everything in Docker, with hot reload
+
+One command, no host Python and no host Node:
+
+```bash
+docker compose -f docker-compose.local.yml --profile app up
+```
+
+That adds `api`, `worker`, `web` and a one-shot `migrate` alongside postgres and redis,
+with your working tree bind-mounted into them. Edits reload in place: uvicorn restarts
+the API on a Python change, vite hot-reloads the browser on a TypeScript one, and
+watchfiles restarts the arq worker. Nothing needs a rebuild until a dependency changes.
+
+The containers sit behind a `--profile app` flag rather than starting by default,
+because they take the same two ports the M0 gate and the e2e scripts need for the
+servers they spawn themselves. A plain `up -d` still brings up infrastructure only.
+
+Two things are worth knowing about how it is wired, because getting either wrong
+produces a confusing failure:
+
+- **`node_modules` is the image's, never the host's.** The bind mount covers
+  `apps/web`, and two anonymous volumes sit on top of the `node_modules` directories to
+  keep the container's copy. The host tree is installed for the host platform, and
+  pnpm's symlinked layout does not survive being half-overlaid; the symptom reads like
+  a vite bug rather than a mount problem.
+- **File watching may need polling.** Bind mounts on WSL and on docker-for-mac often do
+  not deliver inotify events into the container. If an edit does not trigger a reload,
+  set `MEADOW_WATCH_POLL=true` in `.env`. It is off by default because on a native
+  filesystem it is wasted CPU forever.
+
+Run the checks inside the containers too, if you would rather not install the
+toolchains:
+
+```bash
+docker compose -f docker-compose.local.yml --profile app exec api pytest -q
+docker compose -f docker-compose.local.yml --profile app exec api ruff check .
+docker compose -f docker-compose.local.yml --profile app exec web pnpm --filter web test
+```
+
 | Service | URL |
 |---|---|
 | Web app | http://localhost:3012 |
@@ -169,8 +289,8 @@ pnpm --filter web dev
 | Postgres | localhost:5435 (`meadow`, and `meadow_test` for the suite) |
 | Redis | localhost:6380 (db 0 dev, db 1 tests) |
 
-Ports are read from `.env` by docker-compose, the API (via pydantic-settings), and
-Vite alike, so there is one place to change them. Postgres sits on 5435 and Redis on
+Ports are read from `.env` by `docker-compose.local.yml`, the API (via
+pydantic-settings), and Vite alike, so there is one place to change them. Postgres sits on 5435 and Redis on
 6380 to avoid colliding with native instances commonly already running on the
 default ports.
 
@@ -183,14 +303,28 @@ server is doing its job). To see persistence, stop the API, restart it, and relo
 
 ```bash
 cd services/api
-.venv/bin/python -m pytest                 # 35 tests, against real Postgres and Redis
+.venv/bin/python -m pytest                 # 58 tests, against real Postgres and Redis
 .venv/bin/ruff check . && .venv/bin/mypy app/
+.venv/bin/alembic check                    # fails if the models drifted from migrations
 
-pnpm --filter web lint
+pnpm --filter web lint                     # tsc
+pnpm --filter web test                     # vitest
 
 ./scripts/m0-gate.sh                       # end-to-end, restarts the server mid-run
-node scripts/m0-gate.mjs seed|verify|offline|reject   # individual phases
+pnpm smoke:canvas                          # engine against a local Y.Doc
+pnpm smoke:overlay                         # overlay drift, measured on pixels
+pnpm e2e:board                             # auth -> draw -> type -> reload
+pnpm e2e:presence                          # two real browsers on one board
+pnpm check:stack                           # the production stack, through nginx
 ```
+
+The suites are split by what they can actually prove. Unit tests and the vitest suite
+run against a local `Y.Doc`. The pytest suite runs against a real Postgres and a real
+Redis, because the things it has to get right - citext, native enums, advisory locks,
+`SET NX` replay protection - are exactly what an in-memory substitute papers over. The
+e2e scripts drive real browsers. And `check:stack` drives the deployed artefact,
+because everything above it talks to a uvicorn on the host and would pass against a
+proxy config that drops the websocket upgrade.
 
 The test suite creates and migrates a `meadow_test` database and uses Redis db 1, so
 it never touches dev data. The M0 gate stays scoped to the foundation over a real
@@ -199,24 +333,73 @@ which can set up ten users far more cheaply.
 
 ---
 
+## Deploying
+
+`docker-compose.yml` is the production stack and `docker-compose.local.yml` is the
+development one, which is the reverse of the usual arrangement. The file that runs
+unattended on a server is the one that should not need a flag to select.
+
+```bash
+cp .env.prod.example .env.prod     # fill in the passwords and the JWT secret
+docker compose --env-file .env.prod up -d --wait
+node scripts/stack-check.mjs       # WEB_PUBLIC_PORT is read from the environment
+```
+
+That brings up postgres, redis, a one-shot migration, the API, the arq worker, nginx
+with the SPA baked in, and a backup sidecar. Postgres and Redis publish no host ports.
+The API waits on the migration completing successfully, so a failed migration stops the
+deploy rather than producing a running API that 500s on its first query.
+
+**TLS is not in the compose file.** The stack serves plain HTTP on one port bound to
+loopback and expects the host's edge proxy to terminate. Certificates are host state
+with a renewal timer, and the container reads the original scheme from
+X-Forwarded-Proto, so the refresh cookie is still marked Secure behind a terminator.
+
+If you do put a proxy in front, set `MEADOW_TRUSTED_PROXY_CIDR` to the docker bridge
+gateway. Left at its default nothing arriving over the bridge matches it, so
+X-Forwarded-For is ignored and every visitor shares the terminator's address: one
+rate-limit bucket and one audit-log entry for the whole internet. The default is the
+safe direction of that trade, not the useful one.
+
+**Backups are local only.** The sidecar dumps nightly, verifies each dump with
+`pg_restore --list` before it counts, and keeps seven days. It dumps once at startup so
+the first deploy proves backups work rather than finding out a day later. There is no
+offsite push: the dumps sit on the same disk as the database they protect, which covers
+a bad migration and does not cover a lost VPS.
+
+CI runs lint, both test suites, the e2e scripts, and the stack check on every push.
+`release.yml` publishes three images to GHCR and deploys over ssh, gated on ci passing
+and on a `production` environment so the VPS credentials are not readable by every
+workflow in the repo.
+
+---
+
 ## Layout
 
 ```
 apps/web/
+  src/canvas/          engine: camera, renderers, overlay, hit-testing, tools
   src/doc/             CRDT schema, mutations (every Y.Doc write), useObjects
-  src/sync/            provider setup, reconnection, token minting
+  src/sync/            provider setup, reconnection, token minting, awareness
   src/features/        auth, boards list, board view
   src/lib/api.ts       REST client, access token in memory only
+packages/schema/       ObjectData snapshots, arrow geometry and binding maths
 services/api/
   app/api/v1/          REST routers
   app/auth/            password hashing, JWT, refresh rotation, dependencies
   app/realtime/        ws endpoint, room manager, Postgres YStore, ws-tokens, guard
   app/services/        permissions.py (the single authority), rate limiting
+  app/workers/         arq worker: compaction cron
   alembic/             migrations
-  tests/               handshake, auth, permissions, persistence
+  tests/               handshake, auth, permissions, persistence, concurrency
 docs/core/             ARCHITECTURE.md, the source of truth
-scripts/               M0 gate harness
-docker/                nginx and pgadmin config
+scripts/               gate harness, smokes, e2e, benchmarks, stack check
+docker/
+  api/                 API image: web process, worker, and migrator
+  web/                 SPA build baked into nginx
+  nginx/               base conf and the site template
+  backup/              pg_dump sidecar
+  pgadmin/             dev console config
 ```
 
 `apps/web/src/canvas/` must never import from `src/features/`. The engine stays
@@ -224,10 +407,55 @@ independent and extractable.
 
 ---
 
+## Measured, and not
+
+Numbers taken under software rasterisation are not the numbers the target is about, so
+they are reported separately rather than rounded into the good column.
+
+| | |
+|---|---|
+| Draw calls at 5,000 objects | **1**, measured |
+| CPU frame cost at 5,000 objects | **3.5ms median**, `pnpm bench:canvas` |
+| Overlay drift, zoom 0.33 to 2.5, dpr 1 and 2 | **within 1 CSS pixel**, measured against screenshots by `pnpm smoke:overlay` |
+| Arrow pass, per arrow | **10.9 µs**, `pnpm bench:arrows`. 2.2ms at 200 arrows |
+| 60fps at 5,000 objects | **not verified.** Every run so far rasterised in software, where `app.render()` returns before rasterisation finishes, so it measures CPU work only. Needs real hardware |
+| 20,000 objects | **never measured.** The dev machine OOM-kills the run at that size |
+| Concurrent editors, cursor latency, compaction throughput | **not measured.** Correctness is covered by the suites; the numbers are not |
+
+The overlay figure is the one worth explaining. It is measured by sampling pixels out
+of screenshots rather than by comparing the two transforms in code, because the failure
+mode being tested *is* the browser and the GPU rounding the same arithmetic
+differently. A test that computes both sides itself agrees with itself and proves
+nothing.
+
+---
+
 ## Decisions worth knowing
 
 These are the ones that are expensive to reverse, so they were settled before any code
 was written.
+
+**CRDTs, not OT.** Operational transformation is the older and, on paper, the more
+efficient answer: it sends compact operations and keeps no per-character metadata. It
+also requires a central server that serialises every operation and transforms each one
+against everything it missed, and the transformation functions have to be correct for
+every pair of operation types. That is a well-known source of subtle, data-losing bugs,
+and adding an operation type means revisiting every pair.
+
+Three things about this project make the trade go the other way. It has to work
+offline, and an OT client that has been disconnected for an hour has to be transformed
+back in against an hour of history, while a CRDT just merges. It has two very different
+data shapes, a flat map of object properties and rich text inside those objects, and
+yjs covers both with the same merge rules rather than two transformation matrices. And
+it is a solo project, where "the library is responsible for convergence" is worth
+paying real bytes for.
+
+The cost is real and shows up in two places. Deleted content leaves tombstones, which
+is why snapshot compaction exists at all. And concurrent edits converge to *a*
+consistent answer rather than the one a human would have picked: last-writer-wins on a
+contended field, and an undo that can resurrect an object a peer deleted. Both are
+pinned by tests rather than hoped about, in `services/api/tests/test_concurrency.py`
+and `apps/web/src/doc/convergence.test.ts`.
 
 **A flat `objects` map with `parentId` pointers, not a nested tree.** Nested `Y.Map`
 trees make reparenting (dragging a shape into a frame) a delete-and-recreate, which
@@ -314,9 +542,22 @@ other, but they are near-undiagnosable after the fact.
 - Two tabs of the same browser sync through a `BroadcastChannel` as well as the
   server, so a tab pair cannot verify server behaviour. Use two browsers, or
   `disableBc: true`.
+- **The API runs one uvicorn worker, and that is a ceiling rather than a default.**
+  Rooms are in-process state, so two workers would each hold their own `YRoom` for the
+  same board and the halves would see each other only through the Postgres update log.
+  Going past one process needs a Redis-backed room registry, which is v2.
+- **Backups are on the same disk as the database.** Nightly, verified, seven days
+  retained, and no offsite copy. That covers a bad migration and does not cover losing
+  the VPS.
+- The backup sidecar is built from `postgres:16-alpine` rather than the third-party
+  image the architecture doc named, which does not execute at all on the development
+  machine: every binary in it, down to `/bin/sh`, exits with "exec format error", while
+  other images on the same daemon are fine.
 
 ---
 
 ## License
 
-Not yet chosen.
+Not yet chosen, which means the default applies: no permission is granted to use,
+copy, or modify this code. That is not the intent, and it is the last open item in M6
+alongside the deploy itself.

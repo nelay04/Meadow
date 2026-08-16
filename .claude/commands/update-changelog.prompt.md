@@ -1,0 +1,1 @@
+../../.github/prompts/update-changelog.prompt.md

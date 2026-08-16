@@ -170,11 +170,14 @@ meadow/
 │       ├── alembic/
 │       └── tests/
 ├── docker/
-│   ├── nginx/nginx.conf
-│   └── api/Dockerfile
-├── docker-compose.yml           # dev
-├── docker-compose.prod.yml
-├── .github/workflows/ci.yml
+│   ├── api/Dockerfile           # api, worker, and the one-shot migrator
+│   ├── web/Dockerfile           # SPA build baked into nginx
+│   ├── nginx/                   # base conf + the site template
+│   ├── backup/                  # pg_dump sidecar
+│   └── pgadmin/
+├── docker-compose.yml           # production; a bare `up -d` on the VPS is the deploy
+├── docker-compose.local.yml     # dev: postgres, redis, pgadmin only
+├── .github/workflows/
 └── README.md
 ```
 
@@ -769,42 +772,90 @@ caller is never told a downgrade took effect when it did not.
 
 ## 8. Docker & deployment
 
+`docker-compose.yml` is production; `docker-compose.local.yml` is development. As
+built:
+
 ```yaml
-# docker-compose.yml — services
-api:       build services/api        depends_on: postgres, redis
-worker:    same image, arq entrypoint
-postgres:  postgres:16-alpine        named volume, shm_size: 1g
-redis:     redis:7-alpine            appendonly yes
-minio:     minio/minio
-nginx:     nginx:alpine              serves web build, proxies /api + /ws
-backup:    prodrigestivill/postgres-backup-local
+# docker-compose.yml (production) — services, project name meadow-prod
+postgres:  postgres:16-alpine        named volume, shm_size: 1g, no host port
+redis:     redis:7-alpine            appendonly yes, no host port
+migrate:   api image, alembic upgrade head, one-shot; api gates on its exit
+api:       docker/api/Dockerfile     one uvicorn worker, --proxy-headers
+worker:    same image, arq entrypoint, healthcheck is `arq --check`
+web:       docker/web/Dockerfile     SPA baked into nginx, proxies /api + /ws
+backup:    docker/backup/Dockerfile  from postgres:16-alpine, verified pg_dump
 ```
+
+Deliberately absent: **MinIO** (nothing in v1 writes to it; thumbnails are rows) and
+**TLS** (host state with a renewal timer, terminated by the host's edge proxy).
+
+```yaml
+# docker-compose.local.yml — services, project name meadow
+postgres:  published on 5435, redis on 6380, pgadmin on 5051
+
+# behind `--profile app`, for running the whole thing in docker with hot reload
+migrate:   api dev image, alembic upgrade head, one-shot
+api:       uvicorn --reload, source bind-mounted, published on 8012
+worker:    arq under watchfiles, so a compaction edit restarts it
+web:       vite dev server, source bind-mounted, published on 3012
+```
+
+The application containers sit behind a profile rather than starting by default,
+because they hold the two ports the M0 gate and the e2e scripts need for the servers
+those spawn themselves. A plain `up -d` is infrastructure only, which is what the
+default workflow wants.
+
+Two details there are load-bearing. The web container bind-mounts `apps/web` and then
+puts **anonymous volumes over the `node_modules` directories**, so the container keeps
+its own dependencies: the host tree is installed for the host platform and pnpm's
+symlinked layout does not survive being half-overlaid, and the symptom reads as a vite
+fault rather than a mount one. And the API dev stage is a **separate stage**, not a
+flag on the runtime one, because `--reload` adds a file watcher, a supervisor process,
+and re-execution of code from a writable mount, none of which belongs in the image
+that faces the internet. The suite is mounted rather than baked in, so
+`services/api/.dockerignore` can keep tests out of the deployed artefact while
+`exec api pytest` still works.
 
 Postgres notes (decided earlier — do not revisit):
 - **Named volume**, not a bind mount (avoids UID/GID startup failures)
 - `shm_size: 1g` — the 64MB default causes confusing query failures
-- Nightly `pg_dump` via the backup sidecar → Backblaze B2, 7-day retention
+- Nightly `pg_dump` via the backup sidecar, 7-day retention. Offsite push to
+  Backblaze B2 is **not wired**: the dumps are on the same disk as the database they
+  protect, which covers a bad migration and not a lost VPS.
 - No WAL archiving / PITR — disproportionate for this project
 - Major version upgrades: dump → fresh volume → restore. Not a tag bump.
 
-nginx must set `proxy_http_version 1.1`, `Upgrade`/`Connection` headers on `/ws`,
-and `proxy_read_timeout 3600s`.
+nginx sets `proxy_http_version 1.1`, `Upgrade`/`Connection` on `/ws`, and
+`proxy_read_timeout 3600s`. The `Connection` value comes from a `map` on
+`$http_upgrade` rather than being hardcoded, or every REST call through the same
+server block loses keepalive. See M6 in §9 for the forwarded-header rules, which are
+the part that is easy to get wrong quietly.
 
 ### CI (GitHub Actions)
 
 ```
-lint      ruff + mypy (api) · eslint + tsc (web)
+lint      ruff + mypy (api) · tsc (web)
 test      pytest (with postgres+redis services) · vitest
-e2e       playwright against docker compose
+e2e       playwright against a real API and vite, on postgres+redis services
+stack     build both images, run docker-compose.yml, assert against it
 build     docker build both images -> GHCR (on main)
 deploy    ssh to VPS, pull, docker compose up -d (on main)
 ```
+
+`docker-compose.yml` is the production stack and `docker-compose.local.yml` is the
+development one, rather than the other way round. The file that runs unattended on a
+server is the one that should not need a flag to select, because the command that gets
+typed under pressure is the short one.
 
 ---
 
 ## 9. Build order
 
 Ship in this sequence. Do not start a milestone before the previous one works.
+
+This section is the design record and holds the reasoning. `CHANGELOG.md` is the
+delivery record for the same phases, dated from the commit that completed each one. If
+the two disagree, one of them is wrong and it is worth finding out which.
 
 **On the estimates below:** they are focused-work estimates and assume nothing goes
 wrong. Solo, alongside a job search, expect roughly **2× wall-clock** — most of the
@@ -941,8 +992,72 @@ on with 2D canvas calls. The real text lives in the DOM overlay, so extracting t
 WebGL canvas alone produces a board on which every sticky note is blank.
 
 ### M6 — Ship v1
-README with architecture diagram, CRDT-vs-OT rationale, measured numbers, known
-limitations. Deploy. Record a demo GIF.
+Infrastructure, README, deploy. In progress: the images, the production compose, the
+proxy config and CI exist and are exercised; the deploy to `meadow.creara.in` and the
+demo recording are not done, and the licence is unchosen.
+
+**`docker-compose.yml` is production and `docker-compose.local.yml` is development**,
+which is the reverse of the usual arrangement. The file that runs unattended on a
+server is the one that should not need a flag to select, because the command typed
+under pressure is the short one. The two pin different compose project names, so a
+development machine can run both without either treating the other's containers as
+orphans.
+
+**One API image, three entrypoints.** The web process, the arq worker, and a one-shot
+migrator share a codebase and a dependency set. The migrator is a compose service the
+API declares `service_completed_successfully` on, so a failed migration stops the
+deploy rather than producing a running API that 500s on its first query.
+
+**The API runs a single uvicorn worker, and this is a ceiling, not a default.** Rooms
+are in-process state. Two workers would each hold their own `YRoom` for the same board
+and the two halves would see each other only through the Postgres update log. Scaling
+past one process means a Redis-backed room registry, which is v2.
+
+**`--proxy-headers` without a trust list is a vulnerability, not a flag.**
+X-Forwarded-For is client-supplied and uvicorn's `*` mode reads the leftmost entry, so
+any caller could name their own rate-limit bucket and their own audit-log address.
+`FORWARDED_ALLOW_IPS` is pinned to the web container's fixed address on a fixed subnet.
+
+nginx sets `real_ip_recursive off`, which is the counter-intuitive half. `on` walks the
+forwarded list right to left and stops at the first untrusted address, which sounds
+stricter and is the opposite: with a single trusted hop, a header the client sent
+themselves puts a forged address at the far left and that is exactly where the walk
+lands. `off` takes the last entry, the one the terminator appended, which no client can
+write. `MEADOW_TRUSTED_PROXY_CIDR` defaults to `127.0.0.1` so an unconfigured
+deployment ignores the header entirely and falls back to the TCP peer.
+
+`scripts/stack-check.mjs` asserts this against the running stack by registering six
+times behind six forged addresses and requiring a 429. Written against the earlier
+config it failed, which is how the recursive-walk problem was found rather than
+reasoned about.
+
+**The stack check exists because every other test talks to a uvicorn on the host.** The
+m0 gate, the smokes and the e2e scripts would all pass against a deployment whose proxy
+dropped the websocket upgrade, cached `index.html` forever, or answered a missing
+bundle with the SPA fallback. It drives the published port the way a browser does:
+fingerprinted assets immutable, `index.html` not cached, a missing asset a 404 rather
+than HTML, `/healthz` reaching the API rather than the fallback, and two yjs clients
+converging through the proxy.
+
+**TLS is not in the compose file.** Certificates are host state with a renewal timer.
+The container serves plain HTTP on one published port bound to loopback and reads the
+original scheme from X-Forwarded-Proto, so the refresh cookie is still marked Secure
+behind a terminator on the host.
+
+**MinIO is not in the compose file either**, which §8 lists. Nothing in v1 talks to it:
+thumbnails are rows in `board_thumbnails` and there are no user uploads. It arrives
+with images in v2.
+
+**The backup sidecar is built here rather than pulled.** §8 named
+`prodrigestivill/postgres-backup-local`; every binary in that image faults with "exec
+format error" on the development machine, including when pulled by its amd64 digest,
+while `debian` and `postgres:16-alpine` run fine on the same daemon. Deriving from
+`postgres:16-alpine` is the better base regardless: pg_dump refuses to dump from a
+server newer than itself, so one tag now pins both. Every dump is verified with
+`pg_restore --list` before it is renamed into place, the first runs at startup so the
+first deploy proves backups work, and the healthcheck watches the newest file rather
+than the process, because a backup job's failure mode is running happily and producing
+nothing.
 
 ### v2 — after v1 is live
 Tables · charts · freedraw · frames/groups · images · export to PDF/PNG · full-text
