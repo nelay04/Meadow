@@ -4,7 +4,7 @@
 #
 #   ./scripts/m0-gate.sh
 #
-# Assumes postgres and redis are already up: docker compose up -d
+# Assumes postgres and redis are already up: docker compose -f docker-compose.local.yml up -d
 set -euo pipefail
 
 cd "$(dirname "$0")/.."

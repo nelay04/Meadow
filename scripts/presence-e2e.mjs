@@ -9,7 +9,7 @@
  * Also covers thumbnails end to end, because a board preview is the one feature whose
  * whole job is to survive a round trip through the API.
  *
- * Requires postgres and redis: docker compose up -d
+ * Requires postgres and redis: docker compose -f docker-compose.local.yml up -d
  */
 
 import { spawn } from 'node:child_process'
@@ -89,7 +89,7 @@ async function register(name) {
   })
   if (!response.ok) {
     console.error(`FAIL  register ${name} returned ${response.status}: ${(await response.text()).slice(0, 200)}`)
-    console.error('Is the database up? docker compose up -d')
+    console.error('Is the database up? docker compose -f docker-compose.local.yml up -d')
     stop()
     process.exit(1)
   }

@@ -1,0 +1,200 @@
+# Local development stack: postgres, redis, pgadmin, and nothing else.
+#
+#   docker compose -f docker-compose.local.yml up -d
+#
+# By default the API and the web app run on the host, not in here. M0's gate test
+# restarts the server mid-run, and the e2e scripts spawn their own servers, so both
+# need to own those ports. Ports and credentials come from .env at the repo root,
+# which compose picks up automatically.
+#
+# To run everything in docker instead, with hot reload on both:
+#
+#   docker compose -f docker-compose.local.yml --profile app up
+#
+# That adds `api` and `web` containers with the source bind-mounted. uvicorn --reload
+# restarts on a Python edit, vite hot-reloads on a TypeScript one, and neither needs a
+# rebuild. They sit behind a profile rather than being on by default because they take
+# the same ports the gate and the e2e scripts need.
+#
+# `docker-compose.yml` is production. Reaching for a bare `docker compose up -d` in
+# this directory starts that instead, which is why every command in the README and in
+# scripts/ names this file explicitly.
+
+# Pinned rather than derived. Compose otherwise takes the project name from the
+# directory, which is also `meadow`, and the production stack would share a namespace
+# with this one: bringing either up would see the other's containers as orphans. This
+# keeps the historical value so the existing dev volumes stay attached; production
+# uses `meadow-prod`.
+name: meadow
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-meadow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-meadow}
+      POSTGRES_DB: ${POSTGRES_DB:-meadow}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    # Named volume, not a bind mount: avoids UID/GID startup failures. See ARCHITECTURE 8.
+    volumes:
+      - meadow_pgdata:/var/lib/postgresql/data
+    # The 64MB default causes confusing query failures under load.
+    shm_size: 1g
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-meadow} -d ${POSTGRES_DB:-meadow}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    # Host port defaults to 6380: a native redis commonly owns 6379 already. The
+    # container port stays 6379, so nothing inside the compose network changes.
+    ports:
+      - "${REDIS_PORT:-6380}:6379"
+    volumes:
+      - meadow_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Dev-only DB console. Deliberately absent from the production stack.
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-dev@meadow.dev}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-meadow}
+      # Skips the login screen; safe because this only ever binds to localhost.
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+    ports:
+      - "127.0.0.1:${PGADMIN_PORT:-5051}:80"
+    volumes:
+      - meadow_pgadmindata:/var/lib/pgadmin
+      - ./docker/pgadmin/servers.json:/pgadmin4/servers.json:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # --- the `app` profile: everything in docker, with hot reload -------------------
+  #
+  # Not started by a plain `up -d`. `--profile app` opts in.
+
+  # One-shot, so a fresh clone gets a migrated database without a host Python at all.
+  migrate:
+    profiles: [app]
+    build:
+      context: ./services/api
+      dockerfile: ../../docker/api/Dockerfile
+      target: dev
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    environment:
+      MEADOW_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-meadow}:${POSTGRES_PASSWORD:-meadow}@postgres:5432/${POSTGRES_DB:-meadow}
+    volumes:
+      - ./services/api/app:/srv/meadow/api/app
+      - ./services/api/alembic:/srv/meadow/api/alembic
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    profiles: [app]
+    build:
+      context: ./services/api
+      dockerfile: ../../docker/api/Dockerfile
+      target: dev
+    environment:
+      # Service names, not localhost. The published 5435 and 6380 are for the host.
+      MEADOW_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-meadow}:${POSTGRES_PASSWORD:-meadow}@postgres:5432/${POSTGRES_DB:-meadow}
+      MEADOW_REDIS_URL: redis://redis:6379/0
+      MEADOW_JWT_SECRET: dev-only-not-a-real-secret-change-me
+      MEADOW_REFRESH_COOKIE_SECURE: "false"
+      # So `exec api pytest` works without arguments. conftest reads both, creates and
+      # migrates meadow_test, and uses Redis db 1, so a run in here cannot touch the
+      # dev data sitting in the same containers.
+      MEADOW_TEST_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-meadow}:${POSTGRES_PASSWORD:-meadow}@postgres:5432/meadow_test
+      MEADOW_TEST_REDIS_URL: redis://redis:6379/1
+      # Set true if edits do not trigger a reload. Bind mounts on WSL and on
+      # docker-for-mac often do not deliver inotify events into the container.
+      WATCHFILES_FORCE_POLLING: ${MEADOW_WATCH_POLL:-false}
+    volumes:
+      # Source only. Mounting the whole services/api would shadow the container's
+      # .venv with the host's, which is built for the host Python.
+      - ./services/api/app:/srv/meadow/api/app
+      - ./services/api/alembic:/srv/meadow/api/alembic
+      # Mounted rather than baked in. services/api/.dockerignore keeps the suite out of
+      # the image, which is right for the artefact that gets deployed, and this is what
+      # makes `exec api pytest` work anyway.
+      - ./services/api/tests:/srv/meadow/api/tests
+    ports:
+      - "127.0.0.1:${API_PORT:-8012}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    profiles: [app]
+    build:
+      context: ./services/api
+      dockerfile: ../../docker/api/Dockerfile
+      target: dev
+    # arq has no reloader of its own, so watchfiles supervises it. Without this a
+    # change to compaction.py needs a manual container restart, which is exactly the
+    # kind of thing that gets forgotten and then debugged for twenty minutes.
+    command:
+      - watchfiles
+      - "arq app.workers.settings.WorkerSettings"
+      - /srv/meadow/api/app
+    environment:
+      MEADOW_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-meadow}:${POSTGRES_PASSWORD:-meadow}@postgres:5432/${POSTGRES_DB:-meadow}
+      MEADOW_REDIS_URL: redis://redis:6379/0
+      WATCHFILES_FORCE_POLLING: ${MEADOW_WATCH_POLL:-false}
+    volumes:
+      - ./services/api/app:/srv/meadow/api/app
+    depends_on:
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  web:
+    profiles: [app]
+    build:
+      context: .
+      dockerfile: docker/web/Dockerfile
+      target: dev
+    environment:
+      # vite.config.ts reads all three. The API is a service name here, and localhost
+      # inside this container is this container.
+      MEADOW_API_ORIGIN: http://api:8000
+      MEADOW_WEB_HOST: "0.0.0.0"
+      MEADOW_WATCH_POLL: ${MEADOW_WATCH_POLL:-false}
+      WEB_PORT: ${WEB_PORT:-3012}
+    volumes:
+      - ./apps/web:/build/apps/web
+      - ./packages/schema:/build/packages/schema
+      # Anonymous volumes, and they are the load-bearing part. Docker seeds them from
+      # the image, so these two paths keep the container's own node_modules instead of
+      # being replaced by the host's, which is installed for the host platform and
+      # whose pnpm symlink layout does not survive being half-overlaid. Without them
+      # the bind mounts above break the app in ways that read as vite bugs.
+      - /build/apps/web/node_modules
+      - /build/packages/schema/node_modules
+    ports:
+      - "127.0.0.1:${WEB_PORT:-3012}:${WEB_PORT:-3012}"
+    depends_on:
+      - api
+
+volumes:
+  meadow_pgdata:
+  meadow_redisdata:
+  meadow_pgadmindata:

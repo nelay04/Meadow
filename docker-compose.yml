@@ -1,60 +1,222 @@
-# Dev stack. M0 runs postgres + redis here and the API on the host via uvicorn, so a
-# server restart (the real gate test) is fast. Ports and credentials come from .env at
-# the repo root; compose picks that file up automatically.
+# Production stack. ARCHITECTURE 8. This is the default compose file: a bare
+# `docker compose up -d` on the VPS is the deploy.
+#
+#   docker compose --env-file .env.prod up -d
+#
+# Local development uses `docker-compose.local.yml`, which runs postgres, redis and
+# pgadmin only, and leaves the API and web app on the host.
+#
+# Differences from that file:
+#   * postgres and redis publish no host ports. Nothing outside this network needs
+#     them, and a database reachable from the internet is the single most common way a
+#     self-hosted deployment is lost.
+#   * the API and the worker run as containers rather than on the host.
+#   * migrations are a one-shot service the API waits on, not something done by hand
+#     after a deploy and forgotten once.
+#   * no pgadmin.
+#
+# Not here, deliberately:
+#   * MinIO. ARCHITECTURE 8 lists it, and nothing in v1 talks to it. Thumbnails are
+#     rows in board_thumbnails and there are no user uploads yet. Running an object
+#     store nothing writes to costs memory on a small VPS to make a diagram accurate.
+#     It arrives with images in v2.
+#   * TLS. This stack serves plain HTTP on one published port and expects the host's
+#     edge proxy to terminate. Certificates are host state with a renewal timer, not
+#     something a compose file should own, and the container reads the original scheme
+#     from X-Forwarded-Proto so the refresh cookie is still marked Secure.
+
+# Namespaced away from the local stack, which pins itself to `meadow`. Without this
+# both files default to the directory name and become the same compose project:
+# bringing this up on a development machine would treat the local containers as
+# orphans and offer to remove them, dev postgres volume included.
+name: meadow-prod
+
 services:
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-meadow}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-meadow}
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB:-meadow}
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
-    # Named volume, not a bind mount: avoids UID/GID startup failures. See ARCHITECTURE 8.
     volumes:
-      - meadow_pgdata:/var/lib/postgresql/data
-    # The 64MB default causes confusing query failures under load.
+      - meadow_prod_pgdata:/var/lib/postgresql/data
+    # The 64MB default causes confusing query failures under load. ARCHITECTURE 8.
     shm_size: 1g
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-meadow} -d ${POSTGRES_DB:-meadow}"]
-      interval: 5s
-      timeout: 3s
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
       retries: 10
+      start_period: 20s
+    networks:
+      meadow:
 
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
-    # Host port defaults to 6380: a native redis commonly owns 6379 already. The
-    # container port stays 6379, so nothing inside the compose network changes.
-    ports:
-      - "${REDIS_PORT:-6380}:6379"
     volumes:
-      - meadow_redisdata:/data
+      - meadow_prod_redisdata:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
+      interval: 10s
+      timeout: 5s
       retries: 10
+    networks:
+      meadow:
 
-  # Dev-only DB console. Not in docker-compose.prod.yml.
-  pgadmin:
-    image: dpage/pgadmin4:latest
+  # One-shot. `depends_on: service_completed_successfully` below means the API cannot
+  # start against a schema it was not built for, and a failed migration stops the
+  # deploy instead of producing a running API that 500s on its first query.
+  migrate:
+    image: ${MEADOW_API_IMAGE:-meadow-api:local}
+    build:
+      context: ./services/api
+      dockerfile: ../../docker/api/Dockerfile
+    restart: "no"
+    command: ["alembic", "upgrade", "head"]
     environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-dev@meadow.dev}
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-meadow}
-      # Skips the login screen; safe because this only ever binds to localhost.
-      PGADMIN_CONFIG_SERVER_MODE: "False"
-      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
-    ports:
-      - "127.0.0.1:${PGADMIN_PORT:-5051}:80"
-    volumes:
-      - meadow_pgadmindata:/var/lib/pgadmin
-      - ./docker/pgadmin/servers.json:/pgadmin4/servers.json:ro
+      MEADOW_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-meadow}
     depends_on:
       postgres:
         condition: service_healthy
+    networks:
+      meadow:
+
+  api:
+    image: ${MEADOW_API_IMAGE:-meadow-api:local}
+    build:
+      context: ./services/api
+      dockerfile: ../../docker/api/Dockerfile
+    restart: unless-stopped
+    environment:
+      MEADOW_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-meadow}
+      MEADOW_REDIS_URL: redis://redis:6379/0
+      MEADOW_JWT_SECRET: ${MEADOW_JWT_SECRET:?generate one - python -c "import secrets; print(secrets.token_urlsafe(32))"}
+      MEADOW_ACCESS_TOKEN_TTL_SECONDS: ${MEADOW_ACCESS_TOKEN_TTL_SECONDS:-900}
+      MEADOW_REFRESH_TOKEN_TTL_DAYS: ${MEADOW_REFRESH_TOKEN_TTL_DAYS:-30}
+      MEADOW_REFRESH_COOKIE_SECURE: ${MEADOW_REFRESH_COOKIE_SECURE:-true}
+      MEADOW_WS_TOKEN_TTL_SECONDS: ${MEADOW_WS_TOKEN_TTL_SECONDS:-60}
+      MEADOW_WS_REVALIDATE_INTERVAL_SECONDS: ${MEADOW_WS_REVALIDATE_INTERVAL_SECONDS:-900}
+      MEADOW_MAX_CLIENTS_PER_ROOM: ${MEADOW_MAX_CLIENTS_PER_ROOM:-50}
+      MEADOW_RATE_LIMIT_ENABLED: ${MEADOW_RATE_LIMIT_ENABLED:-true}
+      # Exactly one address, the web container's, on a subnet this file pins. Anything
+      # wider and a client could choose its own rate-limit bucket by sending
+      # X-Forwarded-For itself. See the note in docker/api/Dockerfile.
+      FORWARDED_ALLOW_IPS: 172.28.0.10
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      meadow:
+
+  # Same image, different entrypoint. Compaction folds a whole document in memory, and
+  # a board large enough to matter would take a request-serving process down with it.
+  worker:
+    image: ${MEADOW_API_IMAGE:-meadow-api:local}
+    build:
+      context: ./services/api
+      dockerfile: ../../docker/api/Dockerfile
+    restart: unless-stopped
+    command: ["arq", "app.workers.settings.WorkerSettings"]
+    environment:
+      MEADOW_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-meadow}
+      MEADOW_REDIS_URL: redis://redis:6379/0
+      MEADOW_JWT_SECRET: ${MEADOW_JWT_SECRET}
+    # Overrides the image's, which GETs /healthz. The worker serves no HTTP, so the
+    # inherited check can only ever fail, and a permanently-unhealthy container is
+    # worse than none: it trains you to ignore the column. `arq --check` reads the
+    # heartbeat the worker writes to Redis, so this fails if the loop has stopped
+    # even while the process is still up.
+    healthcheck:
+      test: ["CMD", "arq", "app.workers.settings.WorkerSettings", "--check"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      meadow:
+
+  web:
+    image: ${MEADOW_WEB_IMAGE:-meadow-web:local}
+    build:
+      context: .
+      dockerfile: docker/web/Dockerfile
+    restart: unless-stopped
+    environment:
+      MEADOW_API_UPSTREAM: api:8000
+      # Who may tell nginx the client's real address. The default matches nothing that
+      # can arrive over the bridge, so X-Forwarded-For is ignored and the TCP peer is
+      # the client. Set it to the bridge gateway only when a TLS terminator on the
+      # host proxies to the published port. See docker/nginx/meadow.conf.template.
+      MEADOW_TRUSTED_PROXY_CIDR: ${MEADOW_TRUSTED_PROXY_CIDR:-127.0.0.1}
+      NGINX_ENVSUBST_FILTER: MEADOW_
+    ports:
+      # Bound to loopback by default: the edge proxy is on the same host. Set
+      # WEB_BIND=0.0.0.0 only if this container is the edge.
+      - "${WEB_BIND:-127.0.0.1}:${WEB_PUBLIC_PORT:-8080}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      meadow:
+        # Fixed, because the API's FORWARDED_ALLOW_IPS names it. A DHCP address from
+        # the pool would change on recreate and silently stop the proxy being trusted,
+        # which fails closed: every client would look like it came from nginx.
+        ipv4_address: 172.28.0.10
+
+  # Nightly pg_dump, 7-day retention. ARCHITECTURE 8: no WAL archiving and no PITR, so
+  # this is the entire recovery story. Every dump is verified with pg_restore --list
+  # before it counts, and the healthcheck watches the newest file rather than the
+  # process, because a backup job's failure mode is running happily and producing
+  # nothing. See docker/backup/Dockerfile for why this is not the image ARCHITECTURE
+  # named.
+  backup:
+    image: ${MEADOW_BACKUP_IMAGE:-meadow-backup:local}
+    build:
+      context: ./docker/backup
+    restart: unless-stopped
+    # Numeric, and matched to whoever needs to read the dumps off the host. Left as
+    # the image's postgres user the files land as uid 70 and copying them off is a
+    # sudo operation every time.
+    user: "${BACKUP_UID:-1000}:${BACKUP_GID:-1000}"
+    environment:
+      PGHOST: postgres
+      PGDATABASE: ${POSTGRES_DB:-meadow}
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      BACKUP_DIR: /backups
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-7}
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+    volumes:
+      - ${BACKUP_DIR:-./backups}:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      meadow:
 
 volumes:
-  meadow_pgdata:
-  meadow_redisdata:
-  meadow_pgadmindata:
+  meadow_prod_pgdata:
+  meadow_prod_redisdata:
+
+networks:
+  meadow:
+    ipam:
+      config:
+        # Pinned so the web container can hold a fixed address. Change it here if it
+        # collides with something else on the host, and change FORWARDED_ALLOW_IPS and
+        # MEADOW_TRUSTED_PROXY_CIDR with it.
+        - subnet: 172.28.0.0/16

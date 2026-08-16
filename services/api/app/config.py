@@ -2,10 +2,18 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Single .env at the repo root, shared with docker-compose. Resolved from __file__ so
-# it does not matter which directory the API is launched from. Real environment
-# variables win over the file, which is how the test suite redirects at the test DB.
-REPO_ROOT = Path(__file__).resolve().parents[3]
+# Single .env at the repo root, shared with docker-compose.local.yml. Resolved from
+# __file__ so it does not matter which directory the API is launched from. Real
+# environment variables win over the file, which is how the test suite redirects at
+# the test DB.
+#
+# The container image ships only `services/api`, so there is no repo root above it and
+# `parents[3]` may not exist. Fall back to the package's own parent rather than raising
+# at import: in a container the configuration arrives as real environment variables,
+# and pydantic-settings ignores an env_file that is not there.
+_MODULE = Path(__file__).resolve()
+_PARENTS = _MODULE.parents
+REPO_ROOT = _PARENTS[3] if len(_PARENTS) > 3 else _PARENTS[-1]
 
 
 class Settings(BaseSettings):

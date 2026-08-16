@@ -40,3 +40,9 @@ class WorkerSettings:
     # shares a small VPS with Postgres and the API.
     max_jobs = 2
     job_timeout = 300
+    # The worker stamps a key in Redis this often, with a TTL one second longer, and
+    # `arq ... --check` reads it. That is what the container healthcheck runs, so the
+    # interval is also how quickly a wedged event loop stops looking alive. arq's
+    # default is an hour, which would report a dead worker as healthy for most of a
+    # morning.
+    health_check_interval = 30

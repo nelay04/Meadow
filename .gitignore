@@ -3,6 +3,9 @@
 # Secrets and local config
 .env
 .env.local
+.env.prod
+!.env.example
+!.env.prod.example
 
 # Python
 .venv/
@@ -27,3 +30,6 @@ dist/
 
 # Test artefacts
 board-e2e.png
+
+# pg_dump output from the backup sidecar
+backups/

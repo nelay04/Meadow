@@ -1,0 +1,151 @@
+# The Meadow site. Serves the built SPA and proxies /api and /ws to the API container.
+#
+# This is a template, not a plain conf: the nginx image's entrypoint runs envsubst over
+# /etc/nginx/templates/*.template into /etc/nginx/conf.d/. NGINX_ENVSUBST_FILTER is set
+# to MEADOW_ in the compose file so only the variables below are substituted and
+# nginx's own $host, $remote_addr, $uri and friends survive untouched.
+#
+# Substituted:
+#   MEADOW_API_UPSTREAM         host:port of the API container
+#   MEADOW_TRUSTED_PROXY_CIDR   who is allowed to tell us the client's real address
+
+upstream meadow_api {
+    server ${MEADOW_API_UPSTREAM};
+    keepalive 32;
+}
+
+# Preserve the original scheme across two hops. When TLS is terminated in front of this
+# container the request arrives over plain http, and passing $scheme would tell the API
+# the session was insecure - which is what decides whether the refresh cookie may be
+# marked Secure.
+map $http_x_forwarded_proto $meadow_forwarded_proto {
+    default $http_x_forwarded_proto;
+    ''      $scheme;
+}
+
+server {
+    listen 80 default_server;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Thumbnails are webp captured from the canvas, a few hundred KB at most. The
+    # default 1m would truncate a large board's capture into a 413.
+    client_max_body_size 8m;
+
+    # Who is allowed to tell us the client's real address.
+    #
+    # Defaults to 127.0.0.1, which nothing arriving over the docker bridge can match,
+    # so X-Forwarded-For is ignored entirely and $remote_addr stays the TCP peer. That
+    # is the correct answer when this container is the edge, and it fails closed: the
+    # wrong setting costs accuracy, never authority.
+    #
+    # Set MEADOW_TRUSTED_PROXY_CIDR to the bridge gateway when a TLS terminator on the
+    # host proxies to the published port. Without it, $remote_addr is the terminator
+    # and every visitor shares one rate-limit bucket and one audit-log address.
+    set_real_ip_from ${MEADOW_TRUSTED_PROXY_CIDR};
+    real_ip_header X-Forwarded-For;
+
+    # off, not on, and this is the part that matters.
+    #
+    # X-Forwarded-For is a client-supplied header that proxies append to. `on` walks
+    # the list right to left and stops at the first address not in set_real_ip_from,
+    # which sounds stricter and is the opposite: a caller who sends the header
+    # themselves puts an address of their choosing at the far left, and with a single
+    # trusted hop that forged entry is what the walk lands on. `off` takes the last
+    # entry, which is the one the terminator appended and the only one no client can
+    # write. Anything a caller sends is carried along and ignored.
+    real_ip_recursive off;
+
+    # Docker's embedded DNS. Without a resolver, nginx resolves upstream names once at
+    # startup and keeps the address forever, so a restarted API container that comes
+    # back on a new IP is unreachable until nginx is restarted too.
+    resolver 127.0.0.11 valid=10s ipv6=off;
+
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options DENY always;
+    add_header Referrer-Policy strict-origin-when-cross-origin always;
+
+    location = /nginx-healthz {
+        access_log off;
+        add_header Content-Type text/plain;
+        return 200 "ok\n";
+    }
+
+    # The API's own health endpoint, exposed so an external uptime monitor can see
+    # more than nginx being alive. Without this it falls through to the SPA and
+    # returns 200 with index.html, which any monitor would read as healthy while the
+    # API is down.
+    location = /healthz {
+        access_log off;
+        proxy_pass http://meadow_api;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header Connection "";
+        proxy_connect_timeout 3s;
+        proxy_read_timeout 5s;
+    }
+
+    location /api/ {
+        proxy_pass http://meadow_api;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header Connection "";
+
+        # Replace, not append. $proxy_add_x_forwarded_for would carry through whatever
+        # the client sent, and uvicorn's proxy-header middleware reads the leftmost
+        # entry of the list, so a client could name its own address. After real_ip
+        # processing above, $remote_addr is the true peer.
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $meadow_forwarded_proto;
+
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 60s;
+    }
+
+    location /ws/ {
+        proxy_pass http://meadow_api;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $meadow_forwarded_proto;
+
+        # ARCHITECTURE 8. A board with nobody typing sends nothing for long stretches,
+        # and the 60s default would drop the socket out from under an idle tab. The
+        # client would reconnect, but it would mint a fresh ws-token to do it, once a
+        # minute, forever.
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+
+    # Vite fingerprints these, so the filename changes whenever the contents do.
+    location /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable" always;
+        add_header X-Content-Type-Options nosniff always;
+        try_files $uri =404;
+    }
+
+    # Self-hosted, versioned by hand, and changed roughly never.
+    location /fonts/ {
+        expires 30d;
+        add_header Cache-Control "public" always;
+        add_header X-Content-Type-Options nosniff always;
+        try_files $uri =404;
+    }
+
+    location / {
+        # Client-side routing: /board/<uuid> is not a file.
+        try_files $uri $uri/ /index.html;
+
+        # index.html names the fingerprinted bundles, so caching it is how a deploy
+        # goes out and never arrives.
+        add_header Cache-Control "no-cache" always;
+        add_header X-Content-Type-Options nosniff always;
+        add_header X-Frame-Options DENY always;
+        add_header Referrer-Policy strict-origin-when-cross-origin always;
+    }
+}

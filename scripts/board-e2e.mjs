@@ -6,7 +6,7 @@
  * drives the engine against a local Y.Doc; this is the only check that covers auth,
  * the handshake, the provider, and persistence together.
  *
- * Requires postgres and redis: docker compose up -d
+ * Requires postgres and redis: docker compose -f docker-compose.local.yml up -d
  */
 
 import { spawn } from 'node:child_process'
@@ -97,7 +97,7 @@ if (!register.ok) {
   // hides that completely.
   console.error(
     `FAIL  register returned ${register.status}: ${(await register.text()).slice(0, 200)}\n` +
-      'Is the database up? docker compose up -d',
+      'Is the database up? docker compose -f docker-compose.local.yml up -d',
   )
   stop()
   process.exit(1)

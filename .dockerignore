@@ -1,0 +1,30 @@
+# Build context for the web image is the repo root. Everything the SPA build does not
+# need is excluded, both to keep the context small and so a stray .env cannot end up
+# baked into a layer.
+
+.git
+.github
+node_modules
+**/node_modules
+**/dist
+**/.venv
+**/__pycache__
+**/*.egg-info
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/*.tsbuildinfo
+
+.env
+.env.*
+!.env.example
+!.env.prod.example
+
+services
+docs
+scripts
+backups
+*.md
+.claude
+.m0-gate-board
+docker-compose*.yml
