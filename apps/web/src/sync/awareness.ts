@@ -42,10 +42,12 @@ export function colorFor(userId: string): number {
 export type LocalPresence = {
   id: string
   name: string
+  /** Whether this client may edit, so peers can show a viewer or editor badge. */
+  canWrite: boolean
 }
 
 export type WandererState = {
-  user: { id: string; name: string; color: number }
+  user: { id: string; name: string; color: number; canWrite: boolean }
   cursor: { x: number; y: number } | null
   selection: string[]
 }
@@ -54,6 +56,14 @@ export type PresenceHandle = {
   /** World coordinates, or null when the pointer leaves the canvas. */
   setCursor(point: { x: number; y: number } | null): void
   setSelection(ids: readonly string[]): void
+  /**
+   * Republish the role.
+   *
+   * Presence is bound when the connection opens, and the role is resolved by the
+   * handshake a moment later, so the first announcement is always made without it. It
+   * can also change mid-session when an owner promotes somebody.
+   */
+  setCanWrite(canWrite: boolean): void
   destroy(): void
 }
 
@@ -68,7 +78,13 @@ export function trackPresence(
   local: LocalPresence,
   onChange: (wanderers: Wanderer[]) => void,
 ): PresenceHandle {
-  const user = { id: local.id, name: local.name, color: colorFor(local.id) }
+  const user = {
+    id: local.id,
+    name: local.name,
+    color: colorFor(local.id),
+    canWrite: local.canWrite,
+  }
+  let announced = user
   awareness.setLocalStateField('user', user)
   awareness.setLocalStateField('cursor', null)
   awareness.setLocalStateField('selection', [])
@@ -127,6 +143,9 @@ export function trackPresence(
         clientId,
         name: typeof remote.name === 'string' && remote.name !== '' ? remote.name : 'someone',
         color: typeof remote.color === 'number' ? remote.color : colorFor(String(remote.id ?? '')),
+        // Absent means a peer on an older build. Reading that as "viewer" would mark
+        // every one of them read-only, so the benign default is the common case.
+        canWrite: remote.canWrite !== false,
         cursor:
           state?.cursor != null &&
           typeof state.cursor.x === 'number' &&
@@ -172,6 +191,12 @@ export function trackPresence(
         return
       }
       if (timer === undefined) timer = window.setTimeout(flush, CURSOR_INTERVAL_MS)
+    },
+
+    setCanWrite(canWrite) {
+      if (announced.canWrite === canWrite) return
+      announced = { ...announced, canWrite }
+      awareness.setLocalStateField('user', announced)
     },
 
     setSelection(ids) {

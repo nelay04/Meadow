@@ -17,6 +17,7 @@ import {
   bringToFront,
   clearObjects,
   createDocSession,
+  ensureObjectFragment,
   deleteObjects,
   endGesture,
   reconcileOrder,
@@ -56,10 +57,51 @@ describe('object writes', () => {
   it('gives text-bearing types an XmlFragment and others none', () => {
     const doc = session()
     const sticky = doc.objects.get(addObject(doc, { type: 'sticky' }))
+    // The primitives became text-bearing in M6: a shape you cannot label is a shape
+    // that needs a second object stuck to it.
     const rect = doc.objects.get(addObject(doc, { type: 'rect' }))
+    const ellipse = doc.objects.get(addObject(doc, { type: 'ellipse' }))
+    // And arrows, which carry the label that says what the connection means.
+    const arrow = doc.objects.get(addObject(doc, { type: 'arrow' }))
+    const image = doc.objects.get(addObject(doc, { type: 'image' }))
 
     expect(sticky?.get('text')).toBeInstanceOf(Y.XmlFragment)
-    expect(rect?.get('text')).toBeUndefined()
+    expect(rect?.get('text')).toBeInstanceOf(Y.XmlFragment)
+    expect(ellipse?.get('text')).toBeInstanceOf(Y.XmlFragment)
+    expect(arrow?.get('text')).toBeInstanceOf(Y.XmlFragment)
+    expect(image?.get('text')).toBeUndefined()
+  })
+
+  it('attaches a fragment to a shape that predates text-bearing primitives', () => {
+    const doc = session()
+    const id = addObject(doc, { type: 'rect' })
+
+    // Stand in for a document written before the change: the shape exists, the key
+    // does not. Deleting it is the only honest way to reproduce that here.
+    doc.doc.transact(() => doc.objects.get(id)?.delete('text'))
+    expect(doc.objects.get(id)?.get('text')).toBeUndefined()
+
+    const fragment = ensureObjectFragment(doc, id)
+    expect(fragment).toBeInstanceOf(Y.XmlFragment)
+    expect(doc.objects.get(id)?.get('text')).toBe(fragment)
+  })
+
+  it('returns the existing fragment rather than replacing it', () => {
+    const doc = session()
+    const id = addObject(doc, { type: 'rect' })
+    const first = ensureObjectFragment(doc, id)
+    // A second call must not swap the fragment out. Two fragments would mean two
+    // people typing into different documents that both claim to be this shape.
+    expect(ensureObjectFragment(doc, id)).toBe(first)
+  })
+
+  it('attaches nothing to a type that carries no text, or for a viewer', () => {
+    const doc = session()
+    const image = addObject(doc, { type: 'image' })
+    expect(ensureObjectFragment(doc, image)).toBeNull()
+
+    const viewer = session('viewer')
+    expect(ensureObjectFragment(viewer, 'anything')).toBeNull()
   })
 
   it('merges props per key instead of replacing the map', () => {

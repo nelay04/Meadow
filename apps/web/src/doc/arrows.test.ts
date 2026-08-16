@@ -63,6 +63,26 @@ function points(doc: DocSession, id: string): number[] {
 
 const CENTRE = { nx: 0.5, ny: 0.5 }
 
+describe('orthogonal endpoints', () => {
+  it('meets the outline square rather than where a straight line would', () => {
+    const box = object({ id: 'target', x: 400, y: 200, w: 200, h: 100 })
+    const binding = { anchor: { nx: 0.5, ny: 0.5 }, gap: 0 }
+
+    // From well to the left and a little above. A straight line into the centre leaves
+    // the box through the left edge but high up; the elbow's last segment is horizontal
+    // at the centre's height, so the endpoint has to be the middle of that edge.
+    const straight = solveArrowEnds([0, 120, 500, 250], null, null, box, binding, 'straight')
+    const elbow = solveArrowEnds([0, 120, 500, 250], null, null, box, binding, 'orthogonal')
+
+    const straightY = straight[straight.length - 1]
+    const elbowY = elbow[elbow.length - 1]
+
+    expect(straightY).toBeLessThan(250)
+    expect(elbowY).toBeCloseTo(250, 6)
+    expect(elbow[elbow.length - 2]).toBeCloseTo(400, 6)
+  })
+})
+
 describe('arrowGeometry', () => {
   it('keeps bounds and relative points in step', () => {
     const geometry = arrowGeometry([100, 50, 300, 250])

@@ -34,6 +34,29 @@ The infrastructure to run the thing. Not deployed yet.
 - CI on every push: lint, both test suites, the e2e scripts, and a job that builds the
   images and runs the stack check against them. `release.yml` publishes three images to
   GHCR and deploys over ssh, gated on CI passing.
+- **A pre-commit hook**, in `.githooks/` rather than in `.git/hooks/`, so the rules are
+  versioned with the repo instead of being whatever each clone happened to copy in.
+  `pnpm install` points `core.hooksPath` at it through `scripts/install-hooks.mjs`, and
+  every failure mode there is a no-op: the web image runs `pnpm install` in a context
+  with no `.git` and no `scripts/`, and a hook installer that can fail is one that can
+  stop a deploy over something with no bearing on the running app.
+  The hook picks its checks from what is staged. Repo rules always, tsc and vitest when
+  `apps/web` or `packages/schema` is involved, ruff and mypy when `services/api` is, and
+  a skipped check says so rather than looking like a pass. Nothing in it needs Postgres,
+  Redis or a browser, so pytest, the gate, the smokes and the e2e scripts stay in CI: a
+  check you cannot run because a container is down is a check people learn to skip.
+- `scripts/check-staged.mjs`, which enforces the non-negotiables in `.claude/CLAUDE.md`
+  that no linter knows about. `src/canvas/` importing from `src/features/`, a
+  `Y.transact` outside `src/doc/`, a second `resolve_role`, an `any`, a default export
+  outside a route component, an emoji, a staged `.env` or private key, a conflict
+  marker, a file over a megabyte. Added lines only: a rule that fires on everything it
+  can see turns a one-line fix into a repo-wide cleanup, and the commit that trips it is
+  usually not the one that should pay for that. Style preferences print as notes and
+  never block, because a hook that blocks on a judgement call teaches people to pass
+  `--no-verify`, after which the real checks stop running too.
+- `/fix-precommit.prompt`, the third shared agent command, for diagnosing a blocked
+  commit. It maps each finding to its actual fix and rules out the workarounds,
+  `--no-verify` included.
 - A development profile that runs the whole app in Docker with hot reload:
   `docker compose -f docker-compose.local.yml --profile app up`. uvicorn reloads on a
   Python edit, vite hot-reloads on a TypeScript one, and watchfiles restarts the arq
@@ -73,6 +96,44 @@ The infrastructure to run the thing. Not deployed yet.
   already returns — `recent` from `updated_at`, `owned` and `shared` from the resolved
   role — so none of them is a label over an empty room. Sorting by modified, created or
   name, and cards now carry an "Edited N ago" line.
+- **Arrows you can actually steer.** A selected arrow gets three or four handles and
+  nothing else: drag either end to re-aim it, drop it on a shape to attach it or on
+  empty canvas to detach it, and drag its middle to bend it. Dropping an end writes a
+  binding either way, because leaving the old one in place made a detached arrow spring
+  back the next time anything reflowed it.
+- **Curved arrows, including S curves.** A cubic with a signed bow at each end rather
+  than a quadratic with one, and that is the difference between a curve and a bow: one
+  number can only lean the whole arrow one way. Opposite signs inflect, which is the
+  shape a connector between two boxes on the same row wants to be. A straight arrow has
+  one middle handle that bends it symmetrically; once it is a curve each half gets its
+  own, solved exactly so the handle stays under the pointer rather than drifting over a
+  long drag. The bow is derived from the two endpoints and a fraction, never stored as a
+  flattened path, so it is tessellated for the zoom it is drawn at and keeps its shape
+  when either end moves.
+- A routing picker floating over the selected arrow: straight, curved, elbow. Three,
+  because that is all FigJam has and nothing is missing from it. The elbow routing
+  existed in the schema and had never been reachable.
+- **Labels on arrows.** Double-click a connector and type. Half of what an arrow means
+  on a diagram is written on the arrow, and a floating text object parked near one is
+  not that, because it does not move when the arrow is re-routed. The label rides the
+  middle of the drawn path rather than sitting in the object's box, because a horizontal
+  arrow's box is one unit tall. No plate behind it: the arrow's own line is
+  broken around the caption instead, which is what a person drawing this by hand does.
+  A plate works and puts one more opaque rectangle on a surface whose whole character is
+  that it has none, and on any board that is not the default colour it reads as a
+  sticker.
+- **Text formatting: size, bold, italic, underline, strikethrough.** A bar at the top of
+  the canvas, live while a text object, sticky, shape label or arrow caption is being
+  edited. The split between the two mechanisms is the document's, not an implementation
+  detail: the marks are marks on a range inside the fragment and go through the editor,
+  while size is a property of the whole object and is an ordinary patch, so it works on
+  a multi-selection with no editor open at all. The mark list is defined by the
+  serialiser rather than by the editor, so nothing can be typed that would vanish when
+  the editor closed.
+- Distribution guides. Dragging an object into a row now equalises the gap either side
+  of it, or repeats a gap that already exists further along, and draws each one as a
+  measuring bar with end ticks rather than as another alignment line. Resizing snaps
+  too, so a column of boxes can be made the same width without typing a number.
 
 ### Changed
 - Every page redrawn. Login is a centred card with a segmented control instead of an
@@ -95,6 +156,50 @@ The infrastructure to run the thing. Not deployed yet.
   object that never chose a family now measures against a different face.
 - Default object fills and the canvas chrome retuned to the app palette, and unstyled
   shapes get a small corner radius instead of a hard 90-degree corner.
+- **Rotation moved from a dot above the box to the corners.** Figma's arrangement: the
+  gesture lives in the empty space just outside each corner and is advertised by the
+  cursor. One less piece of chrome to draw, four places to start it instead of one, and
+  it stops occupying the spot a user reaching for the top edge expects to be empty.
+- **A selected arrow no longer gets a bounding box, resize handles or a rotation.**
+  None of them mean anything for a two-point path: there is no visible sense in which a
+  diagonal line is "resized", and rotating about the box centre moves both ends at once.
+  Its own handles replace them.
+- **Arrow heads are open, not filled.** Two strokes meeting at the tip in the shaft's
+  own weight and with its own round caps, so an arrow is one continuous mark rather than
+  a line with a solid shape stuck on the end. `triangle` is still there for a document
+  that asks for it, and it kept the notched back so the shaft runs into it rather than
+  butting against a flat base. The default stroke went from 2 to 3 units, which is also
+  the antialiasing fix below.
+- A sticky note is blue (`#a8daff`), portrait at 3:3.25, and its corners are tighter than
+  every other shape's. A note is a cut square of paper; the more its corners are rounded
+  the more it reads as a button, and a square one is a coaster rather than a note. The
+  dark variant is a deep blue rather than a pale one, because sticky text follows the
+  theme's ink and a pale card would be light type on a light field.
+- The delete control in the rail turns red on hover rather than sitting red. Permanent
+  red is an alarm nobody is currently causing; red on hover answers "what happens if I
+  press this".
+- **A creation tool hands the pointer back to select once it has made something.** The
+  gesture after drawing a box is almost always adjusting that box, not drawing a second
+  one, and holding the tool is the rarer case that can cost a click. Matches every other
+  canvas tool worth copying.
+- **A sticky note is written like a note.** Text starts at the top-left and fills
+  downwards instead of staying centred on both axes. Centring was borrowed from a
+  shape's label and it is the wrong model: a caption in a box is a title, but text that
+  re-centres itself as you add a second line is unusable for writing more than three
+  words. The author's name sits in the bottom-right corner, stamped at creation because
+  `createdBy` is a user id and nothing can turn one into a name for somebody who has
+  since disconnected. The byline is chrome, not content, so it cannot be typed into,
+  selected or deleted, and it never counts towards the note's measured height.
+- **Element outlines are darker and connectors are lighter**, which is the reverse of
+  what this had. A diagram drawn the other way inverts its own hierarchy: the arrows
+  shout and the boxes they connect recede. A box is the thing being said; an arrow is
+  the relation between two of them, and it reads one weight quieter. Both themes.
+- Presence avatars carry a role badge: a pencil for an editor, an eye for a viewer.
+  Which of the people in a room can change it is the one thing about presence that
+  changes how you behave, and a row of identical circles does not say it. The role is
+  published over awareness and is presentational only; every write is still checked
+  server-side, so a peer lying about it changes what a badge looks like and nothing
+  else.
 
 ### Fixed
 - **The canvas rendered with antialiasing off, so every diagonal was a staircase.** The
@@ -182,6 +287,68 @@ The infrastructure to run the thing. Not deployed yet.
   is exactly where the right-to-left walk lands. Now `off`, which takes the entry the
   terminator appended and no client can write. Found by the stack check failing, not by
   reading the config.
+- **A text object nobody typed into stayed on the board forever.** The text tool creates
+  the object and opens an editor in one gesture, so clicking the canvas and changing
+  your mind left a zero-content object behind. It paints no box, so it was invisible -
+  and still in the document, still in the index, still selectable, still synced to
+  everyone. An empty one is discarded when the editor closes. Only standalone text: a
+  blank sticky is a deliberate card, and a blank label belongs to the shape that owns it.
+- The overlay pools its DOM nodes, and the arrow-label plate set a background and a
+  radius that `applyContentStyle` did not reset, so a node that had been a label carried
+  a grey band onto whatever plain text object reused it. Both the pool and the style
+  function clear them now.
+- An elbow arrived past the corner of the shape it pointed at, floating beside it. Its
+  endpoint was solved against the straight line to the far end, which is right for a
+  line that travels that way and wrong for a route whose last segment is horizontal or
+  vertical. A centre-anchored endpoint on an orthogonal route is now aimed along the
+  dominant axis, so it lands in the middle of the edge the route approaches from.
+- Dragging the middle of an elbow sprang it into a curve. An elbow's shape *is* its
+  routing, regenerated from its two ends on every solve, so a handle there could only
+  have meant "stop being an elbow" - which is not something anybody asks for by grabbing
+  a corner. It has no bend handle at all now.
+- **The middle of an elbow is a handle that slides its dogleg**, and getting there took
+  two wrong answers. The first turned the elbow into a curve, which is not what grabbing
+  a corner means. The second removed the handle entirely, which was worse: the press fell
+  through to the arrow itself and started a *move*, and moving an arrow with one end
+  pinned to a shape stretches it, so reaching for the dogleg sent the connector across
+  the board. Its position is one fraction on the arrow rather than stored waypoints, so
+  it survives either end moving and cannot disagree with the route.
+- An elbow drew as a straight line for the whole of the drag that created it and snapped
+  into shape on release, which made it impossible to aim. It is routed as it is drawn.
+- An elbow arrived past the corner of the shape it pointed at, floating beside it. Its
+  endpoint was solved against the straight line to the far end, which is right for a line
+  that travels that way and wrong for a route whose last segment is horizontal or
+  vertical. A centre-anchored endpoint on an orthogonal route is now aimed along the
+  dominant axis, so it lands in the middle of the edge the route approaches from.
+- **Text on a shape could be clipped away to nothing, and the words were still there.**
+  A label is centred on both axes, so a block taller than its box is cut at *both*
+  ends: raise the size and the first and last lines go, raise it further and the whole
+  caption does. It reads exactly like the text was never written, and there is no way
+  from the outside to tell that it was. Labels are not clipped at all now - text that
+  does not fit spills, centred and legible. Overflowing is visibly wrong in a way
+  somebody can see and fix; clipping is invisibly wrong.
+- A label in a diamond or an ellipse is laid out in the largest rectangle that fits
+  *inside the shape*, not inside its bounding box. The corners of the box are outside
+  the shape, which is why a caption that visibly had room still ran out over a slanted
+  edge. Half the box for a diamond and 1/sqrt(2) of it for an ellipse, both centred.
+- The overlay's two style functions disagreed about which properties they owned:
+  `applyArrowLabelStyle` set `align-items` and `overflow` on top of `applyBoxStyle`,
+  which set neither back. Overlay nodes are pooled, so a node that had been an arrow
+  caption laid the next object's text out shrink-to-fit and unclipped, and the words
+  ran out of the shape instead of wrapping inside it. There is now one function with a
+  variant, assigning every property it cares about every time, and `beginEdit` and
+  `endEdit` no longer poke at style behind its back - which is separately how a
+  caption's `overflow: visible` came back as `hidden` and clipped anything longer than
+  the label box's guess.
+- Switching an arrow to the elbow routing left it drawn as a straight line. An elbow's
+  waypoints are stored rather than derived, and writing the routing was never generating
+  them; switching away was never dropping them either. Changing a routing now rebuilds
+  the points and re-solves the bindings, since where an end sits depends on the route.
+- Double-clicking a curved arrow, or clicking one to select it, tested the straight line
+  between its endpoints rather than the drawn path, so the bow itself was unclickable and
+  the empty space inside the curve was not. Hit-testing and rendering derive the path from
+  one function, and a curved arrow's bounds are measured over that path rather than over
+  its two endpoints - otherwise it is culled while the bulge is still on screen.
 
 ### Known limitations
 - **An update can be lost permanently when the last client disconnects.** `YRoom`

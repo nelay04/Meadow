@@ -37,10 +37,50 @@ export type ArrowDraw = {
   startHead: ArrowHead
   endHead: ArrowHead
   headSize: number
+  /**
+   * A world-space box the shaft is cut around, for an arrow carrying a caption.
+   *
+   * The label is DOM and the line is WebGL, so nothing else can stop one drawing over
+   * the other. The alternative is an opaque plate behind the type, which is a solid
+   * rectangle on a surface that otherwise has none. Breaking the line is what a person
+   * drawing this by hand does, and it is what the diagrams being copied here do.
+   */
+  gap?: { minX: number; minY: number; maxX: number; maxY: number }
 }
 
-/** Half-angle of the head, in radians. 22 degrees reads as an arrow rather than a wedge. */
-const HEAD_ANGLE = 0.384
+/**
+ * The head's proportions, as fractions of its length along the shaft.
+ *
+ * Two different shapes, deliberately, because they are read differently.
+ *
+ * An `open` head is two strokes meeting at the tip, in the shaft's own weight and with
+ * the shaft's own round caps, so the whole arrow is one continuous mark. It is wide -
+ * nearly as far across as it is long - which is what stops a V at a whiteboard's line
+ * weight reading as a kink in the line. This is the default, and it is what a
+ * whiteboard arrow actually looks like.
+ *
+ * A `triangle` head is a filled wedge, for the diagram that wants one. It is narrower,
+ * because a filled shape at the same spread reads much heavier than an outline, and it
+ * is notched at the back so the shaft runs into it rather than butting against a flat
+ * base. `NOTCH` is also where the shaft is trimmed to.
+ */
+const OPEN_HALF_WIDTH = 0.8
+const SOLID_HALF_WIDTH = 0.55
+const HEAD_NOTCH = 0.72
+
+/**
+ * A head never gets smaller than the stroke it terminates.
+ *
+ * The stored `headSize` is a world length, so a 12-unit head on a 10-unit stroke is a
+ * blunt end rather than an arrow. Scaling the floor with the width keeps a heavy
+ * arrow looking like an arrow without making the author set two numbers that have to
+ * agree. The open head needs more of it, since its arms are drawn *in* the stroke
+ * width rather than filled: at four times the weight the two arms and the shaft meet
+ * in a blob.
+ */
+function headLength(arrow: ArrowDraw, kind: ArrowHead): number {
+  return Math.max(arrow.headSize, arrow.strokeWidth * (kind === 'open' ? 3.8 : 3.4))
+}
 
 /**
  * Everything drawn with one stroke style, accumulated before any of it is recorded.
@@ -99,11 +139,15 @@ export class ArrowPass {
       this.groups.set(key, group)
     }
 
-    // The shaft stops short of a solid head, so the stroke's own round cap does not
-    // poke out of the tip. An open head is two lines and needs no trim.
-    const endTrim = arrow.endHead === 'triangle' ? arrow.headSize * 0.85 : 0
-    const startTrim = arrow.startHead === 'triangle' ? arrow.headSize * 0.85 : 0
-    group.shafts.push(trimEnds(points, startTrim, endTrim))
+    // The shaft stops at a solid head's notch, so the stroke's own round cap is hidden
+    // inside the barbs instead of poking out past the tip. An open head is two lines
+    // meeting at the tip *on* the shaft, so it needs no trim: the shaft running all
+    // the way in is what makes the three strokes read as one mark.
+    const endTrim = arrow.endHead === 'triangle' ? headLength(arrow, 'triangle') * HEAD_NOTCH : 0
+    const startTrim = arrow.startHead === 'triangle' ? headLength(arrow, 'triangle') * HEAD_NOTCH : 0
+    const shaft = trimEnds(points, startTrim, endTrim)
+    if (arrow.gap === undefined) group.shafts.push(shaft)
+    else for (const piece of splitAroundBox(shaft, arrow.gap)) group.shafts.push(piece)
 
     const last = points.length - 2
     if (arrow.endHead !== 'none') {
@@ -168,18 +212,32 @@ export class ArrowPass {
     angle: number,
     kind: ArrowHead,
   ): void {
-    const size = arrow.headSize
-    const leftX = tipX - size * Math.cos(angle - HEAD_ANGLE)
-    const leftY = tipY - size * Math.sin(angle - HEAD_ANGLE)
-    const rightX = tipX - size * Math.cos(angle + HEAD_ANGLE)
-    const rightY = tipY - size * Math.sin(angle + HEAD_ANGLE)
+    const size = headLength(arrow, kind)
+    // Along the shaft and across it. Built from the two axes rather than from two
+    // angles off the direction, so the spread and the notch depth are independent and
+    // each reads as the fraction it is named for.
+    const alongX = Math.cos(angle)
+    const alongY = Math.sin(angle)
+    const acrossX = -alongY
+    const acrossY = alongX
+
+    const half = size * (kind === 'open' ? OPEN_HALF_WIDTH : SOLID_HALF_WIDTH)
+    const baseX = tipX - alongX * size
+    const baseY = tipY - alongY * size
+
+    const leftX = baseX + acrossX * half
+    const leftY = baseY + acrossY * half
+    const rightX = baseX - acrossX * half
+    const rightY = baseY - acrossY * half
 
     if (kind === 'open') {
       group.openHeads.push([leftX, leftY, tipX, tipY, rightX, rightY])
       return
     }
 
-    group.solidHeads.push([tipX, tipY, leftX, leftY, rightX, rightY])
+    const notchX = tipX - alongX * size * HEAD_NOTCH
+    const notchY = tipY - alongY * size * HEAD_NOTCH
+    group.solidHeads.push([tipX, tipY, leftX, leftY, notchX, notchY, rightX, rightY])
   }
 
   destroy(): void {
@@ -243,4 +301,102 @@ function trimTail(points: number[], distance: number): number[] {
   // Trimmed away to nothing. Keep a degenerate two-point path so the caller still has
   // something to draw and the head still has a direction.
   return points.length >= 4 ? points : [points[0] ?? 0, points[1] ?? 0, points[0] ?? 0, points[1] ?? 0]
+}
+
+/**
+ * Cut a polyline where it passes through a box, returning the pieces outside it.
+ *
+ * Used for the gap behind an arrow's caption. A box rather than a radius because the
+ * thing being avoided *is* a box: a line of type is much wider than it is tall, and a
+ * circle big enough to clear the width would cut a vertical arrow to pieces.
+ *
+ * Clipped per segment with the slab method, not by classifying the vertices. The first
+ * version tested whether each point was inside the box, which is correct for a finely
+ * tessellated curve and silently wrong for the commonest case there is: a straight
+ * arrow is two points, both far outside, with the whole caption sitting on the segment
+ * between them. Nothing was ever cut and the line ran through the words.
+ */
+export function splitAroundBox(
+  points: readonly number[],
+  box: { minX: number; minY: number; maxX: number; maxY: number },
+): number[][] {
+  const pieces: number[][] = []
+  let current: number[] = []
+
+  const push = (x: number, y: number): void => {
+    // Guard against emitting the same vertex twice where two segments meet.
+    const last = current.length
+    if (last >= 2 && current[last - 2] === x && current[last - 1] === y) return
+    current.push(x, y)
+  }
+
+  const close = (): void => {
+    if (current.length >= 4) pieces.push(current)
+    current = []
+  }
+
+  for (let index = 0; index + 3 < points.length; index += 2) {
+    const ax = points[index]
+    const ay = points[index + 1]
+    const bx = points[index + 2]
+    const by = points[index + 3]
+
+    const span = clipToBox(ax, ay, bx, by, box)
+    if (span === null) {
+      // Entirely outside: the whole segment survives.
+      push(ax, ay)
+      push(bx, by)
+      continue
+    }
+
+    // The part before the box, if any.
+    if (span.enter > 0) {
+      push(ax, ay)
+      push(ax + (bx - ax) * span.enter, ay + (by - ay) * span.enter)
+    }
+    close()
+
+    // And the part after it, which begins the next piece.
+    if (span.exit < 1) {
+      push(ax + (bx - ax) * span.exit, ay + (by - ay) * span.exit)
+      push(bx, by)
+    }
+  }
+
+  close()
+  return pieces
+}
+
+/**
+ * The parametric interval of a segment that lies inside a box, or null if none does.
+ *
+ * Liang-Barsky: intersect the two axis slabs and keep the overlap. A segment parallel
+ * to an axis has no bound on that one, which is the `direction === 0` branch - and it
+ * still has to be rejected when it runs outside the slab entirely, which is the case
+ * that a naive version drops.
+ */
+function clipToBox(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  box: { minX: number; minY: number; maxX: number; maxY: number },
+): { enter: number; exit: number } | null {
+  let enter = 0
+  let exit = 1
+
+  const slab = (origin: number, direction: number, lo: number, hi: number): boolean => {
+    if (direction === 0) return origin >= lo && origin <= hi
+    const first = (lo - origin) / direction
+    const second = (hi - origin) / direction
+    enter = Math.max(enter, Math.min(first, second))
+    exit = Math.min(exit, Math.max(first, second))
+    return enter <= exit
+  }
+
+  if (!slab(ax, bx - ax, box.minX, box.maxX)) return null
+  if (!slab(ay, by - ay, box.minY, box.maxY)) return null
+  if (enter > exit) return null
+
+  return { enter: Math.max(0, enter), exit: Math.min(1, exit) }
 }

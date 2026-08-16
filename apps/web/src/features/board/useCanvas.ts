@@ -10,6 +10,8 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { ArrowRouting } from '@meadow/schema'
+import type { TextMark } from '../../doc/richText'
 import { CanvasEngine } from '../../canvas/engine'
 import type { Wanderer } from '../../canvas/overlay/wandererLayer'
 import type { ToolId } from '../../canvas/tools/types'
@@ -57,6 +59,25 @@ export type CanvasHandle = {
   /** Graph paper on the board surface. Cosmetic, remembered across sessions. */
   gridVisible: boolean
   toggleGrid(): void
+  /**
+   * The shape newly drawn arrows get. Chosen in the rail beside the arrow tool, the
+   * way a stroke width is chosen: before you draw, not after.
+   */
+  arrowRouting: ArrowRouting
+  setArrowRouting(routing: ArrowRouting): void
+
+  /**
+   * Text formatting, for the object being edited or for a text-bearing selection.
+   *
+   * `marks` is only meaningful while an editor is open, because a mark applies to a
+   * range inside a fragment and there is no range without a caret. Size is an object
+   * property and works either way.
+   */
+  canFormatText: boolean
+  activeMarks: readonly TextMark[]
+  toggleMark(mark: TextMark): void
+  textSize: number | null
+  setTextSize(size: number): void
 }
 
 export type CanvasPresence = {
@@ -65,7 +86,12 @@ export type CanvasPresence = {
   onSelection(ids: readonly string[]): void
 }
 
-export function useCanvas(session: DocSession, presence?: CanvasPresence): CanvasHandle {
+export function useCanvas(
+  session: DocSession,
+  presence?: CanvasPresence,
+  /** The signed-in person's display name, for the byline on a sticky they create. */
+  authorName = '',
+): CanvasHandle {
   const [element, setElement] = useState<HTMLDivElement | null>(null)
   const [tool, setToolState] = useState<ToolId>('select')
   const [selection, setSelection] = useState<string[]>([])
@@ -74,6 +100,12 @@ export function useCanvas(session: DocSession, presence?: CanvasPresence): Canva
   const [editingId, setEditingId] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [gridVisible, setGridVisible] = useState(readGridPreference)
+  const [arrowRouting, setArrowRoutingState] = useState<ArrowRouting>('straight')
+  const [activeMarks, setActiveMarks] = useState<readonly TextMark[]>([])
+  // A counter, not the value: the engine is the source of truth for both of these and
+  // they change on selection, on editing, and on a peer's edit. Bumping this on the
+  // events that can move them re-reads the engine rather than mirroring its state.
+  const [formatVersion, setFormatVersion] = useState(0)
   const engineRef = useRef<CanvasEngine | null>(null)
 
   // The session changes identity when the role changes. Keeping it in a ref lets the
@@ -92,6 +124,11 @@ export function useCanvas(session: DocSession, presence?: CanvasPresence): Canva
   const gridRef = useRef(gridVisible)
   gridRef.current = gridVisible
 
+  // Same reason as the session: the name arrives after the engine is built, so the
+  // host reads it through a ref rather than capturing whatever it was at mount.
+  const authorRef = useRef(authorName)
+  authorRef.current = authorName
+
   useEffect(() => {
     if (element === null) return
 
@@ -99,22 +136,29 @@ export function useCanvas(session: DocSession, presence?: CanvasPresence): Canva
 
     const host = new DocEngineHost(current, {
       onRefused: setNotice,
+      onMarks: setActiveMarks,
       // The engine asks for an editor and never learns what it is. This is the only
       // place ProseMirror is named on the board path, which is what keeps src/canvas
       // free of it.
       createEditor: createTextEditor,
+      authorName: () => authorRef.current,
     })
     const unobserveHost = host.observe()
 
     const engine = new CanvasEngine(element, host, {
       onSelectionChange: (ids) => {
         setSelection(ids)
+        setFormatVersion((version) => version + 1)
         presenceRef.current?.onSelection(ids)
       },
       onObjectCountChange: setObjectCount,
       onToolChange: setToolState,
       onCameraChange: (camera) => setZoom(camera.zoom),
-      onEditingChange: setEditingId,
+      onEditingChange: (id) => {
+        setEditingId(id)
+        setFormatVersion((version) => version + 1)
+        if (id === null) setActiveMarks([])
+      },
       onPointerWorld: (point) => presenceRef.current?.onPointer(point),
     })
     engineRef.current = engine
@@ -161,6 +205,15 @@ export function useCanvas(session: DocSession, presence?: CanvasPresence): Canva
     })
   }, [])
 
+  // Read so the value is not flagged as unused: its only job is to make this hook
+  // re-run, which re-reads `canFormatText` and `textSize` off the engine.
+  void formatVersion
+
+  const setArrowRouting = useCallback((routing: ArrowRouting) => {
+    engineRef.current?.setDefaultArrowRouting(routing)
+    setArrowRoutingState(routing)
+  }, [])
+
   const setWanderers = useCallback((wanderers: readonly Wanderer[]) => {
     engineRef.current?.setWanderers(wanderers)
   }, [])
@@ -182,5 +235,15 @@ export function useCanvas(session: DocSession, presence?: CanvasPresence): Canva
     deleteSelection: () => engineRef.current?.deleteSelection(),
     gridVisible,
     toggleGrid,
+    arrowRouting,
+    setArrowRouting,
+    canFormatText: engineRef.current?.canFormatText ?? false,
+    activeMarks,
+    toggleMark: (mark: TextMark) => engineRef.current?.toggleTextMark(mark),
+    textSize: engineRef.current?.textSize ?? null,
+    setTextSize: (size: number) => {
+      engineRef.current?.setTextSize(size)
+      setFormatVersion((version) => version + 1)
+    },
   }
 }

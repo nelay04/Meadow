@@ -29,14 +29,30 @@ const BLOCK_TAGS: Record<string, string> = {
   hardBreak: 'br',
 }
 
-/** Mark name to HTML tag, applied innermost-first in this order. */
-const MARK_TAGS: Record<string, string> = {
+/**
+ * The inline marks a user can apply, and the tag each serialises to.
+ *
+ * This table is the authority, not the editor's extension list. A mark the editor can
+ * produce and this cannot render would look fine while being typed and vanish the
+ * moment the editor closed, so the formatting bar is built from these names and the
+ * editor is configured to offer exactly them.
+ *
+ * `code` is serialisable but not offered in the bar: it is a block-level idea people
+ * reach for through a menu, not a thing to spend a button on beside bold and italic.
+ */
+export const MARK_TAGS = {
   bold: 'strong',
   italic: 'em',
-  strike: 's',
   underline: 'u',
+  strike: 's',
   code: 'code',
-}
+} as const
+
+export type MarkName = keyof typeof MARK_TAGS
+
+/** The subset with a button, in the order they appear in the bar. */
+export const TEXT_MARKS = ['bold', 'italic', 'underline', 'strike'] as const
+export type TextMark = (typeof TEXT_MARKS)[number]
 
 const VOID_TAGS = new Set(['br'])
 

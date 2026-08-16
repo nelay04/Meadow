@@ -91,6 +91,9 @@ export function createShapeTool(context: ToolContext, type: ObjectType & ToolId)
       origin = null
       preview = null
       context.commit()
+      // Back to select, so the shape just drawn can be moved, labelled or resized
+      // without a trip to the rail first.
+      context.setTool('select')
       context.requestRender()
     },
 

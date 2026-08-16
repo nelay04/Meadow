@@ -54,15 +54,51 @@ export const textProps = z.object({
 
 export type TextProps = z.infer<typeof textProps>
 
+/** A caption centred inside a shape's own box. */
+const SHAPE_LABEL: Partial<TextProps> = {
+  align: 'center',
+  verticalAlign: 'middle',
+  padding: 10,
+  autoHeight: false,
+}
+
+/** A caption riding on a connector, drawn over a plate so the line does not cross it. */
+const ARROW_LABEL: Partial<TextProps> = {
+  fontSize: 14,
+  align: 'center',
+  verticalAlign: 'middle',
+  padding: 3,
+  autoHeight: false,
+}
+
 /** Defaults that differ per type. Everything not listed falls back to the schema. */
 const TYPE_DEFAULTS: Partial<Record<ObjectType, Partial<TextProps>>> = {
+  /*
+   * A sticky is written like an actual sticky note: from the top-left, filling
+   * downwards. Centring it on both axes was borrowed from a shape's label and it is
+   * the wrong model - a caption in a box is a title, but a note is a note, and text
+   * that re-centres itself as you add a second line is unusable for writing more than
+   * three words. The bottom inset leaves room for the byline the overlay draws there.
+   */
   sticky: {
-    fontSize: 18,
-    align: 'center',
-    verticalAlign: 'middle',
+    fontSize: 16,
+    align: 'left',
+    verticalAlign: 'top',
     padding: 14,
     autoHeight: false,
   },
+  // A label inside a shape is centred on both axes, and the shape does not grow to
+  // fit it. Growing is right for a standalone caption, whose height is its content;
+  // it is wrong for a box in a diagram, whose size the author chose.
+  rect: SHAPE_LABEL,
+  ellipse: SHAPE_LABEL,
+  diamond: SHAPE_LABEL,
+  // A caption on a connector. Smaller than a shape's, because it sits on top of the
+  // board rather than inside a box, and `autoHeight` off for a much harder reason
+  // than style: an arrow's `h` is its bounding box, and letting the overlay write a
+  // measured text height into it would overwrite the arrow's own geometry.
+  arrow: ARROW_LABEL,
+  line: ARROW_LABEL,
 }
 
 /**
@@ -100,7 +136,8 @@ export function resolveTextProps(object: ObjectData): TextProps {
 
 /** Starting geometry for a click-created object, before any text has been typed. */
 export const TEXT_DEFAULT_SIZE = { w: 220, h: 32 }
-export const STICKY_DEFAULT_SIZE = { w: 180, h: 180 }
+/** 3:3.25, portrait. A square note is a coaster; a page-shaped one is a note. */
+export const STICKY_DEFAULT_SIZE = { w: 180, h: 195 }
 
 /**
  * A text object never collapses to nothing. An empty one still has to be clickable and

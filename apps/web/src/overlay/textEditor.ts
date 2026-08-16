@@ -27,10 +27,15 @@ import StarterKit from '@tiptap/starter-kit'
 import type * as Y from 'yjs'
 
 import { applyContentStyle } from '../canvas/text/textStyle'
+import { TEXT_MARKS, type TextMark } from '../doc/richText'
 
 export type TextEditorHandle = {
   focus(): void
   destroy(): void
+  /** Toggle a mark over the current selection, or at the caret for the next typing. */
+  toggleMark(mark: TextMark): void
+  /** Which marks are on at the caret. Drives the pressed state of the bar. */
+  activeMarks(): TextMark[]
 }
 
 export type TextEditorOptions = {
@@ -42,6 +47,14 @@ export type TextEditorOptions = {
   editable: boolean
   /** Escape, or focus leaving the editor. */
   onExit(): void
+  /**
+   * The marks under the caret, whenever they change.
+   *
+   * Pushed rather than polled. Marks change on every keystroke and every selection
+   * move, and a timer fast enough to keep the bar honest is a timer running for the
+   * whole time somebody is typing.
+   */
+  onMarks?(marks: TextMark[]): void
 }
 
 /**
@@ -92,13 +105,29 @@ export function createTextEditor(options: TextEditorOptions): TextEditorHandle {
   // text does not shift by a pixel at the moment the user double-clicks.
   applyContentStyle(editor.view.dom as HTMLElement, options.props)
 
+  const activeMarks = (): TextMark[] => TEXT_MARKS.filter((mark) => editor.isActive(mark))
+
+  if (options.onMarks !== undefined) {
+    const publish = (): void => options.onMarks?.(activeMarks())
+    editor.on('transaction', publish)
+    editor.on('selectionUpdate', publish)
+    publish()
+  }
+
   editor.commands.focus('end')
 
   return {
     focus: () => editor.commands.focus('end'),
     destroy: () => editor.destroy(),
+    toggleMark: (mark) => {
+      // `focus()` first, and it is not decoration. The bar lives outside the editor,
+      // so by the time a click lands the selection is only remembered, not live;
+      // running the command without restoring focus applies it to nothing.
+      editor.chain().focus().toggleMark(mark).run()
+    },
+    activeMarks,
   }
 }
 
-export type { TextProps }
+export type { TextMark, TextProps }
 export { resolveTextProps }

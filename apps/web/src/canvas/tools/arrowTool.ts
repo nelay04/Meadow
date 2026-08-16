@@ -16,6 +16,7 @@ import {
   type ObjectType,
   anchorFor,
   arrowGeometry,
+  routeOrthogonal,
   isArrowLike,
 } from '@meadow/schema'
 
@@ -117,7 +118,13 @@ export function createArrowTool(context: ToolContext, type: ObjectType & ToolId)
         Math.abs(event.world.y - origin.y) > DRAG_THRESHOLD
       if (!dragged) return
 
-      const absolute = [origin.x, origin.y, event.world.x, event.world.y]
+      // Routed as it is drawn, not on release. An elbow that renders as a straight
+      // line for the whole drag and snaps into shape at the end is the tool lying
+      // about what it is making, and it is impossible to aim.
+      const absolute =
+        context.arrowRouting === 'orthogonal'
+          ? routeOrthogonal(origin, event.world)
+          : [origin.x, origin.y, event.world.x, event.world.y]
 
       if (arrowId === null) {
         // Created on the first real movement, like the shape tool, so a click that
@@ -129,7 +136,10 @@ export function createArrowTool(context: ToolContext, type: ObjectType & ToolId)
           y: geometry.y,
           w: geometry.w,
           h: geometry.h,
-          props: { points: geometry.points },
+          // The routing chosen in the rail, written at creation so the arrow is the
+          // shape the user picked from its very first frame rather than snapping into
+          // it when the drag ends.
+          props: { points: geometry.points, routing: context.arrowRouting },
         })
         if (arrowId !== null) context.setSelection([arrowId])
       } else {
@@ -148,6 +158,9 @@ export function createArrowTool(context: ToolContext, type: ObjectType & ToolId)
       context.setHoverTarget(null)
 
       if (start === null || id === null) {
+        // Nothing was drawn - a click rather than a drag. Still drop back to select,
+        // so an accidental tap on the canvas does not leave the tool armed.
+        if (start !== null) context.setTool('select')
         context.requestRender()
         return
       }
@@ -157,7 +170,13 @@ export function createArrowTool(context: ToolContext, type: ObjectType & ToolId)
       attach(id, 'start', start)
       attach(id, 'end', event.world)
 
+      // An elbow's waypoints are stored rather than derived, so a route has to be
+      // generated once the two ends are settled. Harmless for the other two, which
+      // re-derive from the same endpoints.
+      context.setArrowRouting(id, { routing: context.arrowRouting })
+
       context.commit()
+      context.setTool('select')
       context.requestRender()
     },
 

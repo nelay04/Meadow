@@ -276,3 +276,98 @@ export function IconCanvas(props: IconProps) {
     </Svg>
   )
 }
+
+/*
+ * The three arrow routings, drawn as the path each one produces between the same two
+ * points. A picker for connector shapes has to show the shape, not name it: "straight,
+ * curved, elbow" is three words for something the eye reads instantly.
+ */
+
+export function IconRouteStraight(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M4 19 17.5 5.5" />
+      <path d="M12 5h6v6" />
+    </Svg>
+  )
+}
+
+export function IconRouteCurved(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M4 19C4 10 9 5.5 17.5 5.5" />
+      <path d="M12 4.5h6v6" />
+    </Svg>
+  )
+}
+
+export function IconRouteElbow(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M4 19h9.5V5.5h4" />
+      <path d="M14 2.8 18.2 5.5 14 8.2" />
+    </Svg>
+  )
+}
+
+/*
+ * Text formatting. Drawn as the letterform each one produces rather than as an
+ * abstract glyph, which is the one place in this set where imitating the result beats
+ * a consistent stroke: a bold B says bold in a way no icon does.
+ */
+
+export function IconBold(props: IconProps) {
+  return (
+    <Svg {...props} strokeWidth={2}>
+      <path d="M7 5h6a3.5 3.5 0 0 1 0 7H7z" />
+      <path d="M7 12h7a3.5 3.5 0 0 1 0 7H7z" />
+    </Svg>
+  )
+}
+
+export function IconItalic(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M15 5h-5M14 19H9M13.5 5 10.5 19" />
+    </Svg>
+  )
+}
+
+export function IconUnderline(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M7 4v6.5a5 5 0 0 0 10 0V4" />
+      <path d="M5.5 20h13" />
+    </Svg>
+  )
+}
+
+export function IconStrike(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M5 12h14" />
+      <path d="M15.5 7.2A4 4 0 0 0 12 5.5C9.6 5.5 8 6.8 8 8.6c0 1.5 1.1 2.4 3 3" />
+      <path d="M8.5 16.8a4 4 0 0 0 3.5 1.7c2.4 0 4-1.3 4-3.1 0-.9-.4-1.6-1.1-2.1" />
+    </Svg>
+  )
+}
+
+/** Viewers, in the presence list. */
+export function IconEye(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M2.6 12S6 6.5 12 6.5 21.4 12 21.4 12 18 17.5 12 17.5 2.6 12 2.6 12z" />
+      <circle cx="12" cy="12" r="2.7" />
+    </Svg>
+  )
+}
+
+/** Editors, in the presence list. */
+export function IconPencil(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M15.6 4.6a1.9 1.9 0 0 1 2.7 0l1.1 1.1a1.9 1.9 0 0 1 0 2.7L8.6 19.2 4 20l.8-4.6z" />
+      <path d="M14.2 6 18 9.8" />
+    </Svg>
+  )
+}

@@ -316,7 +316,24 @@ pnpm smoke:overlay                         # overlay drift, measured on pixels
 pnpm e2e:board                             # auth -> draw -> type -> reload
 pnpm e2e:presence                          # two real browsers on one board
 pnpm check:stack                           # the production stack, through nginx
+
+pnpm hooks:run                             # the pre-commit hook, on what is staged now
 ```
+
+A pre-commit hook runs the fast half of that list on every commit, chosen by what is
+staged: repo rules always, `tsc` and vitest when `apps/web` or `packages/schema` is
+involved, ruff and mypy when `services/api` is. It lives in `.githooks/`, which
+`pnpm install` points git at through `core.hooksPath`, so it is versioned with the
+repo rather than copied into each clone by hand. Nothing in it needs a container, a
+database or a browser: a check you cannot run because Postgres is down is a check
+people learn to skip.
+
+The repo rules are the non-negotiables from `.claude/CLAUDE.md` that no linter knows
+about, read off the added lines only. `src/canvas/` importing from `src/features/`, a
+`Y.transact` outside `src/doc/`, a second `resolve_role`, an `any`, a staged `.env`.
+Style preferences print as notes and never block, because a hook that blocks on a
+judgement call teaches people to pass `--no-verify`, and after that the real checks
+stop running too.
 
 The suites are split by what they can actually prove. Unit tests and the vitest suite
 run against a local `Y.Doc`. The pytest suite runs against a real Postgres and a real
@@ -394,6 +411,7 @@ services/api/
   tests/               handshake, auth, permissions, persistence, concurrency
 docs/core/             ARCHITECTURE.md, the source of truth
 scripts/               gate harness, smokes, e2e, benchmarks, stack check
+.githooks/             pre-commit, wired up by scripts/install-hooks.mjs
 docker/
   api/                 API image: web process, worker, and migrator
   web/                 SPA build baked into nginx

@@ -141,6 +141,7 @@ export function solveArrowEnds(
   endTarget: ObjectData | null,
   endBinding: Pick<BindingData, 'anchor' | 'gap'> | null,
   routing: ArrowRouting = 'straight',
+  elbow = 0.5,
 ): number[] {
   const points = Array.from(current)
   const last = points.length - 2
@@ -148,15 +149,37 @@ export function solveArrowEnds(
   const startPoint = { x: points[0], y: points[1] }
   const endPoint = { x: points[last], y: points[last + 1] }
 
+  /*
+   * An elbow arrives square to an edge, so its endpoint is aimed square too.
+   *
+   * A centre anchor means "aim at the middle and stop at the outline", and aiming at
+   * the far end is right for a line that actually travels that way. An orthogonal
+   * route does not: its last segment is horizontal or vertical, so an endpoint solved
+   * against the diagonal lands off to one side and the route arrives past the corner,
+   * visibly floating beside the shape it is pointing at. Flattening the aim onto the
+   * dominant axis puts it in the middle of the edge the route will approach from.
+   *
+   * Only for a centre anchor. An explicit one is a point the user chose, and it is
+   * already square when it came from a connector dot.
+   */
+  const aim = (target: ObjectData, toward: Point): Point => {
+    if (routing !== 'orthogonal') return toward
+    const centreX = target.x + target.w / 2
+    const centreY = target.y + target.h / 2
+    return Math.abs(toward.x - centreX) >= Math.abs(toward.y - centreY)
+      ? { x: toward.x, y: centreY }
+      : { x: centreX, y: toward.y }
+  }
+
   // Aim each end at the far end's *pre-solve* position, so the two are symmetric and
   // the result does not depend on which one is computed first.
   if (startTarget !== null && startBinding !== null) {
-    const solved = resolveBoundPoint(startTarget, startBinding, endPoint)
+    const solved = resolveBoundPoint(startTarget, startBinding, aim(startTarget, endPoint))
     points[0] = solved.x
     points[1] = solved.y
   }
   if (endTarget !== null && endBinding !== null) {
-    const solved = resolveBoundPoint(endTarget, endBinding, startPoint)
+    const solved = resolveBoundPoint(endTarget, endBinding, aim(endTarget, startPoint))
     points[last] = solved.x
     points[last + 1] = solved.y
   }
@@ -166,6 +189,7 @@ export function solveArrowEnds(
     return routeOrthogonal(
       { x: points[0], y: points[1] },
       { x: points[tail], y: points[tail + 1] },
+      elbow,
     )
   }
 
@@ -185,12 +209,12 @@ export function solveArrowEnds(
  * that reshuffles itself as unrelated objects move is worse than one that runs
  * straight through them.
  *
- * The endpoints are still aimed at each other in a straight line by the solver above,
- * so on a centre-anchored binding the very first segment can leave the shape at a
- * slight angle to the edge. Fixing that means solving the anchor against the route and
- * the route against the anchor, and it is not worth the circularity.
+ * A centre-anchored endpoint is aimed along the dominant axis rather than at the far
+ * end, so the route meets the outline square instead of arriving past a corner. That
+ * is not a full solve of the anchor against the route and the route against the
+ * anchor - which is genuinely circular - but it covers the case that looked broken.
  */
-export function routeOrthogonal(start: Point, end: Point): number[] {
+export function routeOrthogonal(start: Point, end: Point, at = 0.5): number[] {
   const dx = end.x - start.x
   const dy = end.y - start.y
 
@@ -198,13 +222,41 @@ export function routeOrthogonal(start: Point, end: Point): number[] {
   // just be a line.
   if (Math.abs(dx) < 1 || Math.abs(dy) < 1) return [start.x, start.y, end.x, end.y]
 
+  const fraction = Math.min(0.98, Math.max(0.02, at))
+
   if (Math.abs(dx) >= Math.abs(dy)) {
-    const midX = start.x + dx / 2
+    const midX = start.x + dx * fraction
     return [start.x, start.y, midX, start.y, midX, end.y, end.x, end.y]
   }
 
-  const midY = start.y + dy / 2
+  const midY = start.y + dy * fraction
   return [start.x, start.y, start.x, midY, end.x, midY, end.x, end.y]
+}
+
+/**
+ * Which axis an elbow between two points turns on, and where its dogleg sits.
+ *
+ * The same decision `routeOrthogonal` makes, exposed so the tool that drags the dogleg
+ * and the renderer that draws it cannot disagree about which way it runs. `at` is
+ * returned as a fraction so a caller can invert it against a pointer position.
+ */
+export function elbowAxis(start: Point, end: Point): 'x' | 'y' {
+  return Math.abs(end.x - start.x) >= Math.abs(end.y - start.y) ? 'x' : 'y'
+}
+
+/**
+ * The fraction that would put an elbow's dogleg under a given point.
+ *
+ * Solved directly from the pointer rather than accumulated from a delta, for the same
+ * reason the curve handles are: a drag that does not track the cursor exactly reads as
+ * the shape fighting you, and over a long drag an accumulated offset drifts.
+ */
+export function elbowFor(start: Point, end: Point, through: Point): number {
+  const axis = elbowAxis(start, end)
+  const span = axis === 'x' ? end.x - start.x : end.y - start.y
+  if (Math.abs(span) < 1e-6) return 0.5
+  const travelled = axis === 'x' ? through.x - start.x : through.y - start.y
+  return Math.min(0.98, Math.max(0.02, travelled / span))
 }
 
 /**

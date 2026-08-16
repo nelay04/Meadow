@@ -1,0 +1,1 @@
+../../.github/prompts/fix-precommit.prompt.md

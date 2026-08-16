@@ -10,25 +10,36 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { ArrowRouting } from '@meadow/schema'
 import { IndexeddbPersistence } from 'y-indexeddb'
 import * as Y from 'yjs'
 
 import type { Wanderer } from '../../canvas/overlay/wandererLayer'
 import type { ToolId } from '../../canvas/tools/types'
+import { TEXT_MARKS, type TextMark } from '../../doc/richText'
 import {
   IconArrow,
   IconBack,
+  IconBold,
   IconCircle,
   IconCursor,
   IconDiamond,
   IconFit,
+  IconEye,
   IconGridLines,
   IconHand,
+  IconItalic,
   IconLock,
   IconLine,
+  IconPencil,
+  IconRouteCurved,
+  IconRouteElbow,
+  IconRouteStraight,
   IconSquare,
+  IconStrike,
   IconSticky,
   IconText,
+  IconUnderline,
   IconTrash,
   IconUnlock,
 } from '../../ui/icons'
@@ -57,6 +68,46 @@ const TOOLS: { id: ToolId; label: string; hint: string; Icon: typeof IconCursor 
   { id: 'ellipse', label: 'Ellipse', hint: 'O', Icon: IconCircle },
   { id: 'diamond', label: 'Diamond', hint: 'D', Icon: IconDiamond },
 ]
+
+/**
+ * The arrow shapes the picker offers.
+ *
+ * Three, not more. FigJam has exactly these and there is nothing missing: a straight
+ * line, a bow, and a right-angled route. Everything else in a connector is where its
+ * ends are attached, which is a drag rather than a mode.
+ */
+const ROUTINGS: { id: ArrowRouting; label: string; Icon: typeof IconCursor }[] = [
+  { id: 'straight', label: 'Straight', Icon: IconRouteStraight },
+  { id: 'curved', label: 'Curved', Icon: IconRouteCurved },
+  { id: 'orthogonal', label: 'Elbow', Icon: IconRouteElbow },
+]
+
+/**
+ * The hover label on a rail button: what it does, then how to reach it.
+ *
+ * `aria-hidden`, because the button already carries the same words in its `aria-label`
+ * and a screen reader should not hear them twice. It is a real element rather than a
+ * `content: attr()` pseudo-element so the shortcut can be set back from the name.
+ */
+function Tip({ label, hint }: { label: string; hint?: string }) {
+  return (
+    <span className="tip" aria-hidden="true">
+      {label}
+      {hint !== undefined && <span className="key">{hint}</span>}
+    </span>
+  )
+}
+
+/** The formatting buttons, in the order the marks are listed by the serialiser. */
+const MARK_BUTTONS: Record<TextMark, { label: string; hint: string; Icon: typeof IconCursor }> = {
+  bold: { label: 'Bold', hint: 'Ctrl+B', Icon: IconBold },
+  italic: { label: 'Italic', hint: 'Ctrl+I', Icon: IconItalic },
+  underline: { label: 'Underline', hint: 'Ctrl+U', Icon: IconUnderline },
+  strike: { label: 'Strikethrough', hint: 'Ctrl+Shift+S', Icon: IconStrike },
+}
+
+/** Sizes offered in the text bar. Enough of a range to be useful, short enough to scan. */
+const TEXT_SIZES = [12, 14, 16, 20, 24, 32, 48, 64]
 
 /** What the status pill says, so a raw state name never reaches the user. */
 const CONNECTION_LABEL: Record<ConnectionState, string> = {
@@ -118,7 +169,7 @@ export default function BoardPage({ boardId, onBack }: Props) {
     [],
   )
 
-  const canvas = useCanvas(session, presenceBridge)
+  const canvas = useCanvas(session, presenceBridge, user?.display_name ?? '')
 
   // Depends on the callback, not on `canvas`. `useCanvas` returns a fresh object every
   // render, so closing over the whole handle would give this a new identity each time,
@@ -168,7 +219,7 @@ export default function BoardPage({ boardId, onBack }: Props) {
         ? null
         : trackPresence(
             link.provider.awareness,
-            { id: user.id, name: user.display_name },
+            { id: user.id, name: user.display_name, canWrite: roleCanWrite(role) },
             applyWanderers,
           )
     presence.current = handle
@@ -188,6 +239,14 @@ export default function BoardPage({ boardId, onBack }: Props) {
   // to be true, and the same expression drives the session, so the toolbar can never
   // offer something the mutation layer would refuse.
   const canWrite = roleCanWrite(role) && !locked
+
+  // The role arrives on the handshake, after presence is bound, so it is republished
+  // rather than captured. The lock is deliberately not part of it: it is a guard on
+  // your own hands, per-tab and never sent to anyone, so a locked tab still shows the
+  // editor badge its permissions actually grant.
+  useEffect(() => {
+    presence.current?.setCanWrite(roleCanWrite(role))
+  }, [role])
 
   /*
    * Capture a preview for the board list.
@@ -264,9 +323,15 @@ export default function BoardPage({ boardId, onBack }: Props) {
             <span
               className="avatar avatar-self"
               style={{ background: `#${colorFor(user.id).toString(16).padStart(6, '0')}` }}
-              title={`${user.display_name} (you)`}
+              title={`${user.display_name} (you, ${roleCanWrite(role) ? 'editor' : 'viewer'})`}
             >
               {initials(user.display_name)}
+              <span
+                className={`badge ${roleCanWrite(role) ? 'editor' : 'viewer'}`}
+                aria-hidden="true"
+              >
+                {roleCanWrite(role) ? <IconPencil size={9} /> : <IconEye size={9} />}
+              </span>
             </span>
           )}
           {dedupe(wanderers).map((wanderer) => (
@@ -274,9 +339,15 @@ export default function BoardPage({ boardId, onBack }: Props) {
               key={wanderer.clientId}
               className="avatar"
               style={{ background: `#${wanderer.color.toString(16).padStart(6, '0')}` }}
-              title={wanderer.name}
+              title={`${wanderer.name} (${wanderer.canWrite ? 'editor' : 'viewer'})`}
             >
               {initials(wanderer.name)}
+              {/* Which of the two people in a room can actually change it is the one
+                  thing about presence that changes how you behave, and a list of
+                  identical circles does not say it. */}
+              <span className={`badge ${wanderer.canWrite ? 'editor' : 'viewer'}`} aria-hidden="true">
+                {wanderer.canWrite ? <IconPencil size={9} /> : <IconEye size={9} />}
+              </span>
             </span>
           ))}
         </div>
@@ -334,37 +405,113 @@ export default function BoardPage({ boardId, onBack }: Props) {
             ARCHITECTURE 1: the drawing surface is the product. */}
         <nav className="toolbar" aria-label="Tools">
           {TOOLS.map((tool) => (
-            <button
-              key={tool.id}
-              type="button"
-              data-tip={`${tool.label}  ${tool.hint}`}
-              aria-label={`${tool.label} (${tool.hint})`}
-              aria-pressed={canvas.tool === tool.id}
-              className={canvas.tool === tool.id ? 'tool active' : 'tool'}
-              // Pan stays available to a viewer. Only the creation tools are gated.
-              disabled={!canWrite && tool.id !== 'select' && tool.id !== 'hand'}
-              onClick={() => canvas.setTool(tool.id)}
-            >
-              <tool.Icon size={19} />
-            </button>
+            <div key={tool.id} className="tool-slot">
+              <button
+                type="button"
+                aria-label={`${tool.label} (${tool.hint})`}
+                aria-pressed={canvas.tool === tool.id}
+                className={canvas.tool === tool.id ? 'tool active' : 'tool'}
+                // Pan stays available to a viewer. Only the creation tools are gated.
+                disabled={!canWrite && tool.id !== 'select' && tool.id !== 'hand'}
+                onClick={() => canvas.setTool(tool.id)}
+              >
+                <tool.Icon size={19} />
+                <Tip label={tool.label} hint={tool.hint} />
+              </button>
+
+              {/*
+                The connector shapes, as a flyout beside the tool that draws them.
+                Only while that tool is the active one, because it is an option on the
+                tool rather than a second row of tools: it says what the next arrow
+                will look like, and it never touches an arrow that already exists.
+              */}
+              {tool.id === 'arrow' && canvas.tool === 'arrow' && canWrite && (
+                <div className="tool-submenu" role="group" aria-label="Arrow shape">
+                  {ROUTINGS.map((routing) => (
+                    <button
+                      key={routing.id}
+                      type="button"
+                      aria-label={routing.label}
+                      aria-pressed={canvas.arrowRouting === routing.id}
+                      className={canvas.arrowRouting === routing.id ? 'tool active' : 'tool'}
+                      onClick={() => canvas.setArrowRouting(routing.id)}
+                    >
+                      <routing.Icon size={18} />
+                      <Tip label={routing.label} />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           ))}
 
           <hr />
 
           <button
             type="button"
-            className="tool"
-            data-tip="Delete  Del"
+            className="tool danger"
             aria-label="Delete selection"
             disabled={!canWrite || canvas.selection.length === 0}
             onClick={canvas.deleteSelection}
           >
             <IconTrash size={19} />
+            <Tip label="Delete" hint="Del" />
           </button>
         </nav>
 
         {/* The engine mounts its own canvas here and sizes to this element. */}
         <div className="canvas-host" ref={canvas.containerRef} />
+
+        {/*
+          The text formatting bar.
+
+          Fixed at the top of the canvas rather than floating over the object being
+          edited: a bar that follows the caret covers the line above whatever is being
+          typed, which is the line you are looking at. Every button suppresses
+          mousedown, because the editor exits on blur and a button that steals focus
+          would close the thing it is meant to format.
+        */}
+        {canWrite && canvas.canFormatText && (
+          <div className="text-bar" role="group" aria-label="Text formatting">
+            <label className="text-size">
+              <span className="sr-only">Text size</span>
+              <select
+                value={canvas.textSize ?? ''}
+                onMouseDown={(event) => event.stopPropagation()}
+                onChange={(event) => canvas.setTextSize(Number(event.target.value))}
+              >
+                {canvas.textSize === null && <option value="">Mixed</option>}
+                {TEXT_SIZES.map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <hr />
+
+            {TEXT_MARKS.map((mark) => {
+              const button = MARK_BUTTONS[mark]
+              return (
+                <button
+                  key={mark}
+                  type="button"
+                  aria-label={button.label}
+                  aria-pressed={canvas.activeMarks.includes(mark)}
+                  className={canvas.activeMarks.includes(mark) ? 'tool active' : 'tool'}
+                  // Keeps the caret. See the note above.
+                  onMouseDown={(event) => event.preventDefault()}
+                  disabled={canvas.editingId === null}
+                  onClick={() => canvas.toggleMark(mark)}
+                >
+                  <button.Icon size={17} />
+                  <Tip label={button.label} hint={button.hint} />
+                </button>
+              )
+            })}
+          </div>
+        )}
 
         <div className="board-notices">
           {locked ? (

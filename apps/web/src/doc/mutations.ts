@@ -19,6 +19,7 @@ import {
   type BindingData,
   type ObjectData,
   type ObjectType,
+  type ArrowRoutingPatch,
   absolutePoints,
   arrowGeometry,
   bindingData,
@@ -26,12 +27,14 @@ import {
   createObjectMap,
   docRoots,
   isArrowLike,
+  isTextBearing,
   nanoid,
   objectData,
   objectText,
   readBinding,
   readObject,
   resolveArrowProps,
+  routeOrthogonal,
   solveArrowEnds,
   writeObject,
 } from '@meadow/schema'
@@ -239,13 +242,63 @@ function writeArrowPoints(session: DocSession, arrowId: string, absolute: readon
   const map = session.objects.get(arrowId)
   if (map === undefined) return
 
-  const geometry = arrowGeometry(absolute)
+  // The arrow's own routing, read back out of the document rather than passed in.
+  // Only a curved arrow's bounds differ from its endpoints' box, and every caller
+  // here is writing endpoints without knowing or caring which kind it is.
+  const style = resolveArrowProps(readObject(map))
+  const geometry = arrowGeometry(absolute, style)
   writeObject(map, {
     x: geometry.x,
     y: geometry.y,
     w: geometry.w,
     h: geometry.h,
     props: { points: geometry.points },
+  })
+}
+
+/**
+ * Change how an arrow is routed, and rebuild its bounds to match.
+ *
+ * Two writes that have to be one. A curved arrow bows outside the box its endpoints
+ * span, so setting `routing` without re-deriving `w`/`h` leaves the arrow drawn partly
+ * outside its own entry in the spatial index: it disappears when the endpoints scroll
+ * off screen while the bulge is still visible, and the bulge cannot be clicked.
+ */
+export function setArrowRouting(
+  session: DocSession,
+  arrowId: string,
+  patch: ArrowRoutingPatch,
+): void {
+  write(session, () => {
+    const map = session.objects.get(arrowId)
+    if (map === undefined) return
+
+    const arrow = readObject(map)
+    if (!isArrowLike(arrow.type)) return
+
+    writeObject(map, { props: { ...patch } })
+    // Re-read: the props just written are what the new points have to be derived
+    // from, and `arrow` is a snapshot from before them.
+    const style = resolveArrowProps(readObject(map))
+
+    // Only the two ends survive a change of routing. An elbow's waypoints are stored,
+    // so switching away from it without dropping them would leave a dogleg on an
+    // arrow that now claims to be straight, and switching *to* it has to generate
+    // them - the routing is applied by the solver, and nothing here has solved yet.
+    const points = absolutePoints(arrow, style)
+    const last = points.length - 2
+    const start = { x: points[0], y: points[1] }
+    const end = { x: points[last], y: points[last + 1] }
+    const routed =
+      style.routing === 'orthogonal'
+        ? routeOrthogonal(start, end, style.elbow)
+        : [start.x, start.y, end.x, end.y]
+
+    writeArrowPoints(session, arrowId, routed)
+    // A bound arrow re-solves against its targets, because where an end sits depends
+    // on the route: an elbow leaves a shape square to the edge, a straight line does
+    // not.
+    reflowArrows(session, new Set([arrowId]))
   })
 }
 
@@ -306,6 +359,7 @@ function reflowArrows(session: DocSession, changed: ReadonlySet<string>): void {
       target(entry.end),
       entry.end,
       style.routing,
+      style.elbow,
     )
     writeArrowPoints(session, arrowId, solved)
   }
@@ -387,6 +441,42 @@ export function reconcileBindings(session: DocSession): void {
 export function objectFragment(session: DocSession, id: string): Y.XmlFragment | null {
   const map = session.objects.get(id)
   return map === undefined ? null : objectText(map)
+}
+
+/**
+ * The fragment for an object, attaching one if it should have it and does not.
+ *
+ * `TEXT_BEARING` grew in M6 to include the primitive shapes, so a rectangle drawn
+ * before that has no `text` key. Migrating every document to add empty fragments
+ * would be a write per shape for a feature most of them never use; attaching one the
+ * first time somebody edits costs nothing and leaves untouched shapes untouched.
+ *
+ * Returns null for a type that should not carry text at all, and for a viewer, whose
+ * refusal has to happen here rather than in the editor: attaching the fragment is a
+ * document write like any other.
+ */
+export function ensureObjectFragment(session: DocSession, id: string): Y.XmlFragment | null {
+  const map = session.objects.get(id)
+  if (map === undefined) return null
+
+  const existing = objectText(map)
+  if (existing !== null) return existing
+
+  const type = String(map.get('type'))
+  if (!isTextBearing(type as ObjectType)) return null
+  if (!session.canWrite) return null
+
+  return write(session, () => {
+    // Re-read inside the transaction: a peer may have attached one while this client
+    // was deciding, and two fragments would mean two people typing into different
+    // documents that both claim to be this shape's text.
+    const current = objectText(map)
+    if (current !== null) return current
+
+    const fragment = new Y.XmlFragment()
+    map.set('text', fragment)
+    return fragment
+  })
 }
 
 /**

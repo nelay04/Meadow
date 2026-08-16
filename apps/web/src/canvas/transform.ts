@@ -11,20 +11,39 @@ import type { ObjectData } from '@meadow/schema'
 import type { Point, WorldRect } from './camera'
 
 export const HANDLE_SIZE_PX = 8
-export const ROTATE_HANDLE_OFFSET_PX = 22
 
-export type HandleId =
-  | 'nw'
-  | 'n'
-  | 'ne'
-  | 'e'
-  | 'se'
-  | 's'
-  | 'sw'
-  | 'w'
-  | 'rotate'
+/**
+ * How far outside a corner the rotate zone reaches, in screen pixels.
+ *
+ * Rotation used to be a dot floating above the box. That is one more piece of chrome
+ * to draw, it only ever offered one grab point, and it sat exactly where a user
+ * reaching for the top edge expects nothing to be. Figma puts the gesture in the empty
+ * space just outside each corner instead: no affordance to draw, four places to start
+ * it, and the cursor is what tells you it is there.
+ */
+export const ROTATE_REACH_PX = 18
 
-export const RESIZE_HANDLES: HandleId[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']
+export type ResizeHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w'
+
+/** The corners, in the order `ROTATE_CORNERS` names them. */
+export type RotateCorner = 'nw' | 'ne' | 'se' | 'sw'
+
+export type HandleId = ResizeHandle | 'rotate'
+
+export const RESIZE_HANDLES: ResizeHandle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']
+
+export const ROTATE_CORNERS: RotateCorner[] = ['nw', 'ne', 'se', 'sw']
+
+/**
+ * A rotate cursor, inline.
+ *
+ * No stock CSS cursor means "rotate": `grab` reads as pan and `crosshair` reads as
+ * draw, and both are already used elsewhere on this canvas for those. A data URI
+ * costs no request and no build step, and it is the only signal that the zone is
+ * there at all.
+ */
+const ROTATE_CURSOR =
+  "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'><g fill='none' stroke='white' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'><path d='M6.5 9.5a6.5 6.5 0 1 1-.7 5'/><path d='M3 5.5v4.5h4.5'/></g><g fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M6.5 9.5a6.5 6.5 0 1 1-.7 5'/><path d='M3 5.5v4.5h4.5'/></g></svg>\") 12 12, grab"
 
 export const HANDLE_CURSORS: Record<HandleId, string> = {
   nw: 'nwse-resize',
@@ -35,11 +54,11 @@ export const HANDLE_CURSORS: Record<HandleId, string> = {
   s: 'ns-resize',
   sw: 'nesw-resize',
   w: 'ew-resize',
-  rotate: 'grab',
+  rotate: ROTATE_CURSOR,
 }
 
 /** Handle positions in world space, given a selection box. */
-export function handlePositions(rect: WorldRect): Record<HandleId, Point> {
+export function handlePositions(rect: WorldRect): Record<ResizeHandle, Point> {
   const midX = (rect.minX + rect.maxX) / 2
   const midY = (rect.minY + rect.maxY) / 2
 
@@ -52,23 +71,23 @@ export function handlePositions(rect: WorldRect): Record<HandleId, Point> {
     s: { x: midX, y: rect.maxY },
     sw: { x: rect.minX, y: rect.maxY },
     w: { x: rect.minX, y: midY },
-    // Sits above the box; the offset is applied in screen space by the caller so it
-    // stays the same distance away at every zoom.
-    rotate: { x: midX, y: rect.minY },
   }
 }
 
-/** Which handle is under a screen point, or null. */
+/**
+ * Which handle is under a point, or null.
+ *
+ * Resize wins over rotate wherever they overlap. The handle is a visible square the
+ * user is aiming at; the rotate zone is the empty space beyond it, and a tie there
+ * should always resolve to the thing you can see.
+ */
 export function handleAt(
   rect: WorldRect,
   point: Point,
   worldTolerance: number,
-  rotateOffsetWorld: number,
+  rotateReachWorld: number,
 ): HandleId | null {
   const positions = handlePositions(rect)
-
-  const rotate = { x: positions.rotate.x, y: positions.rotate.y - rotateOffsetWorld }
-  if (Math.hypot(point.x - rotate.x, point.y - rotate.y) <= worldTolerance) return 'rotate'
 
   for (const id of RESIZE_HANDLES) {
     const position = positions[id]
@@ -77,6 +96,39 @@ export function handleAt(
       Math.abs(point.y - position.y) <= worldTolerance
     ) {
       return id
+    }
+  }
+
+  return rotateCornerAt(rect, point, worldTolerance, rotateReachWorld) === null ? null : 'rotate'
+}
+
+/**
+ * The corner whose rotate zone contains a point, or null.
+ *
+ * The zone is the quarter-square *outside* the corner: past the resize handle on both
+ * axes, and within reach on both. Bounding it on both axes is what keeps it out of
+ * the way of the edge handles, which a plain radius around the corner would swallow
+ * on a small selection.
+ */
+export function rotateCornerAt(
+  rect: WorldRect,
+  point: Point,
+  worldTolerance: number,
+  rotateReachWorld: number,
+): RotateCorner | null {
+  const positions = handlePositions(rect)
+
+  for (const corner of ROTATE_CORNERS) {
+    const position = positions[corner]
+    const outX = corner === 'nw' || corner === 'sw' ? position.x - point.x : point.x - position.x
+    const outY = corner === 'nw' || corner === 'ne' ? position.y - point.y : point.y - position.y
+    if (
+      outX > worldTolerance &&
+      outY > worldTolerance &&
+      outX <= rotateReachWorld &&
+      outY <= rotateReachWorld
+    ) {
+      return corner
     }
   }
   return null
@@ -91,7 +143,7 @@ type Edge = 'min' | 'max' | null
  * easy to write and easy to get backwards, and the symptom is a shape that jumps to
  * the far side of the pointer on the first pixel of the drag.
  */
-const MOVING_EDGES: Record<HandleId, { x: Edge; y: Edge }> = {
+const MOVING_EDGES: Record<ResizeHandle, { x: Edge; y: Edge }> = {
   nw: { x: 'min', y: 'min' },
   n: { x: null, y: 'min' },
   ne: { x: 'max', y: 'min' },
@@ -100,7 +152,6 @@ const MOVING_EDGES: Record<HandleId, { x: Edge; y: Edge }> = {
   s: { x: null, y: 'max' },
   sw: { x: 'min', y: 'max' },
   w: { x: 'min', y: null },
-  rotate: { x: null, y: null },
 }
 
 export type ResizeOptions = {
@@ -121,12 +172,10 @@ const MIN_SIZE = 1
  */
 export function resizeRect(
   start: WorldRect,
-  handle: HandleId,
+  handle: ResizeHandle,
   pointer: Point,
   options: ResizeOptions,
 ): WorldRect {
-  if (handle === 'rotate') return start
-
   const edges = MOVING_EDGES[handle]
   const width = start.maxX - start.minX
   const height = start.maxY - start.minY

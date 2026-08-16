@@ -81,16 +81,37 @@ export function contentWidth(w: number, props: TextProps): number {
 }
 
 /**
+ * How a text box is laid out. `box` fills an object; `arrow-label` rides a line.
+ *
+ * A variant rather than a second function applied on top, and that is the whole point.
+ * The earlier arrangement had `applyArrowLabelStyle` overriding three properties after
+ * the fact, which meant every property one of them set and the other did not was left
+ * at whatever the previous object had put there - overlay nodes are pooled, so that is
+ * a real path, and `align-items` was the live example. A node that had been a caption
+ * kept `center`, and the next object to reuse it laid its text out shrink-to-fit, so
+ * the words ran out of the shape instead of wrapping inside it.
+ *
+ * One function that assigns every property it cares about, every time, has no such
+ * class of bug.
+ */
+export type BoxVariant = 'box' | 'arrow-label'
+
+/**
  * Styles for the inner content box: the element whose height is the text's height.
  *
  * `pre-wrap` keeps the user's own spacing and their empty lines. `overflow-wrap` on
  * top of `break-word` is what stops a single pasted 400-character URL from silently
  * widening the object past its own bounds.
  */
-export function applyContentStyle(element: HTMLElement, props: TextProps): void {
+export function applyContentStyle(
+  element: HTMLElement,
+  props: TextProps,
+  variant: BoxVariant = 'box',
+): void {
   ensureContentStyles()
   element.classList.add(CONTENT_CLASS)
 
+  const label = variant === 'arrow-label'
   const style = element.style
   style.fontFamily = FONT_STACKS[props.fontFamily]
   style.fontSize = `${props.fontSize}px`
@@ -104,21 +125,77 @@ export function applyContentStyle(element: HTMLElement, props: TextProps): void 
   style.padding = '0'
   style.border = '0'
   style.outline = 'none'
-  style.width = '100%'
+  // A caption shrinks to its words so it sits centred on the line; everything else
+  // fills its box so the text wraps inside the shape rather than beside it.
+  style.width = label ? 'max-content' : '100%'
+  style.maxWidth = label ? '100%' : 'none'
+  style.background = 'none'
+  style.borderRadius = '0'
 }
 
-/** Styles for the outer box: position, padding, and vertical alignment. */
-export function applyBoxStyle(element: HTMLElement, props: TextProps): void {
+/** Styles for the outer box: position, padding, alignment, and clipping. */
+export function applyBoxStyle(
+  element: HTMLElement,
+  props: TextProps,
+  variant: BoxVariant = 'box',
+  editing = false,
+): void {
+  const label = variant === 'arrow-label'
   const style = element.style
   style.position = 'absolute'
   style.boxSizing = 'border-box'
-  style.padding = `${props.padding}px`
+  style.padding = label ? '0' : `${props.padding}px`
   style.display = 'flex'
   style.flexDirection = 'column'
-  style.justifyContent = FLEX_ALIGN[props.verticalAlign]
-  style.overflow = 'hidden'
+  style.justifyContent = label ? 'center' : FLEX_ALIGN[props.verticalAlign]
+  style.alignItems = label ? 'center' : 'stretch'
+  /*
+   * Nothing is ever clipped. Text that does not fit spills, centred, and stays legible.
+   *
+   * This box used to clip, on the reasoning that text escaping a shape is the shape
+   * lying about its own size. That is true and it is the lesser problem. A label is
+   * centred on both axes, so a block taller than its box is cut at *both* ends: the
+   * first and last lines disappear, and past a certain size the whole caption does.
+   * Somebody raising the type size and watching their words vanish has no way to tell
+   * whether the text is still there. Overflowing is visibly wrong in a way they can
+   * see and fix; clipping is invisibly wrong.
+   *
+   * The horizontal axis is not the same question - the content is sized to the box, so
+   * it wraps rather than spilling, and only a single unbreakable word can exceed it.
+   */
+  style.overflow = 'visible'
   // The canvas below owns selection and dragging. Only an object being edited takes
-  // the pointer back, and it does that by overriding this on itself.
+  // the pointer back.
+  style.pointerEvents = editing ? 'auto' : 'none'
+  style.userSelect = editing ? 'text' : 'none'
+}
+
+/**
+ * The signature in the bottom-right corner of a sticky note.
+ *
+ * Chrome rather than content: it is not in the `Y.XmlFragment`, so it cannot be typed
+ * into, selected, or accidentally deleted, and it never counts towards the note's
+ * measured height. It reads at about two thirds the note's own size and well under
+ * full contrast, which is what keeps it a signature rather than a second line of text.
+ *
+ * Positioned absolutely inside the note's box, so it stays in the corner however much
+ * is written above it. The note's own bottom padding is what stops the writing running
+ * into it.
+ */
+export function applyBylineStyle(element: HTMLElement, props: TextProps): void {
+  const style = element.style
+  style.position = 'absolute'
+  style.right = `${props.padding}px`
+  style.bottom = `${Math.max(4, props.padding - 6)}px`
+  style.fontFamily = FONT_STACKS[props.fontFamily]
+  style.fontSize = `${Math.max(8, props.fontSize * 0.66)}px`
+  style.lineHeight = '1'
+  style.color = cssColor(props.color)
+  style.opacity = '0.55'
   style.pointerEvents = 'none'
   style.userSelect = 'none'
+  style.whiteSpace = 'nowrap'
+  style.maxWidth = '70%'
+  style.overflow = 'hidden'
+  style.textOverflow = 'ellipsis'
 }

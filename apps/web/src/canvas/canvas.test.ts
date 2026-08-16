@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest'
 import { Camera, MAX_ZOOM, MIN_ZOOM, projectPoint, viewTransform } from './camera'
 import { containedBy, hitsObject, pickTop, toLocal, unionBounds } from './hitTest'
 import { SNAP_THRESHOLD_PX, snapMove } from './snapping'
+import { splitAroundBox } from './renderers/arrowPass'
 import { SpatialIndex } from './spatialIndex'
 import { applyRectToObject, handleAt, resizeRect, rotateAbout } from './transform'
 
@@ -341,9 +342,61 @@ describe('transform', () => {
     expect(patch.rotation).toBeCloseTo(Math.PI / 2, 6)
   })
 
-  it('finds the rotate handle above the box and resize handles on it', () => {
-    expect(handleAt(box, { x: 50, y: -20 }, 6, 20)).toBe('rotate')
+  it('puts the resize handles on the box and the rotate zone outside its corners', () => {
     expect(handleAt(box, { x: 100, y: 50 }, 6, 20)).toBe('se')
     expect(handleAt(box, { x: 50, y: 25 }, 6, 20)).toBeNull()
+
+    // Diagonally outside a corner, past the handle and within reach on both axes.
+    expect(handleAt(box, { x: 112, y: 62 }, 6, 20)).toBe('rotate')
+    expect(handleAt(box, { x: -12, y: -12 }, 6, 20)).toBe('rotate')
+
+    // Straight out from an edge is not a rotate zone. It is the empty space beside
+    // the box, and grabbing there used to be how you started a marquee.
+    expect(handleAt(box, { x: 50, y: -14 }, 6, 20)).toBeNull()
+    expect(handleAt(box, { x: 114, y: 25 }, 6, 20)).toBeNull()
+
+    // Too far out to be reaching for the corner.
+    expect(handleAt(box, { x: 130, y: 80 }, 6, 20)).toBeNull()
+  })
+})
+
+describe('splitAroundBox', () => {
+  const box = { minX: 40, minY: -10, maxX: 60, maxY: 10 }
+
+  it('cuts a two-point segment that crosses the box with both ends outside', () => {
+    // The case the first version got wrong: neither vertex is inside, so classifying
+    // vertices leaves the line running straight through the caption.
+    const pieces = splitAroundBox([0, 0, 100, 0], box)
+    expect(pieces).toHaveLength(2)
+    expect(pieces[0]).toEqual([0, 0, 40, 0])
+    expect(pieces[1]).toEqual([60, 0, 100, 0])
+  })
+
+  it('leaves a segment that misses the box alone', () => {
+    expect(splitAroundBox([0, 40, 100, 40], box)).toEqual([[0, 40, 100, 40]])
+  })
+
+  it('leaves a segment running parallel just outside the slab alone', () => {
+    // `direction === 0` on one axis. Rejecting it needs the origin tested against the
+    // slab; a version that only skips the division keeps the segment and cuts it.
+    expect(splitAroundBox([0, 11, 100, 11], box)).toEqual([[0, 11, 100, 11]])
+  })
+
+  it('drops a segment lying entirely inside', () => {
+    expect(splitAroundBox([45, 0, 55, 0], box)).toEqual([])
+  })
+
+  it('keeps the tail of a segment that starts inside', () => {
+    const pieces = splitAroundBox([50, 0, 100, 0], box)
+    expect(pieces).toHaveLength(1)
+    expect(pieces[0]).toEqual([60, 0, 100, 0])
+  })
+
+  it('cuts a polyline across the segment that happens to cross', () => {
+    // Three segments; only the middle one meets the box.
+    const pieces = splitAroundBox([0, 0, 20, 0, 80, 0, 100, 0], box)
+    expect(pieces).toHaveLength(2)
+    expect(pieces[0]).toEqual([0, 0, 20, 0, 40, 0])
+    expect(pieces[1]).toEqual([60, 0, 80, 0, 100, 0])
   })
 })

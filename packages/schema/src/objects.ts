@@ -42,8 +42,35 @@ export type ObjectType = (typeof OBJECT_TYPES)[number]
 export const PRIMITIVE_SHAPES = ['rect', 'ellipse', 'diamond'] as const
 export type PrimitiveShape = (typeof PRIMITIVE_SHAPES)[number]
 
-/** Types that carry a `Y.XmlFragment`. Only these ever get one. */
-export const TEXT_BEARING = ['text', 'sticky'] as const
+/**
+ * Types that carry a `Y.XmlFragment`. Only these ever get one.
+ *
+ * The primitives joined in M6. A rectangle you cannot label is a rectangle nobody
+ * wants: on a diagramming surface the box and its caption are one object, and keeping
+ * them separate meant every labelled shape was two objects that had to be moved,
+ * resized and deleted together by hand.
+ *
+ * So did arrows, for the same reason and with more force. Half of what a connector on
+ * a diagram means is written on the connector: "yes", "no", "then", "owns". A floating
+ * text object parked near an arrow is not that, because it does not move when the
+ * arrow is re-routed. An arrow's label is positioned on the path rather than in the
+ * object's box - see canvas/overlay/textLayer.ts - since an arrow's box can be a
+ * single pixel tall.
+ *
+ * Additive, and safe for documents written before it. A shape created earlier simply
+ * has no `text` key; `objectText` returns null for it and `ensureObjectFragment`
+ * attaches one the first time somebody actually types into it, so nothing is
+ * rewritten on load and no migration is needed.
+ */
+export const TEXT_BEARING = [
+  'text',
+  'sticky',
+  'rect',
+  'ellipse',
+  'diamond',
+  'arrow',
+  'line',
+] as const
 
 // Set lookups rather than `Array.includes`. Both predicates run once per visible
 // object per frame, so at 5,000 objects they are called 10,000 times inside the

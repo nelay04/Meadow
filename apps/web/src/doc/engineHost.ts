@@ -12,6 +12,7 @@
  */
 
 import {
+  type ArrowRoutingPatch,
   type BindingData,
   type ObjectData,
   type TextProps,
@@ -30,13 +31,15 @@ import {
   bringToFront,
   deleteObjects,
   endGesture,
+  ensureObjectFragment,
   objectFragment,
   sendBackward,
   sendToBack,
   setArrowPoints,
+  setArrowRouting,
   updateObjects,
 } from './mutations'
-import { fragmentToHtml, fragmentToPlainText } from './richText'
+import { type TextMark, fragmentToHtml, fragmentToPlainText } from './richText'
 
 /**
  * Mounts a rich-text editor onto a fragment. Supplied by the caller rather than
@@ -50,12 +53,29 @@ export type EditorFactory = (options: {
   props: TextProps
   editable: boolean
   onExit(): void
-}) => { destroy(): void }
+  onMarks?(marks: TextMark[]): void
+}) => {
+  destroy(): void
+  toggleMark(mark: TextMark): void
+  activeMarks(): TextMark[]
+}
 
 export type HostOptions = {
   /** Called when a write is refused because the role is read-only. */
   onRefused?(message: string): void
+  /** The marks under the caret in the live editor, whenever they change. */
+  onMarks?(marks: TextMark[]): void
   createEditor?: EditorFactory
+  /**
+   * The signed-in person's display name, for the byline on a sticky note.
+   *
+   * A getter, because the name is fetched after the engine is built and a captured
+   * value would be empty for the whole session. It is stamped onto the object at
+   * creation rather than resolved at render time: `createdBy` is a user id, and there
+   * is no way to turn one into a name for somebody who is not currently connected -
+   * a note would lose its author the moment they closed the tab.
+   */
+  authorName?(): string
 }
 
 export class DocEngineHost implements EngineHost {
@@ -80,6 +100,10 @@ export class DocEngineHost implements EngineHost {
     const order = this.getSession().order
     order.observe(this.onOrderChanged)
     return () => order.unobserve(this.onOrderChanged)
+  }
+
+  get authorName(): string {
+    return this.options.authorName?.() ?? ''
   }
 
   /** Drop the cache after a change this host did not observe. */
@@ -169,6 +193,10 @@ export class DocEngineHost implements EngineHost {
     this.guard(() => bindArrow(this.session, input), undefined)
   }
 
+  setArrowRouting(id: string, patch: ArrowRoutingPatch): void {
+    this.guard(() => setArrowRouting(this.session, id, patch), undefined)
+  }
+
   /**
    * Static HTML for an idle text object.
    *
@@ -195,7 +223,9 @@ export class DocEngineHost implements EngineHost {
     const factory = this.options.createEditor
     if (factory === undefined) return null
 
-    const fragment = objectFragment(this.session, id)
+    // `ensure`, not `read`: a shape drawn before the primitives became text-bearing
+    // has no fragment yet, and the first double-click is what attaches it.
+    const fragment = ensureObjectFragment(this.session, id)
     if (fragment === null) return null
 
     const object = this.object(id)
@@ -209,9 +239,32 @@ export class DocEngineHost implements EngineHost {
       // closed off, in exactly one place, the same as every other mutation.
       editable: this.session.canWrite,
       onExit,
+      onMarks: (marks) => this.options.onMarks?.(marks),
     })
 
-    return () => editor.destroy()
+    this.editor = editor
+    return () => {
+      if (this.editor === editor) this.editor = null
+      editor.destroy()
+    }
+  }
+
+  /**
+   * The live editor, or null.
+   *
+   * Held here rather than in the engine because the engine must not know what an
+   * editor is - it receives one through a factory and only ever tears it down. The
+   * formatting bar needs to send commands to it, and this is the one place that both
+   * owns the instance and is allowed to know its shape.
+   */
+  private editor: {
+    destroy(): void
+    toggleMark(mark: TextMark): void
+    activeMarks(): TextMark[]
+  } | null = null
+
+  toggleTextMark(mark: TextMark): void {
+    this.editor?.toggleMark(mark)
   }
 }
 

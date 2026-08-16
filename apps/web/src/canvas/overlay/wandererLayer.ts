@@ -24,6 +24,13 @@ export type Wanderer = {
   clientId: number
   name: string
   color: number
+  /**
+   * What this person can do on the board, as *they* resolved it on their own
+   * handshake. Presentational only - it decides which badge the header draws and
+   * nothing else. Every write is still checked server-side against the role the
+   * server resolved, so a peer lying here changes only what a badge looks like.
+   */
+  canWrite: boolean
   /** World coordinates, or null when the pointer is off the canvas. */
   cursor: { x: number; y: number } | null
   selection: readonly string[]

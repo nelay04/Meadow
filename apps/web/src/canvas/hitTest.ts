@@ -9,7 +9,7 @@
  * on top is the object selected.
  */
 
-import { type ObjectData, isArrowLike, resolveArrowProps } from '@meadow/schema'
+import { type ObjectData, arrowPolyline, isArrowLike, resolveArrowProps } from '@meadow/schema'
 
 import type { Point, WorldRect } from './camera'
 
@@ -63,7 +63,11 @@ export function hitsObject(object: ObjectData, point: Point, tolerance = 0): boo
   // arrow select from anywhere in the large empty rectangle it spans.
   if (isArrowLike(object.type)) {
     const props = resolveArrowProps(object)
-    const points = props.points
+    // The drawn path, not the stored points. On a curved arrow they are not the same
+    // thing: the stored points are the two ends, and testing the chord between them
+    // would make the bow itself unclickable while a click on empty space inside the
+    // curve selected it.
+    const points = arrowPolyline(props.points, props.routing, props.curvature, props.curvatureEnd)
     // Half the stroke, so a thick arrow is clickable across its full painted width.
     const reach = tolerance + props.strokeWidth / 2
 

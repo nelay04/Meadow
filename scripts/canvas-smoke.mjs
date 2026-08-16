@@ -283,6 +283,379 @@ check(
     : `${followed[3].toFixed(1)} -> ${survivors.points[3].toFixed(1)}`,
 )
 
+// --- connector handles --------------------------------------------------------
+//
+// Dragging an arrow out of a shape's own edge dot, which is the gesture that replaced
+// "switch to the arrow tool first". The dot sits *outside* the outline, so this also
+// covers the thing that broke first: by the time you press one, the pointer is over
+// empty canvas, and a tool that recomputes the host from the press position finds
+// nothing and starts a marquee instead.
+
+await page.evaluate(() => window.__doc.clear())
+await delay(150)
+
+await page.click('[data-tool="rect"]')
+await drag(at(150, 150), at(330, 270))
+await page.click('[data-tool="ellipse"]')
+await drag(at(600, 380), at(780, 500))
+await page.click('[data-tool="select"]')
+await page.mouse.click(at(950, 620).x, at(950, 620).y)
+await delay(150)
+
+// Hover the rectangle so its dots appear, then drag from the east one to the ellipse.
+await page.mouse.move(at(240, 210).x, at(240, 210).y)
+await delay(200)
+await drag(at(340, 210), at(690, 440), 16)
+
+const connected = await page.evaluate(() => {
+  const arrow = window.__doc.findByType('arrow')
+  return {
+    total: window.__doc.objectCount(),
+    arrow,
+    // Only this arrow's. `__doc.clear()` drops the objects and leaves the binding map
+    // alone, so the earlier section's bindings are still in there.
+    bindings: window.__doc.bindings().filter((binding) => binding.arrowId === arrow),
+  }
+})
+
+check(
+  'dragging from a connector dot creates an arrow',
+  connected.total === 3 && typeof connected.arrow === 'string',
+  `total=${connected.total} arrow=${connected.arrow}`,
+)
+check(
+  'both of its ends are bound',
+  connected.bindings.length === 2,
+  JSON.stringify(connected.bindings),
+)
+check(
+  'one end is the shape it was dragged from, the other is the shape it was dropped on',
+  connected.bindings.every((binding) => binding.targetId !== null) &&
+    connected.bindings
+      .map((binding) => binding.end)
+      .sort()
+      .join(',') === 'end,start',
+  JSON.stringify(connected.bindings.map((binding) => binding.end)),
+)
+
+// A press on a dot that goes nowhere must not leave a zero-length arrow behind.
+await page.mouse.click(at(950, 620).x, at(950, 620).y)
+await delay(150)
+await page.mouse.move(at(240, 210).x, at(240, 210).y)
+await delay(200)
+await page.mouse.move(at(340, 210).x, at(340, 210).y)
+await page.mouse.down()
+await page.mouse.up()
+await delay(200)
+
+const afterTap = await page.evaluate(() => window.__doc.objectCount())
+check('a click on a dot that never travels creates nothing', afterTap === 3, `total=${afterTap}`)
+
+// --- arrow handles ------------------------------------------------------------
+//
+// A selected arrow gets three handles and no bounding box. These checks are about the
+// two that were missing entirely: dragging an end to re-attach it, and dragging the
+// middle to bend it. Both are hit-tested against geometry the engine derives rather
+// than against anything stored, so a wrong derivation shows up as a gesture that does
+// nothing at all.
+
+await page.evaluate(() => window.__doc.clear())
+await delay(150)
+
+await page.click('[data-tool="rect"]')
+await drag(at(150, 150), at(330, 270))
+await page.click('[data-tool="ellipse"]')
+await drag(at(620, 150), at(800, 270))
+await page.click('[data-tool="diamond"]')
+await drag(at(620, 420), at(800, 560))
+await page.click('[data-tool="select"]')
+await page.mouse.click(at(1000, 650).x, at(1000, 650).y)
+await delay(150)
+
+// Rectangle to ellipse, from the rectangle's east dot.
+await page.mouse.move(at(240, 210).x, at(240, 210).y)
+await delay(200)
+await drag(at(340, 210), at(700, 210), 16)
+
+const handleArrowId = await page.evaluate(() => window.__doc.findByType('arrow'))
+const bindingsFor = () =>
+  page.evaluate(
+    (id) => window.__doc.bindings().filter((binding) => binding.arrowId === id),
+    handleArrowId,
+  )
+
+const boundBoth = await bindingsFor()
+check('the arrow starts bound at both ends', boundBoth.length === 2, JSON.stringify(boundBoth))
+
+// Select it, then drag its head off the ellipse and onto the diamond.
+await page.mouse.click(at(1000, 650).x, at(1000, 650).y)
+await delay(150)
+await page.evaluate((id) => window.__canvas.engine.setSelection([id]), handleArrowId)
+await delay(200)
+
+const head = await page.evaluate((id) => {
+  const points = window.__doc.points(id)
+  const { tx, ty, scale } = window.__canvas.transform()
+  const last = points.length - 2
+  return { x: points[last] * scale + tx, y: points[last + 1] * scale + ty }
+}, handleArrowId)
+
+await drag(at(head.x, head.y), at(710, 490), 14)
+
+const rebound = await bindingsFor()
+const endBinding = rebound.find((binding) => binding.end === 'end')
+const diamondId = await page.evaluate(() => window.__doc.findByType('diamond'))
+check(
+  'dragging the head off one shape and onto another re-attaches it',
+  endBinding !== undefined && endBinding.targetId === diamondId,
+  JSON.stringify(rebound),
+)
+check(
+  'the tail is left alone by a drag on the head',
+  rebound.filter((binding) => binding.end === 'start').length === 1,
+  JSON.stringify(rebound),
+)
+
+// Drop the head on empty canvas. The binding has to be cleared, not merely ignored,
+// or the arrow springs back onto the shape the next time anything reflows it.
+const head2 = await page.evaluate((id) => {
+  const points = window.__doc.points(id)
+  const { tx, ty, scale } = window.__canvas.transform()
+  const last = points.length - 2
+  return { x: points[last] * scale + tx, y: points[last + 1] * scale + ty }
+}, handleArrowId)
+await drag(at(head2.x, head2.y), at(1000, 620), 14)
+
+const loose = await bindingsFor()
+const looseEnd = loose.find((binding) => binding.end === 'end')
+check(
+  'dropping an end on empty canvas detaches it',
+  looseEnd !== undefined && looseEnd.targetId === null,
+  JSON.stringify(loose),
+)
+
+// --- bending ------------------------------------------------------------------
+
+const straight = await page.evaluate((id) => window.__doc.routing(id), handleArrowId)
+check(
+  'an arrow is straight until somebody bends it',
+  straight.routing === 'straight',
+  JSON.stringify(straight),
+)
+
+const middle = await page.evaluate((id) => {
+  const points = window.__doc.points(id)
+  const { tx, ty, scale } = window.__canvas.transform()
+  const last = points.length - 2
+  return {
+    x: ((points[0] + points[last]) / 2) * scale + tx,
+    y: ((points[1] + points[last + 1]) / 2) * scale + ty,
+  }
+}, handleArrowId)
+
+await drag(at(middle.x, middle.y), at(middle.x, middle.y - 120), 14)
+
+const bent = await page.evaluate((id) => window.__doc.routing(id), handleArrowId)
+check(
+  'dragging the middle handle bends the arrow',
+  bent.routing === 'curved' && Math.abs(bent.curvature) > 0.05,
+  JSON.stringify(bent),
+)
+
+// The bow leaves the box its two endpoints span, so the bounds have to cover the
+// drawn path. If they do not, the arrow is culled while visible and unclickable where
+// it is painted.
+const bowed = await page.evaluate((id) => {
+  const box = window.__doc.read(id)
+  const points = window.__doc.points(id)
+  const last = points.length - 2
+  return { box, endsTop: Math.min(points[1], points[last + 1]) }
+}, handleArrowId)
+check(
+  'a bent arrow is bounded by its curve, not by its endpoints',
+  bowed.box.y < bowed.endsTop - 5,
+  `box.y=${bowed.box.y} ends=${bowed.endsTop}`,
+)
+
+// Clicking the bow itself selects it. Read off the same derivation the renderer uses,
+// because the point of the check is that hit-testing and drawing agree.
+const screenAt = async (t) =>
+  page.evaluate(
+    ([id, at]) => {
+      const point = window.__doc.pathPoint(id, at)
+      const { tx, ty, scale } = window.__canvas.transform()
+      return { x: point.x * scale + tx, y: point.y * scale + ty }
+    },
+    [handleArrowId, t],
+  )
+
+await page.mouse.click(at(1080, 690).x, at(1080, 690).y)
+await delay(150)
+const onBow = await screenAt(0.5)
+await page.mouse.click(at(onBow.x, onBow.y).x, at(onBow.x, onBow.y).y)
+await delay(200)
+const selected = await page.evaluate(() => window.__canvas.engine.getSelection())
+check(
+  'clicking the bow of a curved arrow selects it',
+  selected.length === 1 && selected[0] === handleArrowId,
+  JSON.stringify(selected),
+)
+
+// --- S curves ------------------------------------------------------------------
+//
+// The reason the curve is a cubic with two bows rather than a quadratic with one. A
+// single bow can only lean the whole arrow one way; two can lean opposite ways, and
+// that is the only shape that inflects.
+
+const firstBend = await screenAt(1 / 3)
+await drag(at(firstBend.x, firstBend.y), at(firstBend.x, firstBend.y - 110), 14)
+const secondBend = await screenAt(2 / 3)
+await drag(at(secondBend.x, secondBend.y), at(secondBend.x, secondBend.y + 110), 14)
+
+const sCurve = await page.evaluate((id) => window.__doc.routing(id), handleArrowId)
+check(
+  'the two halves of a curve can lean opposite ways',
+  sCurve.curvature * sCurve.curvatureEnd < 0,
+  JSON.stringify(sCurve),
+)
+
+// And the drawn path actually crosses its own chord, which is what an S *is*. Signed
+// distance from the chord, sampled along the curve: an arc keeps one sign throughout.
+const inflects = await page.evaluate((id) => {
+  const points = window.__doc.points(id)
+  const last = points.length - 2
+  const ax = points[0]
+  const ay = points[1]
+  const dx = points[last] - ax
+  const dy = points[last + 1] - ay
+  let positive = false
+  let negative = false
+  for (let step = 1; step < 12; step += 1) {
+    const point = window.__doc.pathPoint(id, step / 12)
+    const side = (point.x - ax) * dy - (point.y - ay) * dx
+    if (side > 1) positive = true
+    if (side < -1) negative = true
+  }
+  return positive && negative
+}, handleArrowId)
+check('an S curve crosses the line between its own endpoints', inflects)
+
+// --- routing changes -----------------------------------------------------------
+//
+// The picker writes a routing; the points have to follow. An elbow's waypoints are
+// stored rather than derived, so switching to it has to generate them and switching
+// away has to drop them, and neither happens on its own.
+
+await page.evaluate((id) => window.__canvas.engine.setArrowRouting(id, 'orthogonal'), handleArrowId)
+await delay(250)
+const elbow = await page.evaluate((id) => ({
+  routing: window.__doc.routing(id).routing,
+  points: window.__doc.points(id),
+}), handleArrowId)
+check(
+  'switching to elbow actually generates the right-angled route',
+  elbow.routing === 'orthogonal' && elbow.points.length > 4,
+  JSON.stringify(elbow),
+)
+
+await page.evaluate((id) => window.__canvas.engine.setArrowRouting(id, 'straight'), handleArrowId)
+await delay(250)
+const flat = await page.evaluate((id) => ({
+  routing: window.__doc.routing(id).routing,
+  points: window.__doc.points(id),
+}), handleArrowId)
+check(
+  'switching back to straight drops the waypoints rather than keeping the dogleg',
+  flat.routing === 'straight' && flat.points.length === 4,
+  JSON.stringify(flat),
+)
+
+// An elbow's handle slides its dogleg. It must not bend it into a curve, and it must
+// not fall through to the arrow itself: dragging the body of an arrow with one end
+// pinned to a shape stretches it, which is what made reaching for the corner send the
+// connector across the board.
+await page.evaluate((id) => window.__canvas.engine.setArrowRouting(id, 'orthogonal'), handleArrowId)
+await delay(250)
+const elbowHandles = await page.evaluate((id) => window.__doc.handles(id), handleArrowId)
+check(
+  'an elbow has exactly one handle, on its dogleg',
+  elbowHandles.bends.length === 1 && elbowHandles.bends[0].id === 'elbow',
+  JSON.stringify(elbowHandles.bends),
+)
+
+const beforeSlide = await page.evaluate((id) => window.__doc.points(id), handleArrowId)
+const doglegAt = await page.evaluate((id) => {
+  const bend = window.__doc.handles(id).bends[0]
+  const { tx, ty, scale } = window.__canvas.transform()
+  return { x: bend.x * scale + tx, y: bend.y * scale + ty }
+}, handleArrowId)
+await drag(at(doglegAt.x, doglegAt.y), at(doglegAt.x + 70, doglegAt.y + 40), 12)
+
+const slid = await page.evaluate((id) => ({
+  routing: window.__doc.routing(id).routing,
+  elbow: window.__doc.routing(id).elbow,
+  points: window.__doc.points(id),
+}), handleArrowId)
+check(
+  'dragging the dogleg keeps it an elbow',
+  slid.routing === 'orthogonal' && slid.points.length === 8,
+  JSON.stringify(slid),
+)
+check(
+  'the dogleg actually moved',
+  Math.abs(slid.points[2] - beforeSlide[2]) > 10 || Math.abs(slid.points[3] - beforeSlide[3]) > 10,
+  `${JSON.stringify(beforeSlide)} -> ${JSON.stringify(slid.points)}`,
+)
+check(
+  'and the two ends stayed exactly where they were',
+  Math.abs(slid.points[0] - beforeSlide[0]) < 0.5 &&
+    Math.abs(slid.points[1] - beforeSlide[1]) < 0.5 &&
+    Math.abs(slid.points[6] - beforeSlide[6]) < 0.5 &&
+    Math.abs(slid.points[7] - beforeSlide[7]) < 0.5,
+  `${JSON.stringify(beforeSlide)} -> ${JSON.stringify(slid.points)}`,
+)
+
+// --- the tool drops back to select -------------------------------------------
+
+await page.click('[data-tool="rect"]')
+await drag(at(140, 640), at(260, 720))
+await delay(200)
+const toolAfterDraw = await page.evaluate(() => window.__canvas.engine.activeTool)
+check(
+  'drawing a shape hands the pointer back to select',
+  toolAfterDraw === 'select',
+  String(toolAfterDraw),
+)
+
+// --- empty text objects --------------------------------------------------------
+
+const countBefore = await page.evaluate(() => window.__doc.objectCount())
+await page.click('[data-tool="text"]')
+await page.mouse.click(at(200, 620).x, at(200, 620).y)
+await delay(400)
+await page.keyboard.press('Escape')
+await delay(300)
+const countAfter = await page.evaluate(() => window.__doc.objectCount())
+check(
+  'a text object nobody typed into is discarded rather than left as a ghost',
+  countAfter === countBefore,
+  `before=${countBefore} after=${countAfter}`,
+)
+
+await page.click('[data-tool="text"]')
+await page.mouse.click(at(320, 620).x, at(320, 620).y)
+await delay(400)
+await page.keyboard.type('kept')
+await delay(200)
+await page.keyboard.press('Escape')
+await delay(300)
+const countTyped = await page.evaluate(() => window.__doc.objectCount())
+check(
+  'one that was typed into survives',
+  countTyped === countBefore + 1,
+  `before=${countBefore} after=${countTyped}`,
+)
+
 await browser.close()
 stop()
 

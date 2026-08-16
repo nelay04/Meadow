@@ -6,7 +6,7 @@
  * the transaction wrapping and the read-only check stay in one place.
  */
 
-import type { BindingData, ObjectData } from '@meadow/schema'
+import type { ArrowRouting, ArrowRoutingPatch, BindingData, ObjectData } from '@meadow/schema'
 
 import type { Camera, Point, WorldRect } from '../camera'
 import type { SnapGuide } from '../snapping'
@@ -55,6 +55,11 @@ export type ToolContext = {
   setGuides(guides: readonly SnapGuide[]): void
   /** The object an arrow end would attach to, highlighted while drawing. */
   setHoverTarget(id: string | null): void
+  /**
+   * The shape currently offering connector dots, or null. Hover state, so the tool
+   * publishes it and the engine draws it; the engine has no notion of what is hovered.
+   */
+  setConnectorHost(id: string | null): void
 
   createObject(input: Partial<ObjectData> & { type: ObjectData['type'] }): string | null
   applyPatches(patches: { id: string; patch: Partial<ObjectData> }[]): void
@@ -62,6 +67,21 @@ export type ToolContext = {
   setArrowPoints(id: string, absolute: readonly number[]): void
   /** Attach an arrow end to an object. Replaces any existing binding on that end. */
   bindArrow(input: Omit<BindingData, 'id'>): void
+  /**
+   * Change how an arrow is routed. Bounds are re-derived with it, because a curved
+   * arrow does not fit inside the box its two endpoints span.
+   */
+  setArrowRouting(id: string, patch: ArrowRoutingPatch): void
+  /**
+   * The routing a newly drawn arrow should get, chosen in the tool rail.
+   *
+   * A getter on the context rather than a value passed to the tool's factory, because
+   * the choice can change while the tool is mounted and a captured value would draw
+   * the previous one until the user switched tools and back.
+   */
+  readonly arrowRouting: ArrowRouting
+  /** The local person's display name, for the byline on a new sticky. */
+  readonly authorName: string
   /** Close the current undo step. Call when a gesture completes. */
   commit(): void
   /**
@@ -69,6 +89,16 @@ export type ToolContext = {
    * treats as "created it, leave it empty" rather than an error.
    */
   beginTextEdit(id: string): boolean
+
+  /**
+   * Switch the active tool.
+   *
+   * Creation tools call this with `select` once they have made something, so the
+   * gesture after drawing is the one you almost always want next - adjusting what you
+   * just drew - rather than drawing a second one. Holding the tool is the rarer case
+   * and it costs one click.
+   */
+  setTool(tool: ToolId): void
 
   requestRender(): void
   setCursor(cursor: string): void

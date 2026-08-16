@@ -1111,14 +1111,22 @@ label {
   cursor: not-allowed;
 }
 
-/* Tooltip on the rail, built from the button's own label so there is one source
-   for the accessible name and the visible hint. */
-.tool::after {
-  content: attr(data-tip);
+/*
+ * Tooltip on the rail.
+ *
+ * A real element rather than `content: attr(data-tip)` on a pseudo-element, because
+ * the shortcut inside it is styled differently from the name and a pseudo-element is
+ * one box with one colour. The accessible name still comes from `aria-label`; this is
+ * marked `aria-hidden` so a screen reader does not hear the label twice.
+ */
+.tool .tip {
   position: absolute;
   left: calc(100% + 0.6rem);
   top: 50%;
   transform: translateY(-50%);
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
   padding: 0.2rem 0.5rem;
   border-radius: var(--radius-sm);
   background: light-dark(#1b1c1f, #e9ecf1);
@@ -1132,8 +1140,21 @@ label {
   z-index: 4;
 }
 
-.tool:hover:not(:disabled)::after,
-.tool:focus-visible::after {
+/*
+ * The shortcut sits a step back from the name it belongs to. It is a reminder for
+ * next time, not the answer to "what is this button", and at equal weight the two
+ * read as one run-on phrase.
+ *
+ * Opacity rather than a colour, so it stays correct against the plate in both themes
+ * instead of needing a second `light-dark()` pair kept in step with the first.
+ */
+.tool .tip .key {
+  opacity: 0.6;
+  font-weight: 500;
+}
+
+.tool:hover:not(:disabled) .tip,
+.tool:focus-visible .tip {
   opacity: 1;
 }
 
@@ -1277,4 +1298,175 @@ kbd {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/*
+ * A tool's own options, as a flyout beside it in the rail.
+ *
+ * The slot is what positions it: the rail is a column of buttons, and anchoring to the
+ * button rather than to the rail keeps the flyout level with the tool it belongs to
+ * however many tools are above it. It carries the rail's own surface and border so it
+ * reads as an extension of the rail rather than as a popover over the canvas.
+ */
+.tool-slot {
+  position: relative;
+  display: flex;
+}
+
+.tool-submenu {
+  position: absolute;
+  left: calc(100% + 0.55rem);
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 5;
+  display: flex;
+  gap: 0.15rem;
+  padding: 0.25rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.tool-submenu .tool {
+  width: 2rem;
+  height: 2rem;
+}
+
+/* The flyout's own tooltips point down, not right, or they would run off the rail. */
+.tool-submenu .tool .tip {
+  left: 50%;
+  top: calc(100% + 0.45rem);
+  transform: translateX(-50%);
+}
+
+/*
+ * A destructive control says so on hover rather than in its resting state. Permanent
+ * red is an alarm nobody is currently causing; red on hover is the answer to "what
+ * happens if I press this".
+ */
+/*
+ * A destructive control on the rail says so on hover and not before.
+ *
+ * The resting colour has to be stated, because `button.danger` above paints every
+ * such button red at rest and this one matches it. That is right for a named button
+ * in a dialog, where the word beside the colour is what makes it a warning; it is
+ * wrong for a bare icon sitting in a row of eight identical ones, where the only red
+ * thing on screen reads as an alarm nobody is currently causing. `.tool.danger` beats
+ * `button.danger` on specificity, so the order of the two rules does not matter.
+ */
+.tool.danger {
+  color: var(--muted);
+}
+
+.tool.danger:hover:not(:disabled) {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+/*
+ * Role badges on the presence avatars.
+ *
+ * Which of the people in a room can change it is the one thing about presence that
+ * changes how you behave, and a row of identical circles does not say it. The badge
+ * sits on the corner rather than beside the face, so a busy board's header does not
+ * grow by half again when four people arrive.
+ */
+.avatar {
+  position: relative;
+  overflow: visible;
+}
+
+.avatar .badge {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 50%;
+  border: 1.5px solid var(--surface);
+  box-sizing: content-box;
+}
+
+.avatar .badge.editor {
+  background: var(--accent);
+  color: #fff;
+}
+
+.avatar .badge.viewer {
+  background: var(--surface-3);
+  color: var(--muted);
+}
+
+/*
+ * The text formatting bar.
+ *
+ * Anchored to the top of the canvas rather than floating over the caret. A bar that
+ * follows the text covers the line above whatever is being typed, which is the line
+ * you are reading while you type.
+ */
+.text-bar {
+  position: absolute;
+  left: 50%;
+  top: 0.9rem;
+  transform: translateX(-50%);
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.25rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.text-bar .tool {
+  width: 2rem;
+  height: 2rem;
+}
+
+/* Its tooltips point down: the bar is at the top of the canvas, not at the side. */
+.text-bar .tool .tip {
+  left: 50%;
+  top: calc(100% + 0.45rem);
+  transform: translateX(-50%);
+}
+
+.text-bar hr {
+  border: 0;
+  border-left: 1px solid var(--line);
+  align-self: stretch;
+  margin: 0.2rem 0.25rem;
+  width: 0;
+}
+
+.text-size select {
+  height: 2rem;
+  padding: 0 0.4rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-strong);
+  font: inherit;
+  font-size: 0.8rem;
+}
+
+.text-size select:hover {
+  background: var(--surface-3);
+}
+
+/* Visually hidden, still read aloud. The select's own value is its visible label. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }

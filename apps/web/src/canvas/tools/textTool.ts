@@ -76,7 +76,15 @@ export function createTextTool(context: ToolContext, kind: TextToolKind): Tool {
             h: defaults.h,
           }
 
-      const id = context.createObject({ type: kind, ...box })
+      const id = context.createObject({
+        type: kind,
+        ...box,
+        // A note is signed. Stamped at creation because `createdBy` is a user id and
+        // nothing can turn one into a name for somebody who has since disconnected.
+        props: kind === 'sticky' && context.authorName !== ''
+          ? { author: context.authorName }
+          : {},
+      })
       if (id === null) return
 
       context.commit()

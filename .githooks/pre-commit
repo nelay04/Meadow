@@ -1,0 +1,364 @@
+#!/bin/sh
+# Meadow pre-commit hook: repo rules, types, tests and the Python linters, before
+# anything reaches a commit. Installed by scripts/install-hooks.mjs, which points
+# core.hooksPath here from pnpm's prepare lifecycle.
+#
+# Test command: `pnpm hooks:run` to see it run against what is currently staged.
+# Bypass the hook with `git commit --no-verify` (not recommended).
+#
+# What is deliberately NOT here: pytest, the m0 gate, the smokes and the e2e scripts.
+# Every one of them needs postgres, redis or a browser, and a commit that cannot be
+# made because a container is not up is a hook people turn off. Those belong to
+# `.github/workflows/ci.yml`. What runs here is what is fast, needs nothing, and
+# catches the mistakes that are cheapest to catch early.
+#
+# Checks are chosen by what is staged. A change to services/api does not typecheck the
+# frontend, and a change to apps/web does not run mypy.
+
+# ---- Terminal capabilities -------------------------------------------------
+# Colours and animation are only emitted on a real terminal so piped or CI runs
+# stay clean. NO_COLOR is honoured as the standard opt-out.
+# Escapes are stored as real control bytes, not as "\033" text, so they survive
+# being passed through "%s" arguments and not just printf format strings.
+E=$(printf '\033')
+
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+    INTERACTIVE=1
+    RED="${E}[1;91m"
+    GREEN="${E}[1;92m"
+    BLUE="${E}[1;94m"
+    GREY="${E}[0;90m"
+    BOLD="${E}[1;97m"
+    NC="${E}[0m"
+    BADGE_PASS="${E}[1;30;102m PASS ${E}[0m"
+    BADGE_FAIL="${E}[1;97;101m FAIL ${E}[0m"
+    BADGE_SKIP="${E}[1;30;47m SKIP ${E}[0m"
+    HIDE_CURSOR="${E}[?25l"
+    SHOW_CURSOR="${E}[?25h"
+    CLEAR_LINE="\r${E}[2K"
+else
+    INTERACTIVE=0
+    RED=''; GREEN=''; BLUE=''; GREY=''; BOLD=''; NC=''
+    BADGE_PASS='PASS'; BADGE_FAIL='FAIL'; BADGE_SKIP='SKIP'
+    HIDE_CURSOR=''; SHOW_CURSOR=''; CLEAR_LINE='\r'
+fi
+
+# ---- Responsive width ------------------------------------------------------
+COLS=$(tput cols 2>/dev/null)
+[ -z "$COLS" ] && COLS=$(stty size 2>/dev/null | cut -d' ' -f2)
+case "$COLS" in ''|*[!0-9]*) COLS=80 ;; esac
+[ "$COLS" -gt 78 ] && COLS=78
+[ "$COLS" -lt 32 ] && COLS=32
+
+NARROW=0
+[ "$COLS" -lt 60 ] && NARROW=1
+
+# ---- Tree glyphs -----------------------------------------------------------
+# Rounded box-drawing when the locale can render it, plain ASCII otherwise, so
+# the layout never degrades into mojibake on a non-UTF-8 console.
+case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
+    *UTF-8*|*utf-8*|*UTF8*|*utf8*)
+        T_OPEN='╭─'; T_PIPE='│'; T_END='╰─'; T_RULE='─' ;;
+    *)
+        T_OPEN=',-'; T_PIPE='|'; T_END='`-'; T_RULE='-' ;;
+esac
+
+TAIL_STUB=8   # length of the short trailing rule that closes a block
+
+repeat() {
+    _r_i=0
+    _r_out=''
+    while [ "$_r_i" -lt "$2" ]; do
+        _r_out="${_r_out}$1"
+        _r_i=$(( _r_i + 1 ))
+    done
+    printf '%s' "$_r_out"
+}
+
+# Visible length of a label, with colour escapes discounted so the trailing
+# rules are measured against what the eye actually sees.
+vislen() {
+    _v_plain=$(printf '%s' "$1" | sed "s/${E}\[[0-9;?]*[a-zA-Z]//g")
+    printf '%d' "${#_v_plain}"
+}
+
+rule()  { printf "${GREY}%s${NC}\n" "$(repeat "$T_RULE" "$COLS")"; }
+item()  { printf "${BLUE}${T_PIPE}${NC}  %s\n" "$1"; }   # a line inside the block
+bar()   { printf "${BLUE}${T_PIPE}${NC}\n"; }            # spacer, keeps the trunk
+
+# Opens a block: label followed by a rule that runs to the right edge.
+top() {
+    _t_fill=$(( COLS - $(vislen "$1") - 4 ))
+    [ "$_t_fill" -lt 0 ] && _t_fill=0
+    printf "${BLUE}%s${NC} %s ${BLUE}%s${NC}\n" "$T_OPEN" "$1" "$(repeat "$T_RULE" "$_t_fill")"
+}
+
+# Closes a block: label followed by a short trailing rule.
+end() {
+    _e_room=$(( COLS - $(vislen "$1") - 4 ))
+    _e_fill=$TAIL_STUB
+    [ "$_e_fill" -gt "$_e_room" ] && _e_fill=$_e_room
+    [ "$_e_fill" -lt 0 ] && _e_fill=0
+    printf "${BLUE}%s${NC} %s ${BLUE}%s${NC}\n" "$T_END" "$1" "$(repeat "$T_RULE" "$_e_fill")"
+}
+
+# Picks the wide label, or the short one when the terminal cannot fit it.
+pick() {
+    if [ "$NARROW" -eq 1 ]; then printf '%s' "$2"; else printf '%s' "$1"; fi
+}
+
+# ---- Banner ----------------------------------------------------------------
+banner() {
+    if [ "$COLS" -ge 52 ]; then
+        printf "${BLUE}%s${NC}\n" \
+            ' __  __   ___    _    ___   ___  __      __' \
+            '|  \/  | | __|  /_\  |   \ / _ \ \ \    / /' \
+            '| |\/| | | _|  / _ \ | |) | (_) | \ \/\/ / ' \
+            '|_|  |_| |___|/_/ \_\|___/ \___/   \_/\_/  '
+        printf "${GREY}  the glade keeps its own gate - pre-commit checks${NC}\n\n"
+    else
+        printf "${BLUE}MEADOW${NC} ${GREY}pre-commit checks${NC}\n\n"
+    fi
+}
+
+# ---- The wanderer ----------------------------------------------------------
+# A wanderer crosses the glade while a check buffers in the background. Same idea
+# as any spinner, in this project's vocabulary: `o` is the wanderer, `.` is grass.
+TRACK_WIDTH=10
+
+wanderer_frame() {
+    _pos=$(( $1 % TRACK_WIDTH ))
+    _i=0
+    _track=''
+    while [ "$_i" -lt "$TRACK_WIDTH" ]; do
+        if [ "$_i" -eq "$_pos" ]; then
+            _track="${_track}o"
+        elif [ $(( (_i * 7 + 3) % 5 )) -eq 0 ]; then
+            _track="${_track}."
+        else
+            _track="${_track} "
+        fi
+        _i=$(( _i + 1 ))
+    done
+    printf '%s' "$_track"
+}
+
+elapsed_since() {
+    _secs=$(( $(date +%s) - $1 ))
+    if [ "$_secs" -ge 60 ]; then
+        printf '%dm %02ds' $(( _secs / 60 )) $(( _secs % 60 ))
+    else
+        printf '%ds' "$_secs"
+    fi
+}
+
+WORK=$(mktemp -d 2>/dev/null || printf '/tmp/meadow-precommit.%s' "$$")
+mkdir -p "$WORK"
+FAIL_LOG="${WORK}/failures.log"
+STEP_PID=''
+
+cleanup() {
+    [ -n "$STEP_PID" ] && kill "$STEP_PID" 2>/dev/null
+    printf "${SHOW_CURSOR}"
+    rm -rf "$WORK"
+}
+trap 'cleanup' EXIT
+trap 'cleanup; exit 130' INT TERM
+
+# Git runs hooks from the top level, but a worktree or a wrapper may not.
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+banner
+
+if sleep 0.1 2>/dev/null; then TICK='0.12'; else TICK='1'; fi
+FAILED=0
+STEP=0
+
+# ---- One check, buffered, with the wanderer crossing while it runs ----
+run_step() {
+    _label=$1
+    shift
+
+    STEP=$(( STEP + 1 ))
+    _log="${WORK}/step-${STEP}.log"
+    _started=$(date +%s)
+
+    if [ "$INTERACTIVE" -eq 1 ]; then
+        "$@" >"$_log" 2>&1 </dev/null &
+        STEP_PID=$!
+        printf "${HIDE_CURSOR}"
+        _frame=0
+        while kill -0 "$STEP_PID" 2>/dev/null; do
+            printf "${CLEAR_LINE}${BLUE}${T_PIPE}${NC}  ${BLUE}[%s]${NC} ${GREY}%s ... %s${NC}" \
+                "$(wanderer_frame "$_frame")" "$_label" "$(elapsed_since "$_started")"
+            _frame=$(( _frame + 1 ))
+            sleep "$TICK"
+        done
+        wait "$STEP_PID"
+        _status=$?
+        STEP_PID=''
+        printf "${CLEAR_LINE}${SHOW_CURSOR}"
+    else
+        "$@" >"$_log" 2>&1 </dev/null
+        _status=$?
+    fi
+
+    _took=$(elapsed_since "$_started")
+
+    if [ "$_status" -eq 0 ]; then
+        item "${BADGE_PASS} ${BOLD}${_label}${NC} ${GREY}in ${_took}${NC}"
+        return 0
+    fi
+
+    item "${BADGE_FAIL} ${BOLD}${_label}${NC} ${GREY}after ${_took}${NC}"
+    FAILED=$(( FAILED + 1 ))
+    {
+        printf '%s\n' "--- ${_label} ---"
+        cat "$_log"
+        printf '\n'
+    } >>"$FAIL_LOG"
+    return 1
+}
+
+# A check that had nothing to look at. Reported rather than hidden, because a silent
+# skip and a pass look identical afterwards, and "why did it not catch that" is a
+# worse afternoon than one extra line here.
+skip_step() {
+    item "${BADGE_SKIP} ${BOLD}${1}${NC} ${GREY}${2}${NC}"
+}
+
+# ---- What is being committed decides what runs ----
+STAGED=$(git diff --cached --name-only --diff-filter=ACMR)
+
+touches() { printf '%s\n' "$STAGED" | grep -qE "$1"; }
+
+# packages/schema is in the web bucket because apps/web imports it through
+# `workspace:*` and tsc resolves straight into its source. A schema edit that breaks a
+# caller breaks it at the caller, so both are typechecked together or neither is.
+WEB=0; touches '^(apps/web|packages/schema)/' && WEB=1
+API=0; touches '^services/api/.*\.(py|toml)$' && API=1
+
+top "$(pick "Checking what is about to be committed ${GREY}(rules, types, tests)${NC}" 'Pre-commit checks')"
+bar
+
+if [ -z "$STAGED" ]; then
+    item "${GREY}Nothing staged. There is nothing to check.${NC}"
+    bar
+    end "${BADGE_PASS} ${GREEN}Nothing to do${NC}"
+    exit 0
+fi
+
+# ---- The checks need the toolchains the repo installs ----
+# Failing here with the install command beats failing inside a tool with a stack
+# trace, and a missing toolchain is not a reason to let an unchecked commit through.
+if ! command -v node >/dev/null 2>&1; then
+    item "${BADGE_FAIL} ${RED}node not on PATH${NC}"
+    item "${GREY}Git GUIs often start with a minimal PATH. Commit from a shell,${NC}"
+    item "${GREY}or point the GUI at one that has node.${NC}"
+    bar
+    end "${RED}Cannot run the checks${NC}"
+    exit 1
+fi
+
+if [ "$WEB" -eq 1 ] && ! command -v pnpm >/dev/null 2>&1; then
+    item "${BADGE_FAIL} ${RED}pnpm not on PATH${NC}"
+    bar
+    end "Run ${BOLD}corepack enable${NC} before committing"
+    exit 1
+fi
+
+if [ "$WEB" -eq 1 ] && [ ! -d node_modules/.pnpm ]; then
+    item "${BADGE_FAIL} ${RED}Dependencies missing${NC}"
+    item "${GREY}node_modules is not installed, so tsc and vitest cannot run${NC}"
+    bar
+    end "Run ${BOLD}pnpm install${NC} before committing"
+    exit 1
+fi
+
+if [ "$API" -eq 1 ] && [ ! -x services/api/.venv/bin/ruff ]; then
+    item "${BADGE_FAIL} ${RED}The API venv is missing${NC}"
+    item "${GREY}services/api/.venv/bin/ruff not found${NC}"
+    bar
+    end "Run ${BOLD}uv venv && uv pip install -e . --group dev${NC} in services/api"
+    exit 1
+fi
+
+# ---- Repo rules: the non-negotiables, read off the staged lines ----
+run_step "$(pick 'repo rules   : staged lines' 'repo rules')" node scripts/check-staged.mjs
+
+# ---- Frontend: types, then tests ----
+# Subshells throughout, so a `cd` inside a step cannot leak into the next one. The
+# non-interactive branch of run_step calls these in the current shell.
+web_types() { ( pnpm -r --silent lint ); }
+web_tests() { ( pnpm --filter web --silent test ); }
+
+if [ "$WEB" -eq 1 ]; then
+    run_step "$(pick 'types (web)  : tsc --noEmit, both packages' 'types (web)')" web_types
+    run_step "$(pick 'tests (web)  : vitest run' 'tests (web)')" web_tests
+else
+    skip_step "$(pick 'types, tests : web' 'web')" 'nothing staged under apps/web or packages/schema'
+fi
+
+# ---- API: ruff, then mypy ----
+api_ruff() { ( cd services/api && .venv/bin/ruff check . ); }
+api_mypy() { ( cd services/api && .venv/bin/mypy app/ ); }
+
+if [ "$API" -eq 1 ]; then
+    run_step "$(pick 'lint (api)   : ruff check' 'lint (api)')" api_ruff
+    run_step "$(pick 'types (api)  : mypy strict on app/' 'types (api)')" api_mypy
+else
+    skip_step "$(pick 'ruff, mypy   : api' 'api')" 'nothing staged under services/api'
+fi
+
+# ---- Notes: things worth a word, never a block ----
+# Neither of these is a defect. A hook that blocks on a judgement call teaches people
+# to pass --no-verify, and once that is a habit the real checks stop running too.
+NOTES=0
+note() { NOTES=$(( NOTES + 1 )); item "${GREY}$1${NC}"; }
+
+# The advisory half of the rules check. It runs as its own invocation because run_step
+# buffers a passing step's output and throws it away, which is right for a linter and
+# wrong for a remark about a line that is otherwise fine.
+ADVICE=$(node scripts/check-staged.mjs --notes 2>/dev/null)
+if [ -n "$ADVICE" ]; then
+    bar
+    printf '%s\n' "$ADVICE" | while IFS= read -r _line; do
+        item "${GREY}note: ${_line}${NC}"
+    done
+    NOTES=1
+fi
+
+if printf '%s\n' "$STAGED" | grep -qE '^(apps|packages|services)/' \
+   && ! printf '%s\n' "$STAGED" | grep -qx 'CHANGELOG.md'; then
+    [ "$NOTES" -eq 0 ] && bar
+    note "note: source changed without CHANGELOG.md. User-visible changes belong"
+    note "      under ## [Unreleased] in the same commit."
+fi
+
+# A model change with no migration beside it is the one that reaches the VPS and stops
+# the stack on `alembic upgrade head`. Not checkable here without a database, since
+# `alembic check` needs one, so it is said rather than tested.
+if printf '%s\n' "$STAGED" | grep -qE '^services/api/app/db/models\.py$' \
+   && ! printf '%s\n' "$STAGED" | grep -qE '^services/api/alembic/versions/'; then
+    [ "$NOTES" -eq 0 ] && bar
+    note "note: models.py changed without a migration. Run"
+    note "      .venv/bin/alembic revision --autogenerate, then alembic check."
+fi
+
+bar
+
+if [ "$FAILED" -eq 0 ]; then
+    end "${BADGE_PASS} $(pick "${GREEN}All checks passed${NC}" "${GREEN}Passed${NC}")"
+    printf "\n${GREEN}%s${NC}\n" "$(pick 'Pre-commit checks passed. Proceeding with commit.' 'Checks passed. Committing.')"
+    exit 0
+fi
+
+end "${BADGE_FAIL} $(pick "${RED}${FAILED} check(s) failed${NC}" "${RED}${FAILED} failed${NC}")"
+printf '\n'
+rule
+cat "$FAIL_LOG"
+rule
+printf "\n${RED}%s${NC}\n" "$(pick 'Pre-commit checks failed. Commit blocked.' 'Checks failed. Commit blocked.')"
+top "$(pick "Fix the issues above, or ask Claude with ${BOLD}/fix-precommit.prompt${NC}" "Fix, or ${BOLD}/fix-precommit.prompt${NC}")"
+end "$(pick "Bypass with ${BOLD}git commit --no-verify${NC} ${GREY}(not recommended)${NC}" "Bypass: ${BOLD}git commit --no-verify${NC}")"
+exit 1

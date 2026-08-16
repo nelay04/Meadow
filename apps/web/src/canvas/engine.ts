@@ -13,9 +13,12 @@
  */
 
 import {
+  type ArrowRouting,
+  type ArrowRoutingPatch,
   type BindingData,
   type ObjectData,
   absolutePoints,
+  arrowPolyline,
   isArrowLike,
   isTextBearing,
   objectBounds,
@@ -35,7 +38,7 @@ import {
 import { TextLayer } from './overlay/textLayer'
 import { type Wanderer, type WandererSelection, WandererLayer } from './overlay/wandererLayer'
 import { SpatialIndex } from './spatialIndex'
-import { ArrowPass } from './renderers/arrowPass'
+import { type ArrowDraw, ArrowPass } from './renderers/arrowPass'
 import { ShapeBatch } from './renderers/shapeBatch'
 import type { SnapGuide } from './snapping'
 import { whenFontsReady } from './text/measure'
@@ -43,24 +46,29 @@ import { FONT_STACKS } from './text/textStyle'
 import {
   BINDING_COLOR,
   GUIDE_COLOR,
+  connectorInk,
   MARQUEE_FILL,
   SELECTION_COLOR,
+  isDarkSurface,
   readCanvasInk,
   resolveStyle,
   shapeKindFor,
 } from './style'
+import { HANDLE_SIZE_PX, RESIZE_HANDLES, handlePositions } from './transform'
+import { ARROW_HANDLE_RADIUS_PX, arrowHandles } from './arrowHandles'
 import {
-  HANDLE_SIZE_PX,
-  ROTATE_HANDLE_OFFSET_PX,
-  RESIZE_HANDLES,
-  handlePositions,
-} from './transform'
-import { unionBounds } from './hitTest'
+  CONNECTOR_OFFSET_PX,
+  CONNECTOR_RADIUS_PX,
+  CONNECTOR_SIDES,
+  connectorPoints,
+} from './connectors'
+import { hitsObject, unionBounds } from './hitTest'
 import { createHandTool } from './tools/handTool'
 import { createSelectTool } from './tools/selectTool'
 import { createShapeTool } from './tools/shapeTool'
 import { createArrowTool } from './tools/arrowTool'
 import { createTextTool } from './tools/textTool'
+import type { TextMark } from '../doc/richText'
 import type { CanvasPointerEvent, Tool, ToolContext, ToolId } from './tools/types'
 
 /**
@@ -95,8 +103,34 @@ function wrapText(context: CanvasRenderingContext2D, text: string, maxWidth: num
   return lines
 }
 
+/** A caption box as a comparable string. Rounded: sub-pixel drift is not a change. */
+function gapKey(bounds: ArrowDraw['gap']): string {
+  if (bounds === null || bounds === undefined) return ''
+  return [bounds.minX, bounds.minY, bounds.maxX, bounds.maxY]
+    .map((value) => Math.round(value))
+    .join(',')
+}
+
 /** Minimum instance capacity, so small boards do not reallocate on the first few adds. */
 const MIN_BATCH_CAPACITY = 2048
+
+/** Half-length of the ticks that cap a spacing guide, in screen pixels. */
+const GUIDE_TICK = 4.5
+
+/**
+ * How finely to flatten a curved arrow, given its length on screen.
+ *
+ * The whole reason a curve is derived rather than stored is that the tessellation can
+ * follow the zoom. A fixed count is visibly faceted on a long arrow zoomed in and
+ * wasteful on a short one zoomed out; roughly one segment every six screen pixels is
+ * below what an edge can show either way. The ceiling is what stops a single arrow
+ * spanning a zoomed-in board from recording thousands of line segments per frame.
+ */
+function curveSegments(points: readonly number[], scale: number): number {
+  const last = points.length - 2
+  const length = Math.hypot(points[last] - points[0], points[last + 1] - points[1]) * scale
+  return Math.max(12, Math.min(160, Math.ceil(length / 6)))
+}
 
 /** Grid cell in world units at 1x, and the screen band its spacing is held inside. */
 const GRID_BASE_WORLD = 20
@@ -110,6 +144,8 @@ export type EngineHost = {
   object(id: string): ObjectData | undefined
   allObjects(): Iterable<ObjectData>
   readonly canWrite: boolean
+  /** The local person's display name, stamped onto a sticky when one is created. */
+  readonly authorName: string
   createObject(input: Partial<ObjectData> & { type: ObjectData['type'] }): string | null
   applyPatches(patches: { id: string; patch: Partial<ObjectData> }[]): void
   deleteObjects(ids: readonly string[]): void
@@ -122,6 +158,7 @@ export type EngineHost = {
   sendToBack(ids: readonly string[]): void
   setArrowPoints(id: string, absolute: readonly number[]): void
   bindArrow(input: Omit<BindingData, 'id'>): void
+  setArrowRouting(id: string, patch: ArrowRoutingPatch): void
   /** Static HTML for a text-bearing object, for the idle overlay. */
   textHtml(id: string): string
   /** Plain text for the same object, for thumbnails and anything non-visual. */
@@ -131,6 +168,8 @@ export type EngineHost = {
    * when this host cannot edit. The engine never learns what the editor is.
    */
   beginEdit(id: string, element: HTMLElement, onExit: () => void): (() => void) | null
+  /** Toggle an inline mark in the live editor. No-op when nothing is being edited. */
+  toggleTextMark(mark: TextMark): void
 }
 
 export type EngineEvents = {
@@ -181,6 +220,17 @@ export class CanvasEngine {
 
   /** Reused across frames so the render walk allocates nothing. */
   private readonly overlayObjects: { object: ObjectData; z: number }[] = []
+
+  /**
+   * The caption box each arrow's shaft was last cut around, keyed by arrow id.
+   *
+   * The gap is measured from a mounted DOM element, and the overlay is synced *after*
+   * the scene is painted, so on the frame a caption first appears there is nothing to
+   * measure yet. Keeping what was used lets the frame end by checking whether the
+   * answer has changed and asking for one more render if it has. Without it the line
+   * runs through the words until something unrelated happens to redraw the board.
+   */
+  private readonly labelGaps = new Map<string, string>()
   private lastTransform: ViewTransform = { tx: 0, ty: 0, scale: 1 }
 
   private tool!: Tool
@@ -190,6 +240,17 @@ export class CanvasEngine {
   private marquee: WorldRect | null = null
   private guides: readonly SnapGuide[] = []
   private hoverTarget: string | null = null
+  /** The shape showing connector dots. Hover state, published by the select tool. */
+  private connectorHost: string | null = null
+
+  /**
+   * The routing new arrows are drawn with, chosen in the tool rail.
+   *
+   * A property of the *tool*, not of the selection. Picking a shape of connector before
+   * drawing one is how every other drawing tool works, and it is the difference between
+   * choosing what you are about to make and correcting what you already made.
+   */
+  private arrowRouting: ArrowRouting = 'straight'
 
   private dirty = true
   private frame = 0
@@ -202,6 +263,7 @@ export class CanvasEngine {
    * on every frame and `getComputedStyle` is not a per-frame call.
    */
   private canvasInk = 0x2a3340
+  private darkSurface = false
 
   private resizeObserver: ResizeObserver | null = null
 
@@ -263,6 +325,7 @@ export class CanvasEngine {
     }
 
     this.canvasInk = readCanvasInk(this.element)
+    this.darkSurface = isDarkSurface(this.element)
 
     this.snapToDevicePixels()
     // The host's position changes with the window, and so does the rounding error.
@@ -384,6 +447,7 @@ export class CanvasEngine {
     // Only the ink. The board's surface and its grid are CSS and re-resolve
     // themselves the moment the root's colour-scheme changes.
     this.canvasInk = readCanvasInk(this.element)
+    this.darkSurface = isDarkSurface(this.element)
     this.textLayer.ink = this.canvasInk
     this.requestRender()
   }
@@ -447,6 +511,10 @@ export class CanvasEngine {
   }
 
   setTool(id: ToolId): void {
+    // Connector dots belong to the select tool's hover state. Leaving them painted
+    // after a switch to the arrow or shape tool offers a target that nothing handles.
+    this.connectorHost = null
+
     if (this.tool !== undefined) {
       if (this.toolId === id) return
       this.tool.cancel?.()
@@ -471,6 +539,99 @@ export class CanvasEngine {
 
   selectAll(): void {
     this.setSelection(this.host.order().filter((id) => !this.cache.get(id)?.locked))
+  }
+
+  /**
+   * Formatting for the object being edited, or for the selection when nothing is.
+   *
+   * Two different mechanisms behind one idea, and the split is the document's rather
+   * than an implementation detail. Bold and italic are *marks on a range of text*, so
+   * they belong to the fragment and go through the editor. Size is a property of the
+   * whole object, so it is an ordinary patch and works on a selection with no editor
+   * open at all - which is what lets you resize the type on three stickies at once.
+   */
+  toggleTextMark(mark: TextMark): void {
+    this.host.toggleTextMark(mark)
+    this.requestRender()
+  }
+
+  /** Ids the formatting bar applies to: the object being edited, or the selection. */
+  private formatTargets(): string[] {
+    if (this.editing !== null) return [this.editing.id]
+    return Array.from(this.selected).filter((id) => {
+      const object = this.cache.get(id)
+      return object !== undefined && isTextBearing(object.type) && !object.locked
+    })
+  }
+
+  setTextSize(size: number): void {
+    const targets = this.formatTargets()
+    if (targets.length === 0) return
+
+    const clamped = Math.max(6, Math.min(288, Math.round(size)))
+    this.host.applyPatches(
+      targets.map((id) => ({ id, patch: { props: { fontSize: clamped } } })),
+    )
+    this.host.commit()
+    this.requestRender()
+  }
+
+  /** The size the bar should show: the shared one, or null when they disagree. */
+  get textSize(): number | null {
+    let size: number | null = null
+    for (const id of this.formatTargets()) {
+      const object = this.cache.get(id)
+      if (object === undefined) continue
+      const own = resolveTextProps(object).fontSize
+      if (size === null) size = own
+      else if (size !== own) return null
+    }
+    return size
+  }
+
+  /** True when a formatting bar would have something to act on. */
+  get canFormatText(): boolean {
+    return this.host.canWrite && this.formatTargets().length > 0
+  }
+
+  /** The routing the arrow and line tools will draw with. */
+  get arrowRoutingChoice(): ArrowRouting {
+    return this.arrowRouting
+  }
+
+  setDefaultArrowRouting(routing: ArrowRouting): void {
+    this.arrowRouting = routing
+  }
+
+  /**
+   * Re-route an existing arrow.
+   *
+   * Straight is written as a routing with a zero curvature rather than as a routing
+   * alone, so switching to straight and back to curved does not resurrect whatever
+   * bow the arrow was last dragged into.
+   */
+  setArrowRouting(id: string, routing: ArrowRouting): void {
+    const object = this.cache.get(id)
+    if (object === undefined || !isArrowLike(object.type)) return
+
+    if (routing === 'curved') {
+      const props = resolveArrowProps(object)
+      // An arrow that has never been bent has whatever the schema's default is, which
+      // is a real bow. One that was dragged flat has none, and switching it back to
+      // curved with both bows at zero would draw a straight line under a button that
+      // says curved.
+      const flat = Math.abs(props.curvature) < 0.02 && Math.abs(props.curvatureEnd) < 0.02
+      this.host.setArrowRouting(id, {
+        routing,
+        curvature: flat ? 0.3 : props.curvature,
+        curvatureEnd: flat ? 0.3 : props.curvatureEnd,
+      })
+    } else {
+      this.host.setArrowRouting(id, { routing, curvature: 0, curvatureEnd: 0 })
+    }
+
+    this.host.commit()
+    this.requestRender()
   }
 
   deleteSelection(): void {
@@ -624,10 +785,34 @@ export class CanvasEngine {
     }
 
     this.textLayer.endEdit()
+    this.discardIfEmpty(active.id)
     this.host.commit()
     this.events.onEditingChange?.(null)
     this.requestRender()
     if (this.app !== undefined) this.app.canvas.focus()
+  }
+
+  /**
+   * Throw away a text object that was never typed into.
+   *
+   * The text tool creates the object and opens an editor in one gesture, so clicking
+   * the canvas, changing your mind, and clicking away leaves a zero-content object
+   * behind. It is invisible - a plain text object paints no box - but it is still in
+   * the document, still in the spatial index, still selectable, and still syncs to
+   * everybody else. A board collects dozens of them.
+   *
+   * Only standalone `text`. A sticky with nothing on it is a deliberate blank card, a
+   * label is part of the shape or arrow that owns it, and deleting any of those would
+   * be destroying something the user made on purpose rather than tidying up after a
+   * gesture they abandoned.
+   */
+  private discardIfEmpty(id: string): void {
+    const object = this.cache.get(id)
+    if (object === undefined || object.type !== 'text') return
+    if (this.host.textPlain(id).trim() !== '') return
+
+    this.host.deleteObjects([id])
+    if (this.selected.delete(id)) this.events.onSelectionChange?.(Array.from(this.selected))
   }
 
   // --- internals --------------------------------------------------------------
@@ -672,6 +857,9 @@ export class CanvasEngine {
 
   private createToolContext(): ToolContext {
     const host = this.host
+    // eslint-disable-next-line @typescript-eslint/no-this-alias -- the getters below
+    // are plain object literals, so `this` inside them is the context, not the engine.
+    const engine = this
     return {
       camera: this.camera,
       // A getter, not a snapshot: the role is resolved on the ws handshake and can
@@ -694,12 +882,25 @@ export class CanvasEngine {
       setHoverTarget: (id) => {
         this.hoverTarget = id
       },
+      setConnectorHost: (id) => {
+        if (this.connectorHost === id) return
+        this.connectorHost = id
+        this.requestRender()
+      },
       createObject: (input) => this.host.createObject(input),
       applyPatches: (patches) => this.host.applyPatches(patches),
       setArrowPoints: (id, absolute) => this.host.setArrowPoints(id, absolute),
       bindArrow: (input) => this.host.bindArrow(input),
+      setArrowRouting: (id, patch) => this.host.setArrowRouting(id, patch),
+      get arrowRouting(): ArrowRouting {
+        return engine.arrowRouting
+      },
       commit: () => this.host.commit(),
       beginTextEdit: (id) => this.beginTextEdit(id),
+      setTool: (tool) => this.setTool(tool),
+      get authorName(): string {
+        return host.authorName
+      },
       requestRender: () => this.requestRender(),
       setCursor: (cursor) => this.setCursor(cursor),
     }
@@ -789,6 +990,7 @@ export class CanvasEngine {
     this.syncGrid(transform)
     this.textLayer.sync(transform, this.overlayObjects)
     this.drawOverlay(transform)
+    this.catchUpGaps()
     this.drawWanderers(transform)
   }
 
@@ -941,16 +1143,36 @@ export class CanvasEngine {
 
       if (isArrowLike(object.type)) {
         const style = resolveArrowProps(object)
+        const anchors = absolutePoints(object, style)
         this.arrows.push({
-          points: absolutePoints(object, style),
+          // Flattened here rather than in the pass, because this is the only place
+          // that knows the zoom. `arrowPolyline` hands straight and orthogonal routes
+          // straight back, so the common arrow allocates nothing extra.
+          points: arrowPolyline(
+            anchors,
+            style.routing,
+            style.curvature,
+            style.curvatureEnd,
+            curveSegments(anchors, this.camera.zoom),
+          ),
           // A connector that never chose a colour follows the theme; one that did
-          // keeps what the document says, in both themes.
-          stroke: typeof object.props.stroke === 'number' ? style.stroke : this.canvasInk,
+          // keeps what the document says, in both themes. Note this is the connector
+          // ink, not the board's text ink: an arrow reads a weight quieter than the
+          // boxes it joins.
+          stroke:
+            typeof object.props.stroke === 'number'
+              ? style.stroke
+              : connectorInk(this.darkSurface),
           strokeAlpha: style.strokeAlpha * object.opacity,
           strokeWidth: style.strokeWidth,
           startHead: style.startHead,
           endHead: style.endHead,
           headSize: style.headSize,
+          // The caption's own box, measured by the overlay, so the line breaks around
+          // the words rather than running through them. One frame stale by
+          // construction - the overlay is synced after this walk - which matters for
+          // exactly the first frame after a caption changes width.
+          gap: this.rememberGap(object.id),
         })
         drawn += 1
         continue
@@ -959,7 +1181,7 @@ export class CanvasEngine {
       const kind = shapeKindFor(object.type)
       if (kind === null) continue
 
-      const style = resolveStyle(object, kind)
+      const style = resolveStyle(object, kind, this.darkSurface)
       this.batch.push({
         x: object.x,
         y: object.y,
@@ -979,6 +1201,31 @@ export class CanvasEngine {
     this.batch.end()
     this.arrows.end()
     return drawn
+  }
+
+  /** The gap for this arrow, recording what was used so `catchUpGaps` can compare. */
+  private rememberGap(id: string): ArrowDraw['gap'] {
+    const bounds = this.textLayer.labelBounds(id)
+    this.labelGaps.set(id, gapKey(bounds ?? undefined))
+    return bounds ?? undefined
+  }
+
+  /**
+   * Ask for one more frame if a caption's box is not what the shaft was cut around.
+   *
+   * Runs after the overlay has been laid out, which is the first moment the real
+   * measurement exists. Converges in one extra frame and then costs two map lookups
+   * per captioned arrow, which is nothing next to being wrong.
+   */
+  private catchUpGaps(): void {
+    if (this.labelGaps.size === 0) return
+    for (const [id, used] of this.labelGaps) {
+      if (gapKey(this.textLayer.labelBounds(id) ?? undefined) !== used) {
+        this.labelGaps.clear()
+        this.requestRender()
+        return
+      }
+    }
   }
 
   private ensureCapacity(): void {
@@ -1005,19 +1252,86 @@ export class CanvasEngine {
     const graphics = this.overlay
     graphics.clear()
 
+    /*
+     * Two kinds of guide, drawn differently on purpose.
+     *
+     * An alignment guide is a plain line through the two edges that now agree. A
+     * spacing guide is a *measurement*: a short bar with a tick at each end, sitting
+     * in the gap it is measuring. Drawing both as the same line would be the worst of
+     * both, because a bar spanning a gap looks exactly like an edge that lines up with
+     * nothing.
+     */
+    let hasGuideLines = false
     for (const guide of this.guides) {
-      const isVertical = guide.axis === 'x'
-      const from = projectPoint(transform, 
-        isVertical ? guide.position : guide.from,
-        isVertical ? guide.from : guide.position,
+      const alongX = guide.axis === 'x'
+
+      if (guide.kind === 'spacing') {
+        const from = projectPoint(
+          transform,
+          alongX ? guide.from : guide.position,
+          alongX ? guide.position : guide.from,
+        )
+        const to = projectPoint(
+          transform,
+          alongX ? guide.to : guide.position,
+          alongX ? guide.position : guide.to,
+        )
+        // A gap under a few pixels has no room for a bar and reads as noise.
+        if (Math.hypot(to.x - from.x, to.y - from.y) < 4) continue
+
+        graphics.moveTo(from.x, from.y).lineTo(to.x, to.y)
+        // End ticks, across the bar, so it reads as a dimension rather than a stray
+        // segment of some other line.
+        if (alongX) {
+          graphics.moveTo(from.x, from.y - GUIDE_TICK).lineTo(from.x, from.y + GUIDE_TICK)
+          graphics.moveTo(to.x, to.y - GUIDE_TICK).lineTo(to.x, to.y + GUIDE_TICK)
+        } else {
+          graphics.moveTo(from.x - GUIDE_TICK, from.y).lineTo(from.x + GUIDE_TICK, from.y)
+          graphics.moveTo(to.x - GUIDE_TICK, to.y).lineTo(to.x + GUIDE_TICK, to.y)
+        }
+        hasGuideLines = true
+        continue
+      }
+
+      const from = projectPoint(
+        transform,
+        alongX ? guide.position : guide.from,
+        alongX ? guide.from : guide.position,
       )
-      const to = projectPoint(transform, 
-        isVertical ? guide.position : guide.to,
-        isVertical ? guide.to : guide.position,
+      const to = projectPoint(
+        transform,
+        alongX ? guide.position : guide.to,
+        alongX ? guide.to : guide.position,
       )
       graphics.moveTo(from.x, from.y).lineTo(to.x, to.y)
+      hasGuideLines = true
     }
-    if (this.guides.length > 0) graphics.stroke({ width: 1, color: GUIDE_COLOR })
+    if (hasGuideLines) graphics.stroke({ width: 1, color: GUIDE_COLOR })
+
+    /*
+     * Connector dots on the shape being pointed at.
+     *
+     * Drawn before the selection chrome, because when a shape is both selected and
+     * hovered its resize handles are the more important target and should sit on top.
+     * The dots are placed just outside the outline for the same reason: on it, they
+     * would land exactly where the edge-midpoint resize handles already are.
+     */
+    if (this.connectorHost !== null) {
+      const host = this.cache.get(this.connectorHost)
+      if (host !== undefined) {
+        const bounds = objectBounds(host)
+        const offset = this.camera.toWorldDistance(CONNECTOR_OFFSET_PX)
+        const dots = connectorPoints(bounds, offset)
+
+        for (const side of CONNECTOR_SIDES) {
+          const point = projectPoint(transform, dots[side].x, dots[side].y)
+          graphics.circle(point.x, point.y, CONNECTOR_RADIUS_PX)
+        }
+        graphics
+          .fill({ color: SELECTION_COLOR, alpha: 0.95 })
+          .stroke({ width: 1.5, color: 0xffffff, alpha: 0.9 })
+      }
+    }
 
     // What an arrow end would attach to. Drawn before the selection chrome so a
     // selected shape's own outline stays on top of it.
@@ -1054,6 +1368,12 @@ export class CanvasEngine {
     }
     if (selectedObjects.length === 0) return
 
+    // A lone arrow gets its own chrome and none of the box's. See arrowHandles.ts.
+    if (selectedObjects.length === 1 && isArrowLike(selectedObjects[0].type)) {
+      this.drawArrowChrome(transform, selectedObjects[0])
+      return
+    }
+
     // Outline each member of a multi-selection, plus the union box the handles act on.
     if (selectedObjects.length > 1) {
       for (const object of selectedObjects) {
@@ -1081,20 +1401,70 @@ export class CanvasEngine {
 
     if (!this.host.canWrite) return
 
+    // Eight squares and nothing else. Rotation lives in the empty space just outside
+    // each corner and is advertised by the cursor, so it costs no chrome at all.
     const positions = handlePositions(box)
     const half = HANDLE_SIZE_PX / 2
-
-    const rotate = projectPoint(transform, positions.rotate.x, positions.rotate.y)
-    graphics
-      .circle(rotate.x, rotate.y - ROTATE_HANDLE_OFFSET_PX, half)
-      .fill({ color: 0xffffff })
-      .stroke({ width: 1.5, color: SELECTION_COLOR })
 
     for (const id of RESIZE_HANDLES) {
       const point = projectPoint(transform, positions[id].x, positions[id].y)
       graphics.rect(point.x - half, point.y - half, HANDLE_SIZE_PX, HANDLE_SIZE_PX)
     }
     graphics.fill({ color: 0xffffff }).stroke({ width: 1.5, color: SELECTION_COLOR })
+  }
+
+  /**
+   * Selection chrome for a single arrow: two ends and a middle.
+   *
+   * The path itself is traced in the selection colour underneath the handles, because
+   * a two-point line has no interior to highlight and an arrow crossing a busy board
+   * is otherwise hard to pick out of the arrows next to it.
+   */
+  private drawArrowChrome(transform: ViewTransform, arrow: ObjectData): void {
+    const graphics = this.overlay
+    const props = resolveArrowProps(arrow)
+    const path = arrowPolyline(
+      props.points,
+      props.routing,
+      props.curvature,
+      props.curvatureEnd,
+      curveSegments(props.points, transform.scale),
+    )
+
+    const first = projectPoint(transform, path[0] + arrow.x, path[1] + arrow.y)
+    graphics.moveTo(first.x, first.y)
+    for (let index = 2; index + 1 < path.length; index += 2) {
+      const point = projectPoint(transform, path[index] + arrow.x, path[index + 1] + arrow.y)
+      graphics.lineTo(point.x, point.y)
+    }
+    graphics.stroke({
+      width: props.strokeWidth * transform.scale + 4,
+      color: SELECTION_COLOR,
+      alpha: 0.22,
+      cap: 'round',
+      join: 'round',
+    })
+
+    if (!this.host.canWrite) return
+
+    const handles = arrowHandles(arrow)
+    for (const point of [handles.start, handles.end]) {
+      const screen = projectPoint(transform, point.x, point.y)
+      graphics.circle(screen.x, screen.y, ARROW_HANDLE_RADIUS_PX)
+    }
+    graphics.fill({ color: 0xffffff }).stroke({ width: 2, color: SELECTION_COLOR })
+
+    // The bend handles are drawn hollow and a size down, so they do not read as more
+    // endpoints. Dragging one bends the arrow; dragging an end moves it. An elbow has
+    // none, because its shape is its routing.
+    if (handles.bends.length === 0) return
+    for (const bend of handles.bends) {
+      const point = projectPoint(transform, bend.at.x, bend.at.y)
+      graphics.circle(point.x, point.y, ARROW_HANDLE_RADIUS_PX - 1)
+    }
+    graphics
+      .fill({ color: 0xffffff, alpha: 0.9 })
+      .stroke({ width: 1.5, color: SELECTION_COLOR, alpha: 0.75 })
   }
 
   /**
@@ -1365,6 +1735,11 @@ export class CanvasEngine {
       if (!candidates.has(id)) continue
       const object = this.cache.get(id)
       if (object === undefined || !isTextBearing(object.type)) continue
+      // Precise, not the bounding box. The index answers with boxes, and for a
+      // diamond or an ellipse most of that box is empty space outside the shape:
+      // without this, double-clicking the blank corner beside a diamond opened its
+      // label, and a click that visually missed the shape started editing it.
+      if (!hitsObject(object, world, tolerance)) continue
 
       event.preventDefault()
       this.beginTextEdit(id)

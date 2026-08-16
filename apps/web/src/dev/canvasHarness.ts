@@ -15,10 +15,14 @@ import {
   absolutePoints,
   arrowGeometry,
   readBinding,
+  arrowPolyline,
+  pointAlongPath,
+  pointOnCurve,
   resolveArrowProps,
 } from '@meadow/schema'
 import * as Y from 'yjs'
 
+import { arrowHandles } from '../canvas/arrowHandles'
 import { CanvasEngine } from '../canvas/engine'
 import type { ToolId } from '../canvas/tools/types'
 import { DocEngineHost, observeDocument } from '../doc/engineHost'
@@ -279,6 +283,46 @@ window.__doc = {
     const arrow = readObjectById(session, id)
     return arrow === undefined ? null : absolutePoints(arrow, resolveArrowProps(arrow))
   },
+  // How an arrow is routed, for the checks about bending and the type picker.
+  routing: (id: string) => {
+    const arrow = readObjectById(session, id)
+    if (arrow === undefined) return null
+    const props = resolveArrowProps(arrow)
+    return {
+      routing: props.routing,
+      curvature: props.curvature,
+      curvatureEnd: props.curvatureEnd,
+    }
+  },
+  // A world point on the *drawn* path. The only honest way for a test to click a
+  // curve: computing where the bow ought to be from the outside would be a second
+  // implementation of the curve, and it would agree with the first one right up until
+  // one of them was wrong.
+  pathPoint: (id: string, t: number) => {
+    const arrow = readObjectById(session, id)
+    if (arrow === undefined) return null
+    const props = resolveArrowProps(arrow)
+    if (props.routing !== 'curved') {
+      const path = arrowPolyline(props.points, props.routing, props.curvature, props.curvatureEnd)
+      const along = pointAlongPath(path, t)
+      return { x: along.x + arrow.x, y: along.y + arrow.y }
+    }
+    const point = pointOnCurve(props.points, props.curvature, props.curvatureEnd, t)
+    return { x: point.x + arrow.x, y: point.y + arrow.y }
+  },
+  // Where the tool thinks an arrow's handles are, in world units. Read from the same
+  // module the select tool hit-tests against, so a test that grabs a handle grabs the
+  // handle rather than a place a test computed it ought to be.
+  handles: (id: string) => {
+    const arrow = readObjectById(session, id)
+    if (arrow === undefined) return null
+    const handles = arrowHandles(arrow)
+    return {
+      start: handles.start,
+      end: handles.end,
+      bends: handles.bends.map((bend) => ({ id: bend.id, x: bend.at.x, y: bend.at.y })),
+    }
+  },
   bindings: () =>
     Array.from(session.bindings.values(), (map) => {
       const binding = readBinding(map)
@@ -311,6 +355,17 @@ declare global {
       setText(id: string, value: string): void
       clear(): void
       points(id: string): number[] | null
+      routing(id: string): {
+        routing: string
+        curvature: number
+        curvatureEnd: number
+      } | null
+      pathPoint(id: string, t: number): { x: number; y: number } | null
+      handles(id: string): {
+        start: { x: number; y: number }
+        end: { x: number; y: number }
+        bends: { id: string; x: number; y: number }[]
+      } | null
       bindings(): { arrowId: string; end: string; targetId: string | null }[]
       text(id: string): string | null
       findByType(type: string): string | null
