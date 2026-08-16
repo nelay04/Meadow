@@ -237,6 +237,35 @@ export function IconShared(props: IconProps) {
   )
 }
 
+export function IconLock(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="4.8" y="10.5" width="14.4" height="9" rx="2.2" />
+      <path d="M8.2 10.5V7.8a3.8 3.8 0 0 1 7.6 0v2.7" />
+      <path d="M12 14v2.2" />
+    </Svg>
+  )
+}
+
+export function IconUnlock(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="4.8" y="10.5" width="14.4" height="9" rx="2.2" />
+      <path d="M8.2 10.5V7.8a3.8 3.8 0 0 1 7.2-1.7" />
+      <path d="M12 14v2.2" />
+    </Svg>
+  )
+}
+
+export function IconGridLines(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="4" y="4" width="16" height="16" rx="2" />
+      <path d="M9.3 4v16M14.7 4v16M4 9.3h16M4 14.7h16" />
+    </Svg>
+  )
+}
+
 /** Stand-in for a board with no preview yet. */
 export function IconCanvas(props: IconProps) {
   return (

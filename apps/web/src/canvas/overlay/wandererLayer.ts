@@ -35,10 +35,30 @@ export type WandererSelection = {
   bounds: { minX: number; minY: number; maxX: number; maxY: number }
 }
 
-const CURSOR_SIZE = 14
-const LABEL_PADDING_X = 6
-const LABEL_PADDING_Y = 3
-const LABEL_OFFSET = 4
+const CURSOR_SIZE = 16
+const LABEL_PADDING_X = 7
+const LABEL_FONT_SIZE = 11
+/** Fixed, so the plate does not change height with the glyphs in a particular name. */
+const LABEL_HEIGHT = 19
+const LABEL_OFFSET = 3
+
+/**
+ * The pointer outline, normalised to a unit height with the tip at the origin.
+ *
+ * Seven points, which is what an arrow actually needs: the two long edges, the notch
+ * where the tail begins, the two sides of the tail, and the right wing. The previous
+ * version had four, so the right wing and the tail were the same edge and the shape
+ * came out pinched on that side.
+ */
+const CURSOR_OUTLINE = [
+  0, 0,
+  0, 0.932,
+  0.237, 0.712,
+  0.373, 1.0,
+  0.508, 0.938,
+  0.373, 0.661,
+  0.655, 0.661,
+] as const
 
 type Entry = {
   container: Container
@@ -127,11 +147,18 @@ export class WandererLayer {
       text: wanderer.name,
       style: {
         fontFamily: FONT_STACKS.comic,
-        fontSize: 11,
-        fontWeight: '700',
+        fontSize: LABEL_FONT_SIZE,
+        // 500 rather than 700. A name is an identifier, not a shout, and the bold
+        // weight of a rounded face at 11px fills its own counters.
+        fontWeight: '500',
         fill: 0xffffff,
       },
     })
+    // A `Text` is a texture, and Pixi rasterises it at the renderer's resolution.
+    // On a fractional device pixel ratio that lands the glyphs between pixels and the
+    // name reads soft. Rounding up costs one slightly larger texture per wanderer,
+    // which is nothing, and the label is sharp at any scaling.
+    label.resolution = Math.ceil(window.devicePixelRatio || 1)
 
     container.addChild(arrow, plate, label)
     this.view.addChild(container)
@@ -146,19 +173,27 @@ export class WandererLayer {
   private paint(entry: Entry): void {
     entry.arrow
       .clear()
-      // A classic pointer, tip at the origin so the shape sits where the cursor is
-      // rather than beside it.
-      .poly([0, 0, 0, CURSOR_SIZE, CURSOR_SIZE * 0.29, CURSOR_SIZE * 0.72, CURSOR_SIZE * 0.62, CURSOR_SIZE * 0.95])
+      // Tip at the origin, so the shape sits where the cursor is rather than beside it.
+      .poly(CURSOR_OUTLINE.map((value, index) => value * CURSOR_SIZE * (index % 2 === 0 ? 0.72 : 1)))
       .fill({ color: entry.color })
-      .stroke({ width: 1, color: 0xffffff, alpha: 0.9 })
+      .stroke({ width: 1, color: 0xffffff, alpha: 0.9, join: 'round' })
 
-    const width = entry.label.width + LABEL_PADDING_X * 2
-    const height = entry.label.height + LABEL_PADDING_Y * 2
-    const x = CURSOR_SIZE * 0.6
-    const y = CURSOR_SIZE * 0.9 + LABEL_OFFSET
+    const width = Math.round(entry.label.width) + LABEL_PADDING_X * 2
+    const x = Math.round(CURSOR_SIZE * 0.45)
+    const y = Math.round(CURSOR_SIZE * 0.85 + LABEL_OFFSET)
 
-    entry.plate.clear().roundRect(x, y, width, height, 4).fill({ color: entry.color })
-    entry.label.position.set(x + LABEL_PADDING_X, y + LABEL_PADDING_Y)
+    entry.plate
+      .clear()
+      .roundRect(x, y, width, LABEL_HEIGHT, LABEL_HEIGHT / 2)
+      .fill({ color: entry.color })
+
+    // Centre the glyphs in the plate rather than insetting from the top. `Text.height`
+    // carries the face's own ascent and descent, so a fixed top padding puts short
+    // names high and tall ones low; measuring and centring makes every plate even.
+    entry.label.position.set(
+      x + LABEL_PADDING_X,
+      y + Math.round((LABEL_HEIGHT - entry.label.height) / 2),
+    )
   }
 
   destroy(): void {

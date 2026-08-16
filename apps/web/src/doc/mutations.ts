@@ -44,8 +44,17 @@ import { setFragmentPlainText } from './richText'
 export const LOCAL_ORIGIN = 'local'
 
 export class ReadOnlyError extends Error {
-  constructor() {
-    super('This glade is read-only for your role')
+  /**
+   * The message names the actual cause. A refusal reaches the user as a notice, and
+   * "read-only for your role" when they locked the glade themselves a moment ago is
+   * the kind of wrong explanation that sends someone hunting through sharing settings.
+   */
+  constructor(reason: 'role' | 'locked' = 'role') {
+    super(
+      reason === 'locked'
+        ? 'This glade is locked. Unlock it to edit.'
+        : 'This glade is read-only for your role',
+    )
     this.name = 'ReadOnlyError'
   }
 }
@@ -58,6 +67,8 @@ export type DocSession = {
   readonly meta: Y.Map<unknown>
   readonly undo: Y.UndoManager
   readonly role: BoardRole
+  /** The local edit lock. Never persisted, never sent. */
+  readonly locked: boolean
   readonly canWrite: boolean
 }
 
@@ -66,7 +77,26 @@ export function roleCanWrite(role: BoardRole): boolean {
   return role === 'owner' || role === 'editor'
 }
 
-export function createDocSession(doc: Y.Doc, role: BoardRole): DocSession {
+/**
+ * The glade's local edit lock.
+ *
+ * A guard against your own hands, not a permission. Someone with an editor role who
+ * is presenting, or reading, or just tired of nudging a shape every time they mean to
+ * pan, flips this and the board stops accepting edits. It is per-client and per-tab,
+ * it is not written to the document, and it is not sent to the server.
+ *
+ * Which is exactly why it goes here and nowhere else. Every mutation in this file runs
+ * through `write`, which refuses when `canWrite` is false, so folding the lock into
+ * that one boolean means the tools, the keyboard shortcuts, undo, redo, the text
+ * editor and anything added later are all covered without any of them knowing the
+ * feature exists. The alternative - a second flag checked in the toolbar and in the
+ * engine and in the editor - is the shape of bug ARCHITECTURE warns about for roles,
+ * and it would be wrong here for the same reason: the third place always gets missed.
+ *
+ * The server is still the authority on what this client may do. Unlocking cannot grant
+ * a viewer anything, because the role half of this expression is unchanged.
+ */
+export function createDocSession(doc: Y.Doc, role: BoardRole, locked = false): DocSession {
   const roots = docRoots(doc)
 
   const undo = new Y.UndoManager([roots.objects, roots.bindings, roots.order], {
@@ -87,12 +117,13 @@ export function createDocSession(doc: Y.Doc, role: BoardRole): DocSession {
     meta: roots.meta,
     undo,
     role,
-    canWrite: roleCanWrite(role),
+    locked,
+    canWrite: roleCanWrite(role) && !locked,
   }
 }
 
 function write<T>(session: DocSession, fn: () => T): T {
-  if (!session.canWrite) throw new ReadOnlyError()
+  if (!session.canWrite) throw new ReadOnlyError(session.locked ? 'locked' : 'role')
   let result!: T
   session.doc.transact(() => {
     result = fn()

@@ -54,6 +54,20 @@ The infrastructure to run the thing. Not deployed yet.
   icon at 32, 180, 192 and 512. Both are trimmed from the source PNGs to the pixels
   above an alpha threshold, so the faint glow halo does not leave the mark floating in
   its own box. The drawn placeholder leaf and its accent plate are gone.
+- **A lock for a glade.** Flip it and the board stops accepting edits: no drags, no
+  new objects, no delete, no undo, no typing. It is a guard against your own hands
+  while presenting or reading, not a permission, and it is implemented as one term in
+  the `canWrite` boolean every mutation already passes through, so every tool and
+  shortcut obeys it without knowing it exists. Per-tab, never written to the document,
+  never sent to the server, and unlocking grants a viewer nothing.
+- Graph paper on the glade surface, in two weights, tracking the camera and stepping
+  its cell through powers of four so the spacing stays legible at any zoom. Each line
+  is a short alpha ramp rather than a hard stop: a `colour 1px, transparent 1px` edge
+  either lands exactly on a device pixel and reads as a wire or straddles two and
+  shimmers while you pan. It is a
+  CSS background rather than geometry: no draw calls, no fill rate, it follows the
+  theme through the same tokens as everything else, and it stays out of thumbnails.
+  Toggle in the header, remembered across sessions.
 - A workspace shell for the board list: a fixed sidebar with search, four views and the
   account, beside a scrolling grid. Every view is derived from what the list endpoint
   already returns — `recent` from `updated_at`, `owned` and `shared` from the resolved
@@ -89,6 +103,11 @@ The infrastructure to run the thing. Not deployed yet.
   lines, the marquee, the selection box, the handles, the guides and the wanderer
   cursors are all tessellated `Graphics`. MSAA costs fill rate rather than draw calls,
   so the 5k-object budget is untouched.
+- Text that never chose a colour was near-invisible in dark mode: the schema's default
+  is a dark ink, right on paper and wrong on a dark board, so a caption sitting
+  straight on the surface came out barely darker than the surface. It follows the theme
+  now, on the same terms as connectors below - only ever a default, and an object whose
+  document carries an explicit colour keeps it in both themes.
 - Connectors were invisible in dark mode. Their default stroke was a constant dark ink
   drawn straight onto the board; it now follows the theme, while an arrow whose
   document carries an explicit colour keeps it in both themes.
@@ -131,8 +150,21 @@ The infrastructure to run the thing. Not deployed yet.
   wrong for a zoom: type was GPU-upscaled from whatever scale it was last rasterised
   at. Transforms composite either way; the hint only bought the right to skip the
   re-raster that keeps text crisp.
-- The connection pill said "Live" beside a green dot permanently. The dot carries it,
-  with the word on hover; the pill only speaks up when the state is not healthy.
+- The wanderer cursor was a four-point polygon, so its right wing and its tail were
+  the same edge and the arrow came out pinched on that side. Seven points now, which
+  is what an arrow needs. Its name plate was rasterised at the renderer's resolution,
+  which lands the glyphs between pixels at fractional display scaling and read soft;
+  it rounds up now, and the text is centred in a fixed-height plate rather than inset
+  from the top, so a plate no longer sits high or low with the glyphs in a name. The
+  weight came down from 700 to 500.
+- Chrome was selectable. A logo, a nav label or a button caption highlighting because
+  a drag started on it is the tell of a web page pretending to be an app, and on a
+  canvas tool a drag that begins on the toolbar left a trail of selected UI behind it.
+  Form fields and canvas text still select; nothing else does, and the logo no longer
+  drags as a ghost image.
+- The connection pill said "Live" beside a green dot permanently. Connected is the state you
+  are in essentially always, and a permanent indicator for it is the app reporting
+  that nothing is wrong, forever. It appears only when something is.
 - The favicon and touch icons carry a rounded cream plate. The mark is neon on transparency,
   which disappears into a dark tab strip; the in-app mark stays transparent, because
   it sits on a surface that is already chosen for it.

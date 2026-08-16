@@ -22,12 +22,15 @@ import {
   IconCursor,
   IconDiamond,
   IconFit,
+  IconGridLines,
   IconHand,
+  IconLock,
   IconLine,
   IconSquare,
   IconSticky,
   IconText,
   IconTrash,
+  IconUnlock,
 } from '../../ui/icons'
 import { ThemeToggle } from '../../ui/ThemeToggle'
 import { createDocSession, roleCanWrite } from '../../doc/mutations'
@@ -88,6 +91,12 @@ export default function BoardPage({ boardId, onBack }: Props) {
   // always the authority; this is what lets the UI stop a write before it happens.
   const [role, setRole] = useState<BoardRole>('viewer')
   const [state, setState] = useState<ConnectionState>('connecting')
+  /*
+   * The local edit lock. Deliberately not persisted and not shared: it guards this
+   * tab, this session, against its own stray clicks, and a lock that outlived the
+   * visit would read as the glade being broken. See `createDocSession`.
+   */
+  const [locked, setLocked] = useState(false)
   const [detail, setDetail] = useState('')
   const connection = useRef<BoardConnection | null>(null)
 
@@ -97,7 +106,7 @@ export default function BoardPage({ boardId, onBack }: Props) {
 
   // One Y.Doc per board, for the lifetime of this view.
   const doc = useMemo(() => new Y.Doc(), [boardId])
-  const session = useMemo(() => createDocSession(doc, role), [doc, role])
+  const session = useMemo(() => createDocSession(doc, role, locked), [doc, role, locked])
 
   // A stable object, so the engine is not rebuilt every render. The handle behind it
   // is swapped when the connection is, and the ref indirection absorbs that.
@@ -175,7 +184,10 @@ export default function BoardPage({ boardId, onBack }: Props) {
     }
   }, [boardId, doc, user, applyWanderers])
 
-  const canWrite = roleCanWrite(role)
+  // The role half is the server's answer and the lock half is this tab's. Both have
+  // to be true, and the same expression drives the session, so the toolbar can never
+  // offer something the mutation layer would refuse.
+  const canWrite = roleCanWrite(role) && !locked
 
   /*
    * Capture a preview for the board list.
@@ -230,17 +242,18 @@ export default function BoardPage({ boardId, onBack }: Props) {
         <h1>{title}</h1>
         <span className={`role role-${role}`}>{role}</span>
 
-        {/* Connected is the state you are in essentially always, and a permanent
-            "Live" beside a green dot is the app congratulating itself. The dot alone
-            carries it, with the word on hover; the pill only speaks up when something
-            is actually wrong. */}
-        <span
-          className={state === 'connected' ? 'conn quiet' : 'conn'}
-          title={detail === '' ? CONNECTION_LABEL[state] : `${CONNECTION_LABEL[state]} (${detail})`}
-        >
-          <span className={`dot ${state}`} />
-          {state !== 'connected' && CONNECTION_LABEL[state]}
-        </span>
+        {/* Nothing at all while connected. That is the state you are in essentially
+            always, and a permanent indicator for it is the app reporting that nothing
+            is wrong, forever. The pill appears only when something actually is. */}
+        {state !== 'connected' && (
+          <span
+            className="conn"
+            title={detail === '' ? CONNECTION_LABEL[state] : `${CONNECTION_LABEL[state]} (${detail})`}
+          >
+            <span className={`dot ${state}`} />
+            {CONNECTION_LABEL[state]}
+          </span>
+        )}
 
         <div className="spacer" />
 
@@ -287,6 +300,32 @@ export default function BoardPage({ boardId, onBack }: Props) {
           </button>
         </div>
 
+        <button
+          type="button"
+          className={canvas.gridVisible ? 'icon ghost active' : 'icon ghost'}
+          aria-pressed={canvas.gridVisible}
+          onClick={canvas.toggleGrid}
+          title={canvas.gridVisible ? 'Hide grid' : 'Show grid'}
+          aria-label={canvas.gridVisible ? 'Hide grid' : 'Show grid'}
+        >
+          <IconGridLines />
+        </button>
+
+        {/* Only for people who could otherwise edit. Offering a lock to a viewer is
+            offering to turn off something they never had. */}
+        {roleCanWrite(role) && (
+          <button
+            type="button"
+            className={locked ? 'icon ghost active' : 'icon ghost'}
+            aria-pressed={locked}
+            onClick={() => setLocked((on) => !on)}
+            title={locked ? 'Unlock this glade' : 'Lock this glade against edits'}
+            aria-label={locked ? 'Unlock this glade' : 'Lock this glade against edits'}
+          >
+            {locked ? <IconLock /> : <IconUnlock />}
+          </button>
+        )}
+
         <ThemeToggle />
       </header>
 
@@ -328,8 +367,17 @@ export default function BoardPage({ boardId, onBack }: Props) {
         <div className="canvas-host" ref={canvas.containerRef} />
 
         <div className="board-notices">
-          {!canWrite && (
-            <p className="banner">You have {role} access to this glade. Editing is disabled.</p>
+          {locked ? (
+            <p className="banner">
+              This glade is locked.
+              <button type="button" className="link" onClick={() => setLocked(false)}>
+                Unlock
+              </button>
+            </p>
+          ) : (
+            !canWrite && (
+              <p className="banner">You have {role} access to this glade. Editing is disabled.</p>
+            )
           )}
           {canvas.notice !== null && (
             <p className="error" onClick={canvas.dismissNotice} title="Dismiss">

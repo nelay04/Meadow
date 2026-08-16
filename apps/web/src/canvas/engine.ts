@@ -45,7 +45,6 @@ import {
   GUIDE_COLOR,
   MARQUEE_FILL,
   SELECTION_COLOR,
-  readCanvasBackground,
   readCanvasInk,
   resolveStyle,
   shapeKindFor,
@@ -98,6 +97,11 @@ function wrapText(context: CanvasRenderingContext2D, text: string, maxWidth: num
 
 /** Minimum instance capacity, so small boards do not reallocate on the first few adds. */
 const MIN_BATCH_CAPACITY = 2048
+
+/** Grid cell in world units at 1x, and the screen band its spacing is held inside. */
+const GRID_BASE_WORLD = 20
+const GRID_MIN_PX = 14
+const GRID_MAX_PX = 56
 
 export type EngineHost = {
   /** Ascending z-order of every object id. */
@@ -201,6 +205,9 @@ export class CanvasEngine {
 
   private resizeObserver: ResizeObserver | null = null
 
+  private gridVisible = true
+  private lastGridKey = ''
+
   /** Rolling render cost, exposed for the perf overlay. */
   private lastRenderMs = 0
   private lastVisible = 0
@@ -225,7 +232,11 @@ export class CanvasEngine {
     this.app = new Application()
     await this.app.init({
       resizeTo: this.element,
-      background: readCanvasBackground(this.element),
+      // Transparent, so the host's CSS surface and its grid show through. The board's
+      // background is a theme concern and CSS is where the theme lives; this also
+      // keeps the grid out of `captureThumbnail`, which renders the stage and would
+      // otherwise put graph paper behind every preview in the list.
+      backgroundAlpha: 0,
       // On. The SDF batch antialiases itself in the fragment shader and does not need
       // this, but everything drawn as tessellated geometry does: arrows, lines, the
       // marquee, the selection box and its handles are all `Graphics`, and a
@@ -273,6 +284,7 @@ export class CanvasEngine {
         this.pendingHeights.set(id, height)
       },
     })
+    this.textLayer.ink = this.canvasInk
 
     this.world = new Container()
     this.batch = new ShapeBatch(MIN_BATCH_CAPACITY)
@@ -369,9 +381,69 @@ export class CanvasEngine {
    */
   syncTheme(): void {
     if (this.app === undefined) return
-    this.app.renderer.background.color = readCanvasBackground(this.element)
+    // Only the ink. The board's surface and its grid are CSS and re-resolve
+    // themselves the moment the root's colour-scheme changes.
     this.canvasInk = readCanvasInk(this.element)
+    this.textLayer.ink = this.canvasInk
     this.requestRender()
+  }
+
+  /** Show or hide the graph paper. Purely cosmetic; nothing else reads it. */
+  setGridVisible(visible: boolean): void {
+    this.gridVisible = visible
+    this.element.classList.toggle('no-grid', !visible)
+    if (visible) {
+      // The class was toggled off while the camera moved, so the offsets are stale.
+      this.lastGridKey = ''
+      this.syncGrid(this.lastTransform)
+    }
+  }
+
+  get gridShown(): boolean {
+    return this.gridVisible
+  }
+
+  /**
+   * Keep the CSS grid in step with the camera.
+   *
+   * The cell is chosen in world units so the grid means something - it is a ruler,
+   * not a texture - but its *screen* spacing is held in a legible band by stepping
+   * the world cell through powers of four. Zoomed far out the cells would otherwise
+   * converge into a grey wash; zoomed far in there would be one line on screen.
+   *
+   * The offset is the camera's own translation modulo the spacing, taken from the
+   * same device-pixel-snapped transform the two render layers use, so the grid never
+   * shimmers against the shapes sitting on it.
+   */
+  private syncGrid(transform: ViewTransform): void {
+    if (!this.gridVisible) return
+
+    let world = GRID_BASE_WORLD
+    let minor = world * transform.scale
+    while (minor < GRID_MIN_PX) {
+      world *= 4
+      minor = world * transform.scale
+    }
+    while (minor > GRID_MAX_PX) {
+      world /= 4
+      minor = world * transform.scale
+    }
+    const major = minor * 4
+
+    const phase = (offset: number, size: number): number => ((offset % size) + size) % size
+    const minorX = phase(transform.tx, minor)
+    const minorY = phase(transform.ty, minor)
+    const majorX = phase(transform.tx, major)
+    const majorY = phase(transform.ty, major)
+
+    // One string compare instead of four style writes on a frame that did not move.
+    const key = `${minor}|${minorX}|${minorY}|${majorX}|${majorY}`
+    if (key === this.lastGridKey) return
+    this.lastGridKey = key
+
+    const style = this.element.style
+    style.backgroundSize = `${major}px ${major}px, ${major}px ${major}px, ${minor}px ${minor}px, ${minor}px ${minor}px`
+    style.backgroundPosition = `${majorX}px ${majorY}px, ${majorX}px ${majorY}px, ${minorX}px ${minorY}px, ${minorX}px ${minorY}px`
   }
 
   setTool(id: ToolId): void {
@@ -714,6 +786,7 @@ export class CanvasEngine {
 
     this.lastVisible = this.paintScene(visible)
 
+    this.syncGrid(transform)
     this.textLayer.sync(transform, this.overlayObjects)
     this.drawOverlay(transform)
     this.drawWanderers(transform)

@@ -281,3 +281,54 @@ describe('read-only roles', () => {
     expect(doc.order.toArray()).toEqual(['ghost'])
   })
 })
+
+describe('the local edit lock', () => {
+  const locked = (role: 'owner' | 'viewer' = 'owner') =>
+    createDocSession(new Y.Doc(), role, true)
+
+  it('refuses every write path for an owner who locked the glade', () => {
+    const doc = locked()
+
+    expect(() => addObject(doc, { type: 'rect' })).toThrow(ReadOnlyError)
+    expect(() => updateObject(doc, 'x', { x: 1 })).toThrow(ReadOnlyError)
+    expect(() => deleteObjects(doc, ['x'])).toThrow(ReadOnlyError)
+    expect(() => clearObjects(doc)).toThrow(ReadOnlyError)
+    expect(() => bringToFront(doc, ['x'])).toThrow(ReadOnlyError)
+    expect(() => sendToBack(doc, ['x'])).toThrow(ReadOnlyError)
+    expect(() => bringForward(doc, ['x'])).toThrow(ReadOnlyError)
+    expect(() => sendBackward(doc, ['x'])).toThrow(ReadOnlyError)
+  })
+
+  it('leaves the document untouched after a refused write', () => {
+    const doc = locked()
+    expect(() => addObject(doc, { type: 'rect' })).toThrow()
+    expect(doc.objects.size).toBe(0)
+    expect(doc.order.length).toBe(0)
+  })
+
+  it('says the glade is locked rather than blaming the role', () => {
+    // The message reaches the user as a notice. Telling an owner their *role* is
+    // read-only when they locked the board themselves sends them to sharing settings
+    // to fix something that is not broken.
+    expect(() => addObject(locked(), { type: 'rect' })).toThrow(/locked/i)
+    expect(() => addObject(session('viewer'), { type: 'rect' })).toThrow(/role/i)
+  })
+
+  it('is not a permission: unlocking gives a viewer nothing', () => {
+    const unlocked = createDocSession(new Y.Doc(), 'viewer', false)
+    expect(unlocked.canWrite).toBe(false)
+    expect(() => addObject(unlocked, { type: 'rect' })).toThrow(ReadOnlyError)
+  })
+
+  it('restores writing when the lock comes off', () => {
+    const doc = createDocSession(new Y.Doc(), 'owner', false)
+    expect(doc.canWrite).toBe(true)
+    expect(() => addObject(doc, { type: 'rect' })).not.toThrow()
+    expect(doc.objects.size).toBe(1)
+  })
+
+  it('defaults to unlocked, so an existing caller is unaffected', () => {
+    expect(createDocSession(new Y.Doc(), 'owner').locked).toBe(false)
+    expect(createDocSession(new Y.Doc(), 'owner').canWrite).toBe(true)
+  })
+})

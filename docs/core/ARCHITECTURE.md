@@ -815,6 +815,18 @@ the workspace grant. So a board-level downgrade is not offered in the UI, and th
 members endpoint returns the *effective* role rather than the one just written, so a
 caller is never told a downgrade took effect when it did not.
 
+**The glade lock is not part of this, and that is the point.** Added in M6: a client
+can lock a glade so it stops accepting edits, which is a guard against your own hands
+while presenting or reading, not a permission. It lives entirely in
+`apps/web/src/doc/mutations.ts`, where `createDocSession` folds it into the one
+`canWrite` boolean every mutation already passes through, so the tools, the keyboard
+shortcuts, undo and the text editor obey it without any of them knowing it exists.
+It is per-tab, never written to the Y.Doc, and never sent to the server. Unlocking
+grants nothing: the role half of `roleCanWrite(role) && !locked` is untouched, and
+the server remains the only authority on what a client may do. If a second place ever
+starts deciding whether an edit is allowed, that is the same bug this section warns
+about for roles.
+
 ---
 
 ## 8. Docker & deployment

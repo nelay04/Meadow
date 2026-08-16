@@ -30,6 +30,14 @@
      stays dark in both themes; a connector does not, and a dark connector on a dark
      board is invisible. */
   --canvas-ink: light-dark(#2a3340, #c3cedd);
+  /* Graph paper. Two weights, because a single-weight grid at any density reads as
+     noise: the minor cell gives a sense of scale, the major every fourth one gives
+     somewhere for the eye to rest. Both sit at roughly half the alpha they started
+     at, because at the first values the paper competed with the shapes drawn on it.
+     A grid you notice is a grid that is too strong: this is a surface texture, and
+     the work is the content. */
+  --grid-minor: light-dark(#1b1c1f07, #ffffff05);
+  --grid-major: light-dark(#1b1c1f0f, #ffffff0a);
 
   /* Ink. */
   --fg: light-dark(#1b1c1f, #e9ecf1);
@@ -95,6 +103,38 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+  /*
+   * Chrome is furniture, not content. A logo, a nav label, a heading or a button
+   * caption highlighting blue because a drag started on it is the tell of a web page
+   * pretending to be an app, and on a canvas tool it is worse: a drag that begins on
+   * the toolbar and ends on the board leaves a trail of selected UI behind it.
+   *
+   * Everything a user is meant to select opts back in below.
+   */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/*
+ * The exceptions, and they are the whole point of the rule above: form fields, and
+ * anything the user is actually editing. Text objects on the canvas manage their own
+ * selectability from `applyBoxStyle`, which writes an inline style and therefore wins
+ * over this regardless.
+ */
+input,
+textarea,
+select,
+[contenteditable='true'],
+[contenteditable='true'] * {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* Brand art is not a draggable asset. Without this, a slow click on the logo picks it
+   up as a ghost image and drops it into whatever is underneath. */
+img {
+  -webkit-user-drag: none;
+  user-select: none;
 }
 
 h1,
@@ -247,6 +287,19 @@ button.icon {
   border-radius: var(--radius);
 }
 
+/* A toggle that is currently on. Same treatment as the active tool on the rail, so
+   "this is engaged" looks the same wherever it appears. */
+button.ghost.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: transparent;
+}
+
+button.ghost.active:hover:not(:disabled) {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
 button.icon.round {
   border-radius: var(--pill);
 }
@@ -315,7 +368,7 @@ label {
 .banner {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.35rem;
   margin: 0;
   padding: 0.55rem 0.9rem;
   border-radius: var(--radius);
@@ -940,12 +993,6 @@ label {
   font-weight: 600;
 }
 
-/* Healthy: just the dot, no plate, no word. */
-.conn.quiet {
-  padding: 0.2rem;
-  background: transparent;
-  gap: 0;
-}
 
 .dot {
   width: 8px;
@@ -1101,10 +1148,38 @@ label {
   min-height: 0;
   position: relative;
   overflow: hidden;
-  /* Read back by `readCanvasBackground` and `readCanvasInk`. WebGL cannot see the
-     cascade, so this is how the engine learns the theme's two canvas colours. */
-  background-color: var(--canvas-bg);
+  /* `color` is read back by `readCanvasInk`. WebGL cannot see the cascade, so this is
+     how the engine learns the theme's ink for connectors. */
   color: var(--canvas-ink);
+
+  /*
+   * The board's surface, including its grid, is CSS rather than geometry. The WebGL
+   * canvas above it is transparent, so this shows through.
+   *
+   * That is a deliberate trade. A grid drawn in the scene would be either a shader
+   * pass or thousands of lines, and it would land in `captureThumbnail`, putting
+   * graph paper behind every board in the list. As a background it costs no draw
+   * calls, no fill rate and no geometry, it follows the theme through the same
+   * tokens as everything else, and the engine's only job is to keep it in step with
+   * the camera: two style writes when the camera moves, none when it does not.
+   */
+  background-color: var(--canvas-bg);
+  /*
+   * Each line is a short ramp rather than a hard stop. A `colour 1px, transparent 1px`
+   * edge is a razor: at any device pixel ratio it either lands exactly on a pixel and
+   * reads as a hard wire, or straddles two and shimmers while you pan. Feathering the
+   * first and last fraction of a pixel gives the compositor something to blend, and
+   * the line reads as a drawn rule instead of a scan line.
+   */
+  background-image:
+    linear-gradient(to right, transparent 0, var(--grid-major) 0.4px, var(--grid-major) 1.4px, transparent 1.8px),
+    linear-gradient(to bottom, transparent 0, var(--grid-major) 0.4px, var(--grid-major) 1.4px, transparent 1.8px),
+    linear-gradient(to right, transparent 0, var(--grid-minor) 0.4px, var(--grid-minor) 1.1px, transparent 1.5px),
+    linear-gradient(to bottom, transparent 0, var(--grid-minor) 0.4px, var(--grid-minor) 1.1px, transparent 1.5px);
+}
+
+.canvas-host.no-grid {
+  background-image: none;
 }
 
 /* Notices float over the canvas at the bottom rather than pushing the layout. */

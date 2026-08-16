@@ -100,8 +100,7 @@ export const BINDING_COLOR = 0xe05c8a
 export const GUIDE_COLOR = 0xe05c8a
 export const MARQUEE_FILL = 0x3f86f0
 
-/** Fallbacks if the host element has no resolved colours yet. */
-const CANVAS_FALLBACK = 0xfbf9f5
+/** Fallback if the host element has no resolved ink yet. */
 const INK_FALLBACK = 0x2a3340
 
 function parseCssColor(value: string, fallback: number): number {
@@ -115,19 +114,6 @@ function parseCssColor(value: string, fallback: number): number {
   if (!Number.isFinite(r) || !Number.isFinite(g) || !Number.isFinite(b)) return fallback
 
   return (r << 16) | (g << 8) | b
-}
-
-/**
- * The theme's canvas colour, resolved from CSS.
- *
- * Read off the host element's computed `background-color` rather than the
- * `--canvas-bg` custom property directly: a custom property computes to an unparsed
- * token list, so `light-dark(...)` would come back as that literal string. Going
- * through a real colour property makes the browser resolve it, theme and all.
- */
-export function readCanvasBackground(element: HTMLElement): number {
-  if (typeof getComputedStyle !== 'function') return CANVAS_FALLBACK
-  return parseCssColor(getComputedStyle(element).backgroundColor, CANVAS_FALLBACK)
 }
 
 /**

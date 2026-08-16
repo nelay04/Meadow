@@ -18,6 +18,25 @@ import { type DocSession, reconcileBindings, reconcileOrder } from '../../doc/mu
 import { createTextEditor } from '../../overlay/textEditor'
 import { THEME_EVENT } from '../../ui/theme'
 
+const GRID_KEY = 'meadow.grid'
+
+function readGridPreference(): boolean {
+  try {
+    return localStorage.getItem(GRID_KEY) !== 'off'
+  } catch {
+    // Private-mode Safari throws on localStorage. The grid is not worth a crash.
+    return true
+  }
+}
+
+function writeGridPreference(visible: boolean): void {
+  try {
+    localStorage.setItem(GRID_KEY, visible ? 'on' : 'off')
+  } catch {
+    // As above: it still applies for this session.
+  }
+}
+
 export type CanvasHandle = {
   containerRef: (element: HTMLDivElement | null) => void
   engine: CanvasEngine | null
@@ -35,6 +54,9 @@ export type CanvasHandle = {
   zoomToFit(): void
   resetZoom(): void
   deleteSelection(): void
+  /** Graph paper on the board surface. Cosmetic, remembered across sessions. */
+  gridVisible: boolean
+  toggleGrid(): void
 }
 
 export type CanvasPresence = {
@@ -51,6 +73,7 @@ export function useCanvas(session: DocSession, presence?: CanvasPresence): Canva
   const [objectCount, setObjectCount] = useState(0)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [gridVisible, setGridVisible] = useState(readGridPreference)
   const engineRef = useRef<CanvasEngine | null>(null)
 
   // The session changes identity when the role changes. Keeping it in a ref lets the
@@ -63,6 +86,11 @@ export function useCanvas(session: DocSession, presence?: CanvasPresence): Canva
   // capturing it would pin the engine to a dead awareness instance.
   const presenceRef = useRef(presence)
   presenceRef.current = presence
+
+  // The engine's effect must not re-run when the grid is toggled - that would tear
+  // down the canvas and drop the camera - so the initial value is read through a ref.
+  const gridRef = useRef(gridVisible)
+  gridRef.current = gridVisible
 
   useEffect(() => {
     if (element === null) return
@@ -94,6 +122,7 @@ export function useCanvas(session: DocSession, presence?: CanvasPresence): Canva
     let cancelled = false
     void engine.init().then(() => {
       if (cancelled) return
+      engine.setGridVisible(gridRef.current)
       reconcileOrder(current())
       // A target may have moved while this client was offline, or the document may
       // have been written by a client that solved differently.
@@ -123,6 +152,15 @@ export function useCanvas(session: DocSession, presence?: CanvasPresence): Canva
     engineRef.current?.setTool(next)
   }, [])
 
+  const toggleGrid = useCallback(() => {
+    setGridVisible((shown) => {
+      const next = !shown
+      engineRef.current?.setGridVisible(next)
+      writeGridPreference(next)
+      return next
+    })
+  }, [])
+
   const setWanderers = useCallback((wanderers: readonly Wanderer[]) => {
     engineRef.current?.setWanderers(wanderers)
   }, [])
@@ -142,5 +180,7 @@ export function useCanvas(session: DocSession, presence?: CanvasPresence): Canva
     zoomToFit: () => engineRef.current?.zoomToFit(),
     resetZoom: () => engineRef.current?.resetZoom(),
     deleteSelection: () => engineRef.current?.deleteSelection(),
+    gridVisible,
+    toggleGrid,
   }
 }
