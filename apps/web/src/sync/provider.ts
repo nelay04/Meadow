@@ -84,7 +84,7 @@ export function connectBoard({ boardId, doc, onState, onRole }: Options): BoardC
       // flaky. Retrying cannot help and only burns the rate limit.
       if (error instanceof ApiError && error.status === 403) {
         wantConnection = false
-        onState('denied', 'you no longer have access to this field')
+        onState('denied', 'you no longer have access to this glade')
         return
       }
       onState('disconnected', error instanceof Error ? error.message : String(error))
@@ -114,7 +114,7 @@ export function connectBoard({ boardId, doc, onState, onRole }: Options): BoardC
       return
     }
     if (event?.code === CLOSE_ROOM_FULL) {
-      onState('disconnected', 'this field is full, retrying')
+      onState('disconnected', 'this glade is full, retrying')
       schedule()
       return
     }

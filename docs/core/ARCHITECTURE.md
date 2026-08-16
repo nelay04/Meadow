@@ -4,9 +4,16 @@
 > editing combined with FigJam-style whiteboarding. Text, tables, shapes, arrows,
 > charts, and diagrams all live as objects on one shared surface.
 >
-> Naming: repo/package slug `meadow`, board unit called a **field**, cursor presence
+> Naming: repo/package slug `meadow`, board unit called a **glade**, cursor presence
 > called **wanderers**. Dev deploy at `meadow.creara.in`. Tagline: *an open field for
 > your ideas.*
+>
+> **Renamed in M6: a board is a glade, not a field.** "Field" is one of the most
+> overloaded words in software, and it collides with its own technical sense in this
+> document: a CRDT field, a form field, a signed distance field. A glade is a
+> clearing in a wood, which is what an infinite canvas is, and it sits naturally
+> beside **wanderers**. `board_id` in the DB and the API is unchanged, as is the
+> route's old `#/field/<id>` spelling, which still resolves.
 >
 > This document is the source of truth for Claude Code. Read it before writing code.
 > If a decision here conflicts with something you'd do by default, follow this doc
@@ -76,9 +83,23 @@ Camera state lives in one place. Both layers read it. They must never drift.
 
 | Role | Family | Notes |
 |---|---|---|
-| UI chrome | Inter | toolbars, panels, menus, board list. Variable weight. |
-| Text objects | Inter (default) + Comic Neue (option) | user-selectable per object, stored in `props.fontFamily` |
-| Code | JetBrains Mono | code blocks inside text objects, and any monospace UI |
+| UI chrome | Comic Neue | toolbars, panels, menus, board list, numerals |
+| Text objects | Comic Neue (default) + Inter (option) | user-selectable per object, stored in `props.fontFamily` |
+| Code | JetBrains Mono | code blocks inside text objects |
+
+**Changed in M6: Comic Neue is the app's face, not an option inside it.** Inter was the
+chrome and the text-object default; both are now Comic Neue, and Inter stays as a
+`props.fontFamily` slug so a document that asks for it keeps it. The reasoning is that
+an app whose chrome speaks in a grotesque and whose content speaks in a handwriting
+face reads as two products stitched together, and the canvas is the product. The three
+faces are still shipped: `FONT_FAMILIES` is CRDT-visible and removing a slug would
+change what existing objects render as.
+
+Note the metrics consequence, which is the reason this is recorded here rather than in
+a stylesheet. `textProps.fontFamily` defaults to `comic` now, so a text object written
+before M6 that never set a family measures against a different face than it did, and
+its auto-height is re-derived on next open. Acceptable pre-launch; it would not be
+after.
 
 Self-host all three as woff2 under `apps/web/public/fonts`, fetched by `pnpm fonts`.
 No Google Fonts CDN: the app is behind auth on a single VPS, and a third-party font
@@ -509,6 +530,32 @@ connector tucked behind a box.
 > Frames are v2 scope so this costs nothing now. The fix, when it matters, is one arrow
 > pass per frame rather than one globally, which is a change in how many `Graphics`
 > exist and nothing else.
+
+### Antialiasing: MSAA on, and why it is not redundant
+
+**Changed in M6.** The renderer ran with `antialias: false`, on the reasoning that the
+SDF batch antialiases itself: the shader evaluates the distance field with `fwidth`, so
+a shape's edge is exactly one screen pixel soft at any zoom, and multisampling the
+batch buys nothing.
+
+That reasoning was right about the batch and wrong about the frame. Everything *not* in
+the batch is tessellated `Graphics` and has no such edge treatment: arrows, lines, the
+marquee, the selection box, the resize handles, the snap guides, the wanderer cursors.
+Without MSAA, every diagonal among them is a staircase, and a whiteboard is mostly
+diagonals. It is the single most visible difference between this canvas and a finished
+one.
+
+MSAA costs fill rate, not draw calls, so it does not touch the budget the batch was
+built to protect — the 5k-object target is a draw-call and instance-upload story.
+`pnpm bench:arrows` is the check if that ever stops being true.
+
+Two colours follow the theme rather than being constants, and both are read out of CSS
+through `readCanvasBackground` / `readCanvasInk` on the canvas host, because WebGL
+cannot see the cascade: the board's background, and the default stroke for connectors.
+A shape's outline sits on the shape's own light fill and stays dark in both themes; an
+arrow is drawn straight onto the board, and a dark arrow on a dark board is an
+invisible arrow. The ink is only ever a *default* — an arrow whose document carries an
+explicit `stroke` keeps it in both themes.
 
 ### Hit-testing
 

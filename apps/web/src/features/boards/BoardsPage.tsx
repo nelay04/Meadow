@@ -1,5 +1,17 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
+import { Mark, Wordmark } from '../../ui/Brand'
+import {
+  IconCanvas,
+  IconClock,
+  IconGrid,
+  IconPlus,
+  IconSearch,
+  IconShared,
+  IconTrash,
+  IconUser,
+} from '../../ui/icons'
+import { ThemeToggle } from '../../ui/ThemeToggle'
 import * as api from '../../lib/api'
 import type { Board } from '../../lib/api'
 import { useAuth } from '../auth/AuthContext'
@@ -9,11 +21,76 @@ type Props = {
 }
 
 /**
+ * The sidebar's filters.
+ *
+ * Every one of these is derived from data the list endpoint already returns, so none
+ * of them is a label over an empty room: `recent` reads `updated_at`, and `owned` and
+ * `shared` read the resolved role.
+ */
+type ViewId = 'all' | 'recent' | 'owned' | 'shared'
+
+const VIEWS: { id: ViewId; label: string; Icon: typeof IconGrid }[] = [
+  { id: 'all', label: 'All glades', Icon: IconGrid },
+  { id: 'recent', label: 'Recent', Icon: IconClock },
+  { id: 'owned', label: 'Owned by me', Icon: IconUser },
+  { id: 'shared', label: 'Shared with me', Icon: IconShared },
+]
+
+const RECENT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
+
+type SortId = 'modified' | 'created' | 'title'
+
+const SORTS: { id: SortId; label: string }[] = [
+  { id: 'modified', label: 'Last modified' },
+  { id: 'created', label: 'Date created' },
+  { id: 'title', label: 'Name' },
+]
+
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return '?'
+  return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase()
+}
+
+/** "Edited 3 days ago", the way every file browser says it. */
+function relativeTime(iso: string): string {
+  const then = new Date(iso).getTime()
+  if (!Number.isFinite(then)) return ''
+
+  const seconds = Math.max(0, (Date.now() - then) / 1000)
+  if (seconds < 90) return 'just now'
+
+  const units: [number, Intl.RelativeTimeFormatUnit][] = [
+    [60, 'minute'],
+    [3600, 'hour'],
+    [86400, 'day'],
+    [604800, 'week'],
+    [2592000, 'month'],
+    [31536000, 'year'],
+  ]
+
+  let unit: Intl.RelativeTimeFormatUnit = 'minute'
+  let divisor = 60
+  for (const [size, name] of units) {
+    if (seconds < size * 60 || name === 'year') {
+      unit = name
+      divisor = size
+      break
+    }
+  }
+
+  return new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' }).format(
+    -Math.round(seconds / divisor),
+    unit,
+  )
+}
+
+/**
  * A board's preview image.
  *
- * Loaded per row rather than with the list, because the list response is metadata and
+ * Loaded per card rather than with the list, because the list response is metadata and
  * a board that has never been opened has no preview at all. The object URL is revoked
- * on unmount; leaking one per row would hold the decoded image alive for the session.
+ * on unmount; leaking one per card would hold the decoded image alive for the session.
  */
 function BoardThumbnail({ boardId }: { boardId: string }) {
   const [url, setUrl] = useState<string | null>(null)
@@ -38,11 +115,11 @@ function BoardThumbnail({ boardId }: { boardId: string }) {
     }
   }, [boardId])
 
-  // A placeholder rather than nothing, so rows do not change height once previews
-  // arrive and shuffle the list under the pointer.
+  // The frame keeps its aspect ratio whether or not a preview arrives, so cards do
+  // not resize under the pointer once the images land.
   return (
     <span className="board-thumb" aria-hidden="true">
-      {url !== null && <img src={url} alt="" />}
+      {url === null ? <IconCanvas size={26} className="placeholder" /> : <img src={url} alt="" />}
     </span>
   )
 }
@@ -53,12 +130,15 @@ export default function BoardsPage({ onOpen }: Props) {
   const [title, setTitle] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [view, setView] = useState<ViewId>('all')
+  const [query, setQuery] = useState('')
+  const [sort, setSort] = useState<SortId>('modified')
 
   const reload = useCallback(async () => {
     try {
       setBoards(await api.listBoards())
     } catch {
-      setError('Could not load your fields.')
+      setError('Could not load your glades.')
     } finally {
       setLoading(false)
     }
@@ -75,7 +155,7 @@ export default function BoardsPage({ onOpen }: Props) {
       setTitle('')
       onOpen(board.id)
     } catch {
-      setError('Could not create that field.')
+      setError('Could not create that glade.')
     }
   }
 
@@ -85,60 +165,184 @@ export default function BoardsPage({ onOpen }: Props) {
       await api.deleteBoard(board.id)
       await reload()
     } catch {
-      setError('Could not delete that field.')
+      setError('Could not delete that glade.')
     }
   }
 
+  // Counts come off the unfiltered list, so a sidebar number does not change as you
+  // type in the search box.
+  const counts = useMemo(
+    () => ({
+      all: boards.length,
+      recent: boards.filter((b) => Date.now() - new Date(b.updated_at).getTime() < RECENT_WINDOW_MS)
+        .length,
+      owned: boards.filter((b) => b.role === 'owner').length,
+      shared: boards.filter((b) => b.role !== 'owner').length,
+    }),
+    [boards],
+  )
+
+  const visible = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+
+    const filtered = boards.filter((board) => {
+      if (needle !== '' && !board.title.toLowerCase().includes(needle)) return false
+      if (view === 'owned') return board.role === 'owner'
+      if (view === 'shared') return board.role !== 'owner'
+      if (view === 'recent') {
+        return Date.now() - new Date(board.updated_at).getTime() < RECENT_WINDOW_MS
+      }
+      return true
+    })
+
+    const by: Record<SortId, (a: Board, b: Board) => number> = {
+      modified: (a, b) => b.updated_at.localeCompare(a.updated_at),
+      created: (a, b) => b.created_at.localeCompare(a.created_at),
+      title: (a, b) => a.title.localeCompare(b.title),
+    }
+    return [...filtered].sort(by[sort])
+  }, [boards, query, view, sort])
+
+  const viewLabel = VIEWS.find((entry) => entry.id === view)?.label ?? 'All glades'
+
   return (
-    <main className="boards">
-      <header>
-        <div>
-          <h1>Your fields</h1>
-          <p className="muted">{user?.display_name}</p>
+    <div className="workspace">
+      <aside className="sidebar">
+        <div className="sidebar-brand">
+          <Wordmark />
         </div>
-        <button type="button" className="link" onClick={() => void logout()}>
-          Log out
-        </button>
-      </header>
 
-      <div className="new-board">
-        <input
-          value={title}
-          placeholder="New field name"
-          onChange={(event) => setTitle(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') void create()
-          }}
-        />
-        <button type="button" onClick={() => void create()}>
-          Create field
-        </button>
-      </div>
+        <div className="sidebar-search">
+          <IconSearch size={16} />
+          <input
+            value={query}
+            placeholder="Search glades"
+            aria-label="Search glades"
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </div>
 
-      {error !== null && <p className="error">{error}</p>}
-
-      {loading ? (
-        <p className="muted">Loading...</p>
-      ) : boards.length === 0 ? (
-        <p className="muted">No fields yet. Create one above.</p>
-      ) : (
-        <ul className="board-list">
-          {boards.map((board) => (
-            <li key={board.id}>
-              <button type="button" className="board-open" onClick={() => onOpen(board.id)}>
-                <BoardThumbnail boardId={board.id} />
-                <span className="board-title">{board.title}</span>
-                <span className={`role role-${board.role}`}>{board.role}</span>
-              </button>
-              {board.role === 'owner' && (
-                <button type="button" className="link danger" onClick={() => void remove(board)}>
-                  Delete
-                </button>
-              )}
-            </li>
+        <nav className="sidebar-nav" aria-label="Views">
+          {VIEWS.map((entry) => (
+            <button
+              key={entry.id}
+              type="button"
+              className={view === entry.id ? 'nav-item active' : 'nav-item'}
+              aria-current={view === entry.id ? 'page' : undefined}
+              onClick={() => setView(entry.id)}
+            >
+              <entry.Icon size={17} />
+              <span className="nav-label">{entry.label}</span>
+              <span className="nav-count">{counts[entry.id]}</span>
+            </button>
           ))}
-        </ul>
-      )}
-    </main>
+        </nav>
+
+        <div className="sidebar-foot">
+          <div className="user-chip">
+            <span className="avatar" aria-hidden="true">
+              {initials(user?.display_name ?? '?')}
+            </span>
+            <span className="name">{user?.display_name}</span>
+          </div>
+          <div className="btn-row">
+            <ThemeToggle />
+            <button type="button" className="ghost" onClick={() => void logout()}>
+              Log out
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <main className="workspace-main">
+        <header className="workspace-head">
+          <h1>{viewLabel}</h1>
+          <span className="faint">{visible.length}</span>
+          <div className="spacer" />
+          <label className="sort">
+            <span className="visually-hidden">Sort by</span>
+            <select value={sort} onChange={(event) => setSort(event.target.value as SortId)}>
+              {SORTS.map((entry) => (
+                <option key={entry.id} value={entry.id}>
+                  {entry.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </header>
+
+        <div className="composer">
+          <input
+            value={title}
+            placeholder="Name a new glade, then press Enter"
+            aria-label="New glade name"
+            onChange={(event) => setTitle(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') void create()
+            }}
+          />
+          <button type="button" className="primary" onClick={() => void create()}>
+            <IconPlus size={16} />
+            Create glade
+          </button>
+        </div>
+
+        {error !== null && <p className="error">{error}</p>}
+
+        {loading ? (
+          <ul className="board-grid">
+            {[0, 1, 2, 3].map((slot) => (
+              <li key={slot} className="skeleton" aria-hidden="true" />
+            ))}
+          </ul>
+        ) : visible.length === 0 ? (
+          <div className="empty-state">
+            <Mark className="mark empty-mark" />
+            {boards.length === 0 ? (
+              <>
+                <p>No glades yet.</p>
+                <p className="faint">Name one above and it opens straight onto the canvas.</p>
+              </>
+            ) : (
+              <>
+                <p>Nothing here.</p>
+                <p className="faint">
+                  No glade matches {query.trim() === '' ? `"${viewLabel}"` : `"${query.trim()}"`}.
+                </p>
+              </>
+            )}
+          </div>
+        ) : (
+          <ul className="board-grid">
+            {visible.map((board) => (
+              <li key={board.id} className="board-card">
+                <button type="button" className="board-open" onClick={() => onOpen(board.id)}>
+                  <BoardThumbnail boardId={board.id} />
+                  <span className="board-meta">
+                    <span className="board-text">
+                      <span className="board-title">{board.title}</span>
+                      <span className="board-sub">Edited {relativeTime(board.updated_at)}</span>
+                    </span>
+                    <span className={`role role-${board.role}`}>{board.role}</span>
+                  </span>
+                </button>
+
+                {board.role === 'owner' && (
+                  <button
+                    type="button"
+                    className="card-delete"
+                    title={`Delete ${board.title}`}
+                    aria-label={`Delete ${board.title}`}
+                    onClick={() => void remove(board)}
+                  >
+                    <IconTrash size={15} />
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </main>
+    </div>
   )
 }

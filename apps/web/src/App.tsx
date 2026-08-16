@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import BoardPage from './features/board/BoardPage'
+import { Wordmark } from './ui/Brand'
 import { AuthProvider, useAuth } from './features/auth/AuthContext'
 import LoginPage from './features/auth/LoginPage'
 import BoardsPage from './features/boards/BoardsPage'
@@ -10,7 +11,9 @@ import BoardsPage from './features/boards/BoardsPage'
  * nested routes and deep links worth preserving; M1 has neither.
  */
 function boardIdFromHash(): string | null {
-  const match = /^#\/field\/([0-9a-f-]{36})$/i.exec(location.hash)
+  // `field` is the old spelling of the same route, kept readable so a tab left
+  // open on one still resolves. Only `glade` is ever written.
+  const match = /^#\/(?:glade|field)\/([0-9a-f-]{36})$/i.exec(location.hash)
   return match?.[1] ?? null
 }
 
@@ -24,7 +27,13 @@ function Shell() {
     return () => window.removeEventListener('hashchange', onHashChange)
   }, [])
 
-  if (loading) return <main className="loading">Loading...</main>
+  if (loading) {
+    return (
+      <main className="loading">
+        <Wordmark />
+      </main>
+    )
+  }
   if (user === null) return <LoginPage />
 
   if (boardId !== null) {
@@ -41,7 +50,7 @@ function Shell() {
   return (
     <BoardsPage
       onOpen={(id) => {
-        location.hash = `#/field/${id}`
+        location.hash = `#/glade/${id}`
       }}
     />
   )

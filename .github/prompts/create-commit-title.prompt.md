@@ -53,7 +53,7 @@ the most important local changes since `HEAD`.
    reflowArrows". Reserve mechanism-first titles for changes with no user-visible face,
    such as build and CI work.
 
-3. Use this project's vocabulary in the summary where it fits: a board is a **field**,
+3. Use this project's vocabulary in the summary where it fits: a board is a **glade**,
    remote cursors are **wanderers**. Keep `board_id` in anything describing the DB or
    the API, which are deliberately not renamed.
 

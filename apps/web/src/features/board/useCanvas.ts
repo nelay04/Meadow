@@ -16,6 +16,7 @@ import type { ToolId } from '../../canvas/tools/types'
 import { DocEngineHost, observeDocument } from '../../doc/engineHost'
 import { type DocSession, reconcileBindings, reconcileOrder } from '../../doc/mutations'
 import { createTextEditor } from '../../overlay/textEditor'
+import { THEME_EVENT } from '../../ui/theme'
 
 export type CanvasHandle = {
   containerRef: (element: HTMLDivElement | null) => void
@@ -103,8 +104,14 @@ export function useCanvas(session: DocSession, presence?: CanvasPresence): Canva
 
     const unobserveDoc = observeDocument(current(), engine)
 
+    // WebGL is the one surface CSS cannot repaint, so the engine is told directly
+    // when the theme changes.
+    const onTheme = () => engineRef.current?.syncTheme()
+    window.addEventListener(THEME_EVENT, onTheme)
+
     return () => {
       cancelled = true
+      window.removeEventListener(THEME_EVENT, onTheme)
       unobserveDoc()
       unobserveHost()
       engineRef.current = null

@@ -45,6 +45,8 @@ import {
   GUIDE_COLOR,
   MARQUEE_FILL,
   SELECTION_COLOR,
+  readCanvasBackground,
+  readCanvasInk,
   resolveStyle,
   shapeKindFor,
 } from './style'
@@ -191,6 +193,14 @@ export class CanvasEngine {
   private lastCameraVersion = -1
   private spacePanning = false
 
+  /**
+   * The theme's default connector colour, cached because it is read for every arrow
+   * on every frame and `getComputedStyle` is not a per-frame call.
+   */
+  private canvasInk = 0x2a3340
+
+  private resizeObserver: ResizeObserver | null = null
+
   /** Rolling render cost, exposed for the perf overlay. */
   private lastRenderMs = 0
   private lastVisible = 0
@@ -215,12 +225,24 @@ export class CanvasEngine {
     this.app = new Application()
     await this.app.init({
       resizeTo: this.element,
-      background: 0xfbfbf9,
-      antialias: false,
+      background: readCanvasBackground(this.element),
+      // On. The SDF batch antialiases itself in the fragment shader and does not need
+      // this, but everything drawn as tessellated geometry does: arrows, lines, the
+      // marquee, the selection box and its handles are all `Graphics`, and a
+      // tessellated diagonal without multisampling is a staircase. That staircase is
+      // the single most obvious difference between this canvas and a polished one.
+      //
+      // It costs fill rate rather than draw calls, so it does not move the 5k-object
+      // budget the batch was built for. `pnpm bench:arrows` is the check if it ever
+      // looks like it does.
+      antialias: true,
       // The SDF shader is GLSL only for now. A WGSL twin is worth writing once the
       // approach has settled, not before.
       preference: 'webgl',
       autoDensity: true,
+      // Render at device pixels, not CSS pixels. Without this a 2x display draws every
+      // edge at half the resolution it can show and the result reads as soft and
+      // steppy however good the antialiasing is.
       resolution: window.devicePixelRatio || 1,
       autoStart: false,
     })
@@ -228,6 +250,13 @@ export class CanvasEngine {
       this.app.destroy(true, { children: true })
       return
     }
+
+    this.canvasInk = readCanvasInk(this.element)
+
+    this.snapToDevicePixels()
+    // The host's position changes with the window, and so does the rounding error.
+    this.resizeObserver = new ResizeObserver(() => this.snapToDevicePixels())
+    this.resizeObserver.observe(document.documentElement)
 
     // The overlay is positioned against this element, so it cannot be static.
     if (getComputedStyle(this.element).position === 'static') {
@@ -271,6 +300,8 @@ export class CanvasEngine {
 
   destroy(): void {
     this.disposed = true
+    this.resizeObserver?.disconnect()
+    this.resizeObserver = null
     cancelAnimationFrame(this.frame)
     this.stopEditing()
     this.detachInput()
@@ -293,6 +324,54 @@ export class CanvasEngine {
       total: this.cache.size,
       zoom: this.camera.zoom,
     }
+  }
+
+  /**
+   * Nudge the host onto whole device pixels.
+   *
+   * At fractional display scaling - Windows at 125% or 150%, which is most Windows
+   * machines - an element whose height is a round number of CSS pixels is a
+   * *fractional* number of device pixels, so everything below it starts on a half
+   * pixel. Measured on this layout at dpr 1.25: the canvas's top edge lands at 52.5
+   * device pixels. The browser cannot blit a bitmap to half a pixel, so it resamples
+   * the whole canvas, and the result is a board that is uniformly, slightly soft at
+   * every zoom while the DOM chrome beside it stays sharp. DOM text escapes this
+   * because the browser rasterises glyphs at their final subpixel position; a canvas
+   * is one bitmap and has no such luxury.
+   *
+   * The correction is a sub-pixel translate on the host. Both layers live inside it -
+   * the WebGL canvas and the DOM text overlay - so they move together and the
+   * alignment `pnpm smoke:overlay` guards is untouched. Integer ratios need nothing
+   * and get nothing.
+   */
+  private snapToDevicePixels(): void {
+    if (this.disposed) return
+
+    const ratio = window.devicePixelRatio || 1
+
+    // Measure without our own correction applied, or each call compounds the last.
+    this.element.style.transform = ''
+    if (Number.isInteger(ratio)) return
+
+    const rect = this.element.getBoundingClientRect()
+    const dx = (Math.round(rect.left * ratio) - rect.left * ratio) / ratio
+    const dy = (Math.round(rect.top * ratio) - rect.top * ratio) / ratio
+
+    if (dx === 0 && dy === 0) return
+    this.element.style.transform = `translate(${dx}px, ${dy}px)`
+  }
+
+  /**
+   * Re-read the theme's canvas colour.
+   *
+   * WebGL cannot see the cascade, so the one surface that is not CSS has to be told.
+   * Called by the board view when the theme toggle fires.
+   */
+  syncTheme(): void {
+    if (this.app === undefined) return
+    this.app.renderer.background.color = readCanvasBackground(this.element)
+    this.canvasInk = readCanvasInk(this.element)
+    this.requestRender()
   }
 
   setTool(id: ToolId): void {
@@ -701,8 +780,11 @@ export class CanvasEngine {
     const context = surface.getContext('2d')
     if (context === null) return null
 
-    context.fillStyle = '#fbfbf9'
-    context.fillRect(0, 0, width, height)
+    // No paper under it. A thumbnail is captured once and served to everyone, so a
+    // baked-in background is one client's theme imposed on every viewer: it showed up
+    // as a white slab on a dark board list. Left transparent, the card's own well
+    // shows through and the preview takes the reader's theme, not the author's.
+    // webp carries alpha, so this survives the encode.
     context.drawImage(source, 0, 0, width, height)
 
     this.paintThumbnailText(context, transform)
@@ -788,7 +870,9 @@ export class CanvasEngine {
         const style = resolveArrowProps(object)
         this.arrows.push({
           points: absolutePoints(object, style),
-          stroke: style.stroke,
+          // A connector that never chose a colour follows the theme; one that did
+          // keeps what the document says, in both themes.
+          stroke: typeof object.props.stroke === 'number' ? style.stroke : this.canvasInk,
           strokeAlpha: style.strokeAlpha * object.opacity,
           strokeWidth: style.strokeWidth,
           startHead: style.startHead,

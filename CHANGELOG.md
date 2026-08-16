@@ -39,8 +39,103 @@ The infrastructure to run the thing. Not deployed yet.
   Python edit, vite hot-reloads on a TypeScript one, and watchfiles restarts the arq
   worker.
 - README architecture diagram and the CRDT-versus-OT rationale.
+- A design system in `apps/web/src/styles.css`: one token layer for surfaces, ink,
+  lines, accent, radii and shadows, with light and dark expressed through CSS
+  `light-dark()` rather than a duplicated palette. The palette follows Microsoft
+  Copilot: warm cream in light, deep desaturated navy in dark, one flat blue accent.
+- A theme control in the header. System, light or dark, remembered across sessions, and
+  applied to the root's `color-scheme` before React mounts so a dark-theme user never
+  sees a frame of cream. The canvas is told separately, because WebGL cannot read CSS.
+- An icon set, `apps/web/src/ui/icons.tsx`. Twenty inline SVGs on one grid at one
+  stroke weight, inheriting `currentColor`, so a button's colour states drive its icon.
+  No icon font and no dependency.
+- The real brand art, under `apps/web/public/brand`: the wordmark on the login card,
+  the loading splash and the sidebar, and the sprout-m mark as the favicon and touch
+  icon at 32, 180, 192 and 512. Both are trimmed from the source PNGs to the pixels
+  above an alpha threshold, so the faint glow halo does not leave the mark floating in
+  its own box. The drawn placeholder leaf and its accent plate are gone.
+- A workspace shell for the board list: a fixed sidebar with search, four views and the
+  account, beside a scrolling grid. Every view is derived from what the list endpoint
+  already returns — `recent` from `updated_at`, `owned` and `shared` from the resolved
+  role — so none of them is a label over an empty room. Sorting by modified, created or
+  name, and cards now carry an "Edited N ago" line.
+
+### Changed
+- Every page redrawn. Login is a centred card with a segmented control instead of an
+  underlined sentence that behaved like a button; the board list is a grid of preview
+  cards with a create composer, a skeleton state and a real empty state instead of a
+  bare `<ul>`; the board's tool rail floats over the canvas as a rounded panel with
+  icons and tooltips rather than taking a column out of the drawing surface.
+- **No underlined buttons anywhere.** `button.link` was a link that had failed to
+  become a link. Quiet controls now read as controls by shape and hover.
+- **No gradients anywhere.** The accent is one flat blue at three weights.
+- **A board is a glade, not a field.** "Field" is one of the most overloaded words in
+  software and collides with its own technical sense in this codebase: a CRDT field, a
+  form field, a signed distance field. A glade is a clearing in a wood, which is what
+  an infinite canvas is, and it sits beside **wanderers** without explanation. UI copy,
+  the route and the agent instructions moved; `board_id` in the DB and the API did not,
+  and `#/field/<id>` still resolves so a tab left open on it is not stranded.
+- Comic Neue is the app's face, chrome and content both, and is the default for new
+  text objects. Inter stays as a `props.fontFamily` slug so a document that asks for it
+  keeps it. Note the metrics consequence in `docs/core/ARCHITECTURE.md`: a pre-M6 text
+  object that never chose a family now measures against a different face.
+- Default object fills and the canvas chrome retuned to the app palette, and unstyled
+  shapes get a small corner radius instead of a hard 90-degree corner.
 
 ### Fixed
+- **The canvas rendered with antialiasing off, so every diagonal was a staircase.** The
+  reasoning was that the SDF batch antialiases itself with `fwidth` and does not need
+  MSAA, which is true of the batch and irrelevant to the rest of the frame: arrows,
+  lines, the marquee, the selection box, the handles, the guides and the wanderer
+  cursors are all tessellated `Graphics`. MSAA costs fill rate rather than draw calls,
+  so the 5k-object budget is untouched.
+- Connectors were invisible in dark mode. Their default stroke was a constant dark ink
+  drawn straight onto the board; it now follows the theme, while an arrow whose
+  document carries an explicit colour keeps it in both themes.
+- Board previews were cropped to a solid block of colour by `object-fit: cover`, which
+  defeats the point of a preview. They are contained now.
+- The board header printed the zoom level twice: a readout beside a button also
+  labelled 100%. The readout is the reset button.
+- The board list was a centred `max-width` page whose margins were most of the screen,
+  on a view whose content is a grid of previews. The sidebar shell replaces it and the
+  main column's padding came down with it.
+- Board previews touched the frame they sat in, which reads as a cropped screenshot
+  pressed against the edge. The well is matted now; the padding is on the well rather
+  than the image, so the canvas colour still fills it.
+- The login card carried a standing line of help that said one of two things whatever
+  the user was doing, so it read as filler rather than as guidance. Removed.
+- Board previews were cropped flush against the top and bottom of their frame despite
+  the padding on it. Two causes, one after the other: a percentage height resolves
+  against an indefinite height inside an `aspect-ratio` box, so `max-height: 100%`
+  computed to `none`; and once the well had a real height, a grid item's `min-height`
+  defaults to `auto`, which floors it at the picture's intrinsic size and beats
+  `max-height`. The well has a definite height and the image has `min-height: 0`.
+- A preview is captured once and served to everyone, so a background baked into it is
+  one client's theme imposed on every viewer: it arrived in dark mode as a white slab.
+  The capture is transparent now (webp carries alpha) and the card's well paints
+  `--canvas-bg`, so a preview takes the reader's theme rather than the author's, the
+  inset around it is invisible because the colour is the same on both sides, and a row
+  of differently shaped previews no longer looks ragged.
+- **The whole canvas was slightly soft at fractional display scaling.** Windows at
+  125% is dpr 1.25, and an element whose height is a round number of CSS pixels is a
+  fractional number of device pixels, so everything below it starts on a half pixel:
+  measured on this layout, the canvas's top edge landed at 52.5 device pixels. A
+  browser cannot blit a bitmap to half a pixel, so it resampled the entire canvas, and
+  the board read as blurry at every zoom while the chrome beside it stayed sharp. DOM
+  text escapes this because glyphs are rasterised at their final subpixel position; a
+  canvas is one bitmap. The engine now nudges its host onto whole device pixels with a
+  sub-pixel translate. Both layers live inside that host, so they move together and
+  the overlay alignment is unaffected, which `pnpm smoke:overlay` confirms.
+- Dropped `will-change: transform` from the text overlay root. It promoted the layer
+  and let Chrome rasterise it once and reuse that bitmap, which is exact for a pan and
+  wrong for a zoom: type was GPU-upscaled from whatever scale it was last rasterised
+  at. Transforms composite either way; the hint only bought the right to skip the
+  re-raster that keeps text crisp.
+- The connection pill said "Live" beside a green dot permanently. The dot carries it,
+  with the word on hover; the pill only speaks up when the state is not healthy.
+- The favicon and touch icons carry a rounded cream plate. The mark is neon on transparency,
+  which disappears into a dark tab strip; the in-app mark stays transparent, because
+  it sits on a surface that is already chosen for it.
 - `services/api/pyproject.toml` had no `[build-system]` and no package configuration, so
   a fresh `uv pip install -e .` failed outright: setuptools' flat-layout discovery finds
   `app` and `alembic`, refuses to guess between them, and stops. It only ever worked

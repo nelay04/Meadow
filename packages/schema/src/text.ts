@@ -31,10 +31,16 @@ export const VERTICAL_ALIGNMENTS = ['top', 'middle', 'bottom'] as const
 export type VerticalAlign = (typeof VERTICAL_ALIGNMENTS)[number]
 
 export const textProps = z.object({
-  fontFamily: z.enum(FONT_FAMILIES).default('inter'),
+  /*
+   * Comic Neue by default, the same face the chrome uses. A whiteboard that writes
+   * its UI in one voice and its content in another reads as two products stitched
+   * together. `inter` and `mono` stay available: the slug is what the document
+   * stores, so an object that asks for a face keeps it.
+   */
+  fontFamily: z.enum(FONT_FAMILIES).default('comic'),
   fontSize: z.number().min(6).max(288).default(16),
   lineHeight: z.number().min(0.8).max(3).default(1.45),
-  color: z.number().int().default(0x1f2a24),
+  color: z.number().int().default(0x2a3340),
   align: z.enum(TEXT_ALIGNMENTS).default('left'),
   verticalAlign: z.enum(VERTICAL_ALIGNMENTS).default('top'),
   /** Inset from the object's box, in world units. */

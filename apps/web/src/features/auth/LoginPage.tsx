@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 
+import { Wordmark } from '../../ui/Brand'
+import { ThemeToggle } from '../../ui/ThemeToggle'
 import { ApiError } from '../../lib/api'
 import { useAuth } from './AuthContext'
 
@@ -41,64 +43,84 @@ export default function LoginPage() {
     }
   }
 
+  const switchMode = (next: Mode) => {
+    if (next === mode) return
+    setMode(next)
+    setError(null)
+  }
+
   return (
     <main className="auth">
-      <h1>Meadow</h1>
-      <p className="tagline">An infinite canvas for notes and whiteboarding.</p>
+      <div className="auth-card">
+        <div className="brand">
+          <Wordmark />
+          <span style={{ flex: 1 }} />
+          <ThemeToggle />
+        </div>
 
-      <form onSubmit={submit}>
-        {mode === 'register' && (
+        <p className="tagline">An infinite canvas for notes and whiteboarding.</p>
+
+        {/* A segmented control rather than a sentence that behaves like a button.
+            Both destinations are visible before the choice is made. */}
+        <div className="segmented" role="group" aria-label="Account">
+          <button type="button" aria-pressed={mode === 'login'} onClick={() => switchMode('login')}>
+            Log in
+          </button>
+          <button
+            type="button"
+            aria-pressed={mode === 'register'}
+            onClick={() => switchMode('register')}
+          >
+            Register
+          </button>
+        </div>
+
+        <form onSubmit={submit}>
+          {mode === 'register' && (
+            <label>
+              Display name
+              <input
+                value={displayName}
+                onChange={(event) => setDisplayName(event.target.value)}
+                autoComplete="name"
+                placeholder="Your full name"
+                required
+              />
+            </label>
+          )}
+
           <label>
-            Display name
+            Email
             <input
-              value={displayName}
-              onChange={(event) => setDisplayName(event.target.value)}
-              autoComplete="name"
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              autoComplete="email"
+              placeholder="you@creara.in"
               required
             />
           </label>
-        )}
 
-        <label>
-          Email
-          <input
-            type="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            autoComplete="email"
-            required
-          />
-        </label>
+          <label>
+            Password
+            <input
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+              minLength={mode === 'register' ? 12 : undefined}
+              placeholder={mode === 'register' ? 'At least 12 characters' : ''}
+              required
+            />
+          </label>
 
-        <label>
-          Password
-          <input
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-            minLength={mode === 'register' ? 12 : undefined}
-            required
-          />
-        </label>
+          {error !== null && <p className="error">{error}</p>}
 
-        {error !== null && <p className="error">{error}</p>}
-
-        <button type="submit" disabled={busy}>
-          {busy ? 'Working...' : mode === 'login' ? 'Log in' : 'Create account'}
-        </button>
-      </form>
-
-      <button
-        type="button"
-        className="link"
-        onClick={() => {
-          setMode(mode === 'login' ? 'register' : 'login')
-          setError(null)
-        }}
-      >
-        {mode === 'login' ? 'Need an account? Register' : 'Already have an account? Log in'}
-      </button>
+          <button type="submit" className="primary" disabled={busy}>
+            {busy ? 'Working...' : mode === 'login' ? 'Log in' : 'Create account'}
+          </button>
+        </form>
+      </div>
     </main>
   )
 }

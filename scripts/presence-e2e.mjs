@@ -112,7 +112,7 @@ const board = await (
   await fetch(`${apiBase}/api/v1/boards`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${alice.token}` },
-    body: JSON.stringify({ workspace_id: workspaceId, title: 'Shared field' }),
+    body: JSON.stringify({ workspace_id: workspaceId, title: 'Shared glade' }),
   })
 ).json()
 
@@ -140,8 +140,8 @@ async function openBoard(person) {
   await page.fill('input[type="password"]', person.password)
   await page.click('button[type="submit"]')
 
-  await page.waitForSelector('text=Shared field', { timeout: 20000 })
-  await page.click('text=Shared field')
+  await page.waitForSelector('text=Shared glade', { timeout: 20000 })
+  await page.click('text=Shared glade')
   await page.waitForSelector('.canvas-host canvas', { timeout: 20000 })
   await page.waitForFunction(
     () => {
@@ -185,7 +185,7 @@ check('the second peer still has a live canvas after presence traffic', bobSeesC
 
 // --- live convergence -------------------------------------------------------------
 
-await a.page.click('button[title^="Rectangle"]')
+await a.page.click('button[aria-label^="Rectangle"]')
 await a.page.mouse.move(aliceCanvas.x + 200, aliceCanvas.y + 180)
 await a.page.mouse.down()
 await a.page.mouse.move(aliceCanvas.x + 380, aliceCanvas.y + 320, { steps: 12 })
@@ -200,7 +200,7 @@ check("the other peer sees the first peer's shape without reloading", true)
 
 // Bob selects it; Alice should see a remote selection highlight rendered.
 const bobCanvas = await b.page.locator('.canvas-host canvas').boundingBox()
-await b.page.click('button[title^="Select"]')
+await b.page.click('button[aria-label^="Select"]')
 await b.page.mouse.click(bobCanvas.x + 290, bobCanvas.y + 250)
 await b.page.waitForFunction(
   () => document.querySelector('.statusbar span')?.textContent?.includes('1 selected'),

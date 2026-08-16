@@ -126,9 +126,9 @@ export class WandererLayer {
     const label = new Text({
       text: wanderer.name,
       style: {
-        fontFamily: FONT_STACKS.inter,
+        fontFamily: FONT_STACKS.comic,
         fontSize: 11,
-        fontWeight: '600',
+        fontWeight: '700',
         fill: 0xffffff,
       },
     })

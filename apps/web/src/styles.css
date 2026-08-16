@@ -1,6 +1,12 @@
 /*
- * Plain CSS. Tailwind is still not pulled in: the chrome is a toolbar, a header and a
- * status bar, and everything visually interesting happens on the canvas.
+ * Meadow's design system. Plain CSS, no framework: the chrome is a handful of
+ * surfaces around a canvas, and a utility framework would cost more than it saves.
+ *
+ * Palette follows Microsoft Copilot: a warm cream light theme, a deep desaturated
+ * navy dark theme, one blue accent, and soft layered shadows instead of hard
+ * borders. Both themes are expressed with `light-dark()` against the `color-scheme`
+ * on :root, so the theme toggle in the header is one property write and there is no
+ * second copy of the palette to keep in step.
  *
  * The three faces are self-hosted per ARCHITECTURE 1, downloaded by
  * scripts/fetch-fonts.mjs. Metrics from these faces are written into the CRDT as text
@@ -12,303 +18,1076 @@
 
 :root {
   color-scheme: light dark;
-  --fg: light-dark(#1a1a1a, #e8e8e8);
-  --muted: light-dark(#6b6b6b, #9a9a9a);
-  --line: light-dark(#e0e0e0, #333);
-  --accent: light-dark(#2f7d4f, #6fcf97);
-  --danger: light-dark(#b42318, #f97066);
+
+  /* Surfaces, back to front. */
+  --bg: light-dark(#f4f1ec, #0f1318);
+  --surface: light-dark(#fffefc, #171c23);
+  --surface-2: light-dark(#faf7f2, #1d232b);
+  --surface-3: light-dark(#f0ece5, #232a33);
+  --canvas-bg: light-dark(#fbf9f5, #12161b);
+  /* Ink for strokes drawn straight onto the canvas rather than onto an object's own
+     fill: arrows, lines, connectors. A shape's outline sits on its own light fill and
+     stays dark in both themes; a connector does not, and a dark connector on a dark
+     board is invisible. */
+  --canvas-ink: light-dark(#2a3340, #c3cedd);
+
+  /* Ink. */
+  --fg: light-dark(#1b1c1f, #e9ecf1);
+  --fg-strong: light-dark(#0c0d0f, #ffffff);
+  --muted: light-dark(#6a6b73, #98a1ae);
+  --faint: light-dark(#93949c, #6d7684);
+
+  /* Lines. Two weights: hairline for dividers, edge for anything that must read
+     as a container in both themes. */
+  --line: light-dark(#e6e0d7, #262d37);
+  --edge: light-dark(#d9d2c7, #2f3844);
+
+  /* Accent. One flat blue, three weights. No gradients anywhere in the app: a
+     gradient on a control is decoration that reads as unfinished at small sizes and
+     dates faster than anything else in a palette. */
+  --accent: light-dark(#0f6cbd, #4f9bee);
+  --accent-hover: light-dark(#0c5a9e, #6cb0f4);
+  --accent-ink: #ffffff;
+  --accent-soft: light-dark(#0f6cbd16, #4f9bee22);
+
+  --danger: light-dark(#b42318, #f9827a);
+  --danger-soft: light-dark(#b4231812, #f9827a1c);
+  --success: light-dark(#1a7f45, #4ec98a);
+  --warning: light-dark(#a86a00, #e6b34d);
+
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 22px;
+  --pill: 999px;
+
+  --shadow-sm: 0 1px 2px light-dark(#1b1c1f0f, #00000059);
+  --shadow: 0 2px 6px light-dark(#1b1c1f12, #0000005e), 0 8px 24px light-dark(#1b1c1f0f, #00000047);
+  --shadow-lg: 0 4px 12px light-dark(#1b1c1f14, #0000006b), 0 24px 48px light-dark(#1b1c1f14, #00000059);
+
+  --ring: 0 0 0 3px var(--accent-soft);
+
+  /* One duration for everything that moves, so the whole app feels like one app. */
+  --fast: 120ms cubic-bezier(0.2, 0, 0.2, 1);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
 }
 
 body {
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  /* Comic Neue throughout the chrome. It is the app's voice, and a whiteboard that
+     writes in a grotesque and draws in a handwriting face reads as two products. */
+  font-family: 'Comic Neue', 'Comic Sans MS', ui-rounded, system-ui, sans-serif;
+  font-size: 15px;
   margin: 0;
-  padding: 1.5rem;
-  line-height: 1.5;
+  padding: 0;
+  line-height: 1.55;
   color: var(--fg);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  color: var(--fg-strong);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
 }
 
 h1 {
-  font-size: 1.15rem;
+  font-size: 1.35rem;
+}
+
+h2 {
+  font-size: 1.05rem;
+}
+
+p {
   margin: 0;
 }
 
 .muted {
   color: var(--muted);
-  font-size: 0.85rem;
+  font-size: 0.875rem;
 }
 
-.mono,
+.faint {
+  color: var(--faint);
+  font-size: 0.8rem;
+}
+
+/* Numerals that do not reflow as they tick. Comic Neue here too: the chrome is one
+   face. Code inside a text object is still JetBrains Mono; that is document content,
+   not app chrome. */
+.mono {
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8rem;
+  letter-spacing: 0.01em;
+}
+
 code {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 0.8rem;
 }
 
+/* --- focus -------------------------------------------------------------------
+ * Keyboard focus is visible everywhere; a mouse press is not. `:focus-visible`
+ * rather than `:focus` is what stops a clicked button keeping a ring.
+ */
+:where(button, input, a, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* --- buttons -----------------------------------------------------------------
+ *
+ * Four variants and no underlines anywhere. An underlined button is a link that
+ * failed to become a link; these read as affordances by shape and by hover.
+ */
 button {
   font: inherit;
-  padding: 0.4rem 0.75rem;
-  border-radius: 6px;
-  border: 1px solid var(--line);
-  background: transparent;
-  color: inherit;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 0.5rem 0.9rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--edge);
+  background: var(--surface);
+  color: var(--fg);
   cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+  transition:
+    background var(--fast),
+    border-color var(--fast),
+    color var(--fast),
+    box-shadow var(--fast),
+    transform var(--fast);
+}
+
+button:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: var(--accent);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
 button:disabled {
-  opacity: 0.4;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
-button.link {
-  border: none;
-  padding: 0.2rem;
-  color: var(--accent);
-  text-decoration: underline;
+button.primary {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--accent-ink);
+  box-shadow: var(--shadow-sm);
+}
+
+button.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: transparent;
+  box-shadow: var(--shadow-sm);
+}
+
+/* Was `.link`, and was underlined. Now a quiet ghost button: no border, no
+   underline, and a tinted plate on hover. */
+button.link,
+button.ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 600;
+  padding: 0.4rem 0.7rem;
+  text-decoration: none;
+}
+
+button.link:hover:not(:disabled),
+button.ghost:hover:not(:disabled) {
+  background: var(--surface-3);
+  border-color: transparent;
+  color: var(--fg-strong);
 }
 
 button.danger {
   color: var(--danger);
+  border-color: transparent;
+  background: transparent;
 }
 
+button.danger:hover:not(:disabled) {
+  background: var(--danger-soft);
+  border-color: transparent;
+  color: var(--danger);
+}
+
+/* Square, for a bare icon. Sized so the hit target clears 32px. */
+button.icon {
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  border-radius: var(--radius);
+}
+
+button.icon.round {
+  border-radius: var(--pill);
+}
+
+.btn-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+svg {
+  flex: 0 0 auto;
+}
+
+/* --- inputs ------------------------------------------------------------------ */
 input {
   font: inherit;
-  padding: 0.45rem 0.6rem;
-  border-radius: 6px;
-  border: 1px solid var(--line);
-  background: transparent;
-  color: inherit;
+  width: 100%;
+  padding: 0.6rem 0.85rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--edge);
+  background: var(--surface);
+  color: var(--fg);
+  transition:
+    border-color var(--fast),
+    box-shadow var(--fast);
 }
 
+input::placeholder {
+  color: var(--faint);
+}
+
+input:hover {
+  border-color: var(--accent);
+}
+
+input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--ring);
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+/* --- messages ---------------------------------------------------------------- */
 .error {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0.55rem 0.8rem;
+  border-radius: var(--radius);
+  background: var(--danger-soft);
   color: var(--danger);
-  font-size: 0.9rem;
+  font-size: 0.875rem;
+  font-weight: 600;
 }
 
 .banner {
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--accent);
-  padding: 0.5rem 0.75rem;
-  border-radius: 4px;
-  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0.55rem 0.9rem;
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  color: var(--fg);
+  font-size: 0.875rem;
 }
 
-/* auth */
+.empty {
+  color: var(--muted);
+}
+
+.loading {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  color: var(--muted);
+}
+
+/* A shell for the whole app on the non-canvas views. */
+.page {
+  max-width: 62rem;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem 4rem;
+}
+
+/* --- auth --------------------------------------------------------------------
+ *
+ * One centred card on the page background, the way every account screen worth
+ * copying does it.
+ */
 .auth {
-  max-width: 22rem;
-  margin: 4rem auto;
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: 1.5rem;
+  background: var(--bg);
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 24rem;
+  padding: 2rem;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.wordmark {
+  display: block;
+  height: 1.85rem;
+  width: auto;
+}
+
+.mark {
+  display: block;
+  width: 2.1rem;
+  height: 2.1rem;
+}
+
+.auth-card .wordmark {
+  height: 2.1rem;
 }
 
 .auth .tagline {
   color: var(--muted);
-  margin-top: 0.25rem;
+  font-size: 0.9rem;
+  margin-top: 0.9rem;
 }
 
 .auth form {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-  margin: 1.5rem 0 1rem;
+  gap: 0.85rem;
+  margin: 1.4rem 0 1rem;
 }
 
-.auth label {
+.auth form button[type='submit'] {
+  margin-top: 0.2rem;
+  padding: 0.62rem 0.9rem;
+}
+
+.auth-alt {
+  display: flex;
+  justify-content: center;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--line);
+}
+
+/* A segmented control, so switching between logging in and registering is one
+   visible control rather than a sentence pretending to be a button. */
+.segmented {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 0.2rem;
+  padding: 0.22rem;
+  border-radius: var(--radius);
+  background: var(--surface-3);
+  margin-top: 1.4rem;
+}
+
+.segmented button {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  padding: 0.4rem 0.6rem;
+  border-radius: calc(var(--radius) - 4px);
+  font-size: 0.875rem;
+}
+
+.segmented button:hover:not(:disabled) {
+  background: transparent;
+  color: var(--fg-strong);
+}
+
+.segmented button[aria-pressed='true'] {
+  background: var(--surface);
+  color: var(--fg-strong);
+  box-shadow: var(--shadow-sm);
+}
+
+/* --- the workspace shell -----------------------------------------------------
+ *
+ * A fixed sidebar and a scrolling main column, the layout every file browser
+ * converged on. It replaces a centred `max-width` page whose margins were most of
+ * the screen: the content is a grid of previews, and previews want width.
+ */
+.workspace {
+  display: flex;
+  min-height: 100vh;
+}
+
+.sidebar {
+  flex: 0 0 15rem;
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
-  font-size: 0.85rem;
-  color: var(--muted);
+  gap: 0.9rem;
+  padding: 1rem 0.75rem;
+  border-right: 1px solid var(--line);
+  background: var(--surface);
+  position: sticky;
+  top: 0;
+  height: 100vh;
 }
 
-/* boards */
-.boards header,
-.board header {
+.sidebar-brand {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  margin-bottom: 1.25rem;
+  padding: 0.25rem 0.4rem 0.15rem;
 }
 
-.boards header {
-  justify-content: space-between;
-}
-
-.new-board {
+/* Search. The icon sits inside the field rather than beside it, so the control
+   reads as one shape. */
+.sidebar-search {
+  position: relative;
   display: flex;
+  align-items: center;
+  color: var(--faint);
+}
+
+.sidebar-search svg {
+  position: absolute;
+  left: 0.6rem;
+  pointer-events: none;
+}
+
+.sidebar-search input {
+  padding-left: 2rem;
+  background: var(--surface-2);
+  border-color: transparent;
+  font-size: 0.875rem;
+}
+
+.sidebar-search input:focus {
+  background: var(--surface);
+}
+
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.nav-item {
+  justify-content: flex-start;
+  width: 100%;
+  gap: 0.6rem;
+  padding: 0.45rem 0.6rem;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.9rem;
+  border-radius: var(--radius-sm);
+}
+
+.nav-item:hover:not(:disabled) {
+  background: var(--surface-3);
+  border-color: transparent;
+  color: var(--fg-strong);
+}
+
+.nav-item.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: transparent;
+}
+
+.nav-label {
+  flex: 1;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nav-count {
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--faint);
+}
+
+.nav-item.active .nav-count {
+  color: var(--accent);
+}
+
+/* Pinned to the bottom, which is where an app of this shape puts the account. */
+.sidebar-foot {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
   gap: 0.5rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line);
+}
+
+.sidebar-foot .user-chip {
+  border: none;
+  background: transparent;
+  padding: 0.1rem;
+  gap: 0.5rem;
+}
+
+.sidebar-foot .avatar {
+  margin: 0;
+  background: var(--accent);
+  border-color: transparent;
+}
+
+.sidebar-foot .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-main {
+  flex: 1;
+  min-width: 0;
+  padding: 1.25rem 1.75rem 3rem;
+}
+
+.workspace-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
   margin-bottom: 1rem;
 }
 
-.board-list {
+.workspace-head .spacer {
+  flex: 1;
+}
+
+.sort select {
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 0.35rem 0.6rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--edge);
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.sort select:hover {
+  border-color: var(--accent);
+  color: var(--fg-strong);
+}
+
+/* Present for screen readers, absent on screen. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.user-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.3rem 0.35rem 0.3rem 0.8rem;
+  border-radius: var(--pill);
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.user-chip .name {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+/* The create composer. A field and one primary action, on a card so it reads as
+   the page's main verb. */
+.composer {
+  display: flex;
+  gap: 0.6rem;
+  padding: 0.55rem;
+  margin-bottom: 1.25rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.composer input {
+  border-color: transparent;
+  background: transparent;
+}
+
+.composer input:hover {
+  border-color: transparent;
+}
+
+.composer input:focus {
+  border-color: var(--accent);
+  background: var(--surface);
+}
+
+.section-label {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.85rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+/* A grid of preview cards rather than a list of rows. The preview is the point:
+   a board is recognised by its shape, not by its name. */
+.board-grid {
   list-style: none;
   padding: 0;
   margin: 0;
-  max-width: 40rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+  gap: 0.9rem;
 }
 
-.board-list li {
+.board-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  transition:
+    border-color var(--fast),
+    box-shadow var(--fast),
+    transform var(--fast);
+}
+
+.board-card:hover {
+  border-color: var(--accent);
+  box-shadow: var(--shadow);
+  transform: translateY(-2px);
+}
+
+/* The whole card is one button, so the entire surface is the target. Delete sits
+   above it rather than inside it, because a button cannot nest in a button. */
+.board-open {
+  all: unset;
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+  flex: 1;
+}
+
+/*
+ * The preview well.
+ *
+ * This is the board's own surface, not a frame around a picture of one. The capture
+ * is transparent, so `--canvas-bg` here is what the reader actually sees behind the
+ * shapes, and it follows the theme: cream in light, #12161b in dark. That is also
+ * what makes the inset invisible. The padding exists so the drawing is not jammed
+ * into the corners, and because the colour on both sides of it is the same, there is
+ * no visible matte, no sheet edge, and no ragged row when two previews happen to be
+ * shaped differently.
+ *
+ * A definite height, not `aspect-ratio`: the image is sized with percentages, and a
+ * percentage height resolves against an indefinite height inside an aspect-ratio box,
+ * so `max-height: 100%` computed to `none` and the picture was cropped flush against
+ * the frame.
+ */
+.board-thumb {
+  display: grid;
+  place-items: center;
+  height: 9.5rem;
+  padding: 0.5rem;
+  background: var(--canvas-bg);
+  border-bottom: 1px solid var(--line);
+  overflow: hidden;
+}
+
+/*
+ * `contain`, not `cover`. The preview's job is to let you recognise a board by its
+ * shape, and cropping it to fill the frame turns a diagram into a solid block of
+ * whatever colour happened to be in the middle. Contained and centred, it reads the
+ * way a canvas thumbnail should: the whole drawing, as large as it fits.
+ *
+ * `min-width`/`min-height` are load-bearing. A grid item's defaults to `auto`, which
+ * floors it at the picture's intrinsic size, and that floor beats `max-height`.
+ */
+.board-thumb img {
+  max-width: 100%;
+  max-height: 100%;
+  min-width: 0;
+  min-height: 0;
+  object-fit: contain;
+  display: block;
+}
+
+.board-meta {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  border-bottom: 1px solid var(--line);
+  padding: 0.6rem 0.8rem;
 }
 
-.board-open {
+.board-text {
   flex: 1;
+  min-width: 0;
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border: none;
-  padding: 0.7rem 0.2rem;
-  text-align: left;
+  flex-direction: column;
+}
+
+.board-sub {
+  font-size: 0.76rem;
+  color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.board-title {
+  min-width: 0;
+  font-weight: 700;
+  color: var(--fg-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Revealed on hover, and always present for the keyboard. */
+.board-card .card-delete {
+  position: absolute;
+  top: 0.55rem;
+  right: 0.55rem;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border-radius: var(--pill);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  opacity: 0;
+  transition:
+    opacity var(--fast),
+    color var(--fast),
+    background var(--fast);
+}
+
+.board-card:hover .card-delete,
+.board-card .card-delete:focus-visible {
+  opacity: 1;
+}
+
+.board-card .card-delete:hover {
+  background: var(--danger-soft);
+  border-color: transparent;
+  color: var(--danger);
 }
 
 .role {
-  font-size: 0.7rem;
+  flex: 0 0 auto;
+  font-size: 0.68rem;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 0.1rem 0.5rem;
+  letter-spacing: 0.06em;
+  border-radius: var(--pill);
+  padding: 0.12rem 0.5rem;
+  background: var(--surface-3);
   color: var(--muted);
 }
 
 .role-owner {
+  background: var(--accent-soft);
   color: var(--accent);
-  border-color: currentColor;
 }
 
-/* board */
-.tools {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-  flex-wrap: wrap;
-  margin: 1rem 0;
-}
-
-.dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: #888;
-  display: inline-block;
-}
-
-.dot.connected {
-  background: #22c55e;
-}
-.dot.connecting {
-  background: #eab308;
-}
-.dot.disconnected {
-  background: #ef4444;
-}
-.dot.denied {
-  background: #b42318;
-}
-
-table {
-  border-collapse: collapse;
-  width: 100%;
-  max-width: 60rem;
-}
-
-th,
-td {
-  text-align: left;
-  padding: 0.35rem 0.6rem;
-  border-bottom: 1px solid var(--line);
-}
-
-th {
-  font-weight: 600;
-  font-size: 0.75rem;
-  text-transform: uppercase;
+/* The empty state. A dashed well, not a sentence floating in whitespace. */
+.empty-state {
+  display: grid;
+  place-items: center;
+  gap: 0.4rem;
+  padding: 3.5rem 1.5rem;
+  border-radius: var(--radius-lg);
+  border: 1px dashed var(--edge);
+  background: var(--surface-2);
+  text-align: center;
   color: var(--muted);
 }
 
-.empty {
-  color: var(--muted);
-  font-style: italic;
+.empty-mark {
+  width: 3rem;
+  height: 3rem;
+  margin-bottom: 0.4rem;
+  opacity: 0.8;
 }
 
-.loading {
-  color: var(--muted);
+/* Placeholder cards while the list loads, so the page does not jump when it
+   arrives. */
+.skeleton {
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  aspect-ratio: 16 / 12;
+  animation: pulse 1.4s ease-in-out infinite;
 }
 
-/* --- M2: the canvas board view ------------------------------------------------
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* --- the canvas board view ----------------------------------------------------
  *
  * The board is full-bleed. ARCHITECTURE 1: there is no page, only the canvas, so it
  * takes the whole viewport rather than sitting in the padded document flow the rest
- * of the app uses.
+ * of the app uses. The chrome floats over it as separate rounded panels, so nothing
+ * eats into the drawing surface.
  */
-
 .board {
   position: fixed;
   inset: 0;
   display: flex;
   flex-direction: column;
-  background: light-dark(#fbfbf9, #16181a);
+  background: var(--canvas-bg);
 }
 
 .board-bar {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.5rem 0.9rem;
+  gap: 0.6rem;
+  padding: 0.5rem 0.75rem;
   border-bottom: 1px solid var(--line);
+  background: var(--surface);
   flex: 0 0 auto;
+  z-index: 3;
+}
+
+.board-bar h1 {
+  font-size: 1rem;
+  max-width: 22rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .board-bar .spacer {
   flex: 1;
 }
 
+.divider {
+  width: 1px;
+  height: 1.4rem;
+  background: var(--line);
+  flex: 0 0 auto;
+}
+
+/* Connection state, as one pill rather than a dot beside a word. */
+.conn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.2rem 0.6rem 0.2rem 0.5rem;
+  border-radius: var(--pill);
+  background: var(--surface-3);
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+/* Healthy: just the dot, no plate, no word. */
+.conn.quiet {
+  padding: 0.2rem;
+  background: transparent;
+  gap: 0;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--faint);
+  flex: 0 0 auto;
+}
+
+.dot.connected {
+  background: var(--success);
+  box-shadow: 0 0 0 3px light-dark(#1a7f4522, #4ec98a22);
+}
+
+.dot.connecting {
+  background: var(--warning);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.dot.disconnected,
+.dot.denied {
+  background: var(--danger);
+}
+
+/* Zoom readout and its two actions, as one grouped control. */
+.zoom {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem;
+  border-radius: var(--pill);
+  background: var(--surface-3);
+}
+
+.zoom button {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  padding: 0.25rem 0.6rem;
+  border-radius: var(--pill);
+  font-size: 0.78rem;
+}
+
+.zoom button:hover:not(:disabled) {
+  background: var(--surface);
+  color: var(--fg-strong);
+  border-color: transparent;
+}
+
+.zoom .readout {
+  color: var(--fg);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  min-width: 3.4rem;
+}
+
 .board-body {
   flex: 1;
   display: flex;
   min-height: 0;
+  position: relative;
 }
 
+/*
+ * The toolbar floats over the canvas as a rounded rail, FigJam-style, instead of
+ * taking a column out of the drawing surface.
+ */
 .toolbar {
-  flex: 0 0 auto;
-  width: 8.5rem;
-  border-right: 1px solid var(--line);
-  padding: 0.6rem;
+  position: absolute;
+  left: 0.9rem;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
+  gap: 0.15rem;
+  padding: 0.35rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: var(--shadow);
 }
 
 .toolbar hr {
   border: 0;
   border-top: 1px solid var(--line);
-  margin: 0.4rem 0;
-  width: 100%;
+  margin: 0.25rem 0.3rem;
+  width: auto;
+  align-self: stretch;
 }
 
 .tool {
-  font: inherit;
-  font-size: 0.85rem;
-  text-align: left;
-  padding: 0.35rem 0.55rem;
+  position: relative;
+  width: 2.35rem;
+  height: 2.35rem;
+  padding: 0;
   border: 1px solid transparent;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--fg);
-  cursor: pointer;
+  color: var(--muted);
 }
 
 .tool:hover:not(:disabled) {
-  background: light-dark(#00000008, #ffffff10);
+  background: var(--surface-3);
+  border-color: transparent;
+  color: var(--fg-strong);
 }
 
 .tool.active {
-  border-color: var(--accent);
-  background: light-dark(#2f7d4f14, #6fcf9722);
+  background: var(--accent-soft);
+  border-color: transparent;
+  color: var(--accent);
 }
 
 .tool:disabled {
-  opacity: 0.4;
+  opacity: 0.35;
   cursor: not-allowed;
+}
+
+/* Tooltip on the rail, built from the button's own label so there is one source
+   for the accessible name and the visible hint. */
+.tool::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: calc(100% + 0.6rem);
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 0.2rem 0.5rem;
+  border-radius: var(--radius-sm);
+  background: light-dark(#1b1c1f, #e9ecf1);
+  color: light-dark(#fff, #12161b);
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--fast);
+  z-index: 4;
+}
+
+.tool:hover:not(:disabled)::after,
+.tool:focus-visible::after {
+  opacity: 1;
 }
 
 /*
@@ -322,6 +1101,36 @@ th {
   min-height: 0;
   position: relative;
   overflow: hidden;
+  /* Read back by `readCanvasBackground` and `readCanvasInk`. WebGL cannot see the
+     cascade, so this is how the engine learns the theme's two canvas colours. */
+  background-color: var(--canvas-bg);
+  color: var(--canvas-ink);
+}
+
+/* Notices float over the canvas at the bottom rather than pushing the layout. */
+.board-notices {
+  position: absolute;
+  left: 50%;
+  bottom: 1rem;
+  transform: translateX(-50%);
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: center;
+  pointer-events: none;
+}
+
+.board-notices > * {
+  pointer-events: auto;
+  box-shadow: var(--shadow);
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.board-notices .error {
+  cursor: pointer;
+  background: light-dark(#fff5f4, #2a1a1a);
 }
 
 .statusbar {
@@ -332,6 +1141,23 @@ th {
   gap: 1rem;
   padding: 0.3rem 0.9rem;
   border-top: 1px solid var(--line);
+  background: var(--surface);
+  font-size: 0.78rem;
+  color: var(--muted);
+  z-index: 3;
+}
+
+/* Keyboard hints, so the shortcut reads as a key rather than as prose. */
+kbd {
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.05rem 0.35rem;
+  border-radius: 5px;
+  border: 1px solid var(--edge);
+  border-bottom-width: 2px;
+  background: var(--surface-2);
+  color: var(--muted);
 }
 
 /*
@@ -349,16 +1175,17 @@ th {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.55rem;
-  height: 1.55rem;
-  margin-left: -0.35rem;
+  width: 1.7rem;
+  height: 1.7rem;
+  margin-left: -0.4rem;
   border-radius: 50%;
-  border: 2px solid light-dark(#fff, #1a1a1a);
+  border: 2px solid var(--surface);
   color: #fff;
   font-size: 0.62rem;
-  font-weight: 650;
+  font-weight: 700;
   letter-spacing: 0.02em;
   user-select: none;
+  flex: 0 0 auto;
 }
 
 /* Yourself first and slightly set apart, so the row reads as "me, then them". */
@@ -367,27 +1194,12 @@ th {
   margin-right: 0.15rem;
 }
 
-/* Board previews. Fixed size so a row's height does not change when one arrives. */
-.board-thumb {
-  flex: 0 0 auto;
-  width: 3.4rem;
-  height: 2.4rem;
-  margin-right: 0.7rem;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: light-dark(#fbfbf9, #16181a);
-  overflow: hidden;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.board-thumb img {
-  max-width: 100%;
-  max-height: 100%;
-  display: block;
-}
-
-.board-title {
-  flex: 1;
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

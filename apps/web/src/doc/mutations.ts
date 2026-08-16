@@ -45,7 +45,7 @@ export const LOCAL_ORIGIN = 'local'
 
 export class ReadOnlyError extends Error {
   constructor() {
-    super('This field is read-only for your role')
+    super('This glade is read-only for your role')
     this.name = 'ReadOnlyError'
   }
 }

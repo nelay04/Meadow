@@ -15,6 +15,21 @@ import * as Y from 'yjs'
 
 import type { Wanderer } from '../../canvas/overlay/wandererLayer'
 import type { ToolId } from '../../canvas/tools/types'
+import {
+  IconArrow,
+  IconBack,
+  IconCircle,
+  IconCursor,
+  IconDiamond,
+  IconFit,
+  IconHand,
+  IconLine,
+  IconSquare,
+  IconSticky,
+  IconText,
+  IconTrash,
+} from '../../ui/icons'
+import { ThemeToggle } from '../../ui/ThemeToggle'
 import { createDocSession, roleCanWrite } from '../../doc/mutations'
 import type { BoardRole } from '../../lib/api'
 import * as api from '../../lib/api'
@@ -28,17 +43,25 @@ type Props = {
   onBack: () => void
 }
 
-const TOOLS: { id: ToolId; label: string; hint: string }[] = [
-  { id: 'select', label: 'Select', hint: 'V' },
-  { id: 'hand', label: 'Pan', hint: 'H' },
-  { id: 'text', label: 'Text', hint: 'T' },
-  { id: 'sticky', label: 'Sticky', hint: 'S' },
-  { id: 'arrow', label: 'Arrow', hint: 'A' },
-  { id: 'line', label: 'Line', hint: 'L' },
-  { id: 'rect', label: 'Rectangle', hint: 'R' },
-  { id: 'ellipse', label: 'Ellipse', hint: 'O' },
-  { id: 'diamond', label: 'Diamond', hint: 'D' },
+const TOOLS: { id: ToolId; label: string; hint: string; Icon: typeof IconCursor }[] = [
+  { id: 'select', label: 'Select', hint: 'V', Icon: IconCursor },
+  { id: 'hand', label: 'Pan', hint: 'H', Icon: IconHand },
+  { id: 'text', label: 'Text', hint: 'T', Icon: IconText },
+  { id: 'sticky', label: 'Sticky', hint: 'S', Icon: IconSticky },
+  { id: 'arrow', label: 'Arrow', hint: 'A', Icon: IconArrow },
+  { id: 'line', label: 'Line', hint: 'L', Icon: IconLine },
+  { id: 'rect', label: 'Rectangle', hint: 'R', Icon: IconSquare },
+  { id: 'ellipse', label: 'Ellipse', hint: 'O', Icon: IconCircle },
+  { id: 'diamond', label: 'Diamond', hint: 'D', Icon: IconDiamond },
 ]
+
+/** What the status pill says, so a raw state name never reaches the user. */
+const CONNECTION_LABEL: Record<ConnectionState, string> = {
+  connecting: 'Connecting',
+  connected: 'Live',
+  disconnected: 'Offline',
+  denied: 'No access',
+}
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean)
@@ -201,13 +224,23 @@ export default function BoardPage({ boardId, onBack }: Props) {
   return (
     <main className="board">
       <header className="board-bar">
-        <button type="button" className="link" onClick={onBack}>
-          &larr; Fields
+        <button type="button" className="icon ghost" onClick={onBack} title="Back to your glades" aria-label="Back to your glades">
+          <IconBack />
         </button>
         <h1>{title}</h1>
         <span className={`role role-${role}`}>{role}</span>
-        <span className={`dot ${state}`} />
-        <span className="muted">{detail === '' ? state : `${state} (${detail})`}</span>
+
+        {/* Connected is the state you are in essentially always, and a permanent
+            "Live" beside a green dot is the app congratulating itself. The dot alone
+            carries it, with the word on hover; the pill only speaks up when something
+            is actually wrong. */}
+        <span
+          className={state === 'connected' ? 'conn quiet' : 'conn'}
+          title={detail === '' ? CONNECTION_LABEL[state] : `${CONNECTION_LABEL[state]} (${detail})`}
+        >
+          <span className={`dot ${state}`} />
+          {state !== 'connected' && CONNECTION_LABEL[state]}
+        </span>
 
         <div className="spacer" />
 
@@ -235,29 +268,45 @@ export default function BoardPage({ boardId, onBack }: Props) {
           ))}
         </div>
 
-        <span className="muted mono">{Math.round(canvas.zoom * 100)}%</span>
-        <button type="button" className="link" onClick={canvas.resetZoom}>
-          100%
-        </button>
-        <button type="button" className="link" onClick={canvas.zoomToFit}>
-          Fit
-        </button>
+        <span className="divider" />
+
+        <div className="zoom" role="group" aria-label="Zoom">
+          {/* The readout is the reset button. Showing the current zoom beside a
+              button also labelled 100% reads as the same number printed twice. */}
+          <button
+            type="button"
+            className="readout"
+            onClick={canvas.resetZoom}
+            title="Reset to 100%"
+          >
+            {Math.round(canvas.zoom * 100)}%
+          </button>
+          <button type="button" onClick={canvas.zoomToFit} title="Zoom to fit">
+            <IconFit size={15} />
+            Fit
+          </button>
+        </div>
+
+        <ThemeToggle />
       </header>
 
       <div className="board-body">
+        {/* The rail floats over the canvas rather than taking a column out of it.
+            ARCHITECTURE 1: the drawing surface is the product. */}
         <nav className="toolbar" aria-label="Tools">
           {TOOLS.map((tool) => (
             <button
               key={tool.id}
               type="button"
-              title={`${tool.label} (${tool.hint})`}
+              data-tip={`${tool.label}  ${tool.hint}`}
+              aria-label={`${tool.label} (${tool.hint})`}
               aria-pressed={canvas.tool === tool.id}
               className={canvas.tool === tool.id ? 'tool active' : 'tool'}
               // Pan stays available to a viewer. Only the creation tools are gated.
               disabled={!canWrite && tool.id !== 'select' && tool.id !== 'hand'}
               onClick={() => canvas.setTool(tool.id)}
             >
-              {tool.label}
+              <tool.Icon size={19} />
             </button>
           ))}
 
@@ -266,40 +315,52 @@ export default function BoardPage({ boardId, onBack }: Props) {
           <button
             type="button"
             className="tool"
+            data-tip="Delete  Del"
+            aria-label="Delete selection"
             disabled={!canWrite || canvas.selection.length === 0}
             onClick={canvas.deleteSelection}
           >
-            Delete
+            <IconTrash size={19} />
           </button>
         </nav>
 
         {/* The engine mounts its own canvas here and sizes to this element. */}
         <div className="canvas-host" ref={canvas.containerRef} />
+
+        <div className="board-notices">
+          {!canWrite && (
+            <p className="banner">You have {role} access to this glade. Editing is disabled.</p>
+          )}
+          {canvas.notice !== null && (
+            <p className="error" onClick={canvas.dismissNotice} title="Dismiss">
+              {canvas.notice}
+            </p>
+          )}
+        </div>
       </div>
 
-      {!canWrite && (
-        <p className="banner">You have {role} access to this field. Editing is disabled.</p>
-      )}
-      {canvas.notice !== null && (
-        <p className="error" onClick={canvas.dismissNotice}>
-          {canvas.notice}
-        </p>
-      )}
-
-      <footer className="statusbar muted">
+      <footer className="statusbar">
         <span>
           <span data-testid="object-count">
             {canvas.objectCount} object{canvas.objectCount === 1 ? '' : 's'}
           </span>
-          {' | '}
+          {' \u00b7 '}
           {canvas.selection.length === 0
             ? 'nothing selected'
             : `${canvas.selection.length} selected`}
         </span>
-        <span className="mono">
-          {canvas.editingId === null
-            ? 'double-click text to edit, drag to marquee, space or middle-drag to pan, ctrl+wheel to zoom'
-            : 'editing text, escape to finish'}
+        <span>
+          {canvas.editingId === null ? (
+            <>
+              <kbd>Double-click</kbd> text to edit <span className="faint">|</span>{' '}
+              <kbd>Space</kbd> or middle-drag to pan <span className="faint">|</span>{' '}
+              <kbd>Ctrl</kbd>+<kbd>Wheel</kbd> to zoom
+            </>
+          ) : (
+            <>
+              Editing text <span className="faint">|</span> <kbd>Esc</kbd> to finish
+            </>
+          )}
         </span>
       </footer>
     </main>

@@ -1,7 +1,7 @@
 /**
  * End-to-end check of the real board view.
  *
- * Registers a user over REST, creates a field, opens it in the browser, draws on it,
+ * Registers a user over REST, creates a glade, opens it in the browser, draws on it,
  * and asserts the object reached Postgres through the websocket. The canvas smoke test
  * drives the engine against a local Y.Doc; this is the only check that covers auth,
  * the handshake, the provider, and persistence together.
@@ -117,9 +117,9 @@ check('a personal workspace exists after registering', workspaceId !== undefined
 const boardResponse = await fetch(`${apiBase}/api/v1/boards`, {
   method: 'POST',
   headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken}` },
-  body: JSON.stringify({ workspace_id: workspaceId, title: 'E2E field' }),
+  body: JSON.stringify({ workspace_id: workspaceId, title: 'E2E glade' }),
 })
-check('create a field', boardResponse.ok, `status ${boardResponse.status}`)
+check('create a glade', boardResponse.ok, `status ${boardResponse.status}`)
 const browser = await chromium.launch({
   channel: 'chromium',
   args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
@@ -135,10 +135,10 @@ await page.fill('input[type="email"]', email)
 await page.fill('input[type="password"]', password)
 await page.click('button[type="submit"]')
 
-await page.waitForSelector('text=E2E field', { timeout: 20000 })
-check('the new field appears in the list', true)
+await page.waitForSelector('text=E2E glade', { timeout: 20000 })
+check('the new glade appears in the list', true)
 
-await page.click('text=E2E field')
+await page.click('text=E2E glade')
 await page.waitForSelector('.canvas-host canvas', { timeout: 20000 })
 check('the board view mounts a canvas', true)
 
@@ -150,7 +150,7 @@ await page.waitForFunction(
 )
 check('the handshake resolves the owner role', true)
 
-await page.click('button[title^="Rectangle"]')
+await page.click('button[aria-label^="Rectangle"]')
 const box = await page.locator('.canvas-host canvas').boundingBox()
 await page.mouse.move(box.x + 200, box.y + 180)
 await page.mouse.down()
@@ -170,7 +170,7 @@ check('the object is in the document', drawnCount?.trim() === '1 object', `read 
 // Text objects, over the same socket. The canvas smoke test drives TipTap against a
 // local Y.Doc; this is the only check that a Y.XmlFragment written by ProseMirror
 // survives the provider and pycrdt on the way to Postgres and back.
-await page.click('button[title^="Sticky"]')
+await page.click('button[aria-label^="Sticky"]')
 await page.mouse.click(box.x + 700, box.y + 300)
 await page.waitForSelector('.meadow-overlay .ProseMirror', { timeout: 20000 })
 check('placing a sticky opens an editor on it straight away', true)

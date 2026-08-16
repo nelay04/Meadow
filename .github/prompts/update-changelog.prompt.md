@@ -65,7 +65,8 @@ it, and say which one. If a target is unverified, say it is unverified rather th
 omitting it, the same way section 11 does. A number without a source in this project is
 a bug in the changelog.
 
-**Vocabulary.** A board is a **field**, remote cursors are **wanderers**. Keep
+**Vocabulary.** A board is a **glade**, remote cursors are **wanderers**. It was
+**field** through M5, so phases before M6 keep that word where they used it. Keep
 `board_id` when describing the database or the API.
 
 **Style.** Plain ASCII. No emojis. Prefer plain punctuation over em dashes. Present the
