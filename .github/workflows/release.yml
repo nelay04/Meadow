@@ -1,0 +1,147 @@
+# Build both images, publish them to GHCR, and deploy to the VPS.
+#
+# Separate from ci.yml because it needs write permissions and secrets that a pull
+# request from a fork must never get. It runs only after ci has passed on main, so a
+# red build cannot become a deploy.
+
+name: release
+
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+  # For redeploying a commit that already built, without pushing an empty commit.
+  workflow_dispatch:
+
+concurrency:
+  # Never two deploys at once. The second would race the first's `up -d` and could
+  # leave the stack half on each image.
+  group: release
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  build:
+    # `workflow_run` fires on failure too, and its conclusion is the only thing that
+    # says which. Without this guard a red ci publishes an image.
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      api_image: ${{ steps.names.outputs.api }}
+      web_image: ${{ steps.names.outputs.web }}
+      backup_image: ${{ steps.names.outputs.backup }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # workflow_run checks out the default branch tip by default, which is not
+          # necessarily the commit ci passed on.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: names
+        run: |
+          owner=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "api=${{ env.REGISTRY }}/${owner}/meadow-api" >> "$GITHUB_OUTPUT"
+          echo "web=${{ env.REGISTRY }}/${owner}/meadow-web" >> "$GITHUB_OUTPUT"
+          echo "backup=${{ env.REGISTRY }}/${owner}/meadow-backup" >> "$GITHUB_OUTPUT"
+
+      - name: api image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./services/api
+          file: ./docker/api/Dockerfile
+          push: true
+          # Tagged by sha as well as latest, so a rollback is a tag change rather than
+          # a rebuild of a commit whose dependencies may since have moved.
+          tags: |
+            ${{ steps.names.outputs.api }}:latest
+            ${{ steps.names.outputs.api }}:${{ github.event.workflow_run.head_sha || github.sha }}
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,scope=api,mode=max
+
+      - name: web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./docker/web/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.names.outputs.web }}:latest
+            ${{ steps.names.outputs.web }}:${{ github.event.workflow_run.head_sha || github.sha }}
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,scope=web,mode=max
+
+      - name: backup image
+        # Small, but published rather than built on the box for the same reason as the
+        # others: the VPS should never need a build toolchain or the memory to use one.
+        uses: docker/build-push-action@v6
+        with:
+          context: ./docker/backup
+          push: true
+          tags: |
+            ${{ steps.names.outputs.backup }}:latest
+            ${{ steps.names.outputs.backup }}:${{ github.event.workflow_run.head_sha || github.sha }}
+          cache-from: type=gha,scope=backup
+          cache-to: type=gha,scope=backup,mode=max
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    # Gate the secrets behind an environment so a deploy can require approval, and so
+    # the VPS credentials are not readable by every workflow in the repo.
+    environment: production
+    steps:
+      - name: ship it
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd ${{ secrets.VPS_PATH }}
+
+            git fetch --prune origin main
+            git reset --hard origin/main
+
+            # The images come from the registry; nothing is built on the VPS. A build
+            # there competes with postgres for the little memory the box has.
+            docker compose --env-file .env.prod pull api worker web backup
+            docker compose --env-file .env.prod up -d --wait --remove-orphans
+
+            # `up -d` returns once containers are up; --wait holds until they are
+            # healthy, which for the API means it answered /healthz. The migrate
+            # service has already run to completion by then, or the API never started.
+            docker compose --env-file .env.prod ps
+
+            # Old image layers accumulate faster than a 200GB VPS enjoys.
+            docker image prune -f --filter "until=168h"
+
+      - name: it is actually serving
+        # Against the public URL, not through the ssh session. A deploy that leaves
+        # nginx unable to reach the API produces healthy containers and a broken site.
+        run: |
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if curl -fsS --max-time 10 "${{ secrets.PUBLIC_URL }}/healthz" | grep -q '"ok"'; then
+              echo "healthy"
+              exit 0
+            fi
+            echo "attempt ${attempt}: not yet"
+            sleep 6
+          done
+          echo "the site did not come back healthy"
+          exit 1

@@ -1,0 +1,215 @@
+# Lint, test, and prove the production stack actually runs.
+#
+# Jobs are split by what they need rather than by language: `lint` needs nothing,
+# `test-api` needs postgres and redis, `e2e` needs those plus a browser, and `stack`
+# needs docker. Splitting them this way means a type error reports in under a minute
+# instead of behind a browser download.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  # A second push supersedes the first. Nothing here is worth spending a runner on
+  # once the commit it tested is no longer the tip.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.13"
+  NODE_VERSION: "22"
+
+jobs:
+  lint-api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: install
+        working-directory: services/api
+        run: |
+          uv venv --python ${{ env.PYTHON_VERSION }}
+          uv pip install -e . --group dev
+      - name: ruff
+        working-directory: services/api
+        run: .venv/bin/ruff check .
+      - name: mypy
+        working-directory: services/api
+        run: .venv/bin/mypy app/
+
+  lint-web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: tsc
+        run: pnpm --filter web lint
+      - name: vitest
+        run: pnpm --filter web test
+      - name: vite build
+        run: pnpm --filter web build
+
+  test-api:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: meadow
+          POSTGRES_PASSWORD: meadow
+          POSTGRES_DB: meadow
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U meadow"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # The suite creates and migrates its own database and uses Redis db 1. conftest
+      # reads both from the environment, so nothing here touches app defaults.
+      MEADOW_TEST_DATABASE_URL: postgresql+asyncpg://meadow:meadow@localhost:5432/meadow_test
+      MEADOW_TEST_REDIS_URL: redis://localhost:6379/1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: install
+        working-directory: services/api
+        run: |
+          # conftest invokes .venv/bin/alembic by path, so the venv has to be here and
+          # has to be called .venv.
+          uv venv --python ${{ env.PYTHON_VERSION }}
+          uv pip install -e . --group dev
+      - name: alembic check
+        working-directory: services/api
+        env:
+          MEADOW_DATABASE_URL: postgresql+asyncpg://meadow:meadow@localhost:5432/meadow
+        run: |
+          .venv/bin/alembic upgrade head
+          # Fails if the models have drifted from the migrations. A schema that only
+          # exists in models.py works locally and breaks on the first deploy.
+          .venv/bin/alembic check
+      - name: pytest
+        working-directory: services/api
+        run: .venv/bin/python -m pytest -q
+
+  e2e:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: meadow
+          POSTGRES_PASSWORD: meadow
+          POSTGRES_DB: meadow
+        ports: ["5435:5432"]
+        options: >-
+          --health-cmd "pg_isready -U meadow"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6380:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: pnpm install --frozen-lockfile
+      - name: install api
+        working-directory: services/api
+        run: |
+          uv venv --python ${{ env.PYTHON_VERSION }}
+          uv pip install -e . --group dev
+          .venv/bin/alembic upgrade head
+      - name: browsers
+        # Chromium only. The canvas smoke and the overlay drift measurement both run
+        # headless on SwiftShader, and the other two engines would triple the download
+        # to test a renderer this project does not target.
+        run: pnpm exec playwright install --with-deps chromium
+      - name: m0 gate
+        run: ./scripts/m0-gate.sh
+      - name: canvas and overlay smoke
+        run: |
+          pnpm smoke:canvas
+          pnpm smoke:overlay
+      - name: board e2e
+        run: pnpm e2e:board
+      - name: presence e2e
+        run: pnpm e2e:presence
+
+  stack:
+    # The one job that tests the thing being deployed. Everything above runs against a
+    # uvicorn on the host, so it would pass against a stack whose nginx config dropped
+    # the websocket upgrade or served the SPA fallback over a missing bundle.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: env
+        run: |
+          cp .env.prod.example .env.prod
+          {
+            echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)"
+            echo "MEADOW_JWT_SECRET=$(openssl rand -hex 32)"
+            # The check drives plain http, so the refresh cookie cannot be Secure or
+            # the browser-equivalent client never sends it back.
+            echo "MEADOW_REFRESH_COOKIE_SECURE=false"
+            echo "WEB_BIND=127.0.0.1"
+            echo "WEB_PUBLIC_PORT=8080"
+            echo "BACKUP_UID=$(id -u)"
+            echo "BACKUP_GID=$(id -g)"
+          } >> .env.prod
+      - name: build and start
+        run: docker compose --env-file .env.prod up -d --build --wait
+      - name: stack check
+        env:
+          WEB_PUBLIC_PORT: 8080
+        run: node scripts/stack-check.mjs
+      - name: backup sidecar produced a verified dump
+        run: |
+          # The sidecar dumps at startup precisely so this is checkable on the first
+          # run rather than a day later.
+          ls -l backups/
+          test -n "$(find backups -name 'meadow-*.dump' -type f)"
+      - name: logs
+        if: failure()
+        run: docker compose --env-file .env.prod logs --tail 200
+      - name: down
+        if: always()
+        run: docker compose --env-file .env.prod down -v
