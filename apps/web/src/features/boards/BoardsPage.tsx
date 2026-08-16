@@ -12,6 +12,8 @@ import {
   IconUser,
 } from '../../ui/icons'
 import { ThemeToggle } from '../../ui/ThemeToggle'
+import { useConfirm } from '../../ui/ConfirmDialog'
+import { useToast } from '../../ui/Toaster'
 import * as api from '../../lib/api'
 import type { Board } from '../../lib/api'
 import { useAuth } from '../auth/AuthContext'
@@ -126,6 +128,8 @@ function BoardThumbnail({ boardId }: { boardId: string }) {
 
 export default function BoardsPage({ onOpen }: Props) {
   const { user, logout } = useAuth()
+  const confirm = useConfirm()
+  const toast = useToast()
   const [boards, setBoards] = useState<Board[]>([])
   const [title, setTitle] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -134,9 +138,18 @@ export default function BoardsPage({ onOpen }: Props) {
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<SortId>('modified')
 
+  /*
+   * A failed load is the only one of the three that stays on the page.
+   *
+   * It is not an event, it is the state of the view: there is nothing here and the
+   * reason is not "you have no glades". A toast for that would take the explanation
+   * away four seconds later and leave an empty page that looks like an empty account.
+   * The two below are events, and they toast.
+   */
   const reload = useCallback(async () => {
     try {
       setBoards(await api.listBoards())
+      setError(null)
     } catch {
       setError('Could not load your glades.')
     } finally {
@@ -155,17 +168,25 @@ export default function BoardsPage({ onOpen }: Props) {
       setTitle('')
       onOpen(board.id)
     } catch {
-      setError('Could not create that glade.')
+      toast.error('Could not create that glade.')
     }
   }
 
   const remove = async (board: Board) => {
-    if (!confirm(`Delete "${board.title}"? This cannot be undone.`)) return
+    const agreed = await confirm({
+      title: `Delete "${board.title}"?`,
+      body: 'The glade and everything on it goes. This cannot be undone.',
+      confirmLabel: 'Delete glade',
+      tone: 'danger',
+    })
+    if (!agreed) return
+
     try {
       await api.deleteBoard(board.id)
       await reload()
+      toast.success(`Deleted "${board.title}".`)
     } catch {
-      setError('Could not delete that glade.')
+      toast.error('Could not delete that glade.')
     }
   }
 
@@ -287,7 +308,14 @@ export default function BoardsPage({ onOpen }: Props) {
           </button>
         </div>
 
-        {error !== null && <p className="error">{error}</p>}
+        {error !== null && (
+          <p className="error">
+            {error}
+            <button type="button" className="link" onClick={() => void reload()}>
+              Try again
+            </button>
+          </p>
+        )}
 
         {loading ? (
           <ul className="board-grid">

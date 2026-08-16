@@ -49,8 +49,6 @@ export type CanvasHandle = {
   zoom: number
   /** The object currently being text-edited, or null. */
   editingId: string | null
-  notice: string | null
-  dismissNotice(): void
   /** Hand remote presence to the engine for the next frame. */
   setWanderers(wanderers: readonly Wanderer[]): void
   zoomToFit(): void
@@ -86,11 +84,28 @@ export type CanvasPresence = {
   onSelection(ids: readonly string[]): void
 }
 
+/**
+ * Everything the hook needs that is not the document or the presence channel.
+ *
+ * An object rather than more positional arguments: both of these are optional, both
+ * arrive from the page rather than from the sync layer, and a third and fourth
+ * positional parameter is how a call site ends up reading `useCanvas(s, p, '', fn)`.
+ */
+export type CanvasOptions = {
+  /** The signed-in person's display name, for the byline on a sticky they create. */
+  authorName?: string
+  /**
+   * A write the role would not allow. Fired from a pointer handler, so it can arrive
+   * once a frame for as long as someone keeps dragging on a board they cannot edit.
+   * Whatever consumes it has to expect repeats.
+   */
+  onRefused?(message: string): void
+}
+
 export function useCanvas(
   session: DocSession,
   presence?: CanvasPresence,
-  /** The signed-in person's display name, for the byline on a sticky they create. */
-  authorName = '',
+  options: CanvasOptions = {},
 ): CanvasHandle {
   const [element, setElement] = useState<HTMLDivElement | null>(null)
   const [tool, setToolState] = useState<ToolId>('select')
@@ -98,7 +113,6 @@ export function useCanvas(
   const [zoom, setZoom] = useState(1)
   const [objectCount, setObjectCount] = useState(0)
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
   const [gridVisible, setGridVisible] = useState(readGridPreference)
   const [arrowRouting, setArrowRoutingState] = useState<ArrowRouting>('straight')
   const [activeMarks, setActiveMarks] = useState<readonly TextMark[]>([])
@@ -125,9 +139,11 @@ export function useCanvas(
   gridRef.current = gridVisible
 
   // Same reason as the session: the name arrives after the engine is built, so the
-  // host reads it through a ref rather than capturing whatever it was at mount.
-  const authorRef = useRef(authorName)
-  authorRef.current = authorName
+  // host reads it through a ref rather than capturing whatever it was at mount. The
+  // refusal handler goes through one too, so the engine's effect can keep `[element]`
+  // as its only dependency and a new callback identity never rebuilds the canvas.
+  const optionsRef = useRef(options)
+  optionsRef.current = options
 
   useEffect(() => {
     if (element === null) return
@@ -135,13 +151,13 @@ export function useCanvas(
     const current = () => sessionRef.current
 
     const host = new DocEngineHost(current, {
-      onRefused: setNotice,
+      onRefused: (message) => optionsRef.current.onRefused?.(message),
       onMarks: setActiveMarks,
       // The engine asks for an editor and never learns what it is. This is the only
       // place ProseMirror is named on the board path, which is what keeps src/canvas
       // free of it.
       createEditor: createTextEditor,
-      authorName: () => authorRef.current,
+      authorName: () => optionsRef.current.authorName ?? '',
     })
     const unobserveHost = host.observe()
 
@@ -227,9 +243,7 @@ export function useCanvas(
     objectCount,
     zoom,
     editingId,
-    notice,
     setWanderers,
-    dismissNotice: () => setNotice(null),
     zoomToFit: () => engineRef.current?.zoomToFit(),
     resetZoom: () => engineRef.current?.resetZoom(),
     deleteSelection: () => engineRef.current?.deleteSelection(),

@@ -34,6 +34,23 @@ The infrastructure to run the thing. Not deployed yet.
 - CI on every push: lint, both test suites, the e2e scripts, and a job that builds the
   images and runs the stack check against them. `release.yml` publishes three images to
   GHCR and deploys over ssh, gated on CI passing.
+- **A confirmation dialog and toasts**, replacing the last two things in the app that
+  spoke through the browser instead of through Meadow. Deleting a glade asked with
+  `window.confirm`, which names the origin rather than the app, blocks the main thread,
+  cannot be styled, and puts OK where the eye lands first on an irreversible action.
+  The replacement is a native `<dialog>` opened with `showModal`, so the browser still
+  supplies the top layer, the inert background, the focus trap and Escape, and the app
+  supplies the appearance and a destructive-action default of Cancel.
+- Toasts in the bottom right, for things that happened rather than things that are
+  true: a glade deleted, a create that failed, a write the role refused. A standing
+  condition like "you have viewer access" stays a banner on the page, because a toast
+  takes itself away and a durable fact should not. Repeats of the same message collapse
+  into one with a count, which is what makes them usable for canvas refusals: those
+  fire from a pointer handler, so a two second drag on a locked glade used to be a
+  hundred identical events. The clock is the progress bar's own CSS animation and
+  dismissal happens when it ends, so there is no second timer to drift out of step with
+  it, hovering the stack pauses both at once, and a background tab does not burn
+  through its notifications unseen.
 - **A pre-commit hook**, in `.githooks/` rather than in `.git/hooks/`, so the rules are
   versioned with the repo instead of being whatever each clone happened to copy in.
   `pnpm install` points `core.hooksPath` at it through `scripts/install-hooks.mjs`, and
@@ -202,6 +219,16 @@ The infrastructure to run the thing. Not deployed yet.
   else.
 
 ### Fixed
+- **A NUL byte in `canvas/overlay/textLayer.ts` made the file binary to every tool that
+  reads source as text.** It was the sentinel for "nothing has been rendered into this
+  node yet", written as the character rather than as `\u0000`. git diffed the file as
+  "Binary files differ" instead of by line, grep skipped it without saying so, and the
+  new pre-commit rules checker never saw a line of it. Same value, written as an escape.
+- The board e2e read the typed sticky caption off the first overlay node's
+  `textContent`, and two changes had quietly moved it: shapes became text bearing, so a
+  drawn rectangle now mounts a node of its own and sorts first, and a sticky carries its
+  author's byline inside the same box. It reads the rich-text nodes now, which is where
+  a caption actually is.
 - **The canvas rendered with antialiasing off, so every diagonal was a staircase.** The
   reasoning was that the SDF batch antialiases itself with `fwidth` and does not need
   MSAA, which is true of the batch and irrelevant to the rest of the frame: arrows,

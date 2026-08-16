@@ -1470,3 +1470,394 @@ kbd {
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+/* --- the modal ---------------------------------------------------------------
+ *
+ * A native <dialog>, so the browser handles the top layer, the inert background, the
+ * focus trap and Escape. What is left to do here is make it look like the rest of the
+ * app, and animate it in without the box jumping.
+ */
+
+dialog.modal {
+  /* The element's own box is the whole viewport, so the backdrop is clickable
+     everywhere and the card can be centred with a grid rather than with transforms,
+     which would fight the entry animation. */
+  width: 100vw;
+  max-width: 100vw;
+  height: 100dvh;
+  max-height: 100dvh;
+  margin: 0;
+  padding: 1.5rem;
+  border: 0;
+  background: transparent;
+  place-items: center;
+  overflow: hidden;
+}
+
+/*
+ * `display` is stated only for the open state, and that is not a detail.
+ *
+ * The UA stylesheet closes a dialog with `dialog:not([open]) { display: none }`. An
+ * author rule that sets `display` on the element unconditionally beats it, and the
+ * result is a closed dialog that is still laid out at full viewport size, invisible
+ * and swallowing every click on the page behind it. The first version of this had
+ * exactly that bug.
+ */
+dialog.modal[open] {
+  display: grid;
+}
+
+/*
+ * The scrim is a flat dark wash in both themes, not a themed colour.
+ *
+ * A scrim's job is to put the page a step further away, and the only way to do that
+ * is to take light out of it. A pale scrim over a light theme dims nothing and reads
+ * as a rendering fault.
+ */
+dialog.modal::backdrop {
+  background: #0b0d10a3;
+  backdrop-filter: blur(3px);
+  transition: opacity 160ms cubic-bezier(0.2, 0, 0.2, 1);
+}
+
+@starting-style {
+  dialog.modal[open]::backdrop {
+    opacity: 0;
+  }
+}
+
+.modal-card {
+  width: min(26rem, 100%);
+  padding: 1.4rem 1.5rem 1.15rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+  text-align: left;
+}
+
+.modal-card h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--fg-strong);
+  letter-spacing: -0.01em;
+}
+
+.modal-body {
+  margin: 0.4rem 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  /* The one thing in the dialog worth selecting: it usually names something. */
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1.25rem;
+}
+
+.modal-actions button {
+  min-width: 5.5rem;
+  justify-content: center;
+}
+
+/*
+ * A filled destructive button, as opposed to `button.danger`, which is the quiet
+ * icon treatment on the rail. This one is the last thing between a person and an
+ * irreversible action: it is the loudest control on screen on purpose, and it is the
+ * only place in the app that paints a full red plate.
+ */
+button.primary.danger-solid {
+  /*
+   * Its own red, not `--danger`.
+   *
+   * `--danger` is ink: in the dark theme it is a pale salmon, chosen to be legible as
+   * text on a dark surface. Used as a fill it puts white type on a light plate, which
+   * is the worst contrast in the app on the one button that must be unmistakable. This
+   * is a fill red in both themes, and white sits at 6:1 on the light one and 4.5:1 on
+   * the dark one.
+   */
+  background: light-dark(#b42318, #d4453a);
+  border-color: transparent;
+  color: #ffffff;
+}
+
+button.primary.danger-solid:hover:not(:disabled) {
+  background: light-dark(#8f1c13, #e15449);
+  border-color: transparent;
+}
+
+button.primary.danger-solid:focus-visible {
+  outline-color: var(--danger);
+  box-shadow: 0 0 0 3px var(--danger-soft);
+}
+
+/*
+ * The card scales up from slightly small and slightly low. Both are tiny on purpose:
+ * a dialog that flies in from off screen reads as a page transition, and a dialog is
+ * not a place you went, it is a question that arrived.
+ */
+dialog.modal .modal-card {
+  opacity: 0;
+  transform: translateY(6px) scale(0.97);
+  transition:
+    opacity 160ms cubic-bezier(0.2, 0, 0.2, 1),
+    transform 160ms cubic-bezier(0.2, 0, 0.2, 1);
+}
+
+dialog.modal[open] .modal-card {
+  opacity: 1;
+  transform: none;
+}
+
+@starting-style {
+  dialog.modal[open] .modal-card {
+    opacity: 0;
+    transform: translateY(6px) scale(0.97);
+  }
+}
+
+/*
+ * The exit is instant, and only the entrance is animated.
+ *
+ * Holding a closed dialog on screen long enough to fade it out means keeping the
+ * element displayed after `close()`, which is the same thing that made it eat clicks
+ * above. It is also the less useful half: an arriving dialog needs a moment so the eye
+ * can follow where it came from, and a dismissed one is a question already answered.
+ */
+
+/* --- toasts ------------------------------------------------------------------
+ *
+ * Bottom right, stacked upward, newest nearest the corner. The corner is chosen for
+ * the same reason every tool chooses it: the top of this app is chrome the user reads,
+ * and the canvas is the middle. The bottom right is the one region where a card can
+ * appear without covering something being worked on.
+ */
+
+.toaster {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  width: min(23rem, calc(100vw - 2rem));
+  /* The container spans a column of the screen, and a container that eats pointer
+     events over an empty column would swallow clicks on the canvas underneath. Only
+     the toasts themselves take them back. */
+  pointer-events: none;
+}
+
+.toast {
+  pointer-events: auto;
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.7rem 0.75rem 0.7rem 0.8rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+
+  /* Enters from the right, which is where it lives. Sliding up from the bottom would
+     read as the stack shuffling rather than as something new arriving. */
+  animation: toast-in 200ms cubic-bezier(0.2, 0, 0.2, 1);
+  transition:
+    opacity var(--fast),
+    transform var(--fast);
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(12px) scale(0.98);
+  }
+}
+
+.toast.leaving {
+  opacity: 0;
+  transform: translateX(12px) scale(0.98);
+}
+
+/*
+ * The kind is carried by the glyph's shape and colour and by a coloured spine down
+ * the leading edge, not by tinting the whole card. A wall of red plates in the corner
+ * is louder than the news it is delivering, and it makes the text harder to read at
+ * the moment you most want it read.
+ */
+.toast::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--muted);
+}
+
+.toast-success::before {
+  background: var(--success);
+}
+
+.toast-error::before {
+  background: var(--danger);
+}
+
+.toast-info::before {
+  background: var(--accent);
+}
+
+.toast-glyph {
+  display: grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: var(--pill);
+}
+
+.toast-success .toast-glyph {
+  background: light-dark(#1a7f4514, #4ec98a1f);
+  color: var(--success);
+}
+
+.toast-error .toast-glyph {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.toast-info .toast-glyph {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.toast-message {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.4;
+  color: var(--fg-strong);
+  /* Long titles get quoted into these, and a glade may be called anything. */
+  overflow-wrap: anywhere;
+}
+
+/* "the same thing happened 12 times", without twelve cards saying so. */
+.toast-count {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0 0.35rem;
+  border-radius: var(--pill);
+  background: var(--surface-3);
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  vertical-align: 1px;
+}
+
+.toast-action {
+  padding: 0.25rem 0.55rem;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.toast-action:hover {
+  background: var(--accent-soft);
+}
+
+.toast-close {
+  display: grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--faint);
+}
+
+.toast-close:hover {
+  background: var(--surface-3);
+  color: var(--fg-strong);
+}
+
+/*
+ * The clock, and the only one: the toast is dismissed when this animation ends.
+ * Hovering the stack pauses every bar, and therefore every dismissal, so reading one
+ * toast does not cost you the one below it.
+ */
+.toast-progress {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: 100%;
+  transform-origin: left;
+  background: currentColor;
+  color: var(--faint);
+  opacity: 0.35;
+  animation-name: toast-life;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+.toast-success .toast-progress {
+  color: var(--success);
+}
+
+.toast-error .toast-progress {
+  color: var(--danger);
+}
+
+.toast-info .toast-progress {
+  color: var(--accent);
+}
+
+.toaster:hover .toast-progress,
+.toaster:focus-within .toast-progress {
+  animation-play-state: paused;
+}
+
+.toast.leaving .toast-progress {
+  animation-play-state: paused;
+}
+
+@keyframes toast-life {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+/*
+ * Reduced motion takes away the sliding, not the clock. The progress bar is
+ * information rather than decoration, and it is what dismisses the toast: turning its
+ * animation off would leave every toast on screen permanently.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: none;
+  }
+
+  .toast.leaving {
+    transform: none;
+  }
+
+  dialog.modal .modal-card,
+  dialog.modal[open] .modal-card {
+    transition: none;
+    transform: none;
+  }
+}

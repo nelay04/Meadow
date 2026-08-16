@@ -176,11 +176,21 @@ await page.waitForSelector('.meadow-overlay .ProseMirror', { timeout: 20000 })
 check('placing a sticky opens an editor on it straight away', true)
 
 const TYPED = 'meadow sticky'
+/** The class the overlay puts on an object's rich-text node, from canvas/text/textStyle.ts. */
+const CONTENT_CLASS = 'meadow-rt'
 await page.keyboard.type(TYPED)
 await page.keyboard.press('Escape')
+// Any mounted object's rich-text node, not the first overlay node and not the whole
+// box. Both of those used to be the same thing and are not any more: shapes are text
+// bearing now, so the rectangle drawn above also mounts a node and sorts first, and a
+// sticky's box also holds the author byline, so its textContent is the caption plus a
+// name.
 await page.waitForFunction(
-  (text) => document.querySelector('.meadow-overlay [data-object-id]')?.textContent === text,
-  TYPED,
+  ({ text, contentClass }) =>
+    [...document.querySelectorAll(`.meadow-overlay [data-object-id] .${contentClass}`)].some(
+      (node) => node.textContent === text,
+    ),
+  { text: TYPED, contentClass: CONTENT_CLASS },
   { timeout: 10000 },
 )
 check('the typed text renders as static HTML once editing ends', true)
@@ -202,11 +212,17 @@ check(
   `status bar read "${countText?.trim()}"`,
 )
 
-const reloadedText = await page.textContent('.meadow-overlay [data-object-id]')
+const reloadedTexts = await page.evaluate(
+  (contentClass) =>
+    [...document.querySelectorAll(`.meadow-overlay [data-object-id] .${contentClass}`)].map(
+      (node) => node.textContent,
+    ),
+  CONTENT_CLASS,
+)
 check(
   'the typed text survives a reload, so the fragment reached Postgres',
-  reloadedText === TYPED,
-  `overlay read "${reloadedText}"`,
+  reloadedTexts.includes(TYPED),
+  `overlay read ${JSON.stringify(reloadedTexts)}`,
 )
 
 check('no uncaught page errors', pageErrors.length === 0, pageErrors.join('; '))

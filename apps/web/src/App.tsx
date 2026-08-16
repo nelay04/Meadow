@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 
 import BoardPage from './features/board/BoardPage'
 import { Wordmark } from './ui/Brand'
+import { ConfirmProvider } from './ui/ConfirmDialog'
+import { ToastProvider } from './ui/Toaster'
 import { AuthProvider, useAuth } from './features/auth/AuthContext'
 import LoginPage from './features/auth/LoginPage'
 import BoardsPage from './features/boards/BoardsPage'
@@ -57,9 +59,19 @@ function Shell() {
 }
 
 export default function App() {
+  /*
+   * Both providers sit outside the auth boundary, so the login screen can talk too. A
+   * failed sign-in is exactly the kind of thing a toast is for, and a provider mounted
+   * inside `Shell` would be remounted by every view change underneath it, taking any
+   * toast still on screen with it.
+   */
   return (
-    <AuthProvider>
-      <Shell />
-    </AuthProvider>
+    <ToastProvider>
+      <ConfirmProvider>
+        <AuthProvider>
+          <Shell />
+        </AuthProvider>
+      </ConfirmProvider>
+    </ToastProvider>
   )
 }

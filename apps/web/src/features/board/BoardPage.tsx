@@ -43,6 +43,7 @@ import {
   IconTrash,
   IconUnlock,
 } from '../../ui/icons'
+import { useToast } from '../../ui/Toaster'
 import { ThemeToggle } from '../../ui/ThemeToggle'
 import { createDocSession, roleCanWrite } from '../../doc/mutations'
 import type { BoardRole } from '../../lib/api'
@@ -152,6 +153,7 @@ export default function BoardPage({ boardId, onBack }: Props) {
   const connection = useRef<BoardConnection | null>(null)
 
   const { user } = useAuth()
+  const toast = useToast()
   const [wanderers, setWanderers] = useState<Wanderer[]>([])
   const presence = useRef<PresenceHandle | null>(null)
 
@@ -169,7 +171,14 @@ export default function BoardPage({ boardId, onBack }: Props) {
     [],
   )
 
-  const canvas = useCanvas(session, presenceBridge, user?.display_name ?? '')
+  const canvas = useCanvas(session, presenceBridge, {
+    authorName: user?.display_name ?? '',
+    // A refusal is an event, so it toasts rather than parking a banner over the board.
+    // The stack dedupes, which matters here more than anywhere else in the app: this
+    // fires from a pointer handler and a two second drag on a read-only glade would
+    // otherwise produce a hundred identical cards.
+    onRefused: toast.error,
+  })
 
   // Depends on the callback, not on `canvas`. `useCanvas` returns a fresh object every
   // render, so closing over the whole handle would give this a new identity each time,
@@ -525,11 +534,6 @@ export default function BoardPage({ boardId, onBack }: Props) {
             !canWrite && (
               <p className="banner">You have {role} access to this glade. Editing is disabled.</p>
             )
-          )}
-          {canvas.notice !== null && (
-            <p className="error" onClick={canvas.dismissNotice} title="Dismiss">
-              {canvas.notice}
-            </p>
           )}
         </div>
       </div>

@@ -371,3 +371,48 @@ export function IconPencil(props: IconProps) {
     </Svg>
   )
 }
+
+/*
+ * Status and dismissal, for toasts and the confirmation dialog.
+ *
+ * Each status glyph is distinguishable by shape alone at 16px, not only by colour.
+ * A tick, a triangle and a disc read differently in a monochrome screenshot and to
+ * anyone who cannot separate the green from the red, which is the whole reason a
+ * toast carries an icon rather than just a coloured edge.
+ */
+
+export function IconCheck(props: IconProps) {
+  return (
+    <Svg {...props} strokeWidth={2.25}>
+      <path d="M5 12.5 10 17.5 19 7" />
+    </Svg>
+  )
+}
+
+export function IconAlert(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M12 4.6 21 19.4H3z" />
+      <path d="M12 10v4" />
+      <path d="M12 16.8v.1" />
+    </Svg>
+  )
+}
+
+export function IconInfo(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="12" cy="12" r="8.2" />
+      <path d="M12 11v5.4" />
+      <path d="M12 7.8v.1" />
+    </Svg>
+  )
+}
+
+export function IconClose(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M6.5 6.5 17.5 17.5M17.5 6.5 6.5 17.5" />
+    </Svg>
+  )
+}
