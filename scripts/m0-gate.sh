@@ -8,7 +8,31 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-set -a && . ./.env && set +a
+
+# .env is gitignored, so a fresh clone and CI both run without one. Source it when it
+# is there, and otherwise fall back to the same defaults the compose file and vite use
+# rather than dying on an unbound variable three lines later.
+#
+# The fallback is announced rather than silent. Defaults that quietly differ from the
+# ports and credentials the rest of the stack is using produce a gate that connects to
+# the wrong database and passes, which is worse than one that fails.
+if [ -f ./.env ]; then
+  set -a && . ./.env && set +a
+else
+  if [ -t 2 ]; then bold=$'\033[1;33m'; reset=$'\033[0m'; else bold=""; reset=""; fi
+  {
+    echo ""
+    echo "${bold}WARNING: no .env at the repo root.${reset}"
+    echo "${bold}Falling back to built-in defaults: API_PORT=8012, WEB_PORT=3012,${reset}"
+    echo "${bold}and the database and redis URLs compiled into app/config.py.${reset}"
+    echo "${bold}If your postgres or redis is anywhere else, this run will not reach it.${reset}"
+    echo "${bold}Copy .env.example to .env to make the settings explicit.${reset}"
+    echo ""
+  } >&2
+fi
+: "${API_PORT:=8012}"
+: "${WEB_PORT:=3012}"
+export API_PORT WEB_PORT
 
 # The gate registers several actors per run, and registration is capped at 3 per hour
 # per IP. Correct in production, and it means the gate can only be run three times a

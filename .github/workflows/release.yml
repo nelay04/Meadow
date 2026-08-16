@@ -62,6 +62,9 @@ jobs:
         with:
           context: ./services/api
           file: ./docker/api/Dockerfile
+          # The dev stage is last in the Dockerfile and an untargeted build takes the
+          # last stage. Without this, the published image is the reload supervisor.
+          target: runtime
           push: true
           # Tagged by sha as well as latest, so a rollback is a tag change rather than
           # a rebuild of a commit whose dependencies may since have moved.
@@ -76,6 +79,7 @@ jobs:
         with:
           context: .
           file: ./docker/web/Dockerfile
+          target: runtime
           push: true
           tags: |
             ${{ steps.names.outputs.web }}:latest

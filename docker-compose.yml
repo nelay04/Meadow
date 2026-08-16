@@ -74,6 +74,11 @@ services:
     build:
       context: ./services/api
       dockerfile: ../../docker/api/Dockerfile
+      # Explicit, and not optional. The dev stage is last in the file, and a build with
+      # no target builds the last stage, so omitting this ships the reload supervisor
+      # to production. It also has no HEALTHCHECK, which is how it was caught: compose
+      # --wait refused with "container has no healthcheck configured".
+      target: runtime
     restart: "no"
     command: ["alembic", "upgrade", "head"]
     environment:
@@ -89,6 +94,11 @@ services:
     build:
       context: ./services/api
       dockerfile: ../../docker/api/Dockerfile
+      # Explicit, and not optional. The dev stage is last in the file, and a build with
+      # no target builds the last stage, so omitting this ships the reload supervisor
+      # to production. It also has no HEALTHCHECK, which is how it was caught: compose
+      # --wait refused with "container has no healthcheck configured".
+      target: runtime
     restart: unless-stopped
     environment:
       MEADOW_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-meadow}
@@ -122,6 +132,11 @@ services:
     build:
       context: ./services/api
       dockerfile: ../../docker/api/Dockerfile
+      # Explicit, and not optional. The dev stage is last in the file, and a build with
+      # no target builds the last stage, so omitting this ships the reload supervisor
+      # to production. It also has no HEALTHCHECK, which is how it was caught: compose
+      # --wait refused with "container has no healthcheck configured".
+      target: runtime
     restart: unless-stopped
     command: ["arq", "app.workers.settings.WorkerSettings"]
     environment:
@@ -154,6 +169,9 @@ services:
     build:
       context: .
       dockerfile: docker/web/Dockerfile
+      # Same trap as the API image: without this the production web service would be
+      # the vite dev server rather than nginx serving a built bundle.
+      target: runtime
     restart: unless-stopped
     environment:
       MEADOW_API_UPSTREAM: api:8000

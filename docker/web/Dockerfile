@@ -7,6 +7,10 @@
 # Build context is the repo root: the web app is a pnpm workspace member and depends on
 # `packages/schema` through `workspace:*`.
 #
+# NOTE: the `dev` stage is last in this file, and `docker build` with no
+# --target builds the last stage. Every production build must pass
+# `target: runtime` or it ships the vite dev server.
+
 # Plain Dockerfile syntax, no BuildKit cache mounts, for the same reason as the API
 # image: this has to build on whatever docker the VPS has.
 

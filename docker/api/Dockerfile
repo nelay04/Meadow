@@ -5,6 +5,10 @@
 #
 # Build context is `services/api`.
 #
+# NOTE: the `dev` stage is last in this file, and `docker build` with no
+# --target builds the last stage. Every production build must pass
+# `target: runtime` or it ships the reload supervisor.
+
 # Plain Dockerfile syntax on purpose: no `RUN --mount=type=cache`, no heredocs. Those
 # need BuildKit, and this has to build on whatever docker the VPS happens to have as
 # well as in CI. Layer ordering does the caching instead.

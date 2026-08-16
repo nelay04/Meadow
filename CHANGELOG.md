@@ -57,6 +57,15 @@ The infrastructure to run the thing. Not deployed yet.
   reading the config.
 
 ### Known limitations
+- **An update can be lost permanently when the last client disconnects.** `YRoom`
+  persists with `task_group.start_soon(ystore.write, update)` and `stop()` cancels that
+  group without waiting; with `auto_clean_rooms` on, the last client leaving stops the
+  room. `PostgresYStore.write` shields its transaction, but the shield is inside the
+  function body, so a task cancelled before its body runs never reaches it. The shield
+  fixes the case where the write has begun and not the case where it has not. Proven by
+  inserting one checkpoint ahead of the shield, which loses every write rather than
+  some. Found by CI on a slower machine, where three tests fail on it; a fast local
+  machine schedules the task in time and hides it.
 - Not deployed. `meadow.creara.in` does not serve this yet.
 - No licence chosen, so the default applies and nobody may use the code.
 - Backups have no offsite copy. They sit on the same disk as the database they protect,
