@@ -485,6 +485,8 @@ label {
   padding: 0 0.8rem;
 }
 
+/* One row, equal widths. The labels are one word each, so both fit beside their mark
+   even on a narrow phone. */
 .auth-oauth {
   display: flex;
   gap: 0.8rem;
@@ -705,6 +707,12 @@ label {
 .profile-connect {
   flex: 0 0 auto;
   margin-top: 1rem;
+}
+
+/* A second unconnected provider follows the first closely rather than restating the
+   gap that separates the list above from them both. */
+.profile-connect + .profile-connect {
+  margin-top: 0.6rem;
 }
 
 /* Left, not right: toasts stack in the bottom right corner, and the one control on

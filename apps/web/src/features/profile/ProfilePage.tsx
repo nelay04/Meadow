@@ -3,12 +3,14 @@ import type { FormEvent } from 'react'
 
 import { Wordmark } from '../../ui/Brand'
 import { Avatar } from '../../ui/Avatar'
-import { IconCheck, IconGitHub } from '../../ui/icons'
+import { IconCheck } from '../../ui/icons'
 import { ThemeToggle } from '../../ui/ThemeToggle'
 import { useToast } from '../../ui/Toaster'
 import * as api from '../../lib/api'
 import { ApiError } from '../../lib/api'
+import type { Identity, OAuthProvider, Providers } from '../../lib/api'
 import { useAuth } from '../auth/AuthContext'
+import { OAUTH_PROVIDERS } from '../auth/providers'
 
 type Props = {
   onBack: () => void
@@ -25,17 +27,17 @@ function linkedOn(iso: string): string {
  *
  * Two kinds of field live here and the layout says which is which. The top cards are
  * the user's own - their name, and which picture to use - and they are editable. The
- * GitHub entry below is a record of a linked account: it is what GitHub says, it is
- * refreshed on every sign-in, and nothing on this page can write to it. Renaming
- * yourself here has never renamed the GitHub account the name came from, and showing
- * the two apart is the clearest way to say so.
+ * linked accounts below are records of what each provider says: refreshed on every
+ * sign-in, and nothing on this page can write to them. Renaming yourself here has
+ * never renamed the GitHub or Google account the name came from, and showing the two
+ * apart is the clearest way to say so.
  */
 export default function ProfilePage({ onBack }: Props) {
   const { user, updateProfile, logout } = useAuth()
   const toast = useToast()
   const [name, setName] = useState(user?.display_name ?? '')
   const [busy, setBusy] = useState(false)
-  const [githubEnabled, setGithubEnabled] = useState(false)
+  const [providers, setProviders] = useState<Providers | null>(null)
 
   // The context is the source of truth; this input is a draft of one field of it. It
   // re-seeds when the stored value changes, which is what makes a failed save snap
@@ -48,8 +50,8 @@ export default function ProfilePage({ onBack }: Props) {
     let cancelled = false
     void api
       .getProviders()
-      .then((providers) => {
-        if (!cancelled) setGithubEnabled(providers.github)
+      .then((available) => {
+        if (!cancelled) setProviders(available)
       })
       .catch(() => undefined)
     return () => {
@@ -59,7 +61,21 @@ export default function ProfilePage({ onBack }: Props) {
 
   if (user === null) return null
 
-  const github = user.github
+  const identities = user.identities
+  const linked = OAUTH_PROVIDERS.map((provider) => ({
+    ...provider,
+    identity: identities[provider.id],
+  }))
+  // Only a linked account that actually has a picture can be chosen as the avatar,
+  // which is the same rule the server enforces on the patch.
+  const withPicture = linked.filter(
+    (provider): provider is typeof provider & { identity: Identity } =>
+      provider.identity?.avatar_url != null,
+  )
+  const borrowableNames = linked.filter(
+    (provider) => provider.identity?.name != null && provider.identity.name !== user.display_name,
+  )
+
   const trimmed = name.trim()
   const nameChanged = trimmed !== '' && trimmed !== user.display_name
 
@@ -82,7 +98,7 @@ export default function ProfilePage({ onBack }: Props) {
     }
   }
 
-  const chooseAvatar = async (source: 'github' | 'none') => {
+  const chooseAvatar = async (source: 'none' | OAuthProvider) => {
     if (user.avatar_source === source) return
     setBusy(true)
     try {
@@ -117,8 +133,8 @@ export default function ProfilePage({ onBack }: Props) {
                 box to be argued with. */}
             <span className="faint">{user.email}</span>
             <span className="hint">
-              Your email is your account. Signing in with GitHub finds this account when the
-              verified email on it matches.
+              Your email is your account. Signing in with GitHub or Google finds this account
+              when the verified email on it matches.
             </span>
           </div>
         </section>
@@ -126,9 +142,9 @@ export default function ProfilePage({ onBack }: Props) {
         <section className="card">
           <h2>Display name</h2>
           <p className="hint">
-            {github === null
+            {borrowableNames.length === 0 && withPicture.length === 0
               ? 'The name other people see on a glade.'
-              : 'Taken from your GitHub name when you first signed in, and yours to change. Changing it here does not touch GitHub.'}
+              : 'Taken from the account you first signed in with, and yours to change. Changing it here does not touch that account.'}
           </p>
           <form className="profile-row" onSubmit={save} noValidate>
             <input
@@ -142,45 +158,50 @@ export default function ProfilePage({ onBack }: Props) {
               Save
             </button>
           </form>
-          {github?.name != null && github.name !== user.display_name && (
+          {borrowableNames.map(({ id, label, identity }) => (
             <button
+              key={id}
               type="button"
               className="ghost profile-inline-action"
               disabled={busy}
-              onClick={() => setName(github.name ?? '')}
+              onClick={() => setName(identity?.name ?? '')}
             >
-              Use my GitHub name ({github.name})
+              Use my {label} name ({identity?.name})
             </button>
-          )}
+          ))}
         </section>
 
         <section className="card">
           <h2>Picture</h2>
-          {github?.avatar_url == null ? (
+          {withPicture.length === 0 ? (
             <p className="hint">
-              Link a GitHub account to use its picture. Until then, your initials stand in.
+              Link a GitHub or Google account to use its picture. Until then, your initials stand
+              in.
             </p>
           ) : (
             <div className="avatar-choices">
               {/*
-               * Two options and both are visible, rather than a switch whose off state
-               * has to be imagined. Each one shows the picture it selects.
+               * Every option is visible, rather than a switch whose off state has to be
+               * imagined. Each one shows the picture it selects.
                */}
-              <button
-                type="button"
-                className={user.avatar_source === 'github' ? 'avatar-choice on' : 'avatar-choice'}
-                aria-pressed={user.avatar_source === 'github'}
-                disabled={busy}
-                onClick={() => void chooseAvatar('github')}
-              >
-                <Avatar
-                  name={user.display_name}
-                  url={github.avatar_url}
-                  className="avatar avatar-lg"
-                />
-                <span>GitHub picture</span>
-                {user.avatar_source === 'github' && <IconCheck size={16} />}
-              </button>
+              {withPicture.map(({ id, label, identity }) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={user.avatar_source === id ? 'avatar-choice on' : 'avatar-choice'}
+                  aria-pressed={user.avatar_source === id}
+                  disabled={busy}
+                  onClick={() => void chooseAvatar(id)}
+                >
+                  <Avatar
+                    name={user.display_name}
+                    url={identity.avatar_url}
+                    className="avatar avatar-lg"
+                  />
+                  <span>{label} picture</span>
+                  {user.avatar_source === id && <IconCheck size={16} />}
+                </button>
+              ))}
 
               <button
                 type="button"
@@ -205,49 +226,59 @@ export default function ProfilePage({ onBack }: Props) {
               <span className="faint">
                 {user.has_password
                   ? 'Set. You can sign in with your email and password.'
-                  : 'Not set. This account signs in with GitHub.'}
+                  : 'Not set. This account signs in with a linked account below.'}
               </span>
             </li>
-            <li>
-              <span className="signin-what">
-                <IconGitHub size={16} /> GitHub
-              </span>
-              {github === null ? (
-                <span className="faint">Not connected.</span>
-              ) : (
-                <span className="faint">
-                  Connected as{' '}
-                  <a
-                    href={github.profile_url ?? undefined}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                  >
-                    @{github.username}
-                  </a>
-                  {github.email === null ? '' : ` (${github.email})`}
-                  {` since ${linkedOn(github.linked_at)}`}
+            {linked.map(({ id, label, Icon, identity }) => (
+              <li key={id}>
+                <span className="signin-what">
+                  <Icon size={16} /> {label}
                 </span>
-              )}
-            </li>
+                {identity === undefined ? (
+                  <span className="faint">Not connected.</span>
+                ) : (
+                  <span className="faint">
+                    Connected as{' '}
+                    {identity.profile_url === null ? (
+                      identity.username
+                    ) : (
+                      <a
+                        href={identity.profile_url}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                      >
+                        @{identity.username}
+                      </a>
+                    )}
+                    {` since ${linkedOn(identity.linked_at)}`}
+                  </span>
+                )}
+              </li>
+            ))}
           </ul>
 
-          {github === null && githubEnabled && (
-            <>
+          {/* Connecting is the same round trip as signing in: the callback matches on
+              the verified email and adds the link to whichever account holds it. */}
+          {linked
+            .filter(({ id, identity }) => identity === undefined && providers?.[id] === true)
+            .map(({ id, label, Icon }) => (
               <button
+                key={id}
                 type="button"
                 className="oauth-btn profile-connect"
                 onClick={() => {
-                  location.href = api.githubSignInUrl('#/profile')
+                  location.href = api.oauthSignInUrl(id, '#/profile')
                 }}
               >
-                <IconGitHub size={18} />
-                Connect GitHub
+                <Icon size={18} />
+                Connect {label}
               </button>
-              <p className="hint">
-                Use a GitHub account whose verified email is {user.email}. A different email is a
-                different account, and you would be signed in to that one instead.
-              </p>
-            </>
+            ))}
+          {linked.some(({ id, identity }) => identity === undefined && providers?.[id] === true) && (
+            <p className="hint">
+              Use an account whose verified email is {user.email}. A different email is a
+              different account, and you would be signed in to that one instead.
+            </p>
           )}
         </section>
 

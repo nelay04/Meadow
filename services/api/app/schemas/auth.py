@@ -20,15 +20,16 @@ class LoginRequest(BaseModel):
     password: str = Field(max_length=256)
 
 
-class GitHubIdentityOut(BaseModel):
-    """GitHub's copy of the user, read-only on this side.
+class IdentityOut(BaseModel):
+    """A provider's copy of the user, read-only on this side.
 
-    Sent so the profile page can show what the linked account actually is, and so it
+    Sent so the profile page can show what each linked account actually is, and so it
     can offer "use my GitHub name" without inventing the value. Nothing here is
-    writable: these fields are refreshed from GitHub on every sign-in and a profile
-    edit must never be able to change what an account match is made on.
+    writable: these fields are refreshed from the provider on every sign-in, and a
+    profile edit must never be able to change what an account match is made on.
     """
 
+    provider: str
     username: str
     name: str | None = None
     email: str | None = None
@@ -42,14 +43,18 @@ class UserOut(BaseModel):
     email: str
     display_name: str
     avatar_url: str | None = None
-    # "none" or "github". Where `avatar_url` came from, so the profile page can show
-    # which option is selected rather than guessing from the URL.
+    # "none", or the name of the provider the picture came from. Where `avatar_url`
+    # came from, so the profile page can show which option is selected rather than
+    # guessing from the URL.
     avatar_source: str = "none"
-    # False for an account created through GitHub and never given a password. The UI
-    # uses it to explain how this account signs in, and it is not a secret: it is the
-    # caller's own account, and /login already refuses both cases identically.
+    # False for an account created through a provider and never given a password. The
+    # UI uses it to explain how this account signs in, and it is not a secret: it is
+    # the caller's own account, and /login already refuses both cases identically.
     has_password: bool = True
-    github: GitHubIdentityOut | None = None
+    # Keyed by provider name, and absent rather than null when nothing is linked. A
+    # map rather than one field per provider, so adding a third provider does not
+    # change this shape.
+    identities: dict[str, IdentityOut] = Field(default_factory=dict)
     # Every user gets a personal workspace at registration, so the client always has
     # somewhere to create a board without a workspace-picker flow first.
     default_workspace_id: uuid.UUID | None = None
@@ -58,12 +63,15 @@ class UserOut(BaseModel):
 class ProfileUpdate(BaseModel):
     """A profile edit. Absent fields are left alone, which is what PATCH means.
 
-    Email is not here on purpose. It is the account key that GitHub sign-in matches
-    on, so changing it is an account-merge question, not a profile field.
+    Email is not here on purpose. It is the account key that third-party sign-in
+    matches on, so changing it is an account-merge question, not a profile field.
     """
 
     display_name: str | None = Field(default=None, min_length=1, max_length=80)
-    avatar_source: Literal["none", "github"] | None = None
+    # "none" means initials. Anything else names a provider that has to be linked
+    # already, which the router checks rather than the schema: whether a link exists is
+    # a fact about the caller, not about the request body.
+    avatar_source: Literal["none", "github", "google"] | None = None
 
 
 class ProvidersOut(BaseModel):
@@ -75,6 +83,7 @@ class ProvidersOut(BaseModel):
     """
 
     github: bool = False
+    google: bool = False
 
 
 class TokenPair(BaseModel):

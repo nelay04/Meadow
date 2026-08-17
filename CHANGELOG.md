@@ -207,6 +207,31 @@ The infrastructure to run the thing. Not deployed yet.
   avatar URL can 404 after a rename or be blocked, so a failed load falls back to
   initials instead of leaving the broken-image glyph. Remote wanderers on the canvas
   still draw as initials in WebGL, which is untouched.
+- **Sign in with Google, next to GitHub**, and one implementation behind both. Adding
+  the second provider was mostly the work of making the first one stop being about
+  GitHub: a provider module now answers exactly one question - who is behind this
+  authorization code, and is their email verified - and everything carrying a security
+  decision is shared. State, its single use, the provider it was minted for, the order
+  of the checks, the open-redirect reduction, and how a profile resolves to an account
+  are one copy each, and `app/api/v1/oauth.py` builds the same pair of routes for every
+  entry in the provider registry. A check that held for GitHub and quietly did not hold
+  for Google is the failure this shape is meant to make unwritable.
+  **Both providers on one verified email are one account**, which is the same rule as
+  before and now has something to prove itself against: sign in with Google, then with
+  GitHub on the same address, and there is one account with two linked identities, one
+  workspace, and the name the person already had. Matching is on Google's `sub` rather
+  than the email, so a Workspace address change over there is a refreshed row here.
+  Google's profile is read from the OpenID `userinfo` endpoint rather than by decoding
+  the `id_token`: both are authoritative, but a JWT is worth what its signature check is
+  worth, and a TLS call carrying a token Google just issued needs no JWKS handling at
+  all. `email_verified` is checked against the boolean and the string form, because
+  `"false"` is truthy if read carelessly. The authorize request asks for
+  `access_type=online`, so Google issues no refresh token to not-store.
+  The profile page grew with it rather than gaining a second column of the same thing:
+  the picture is chosen from every linked account that has one plus initials, and
+  `avatar_source` names a provider, so a Google picture is not replaced by linking
+  GitHub later. Each provider is independent in configuration too - either, both or
+  neither, with an unconfigured one hidden rather than offered as a button that 404s.
 
 ### Changed
 - Every page redrawn. Login is a centred card with a segmented control instead of an

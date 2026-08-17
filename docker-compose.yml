@@ -111,12 +111,16 @@ services:
       MEADOW_WS_REVALIDATE_INTERVAL_SECONDS: ${MEADOW_WS_REVALIDATE_INTERVAL_SECONDS:-900}
       MEADOW_MAX_CLIENTS_PER_ROOM: ${MEADOW_MAX_CLIENTS_PER_ROOM:-50}
       MEADOW_RATE_LIMIT_ENABLED: ${MEADOW_RATE_LIMIT_ENABLED:-true}
-      # GitHub sign-in. Unset on purpose in the defaults: with no client id the API
-      # reports the provider as unavailable and the web app hides the button, which is
-      # the right behaviour for a deployment that has not registered an OAuth app.
+      # Third-party sign-in. Unset on purpose in the defaults, and independent per
+      # provider: with no client id the API reports that provider as unavailable and
+      # the web app hides its button, which is the right behaviour for a deployment
+      # that has not registered an OAuth app.
       MEADOW_GITHUB_CLIENT_ID: ${MEADOW_GITHUB_CLIENT_ID:-}
       MEADOW_GITHUB_CLIENT_SECRET: ${MEADOW_GITHUB_CLIENT_SECRET:-}
       MEADOW_GITHUB_CALLBACK_URL: ${MEADOW_GITHUB_CALLBACK_URL:-}
+      MEADOW_GOOGLE_CLIENT_ID: ${MEADOW_GOOGLE_CLIENT_ID:-}
+      MEADOW_GOOGLE_CLIENT_SECRET: ${MEADOW_GOOGLE_CLIENT_SECRET:-}
+      MEADOW_GOOGLE_CALLBACK_URL: ${MEADOW_GOOGLE_CALLBACK_URL:-}
       # Where the OAuth callback sends the browser back to, and the only origin it
       # will ever redirect to. Must be the public URL of the site.
       MEADOW_WEB_BASE_URL: ${MEADOW_WEB_BASE_URL:-}

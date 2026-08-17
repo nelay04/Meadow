@@ -1,6 +1,6 @@
 """Registration, login, refresh rotation, logout, profile. ARCHITECTURE 6 and 7.
 
-GitHub sign-in lives next door in `oauth_github.py`; the two share `app/auth/session.py`
+Third-party sign-in lives next door in `oauth.py`; the two share `app/auth/session.py`
 for issuing a session and `app/services/accounts.py` for everything about an account,
 so neither flow has its own copy of either.
 """
@@ -29,6 +29,7 @@ from app.schemas.auth import (
     UserOut,
 )
 from app.services import accounts
+from app.services.oauth import PROVIDERS
 from app.services.ratelimit import check as rate_limit_check
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -52,8 +53,14 @@ async def _enforce_rate_limit(request: Request, action: str, identity: str, spec
 
 @router.get("/providers", response_model=ProvidersOut)
 async def providers() -> ProvidersOut:
-    """Which third-party sign-ins this deployment can actually complete."""
-    return ProvidersOut(github=settings.github_oauth_enabled)
+    """Which third-party sign-ins this deployment can actually complete.
+
+    Read from the same registry the routes are built from, so a button can never be
+    offered for a provider whose endpoints are a 404.
+    """
+    return ProvidersOut.model_validate(
+        {name: client.enabled() for name, client in PROVIDERS.items()}
+    )
 
 
 @router.post("/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
@@ -100,9 +107,9 @@ async def login(
         await session.execute(select(User).where(User.email == str(body.email)))
     ).scalar_one_or_none()
 
-    # A GitHub-created account has no password hash, and there is no password that
-    # opens it. Same refusal as a wrong one: telling the caller "this account uses
-    # GitHub" would answer a question they have not proved they may ask.
+    # An account created through a provider has no password hash, and there is no
+    # password that opens it. Same refusal as a wrong one: telling the caller "this
+    # account uses GitHub" would answer a question they have not proved they may ask.
     if (
         user is None
         or user.password_hash is None
@@ -216,10 +223,11 @@ async def me(user: CurrentUser, session: Session) -> UserOut:
 async def update_me(body: ProfileUpdate, user: CurrentUser, session: Session) -> UserOut:
     """Edit the parts of the profile that belong to the user.
 
-    Exactly two fields, and neither of them is GitHub's. `display_name` is seeded from
-    GitHub at first sign-in and is the user's own from that moment; `avatar_source`
-    chooses between the linked GitHub picture and initials. The identity row itself is
-    never written here - it is what GitHub says, and it stays that way.
+    Exactly two fields, and neither of them is a provider's. `display_name` is seeded
+    from the provider at first sign-in and is the user's own from that moment;
+    `avatar_source` chooses between initials and the picture on any linked account. The
+    identity rows themselves are never written here - they are what the providers say,
+    and they stay that way.
     """
     if body.display_name is not None:
         name = body.display_name.strip()
@@ -230,18 +238,21 @@ async def update_me(body: ProfileUpdate, user: CurrentUser, session: Session) ->
         user.display_name = name
 
     if body.avatar_source is not None:
-        identity = await accounts.github_identity(session, user.id)
-        if body.avatar_source == "github":
+        if body.avatar_source == "none":
+            user.avatar_source = "none"
+            user.avatar_url = None
+        else:
+            # Naming a provider is only meaningful if the caller has linked it and it
+            # has a picture. Refused rather than silently downgraded to initials, so a
+            # client that asks for something impossible hears about it.
+            identity = await accounts.identity_for(session, user.id, body.avatar_source)
             if identity is None or identity.avatar_url is None:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
-                    detail="no linked github avatar",
+                    detail=f"no linked {body.avatar_source} avatar",
                 )
-            user.avatar_source = "github"
+            user.avatar_source = body.avatar_source
             user.avatar_url = identity.avatar_url
-        else:
-            user.avatar_source = "none"
-            user.avatar_url = None
 
     await session.commit()
     return await accounts.build_user_out(session, user)

@@ -4,24 +4,20 @@ Nothing in here touches the database or the session. It answers one question - "
 the person behind this authorization code, and has GitHub verified their email" - and
 `app/services/accounts.py` decides what that means for an account.
 
-Deliberate omissions, both security ones:
-
-* The access token is never returned to the caller and never stored. It is used for
-  two GETs inside `fetch_profile` and then goes out of scope. Nothing after sign-in
-  needs to call GitHub, so keeping it would be storing a credential to someone's
-  repositories for no purpose.
-* An unverified email is refused rather than trusted. Account matching is by email
-  (see `accounts.py`), so accepting an unverified one would let anyone who can add
-  `you@example.com` to their GitHub account sign in to yours.
+The two omissions that matter (no stored access token, no unverified email) are shared
+with every provider and are argued once, in `base.py`. What is specific to GitHub is
+that the email usually is not on `/user` at all: it is private by default, which is why
+this is the one provider here that needs a second request.
 """
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, ClassVar
 from urllib.parse import urlencode
 
 import httpx
 
 from app.config import settings
+from app.services.oauth.base import EmailUnverified, OAuthError, OAuthProfile, normalise_email
 
 PROVIDER = "github"
 
@@ -46,25 +42,15 @@ _API_HEADERS = {
 }
 
 
-class GitHubOAuthError(Exception):
-    """GitHub refused, or answered with something this code cannot use."""
-
-
-class EmailUnverified(GitHubOAuthError):
-    """No verified email on the GitHub account, so there is nothing safe to match on."""
-
-
 @dataclass(frozen=True)
-class GitHubProfile:
+class GitHubProfile(OAuthProfile):
     """What GitHub says about the person. A snapshot, not a live object."""
 
-    provider_user_id: str
-    username: str
-    name: str | None
-    # Always present and always verified - `select_email` refuses anything else.
-    email: str
-    avatar_url: str | None
-    profile_url: str | None
+    provider: ClassVar[str] = PROVIDER
+
+
+def enabled() -> bool:
+    return settings.github_oauth_enabled
 
 
 def authorize_url(state: str) -> str:
@@ -94,7 +80,7 @@ def select_email(payload: object) -> str:
     address - and it has to fail closed.
     """
     if not isinstance(payload, list):
-        raise GitHubOAuthError("unexpected email payload")
+        raise OAuthError("unexpected email payload")
 
     verified = [
         entry
@@ -109,19 +95,17 @@ def select_email(payload: object) -> str:
 
     primary = next((entry for entry in verified if entry.get("primary") is True), verified[0])
     email: str = primary["email"]
-    # Lowered because `users.email` is citext and every other path stores what the user
-    # typed. Matching is case-insensitive either way; this only keeps the stored copy tidy.
-    return email.strip().lower()
+    return normalise_email(email)
 
 
 def profile_from_payloads(user_payload: object, emails_payload: object) -> GitHubProfile:
     if not isinstance(user_payload, dict):
-        raise GitHubOAuthError("unexpected user payload")
+        raise OAuthError("unexpected user payload")
 
     provider_user_id = user_payload.get("id")
     username = user_payload.get("login")
     if provider_user_id is None or not isinstance(username, str) or username == "":
-        raise GitHubOAuthError("github user payload is missing id or login")
+        raise OAuthError("github user payload is missing id or login")
 
     name = user_payload.get("name")
     avatar_url = user_payload.get("avatar_url")
@@ -151,20 +135,20 @@ async def _exchange_code(client: httpx.AsyncClient, code: str) -> str:
         headers={"Accept": "application/json", "User-Agent": "meadow"},
     )
     if response.status_code != httpx.codes.OK:
-        raise GitHubOAuthError(f"token exchange failed with {response.status_code}")
+        raise OAuthError(f"token exchange failed with {response.status_code}")
 
     payload: Any = response.json()
     if not isinstance(payload, dict):
-        raise GitHubOAuthError("unexpected token payload")
+        raise OAuthError("unexpected token payload")
     if "error" in payload:
         # GitHub answers 200 with an error body for a spent or forged code. The message
         # is logged, never shown: it distinguishes cases the browser has no business
         # distinguishing.
-        raise GitHubOAuthError(str(payload.get("error")))
+        raise OAuthError(str(payload.get("error")))
 
     token = payload.get("access_token")
     if not isinstance(token, str) or token == "":
-        raise GitHubOAuthError("token exchange returned no access token")
+        raise OAuthError("token exchange returned no access token")
     return token
 
 
@@ -181,10 +165,10 @@ async def fetch_profile(code: str) -> GitHubProfile:
 
         user_response = await client.get(USER_URL, headers=headers)
         if user_response.status_code != httpx.codes.OK:
-            raise GitHubOAuthError(f"github /user answered {user_response.status_code}")
+            raise OAuthError(f"github /user answered {user_response.status_code}")
 
         emails_response = await client.get(EMAILS_URL, headers=headers)
         if emails_response.status_code != httpx.codes.OK:
-            raise GitHubOAuthError(f"github /user/emails answered {emails_response.status_code}")
+            raise OAuthError(f"github /user/emails answered {emails_response.status_code}")
 
     return profile_from_payloads(user_response.json(), emails_response.json())

@@ -1,10 +1,9 @@
 """GitHub sign-in: state, account matching, and what a profile edit may touch.
 
-The network is stubbed at exactly one seam - `github.fetch_profile`, the function that
-owns every call to github.com - so everything below this line is the real router, the
-real state handling, the real database, and the real session issuing. The two pieces
-of GitHub's payload that carry a security decision (which email, and whether it is
-verified) are pure functions and are tested directly.
+The flow harness lives in `tests/oauth_flow.py` and is shared with the Google file,
+because the two flows are the same flow with a different provider module bolted in.
+What is here is either GitHub-specific (its payloads, its scopes) or a rule that has to
+hold for every provider and is easiest to read written out once.
 """
 
 import uuid
@@ -16,24 +15,23 @@ from starlette.testclient import TestClient
 from app.config import settings
 from app.services.oauth import github
 from tests.conftest import Actor
-
-STATE_COOKIE = "meadow_oauth_state"
-REFRESH_COOKIE = "meadow_refresh"
-
-WEB = "http://localhost:3012"
+from tests.oauth_flow import (
+    REFRESH_COOKIE,
+    STATE_COOKIE,
+    WEB,
+    configure,
+    me,
+    state_cookie_path,
+)
+from tests.oauth_flow import complete_flow as complete
+from tests.oauth_flow import sign_in as sign_in_with
+from tests.oauth_flow import start_flow as start
+from tests.oauth_flow import stub_profile as stub
 
 
 @pytest.fixture(autouse=True)
 def github_configured(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Configure the provider. Without this every endpoint here is a 404, on purpose."""
-    from pydantic import SecretStr
-
-    monkeypatch.setattr(settings, "github_client_id", "test-client-id")
-    monkeypatch.setattr(settings, "github_client_secret", SecretStr("test-client-secret"))
-    monkeypatch.setattr(
-        settings, "github_callback_url", f"{WEB}/api/v1/auth/github/callback"
-    )
-    monkeypatch.setattr(settings, "web_base_url", WEB)
+    configure(monkeypatch, github.PROVIDER)
 
 
 def profile(
@@ -55,51 +53,19 @@ def profile(
 
 
 def stub_profile(monkeypatch: pytest.MonkeyPatch, result: github.GitHubProfile | Exception) -> None:
-    async def fake_fetch_profile(code: str) -> github.GitHubProfile:
-        assert code != ""
-        if isinstance(result, Exception):
-            raise result
-        return result
-
-    monkeypatch.setattr(github, "fetch_profile", fake_fetch_profile)
+    stub(monkeypatch, github, result)
 
 
 def start_flow(client: TestClient, next_path: str | None = None) -> str:
-    """Begin the dance and return the state the browser is now holding."""
-    client.cookies.clear()
-    query = "" if next_path is None else f"?next={next_path}"
-    response = client.get(f"/api/v1/auth/github/start{query}", follow_redirects=False)
-    assert response.status_code == 302, response.text
-    state = client.cookies.get(STATE_COOKIE)
-    assert state is not None
-    return state
+    return start(client, github.PROVIDER, next_path)
 
 
 def complete_flow(client: TestClient, state: str, code: str = "auth-code") -> Any:
-    return client.get(
-        f"/api/v1/auth/github/callback?code={code}&state={state}", follow_redirects=False
-    )
+    return complete(client, github.PROVIDER, state, code)
 
 
 def sign_in(client: TestClient, monkeypatch: pytest.MonkeyPatch, who: github.GitHubProfile) -> str:
-    """A whole successful sign-in. Returns an access token for the resulting session."""
-    stub_profile(monkeypatch, who)
-    state = start_flow(client)
-    response = complete_flow(client, state)
-    assert response.status_code == 303, response.text
-    assert REFRESH_COOKIE in response.cookies
-
-    refreshed = client.post("/api/v1/auth/refresh")
-    assert refreshed.status_code == 200, refreshed.text
-    token: str = refreshed.json()["access_token"]
-    return token
-
-
-def me(client: TestClient, token: str) -> dict[str, Any]:
-    response = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
-    assert response.status_code == 200, response.text
-    body: dict[str, Any] = response.json()
-    return body
+    return sign_in_with(client, monkeypatch, github, who)
 
 
 # --- configuration -------------------------------------------------------------
@@ -144,12 +110,12 @@ def test_callback_refuses_a_state_the_browser_never_received(
     """The login-CSRF case: a callback URL minted elsewhere, replayed into this browser."""
     stub_profile(monkeypatch, profile())
     start_flow(client)
-    client.cookies.delete(STATE_COOKIE, path="/api/v1/auth/github")
+    client.cookies.delete(STATE_COOKIE, path=state_cookie_path(github.PROVIDER))
 
     response = complete_flow(client, "some-state-from-another-browser")
 
     assert response.status_code == 303
-    assert response.headers["location"] == f"{WEB}/?auth_error=state#/"
+    assert response.headers["location"] == f"{WEB}/?auth_error=state&provider=github#/"
     assert REFRESH_COOKIE not in response.cookies
 
 
@@ -174,7 +140,7 @@ def test_a_state_works_exactly_once(
     assert complete_flow(client, state).status_code == 303
 
     # Put the browser back exactly as it was and try the same URL again.
-    client.cookies.set(STATE_COOKIE, state, path="/api/v1/auth/github")
+    client.cookies.set(STATE_COOKIE, state, path=state_cookie_path(github.PROVIDER))
     replay = complete_flow(client, state)
 
     assert "auth_error=state" in replay.headers["location"]
@@ -208,8 +174,8 @@ def test_first_sign_in_creates_an_account_with_a_personal_workspace(
     assert body["avatar_source"] == "github"
     assert body["has_password"] is False
     assert body["default_workspace_id"]
-    assert body["github"]["username"] == "octocat"
-    assert body["github"]["profile_url"] == "https://github.com/octocat"
+    assert body["identities"]["github"]["username"] == "octocat"
+    assert body["identities"]["github"]["profile_url"] == "https://github.com/octocat"
 
 
 def test_an_account_with_no_github_name_falls_back_to_the_login(
@@ -233,7 +199,7 @@ def test_the_same_email_is_the_same_account(
     # Linking is not a request to be renamed by GitHub.
     assert after["display_name"] == "Password Person"
     assert after["has_password"] is True
-    assert after["github"]["username"] == "octocat"
+    assert after["identities"]["github"]["username"] == "octocat"
 
 
 def test_signing_in_again_after_a_github_rename_is_the_same_account(
@@ -249,9 +215,9 @@ def test_signing_in_again_after_a_github_rename_is_the_same_account(
     again = me(client, sign_in(client, monkeypatch, renamed))
 
     assert again["id"] == created["id"]
-    assert again["github"]["username"] == "mona"
+    assert again["identities"]["github"]["username"] == "mona"
     # The stored identity follows GitHub; the account's own fields do not.
-    assert again["github"]["name"] == "Mona Lisa"
+    assert again["identities"]["github"]["name"] == "Mona Lisa"
     assert again["display_name"] == "The Octocat"
 
 
@@ -381,10 +347,10 @@ def test_a_profile_edit_never_touches_the_github_identity(
     assert body["avatar_url"] is None
     assert body["avatar_source"] == "none"
     # GitHub's copy is untouched, which is what makes the change reversible.
-    assert body["github"]["username"] == who.username
-    assert body["github"]["name"] == who.name
-    assert body["github"]["email"] == who.email
-    assert body["github"]["avatar_url"] == who.avatar_url
+    assert body["identities"]["github"]["username"] == who.username
+    assert body["identities"]["github"]["name"] == who.name
+    assert body["identities"]["github"]["email"] == who.email
+    assert body["identities"]["github"]["avatar_url"] == who.avatar_url
 
     restored = client.patch("/api/v1/auth/me", json={"avatar_source": "github"}, headers=auth)
     assert restored.json()["avatar_url"] == who.avatar_url
@@ -467,7 +433,7 @@ def test_no_verified_email_at_all_is_a_refusal() -> None:
 
 
 def test_a_payload_without_an_id_is_refused() -> None:
-    with pytest.raises(github.GitHubOAuthError):
+    with pytest.raises(github.OAuthError):
         github.profile_from_payloads(
             {"login": "octocat"},
             [{"email": "a@example.com", "primary": True, "verified": True}],

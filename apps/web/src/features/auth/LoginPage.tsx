@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 
 import { Wordmark } from '../../ui/Brand'
-import { IconGitHub } from '../../ui/icons'
 import { ThemeToggle } from '../../ui/ThemeToggle'
 import * as api from '../../lib/api'
 import { ApiError } from '../../lib/api'
+import type { Providers } from '../../lib/api'
 import { useAuth } from './AuthContext'
+import { OAUTH_PROVIDERS } from './providers'
 
 type Mode = 'login' | 'register'
 
@@ -14,14 +15,14 @@ export default function LoginPage() {
   const { login, register, signInError, clearSignInError } = useAuth()
   const [mode, setMode] = useState<Mode>('login')
   /*
-   * Whether to offer the GitHub button at all.
+   * Which third-party buttons to offer, if any.
    *
-   * Undefined until the answer arrives, and the button is simply absent until then
-   * rather than disabled: it appears once, in its final state, instead of flickering
-   * through a state nobody can act on. A deployment with no OAuth app configured
-   * never shows it, because the endpoint behind it is a 404 there.
+   * Null until the answer arrives, and the buttons are simply absent until then rather
+   * than disabled: they appear once, in their final state, instead of flickering
+   * through a state nobody can act on. A provider with no OAuth app configured never
+   * shows up, because the endpoints behind its button are a 404 there.
    */
-  const [githubEnabled, setGithubEnabled] = useState<boolean | undefined>(undefined)
+  const [providers, setProviders] = useState<Providers | null>(null)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [displayName, setDisplayName] = useState('')
@@ -32,20 +33,20 @@ export default function LoginPage() {
     let cancelled = false
     void api
       .getProviders()
-      .then((providers) => {
-        if (!cancelled) setGithubEnabled(providers.github)
+      .then((available) => {
+        if (!cancelled) setProviders(available)
       })
       .catch(() => {
         // The form still works. A sign-in method we cannot confirm is one we do not
         // offer, which is the same outcome as it being switched off.
-        if (!cancelled) setGithubEnabled(false)
+        if (!cancelled) setProviders({ github: false, google: false })
       })
     return () => {
       cancelled = true
     }
   }, [])
 
-  // A failed GitHub round trip comes back as a redirect, so its message is waiting in
+  // A failed OAuth round trip comes back as a redirect, so its message is waiting in
   // the context by the time this screen mounts. Shown in the same place as a form
   // error, then taken off the context so it cannot reappear on a later visit.
   useEffect(() => {
@@ -96,6 +97,8 @@ export default function LoginPage() {
       setBusy(false)
     }
   }
+
+  const offered = OAUTH_PROVIDERS.filter((provider) => providers?.[provider.id] === true)
 
   const switchMode = (next: Mode) => {
     if (next === mode) return
@@ -175,27 +178,30 @@ export default function LoginPage() {
           </button>
         </form>
 
-        {githubEnabled === true && (
+        {offered.length > 0 && (
           <>
             <div className="auth-divider">
               <span>or</span>
             </div>
 
-            {/* A link's job, done by a button because it is a form control here.
+            {/* A link's job, done by buttons because they are form controls here.
                 Deliberately a full page navigation and not a fetch: the OAuth flow
                 leaves the site, and the session it returns with is set by the browser
                 from the callback's redirect. */}
             <div className="auth-oauth">
-              <button
-                type="button"
-                className="oauth-btn"
-                onClick={() => {
-                  location.href = api.githubSignInUrl()
-                }}
-              >
-                <IconGitHub size={18} />
-                Continue with GitHub
-              </button>
+              {offered.map(({ id, label, Icon }) => (
+                <button
+                  key={id}
+                  type="button"
+                  className="oauth-btn"
+                  onClick={() => {
+                    location.href = api.oauthSignInUrl(id)
+                  }}
+                >
+                  <Icon size={18} />
+                  {label}
+                </button>
+              ))}
             </div>
           </>
         )}

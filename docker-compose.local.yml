@@ -116,10 +116,13 @@ services:
       MEADOW_REFRESH_COOKIE_SECURE: "false"
       # From the repo-root .env, so a personal OAuth app's credentials live in one
       # gitignored file rather than in this one. Blank is a working configuration:
-      # the GitHub button hides itself.
+      # that provider's button hides itself.
       MEADOW_GITHUB_CLIENT_ID: ${MEADOW_GITHUB_CLIENT_ID:-}
       MEADOW_GITHUB_CLIENT_SECRET: ${MEADOW_GITHUB_CLIENT_SECRET:-}
       MEADOW_GITHUB_CALLBACK_URL: ${MEADOW_GITHUB_CALLBACK_URL:-http://localhost:${WEB_PORT:-3012}/api/v1/auth/github/callback}
+      MEADOW_GOOGLE_CLIENT_ID: ${MEADOW_GOOGLE_CLIENT_ID:-}
+      MEADOW_GOOGLE_CLIENT_SECRET: ${MEADOW_GOOGLE_CLIENT_SECRET:-}
+      MEADOW_GOOGLE_CALLBACK_URL: ${MEADOW_GOOGLE_CALLBACK_URL:-http://localhost:${WEB_PORT:-3012}/api/v1/auth/google/callback}
       MEADOW_WEB_BASE_URL: ${MEADOW_WEB_BASE_URL:-http://localhost:${WEB_PORT:-3012}}
       # So `exec api pytest` works without arguments. conftest reads both, creates and
       # migrates meadow_test, and uses Redis db 1, so a run in here cannot touch the

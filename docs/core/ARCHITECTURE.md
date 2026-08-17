@@ -216,25 +216,25 @@ CRDT blob, not in normalised tables. Do not try to mirror canvas objects into SQ
 users
   id              uuid pk
   email           citext unique not null   -- the account identity, see section 7
-  password_hash   text                     -- null for a GitHub-only account (M6)
-  display_name    text not null            -- the user's own, seeded from GitHub once
+  password_hash   text                     -- null for an OAuth-only account (M6)
+  display_name    text not null            -- the user's own, seeded from a provider once
   avatar_url      text                     -- derived from avatar_source, not typed in
-  avatar_source   text not null            -- 'none' | 'github'
+  avatar_source   text not null            -- 'none' | 'github' | 'google'
   created_at      timestamptz
   updated_at      timestamptz
 
-user_identities                            -- M6. GitHub's copy of the user, read-only
-  id                uuid pk                -- to everything except the sign-in itself.
+user_identities                            -- M6. A provider's copy of the user,
+  id                uuid pk                -- read-only to everything except sign-in.
   user_id           uuid fk -> users on delete cascade
-  provider          text not null          -- 'github'
-  provider_user_id  text not null          -- github's numeric id; survives a rename
-  username          text not null          -- github login
+  provider          text not null          -- 'github' | 'google'
+  provider_user_id  text not null          -- github's id / google's sub; survives a rename
+  username          text not null          -- github login; google has none, so the email
   provider_name     text
   provider_email    text                   -- the verified address matched on
   avatar_url        text
   profile_url       text
   created_at, updated_at, last_login_at    timestamptz
-  unique (provider, provider_user_id)      -- one github account -> one meadow account
+  unique (provider, provider_user_id)      -- one provider account -> one meadow account
   unique (user_id, provider)               -- and one identity per provider per account
   -- No OAuth access token column, deliberately. See section 7.
 
@@ -974,47 +974,67 @@ together both see an empty client set and the second raises out of the teardown 
   version supports during M0** (five minutes then, an annoying detour in M1).
 - Rate limits (Redis): login 5/min/IP, register 3/hour/IP, ws-token 30/min/user.
 
-### GitHub sign-in (added in M6)
+### Third-party sign-in (GitHub added in M6, Google alongside it)
 
-Optional, and off unless `MEADOW_GITHUB_CLIENT_ID` and `MEADOW_GITHUB_CLIENT_SECRET`
-are both set. Off means `/api/v1/auth/github/*` answers 404 and `/auth/providers`
-reports `github: false`, so the client hides a button it cannot complete.
+Optional and per provider: a provider is on only when both `MEADOW_<PROVIDER>_CLIENT_ID`
+and `MEADOW_<PROVIDER>_CLIENT_SECRET` are set. Off means `/api/v1/auth/<provider>/*`
+answers 404 and `/auth/providers` reports it false, so the client hides a button it
+cannot complete. Either, both or neither is a supported deployment.
 
-**An account is its email address.** A GitHub sign-in whose *verified* email matches an
-existing user signs in to that user, whatever door they originally came in through. The
-decision lives in exactly one function, `app/services/accounts.py::link_github_profile`,
-for the same reason `resolve_role` is one function: a second place deciding whether two
-logins are the same person is a bug, not a feature. Once linked, matching is on GitHub's
-numeric user id, so a rename over there is a refreshed row here.
+**An account is its email address.** A sign-in whose *verified* email matches an
+existing user signs in to that user, whatever door they originally came in through, and
+that includes a second provider: GitHub and Google on one verified address are one
+account with two `user_identities` rows. The decision lives in exactly one function,
+`app/services/accounts.py::link_oauth_profile`, for the same reason `resolve_role` is one
+function: a second place deciding whether two logins are the same person is a bug, not a
+feature. Once linked, matching is on the provider's own id - GitHub's numeric user id,
+Google's `sub` - so a rename or an email change over there is a refreshed row here.
 
-An unverified GitHub email is refused. Matching on an unverified address means anyone
-who adds `you@example.com` to their own GitHub account can sign in as you.
+An unverified email is refused. Matching on an unverified address means anyone who adds
+`you@example.com` to their own account at a provider can sign in as you.
 
-- **The flow.** `GET /auth/github/start` redirects to GitHub and sets a state cookie.
-  `GET /auth/github/callback` verifies, exchanges, resolves the account, issues the
-  session, and redirects back to `MEADOW_WEB_BASE_URL`. The session travels as the
-  ordinary httpOnly refresh cookie set on that redirect - never in the URL, which would
-  put it in history, the referrer, and every proxy log on the way.
-- **CSRF.** The state value must match in two places: a single-use Redis key (GETDEL,
-  so a replayed callback URL finds nothing) and an httpOnly cookie, so the callback also
-  has to arrive in the browser that started the flow. Redis alone would accept a state
-  minted in any browser anywhere, which is the login-CSRF attack this defends against.
+- **One implementation, N providers.** A provider module (`app/services/oauth/github.py`,
+  `google.py`) does one job: turn an authorization code into an `OAuthProfile`, or raise.
+  Everything with a security decision in it - state, the order of the checks, what a
+  failure may say, how an account is resolved - is shared, and `app/api/v1/oauth.py`
+  builds the same pair of routes for each entry in `app/services/oauth.PROVIDERS`. A
+  check that held for one provider and not another is the failure mode this shape rules
+  out.
+- **The flow.** `GET /auth/<provider>/start` redirects to the provider and sets a state
+  cookie scoped to that provider's path. `GET /auth/<provider>/callback` verifies,
+  exchanges, resolves the account, issues the session, and redirects back to
+  `MEADOW_WEB_BASE_URL`. The session travels as the ordinary httpOnly refresh cookie set
+  on that redirect - never in the URL, which would put it in history, the referrer, and
+  every proxy log on the way.
+- **CSRF.** The state value must match in two places: a single-use Redis key (GETDEL, so
+  a replayed callback URL finds nothing) and an httpOnly cookie, so the callback also has
+  to arrive in the browser that started the flow. Redis alone would accept a state minted
+  in any browser anywhere, which is the login-CSRF attack this defends against. The
+  stored state records which provider it was minted for, so one provider's state cannot
+  be spent on another's callback.
 - **Open redirect.** Every redirect the callback builds is `MEADOW_WEB_BASE_URL` plus a
   path this code chose. A `next` parameter is reduced to a `#/` hash route before it is
   stored with the state, so it can never name a host.
-- **No provider token is stored.** The GitHub access token is exchanged, used for the
-  two profile reads, and dropped. Nothing after sign-in calls GitHub, so keeping it
-  would be storing a credential to someone's repositories for no purpose.
+- **No provider token is stored.** The access token is exchanged, used for the profile
+  read, and dropped. Nothing after sign-in calls the provider, so keeping it would be
+  storing a credential to someone's repositories or mailbox for no purpose. Google's
+  authorize request asks for `access_type=online` so no refresh token is issued at all.
+- **Google's profile is read from `userinfo`, not from the `id_token`.** Both are
+  authoritative, but a JWT is worth exactly what its signature check is worth, and that
+  means JWKS fetching, caching and rotation done correctly. A TLS call to Google carrying
+  a token Google just issued needs none of it. `email_verified` is checked against both
+  the boolean and the string form, because `"false"` is truthy.
 - **`users.password_hash` is nullable.** An OAuth account has no password; a placeholder
   hash would be an unrevocable credential nobody holds the input to. Password login
   against such an account is refused with the same message a wrong password gets.
-- **GitHub's fields are never written by the profile editor.** `user_identities` holds
-  GitHub's copy - username, name, email, avatar, profile URL - refreshed on every
-  sign-in. `users.display_name` and `users.avatar_source` are the user's own, seeded from
-  GitHub at first sign-in and never overwritten again. `avatar_source` is what makes a
-  GitHub avatar keep following the GitHub account while "initials" stays chosen through
-  the next sign-in.
-- Rate limits: 20/min/IP on each of start and callback.
+- **A provider's fields are never written by the profile editor.** `user_identities`
+  holds each provider's copy - username, name, email, avatar, profile URL - refreshed on
+  every sign-in. `users.display_name` and `users.avatar_source` are the user's own,
+  seeded from the first provider signed in with and never overwritten again.
+  `avatar_source` names the provider the picture came from, which is what makes one
+  provider's avatar keep following its account while a second provider linked later
+  leaves it alone, and what keeps "initials" chosen through the next sign-in.
+- Rate limits: 20/min/IP on each of start and callback, per provider.
 
 ### Permission resolution
 

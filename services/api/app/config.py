@@ -58,10 +58,11 @@ class Settings(BaseSettings):
     # anyone, and each call costs two requests to github.com.
     rate_limit_oauth: str = "20/60"
 
-    # --- GitHub sign-in (ARCHITECTURE 7) ---
-    # Blank by default, and that is the off switch: with either half missing the
-    # provider reports itself unavailable and /auth/github/* answers 404, rather than
-    # the app offering a button that redirects into an error.
+    # --- third-party sign-in (ARCHITECTURE 7) ---
+    # Blank by default, and that is the off switch, per provider: with either half of a
+    # pair missing that provider reports itself unavailable and its routes answer 404,
+    # rather than the app offering a button that redirects into an error. The two
+    # providers are independent - a deployment can run either, both, or neither.
     github_client_id: str = ""
     # SecretStr so it cannot reach a log, a traceback, or a settings repr by accident.
     # Only the token exchange unwraps it.
@@ -70,19 +71,30 @@ class Settings(BaseSettings):
     # app character for character or GitHub refuses the exchange.
     github_callback_url: str = "http://localhost:3012/api/v1/auth/github/callback"
 
+    google_client_id: str = ""
+    google_client_secret: SecretStr = SecretStr("")
+    # Google is stricter than GitHub about this one: the redirect URI has to be listed
+    # on the OAuth client verbatim, and Google refuses the whole flow at the authorize
+    # step rather than at the exchange.
+    google_callback_url: str = "http://localhost:3012/api/v1/auth/google/callback"
+
     # Where the browser is sent once the callback has minted a session, and the only
     # origin any post-login redirect may point at. Everything the callback builds is
     # this value plus a path this code chose - never a value from the query string,
     # which is how OAuth callbacks become open redirects.
     web_base_url: str = "http://localhost:3012"
 
-    # Ten minutes: long enough to sign in to GitHub and approve, short enough that a
+    # Ten minutes: long enough to sign in at the provider and approve, short enough that a
     # state value copied out of a browser history is dead by the time it is used.
     oauth_state_ttl_seconds: int = 600
 
     @property
     def github_oauth_enabled(self) -> bool:
         return bool(self.github_client_id and self.github_client_secret.get_secret_value())
+
+    @property
+    def google_oauth_enabled(self) -> bool:
+        return bool(self.google_client_id and self.google_client_secret.get_secret_value())
 
 
 settings = Settings()

@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 
 import * as api from '../../lib/api'
 import type { ProfilePatch, User } from '../../lib/api'
+import { providerLabel } from './providers'
 
 type AuthState = {
   user: User | null
@@ -12,8 +13,9 @@ type AuthState = {
   freshLogin: boolean
   clearFreshLogin: () => void
   /**
-   * Why a GitHub sign-in did not finish, in words. Set when the browser comes back
-   * from the callback with an error, and cleared once the login screen has shown it.
+   * Why a third-party sign-in did not finish, in words. Set when the browser comes
+   * back from the callback with an error, and cleared once the login screen has
+   * shown it.
    */
   signInError: string | null
   clearSignInError: () => void
@@ -29,15 +31,17 @@ const AuthContext = createContext<AuthState | null>(null)
  * What the OAuth callback's `auth_error` codes mean to a person.
  *
  * The server sends codes rather than sentences because it is redirecting a browser,
- * not answering a caller, and the wording belongs on this side anyway.
+ * not answering a caller, and the wording belongs on this side anyway. The provider
+ * rides along in the query string so the sentence can name the button that failed,
+ * which is the difference between "try again" and knowing which one to try.
  */
-const SIGN_IN_ERRORS: Record<string, string> = {
-  denied: 'GitHub sign-in was cancelled.',
-  state: 'That sign-in link expired. Try again.',
-  unverified_email:
-    'Your GitHub account has no verified email address. Verify one on GitHub, then try again.',
-  conflict: 'That email is already signed in with a different GitHub account.',
-  provider: 'GitHub could not be reached. Try again in a moment.',
+const SIGN_IN_ERRORS: Record<string, (who: string) => string> = {
+  denied: (who) => `${who} sign-in was cancelled.`,
+  state: () => 'That sign-in link expired. Try again.',
+  unverified_email: (who) =>
+    `Your ${who} account has no verified email address. Verify one on ${who}, then try again.`,
+  conflict: (who) => `That email is already signed in with a different ${who} account.`,
+  provider: (who) => `${who} could not be reached. Try again in a moment.`,
 }
 
 /**
@@ -50,18 +54,20 @@ const SIGN_IN_ERRORS: Record<string, string> = {
  */
 function takeCallbackMarkers(): { signedIn: boolean; error: string | null } {
   const params = new URLSearchParams(location.search)
-  const signedIn = params.get('auth') === 'github'
+  const signedIn = params.get('auth') !== null
   const code = params.get('auth_error')
+  const who = providerLabel(params.get('provider') ?? '')
   if (!signedIn && code === null) return { signedIn: false, error: null }
 
   params.delete('auth')
   params.delete('auth_error')
+  params.delete('provider')
   const query = params.toString()
   history.replaceState(null, '', `${location.pathname}${query === '' ? '' : `?${query}`}${location.hash}`)
 
   return {
     signedIn,
-    error: code === null ? null : (SIGN_IN_ERRORS[code] ?? 'GitHub sign-in did not finish.'),
+    error: code === null ? null : (SIGN_IN_ERRORS[code]?.(who) ?? `${who} sign-in did not finish.`),
   }
 }
 
@@ -79,13 +85,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // The access token was in memory and is gone after a reload. The httpOnly refresh
     // cookie is not, so trade it for a new session before deciding to show the login
-    // form - otherwise every refresh looks like a logout. A GitHub sign-in lands here
-    // too: the callback set that cookie on its way through, and this is what turns it
-    // into a session.
+    // form - otherwise every refresh looks like a logout. A third-party sign-in lands
+    // here too: the callback set that cookie on its way through, and this is what
+    // turns it into a session.
     void api.restoreSession().then((restored) => {
       if (cancelled) return
       setUser(restored)
-      // Coming back from GitHub is a login, so it gets the same welcome as one.
+      // Coming back from a provider is a login, so it gets the same welcome as one.
       if (markers.signedIn && restored !== null) setFreshLogin(true)
       setLoading(false)
     })

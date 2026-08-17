@@ -9,14 +9,19 @@
 
 export type BoardRole = 'owner' | 'editor' | 'commenter' | 'viewer'
 
+/** The third-party sign-ins this app knows how to offer. */
+export type OAuthProvider = 'github' | 'google'
+
 /**
- * GitHub's copy of the user, read-only.
+ * A provider's copy of the user, read-only.
  *
- * Separate from the fields above it on purpose: `display_name` and `avatar_url` are
- * what the person chose here, and these are what GitHub says. The profile page shows
- * both, and only ever writes the first kind.
+ * Separate from the account's own fields on purpose: `display_name` and `avatar_url`
+ * are what the person chose here, and these are what the provider says. The profile
+ * page shows both, and only ever writes the first kind.
  */
-export type GitHubIdentity = {
+export type Identity = {
+  provider: string
+  /** GitHub's login. Google has no handle, so this is the email address there. */
   username: string
   name: string | null
   email: string | null
@@ -30,21 +35,23 @@ export type User = {
   email: string
   display_name: string
   avatar_url: string | null
-  /** 'github' or 'none'. Where `avatar_url` came from. */
+  /** 'none' for initials, otherwise the provider `avatar_url` came from. */
   avatar_source: string
-  /** False for an account created through GitHub that never set a password. */
+  /** False for an account created through a provider that never set a password. */
   has_password: boolean
-  github: GitHubIdentity | null
+  /**
+   * Linked accounts, keyed by provider. Partial because a provider that is not linked
+   * is absent rather than null, so every read has to be a lookup that may miss.
+   */
+  identities: Partial<Record<OAuthProvider, Identity>>
   default_workspace_id: string | null
 }
 
-export type Providers = {
-  github: boolean
-}
+export type Providers = Record<OAuthProvider, boolean>
 
 export type ProfilePatch = {
   display_name?: string
-  avatar_source?: 'none' | 'github'
+  avatar_source?: 'none' | OAuthProvider
 }
 
 export type Board = {
@@ -184,15 +191,15 @@ export function getProviders(): Promise<Providers> {
 }
 
 /**
- * Where the GitHub button points.
+ * Where a sign-in button points.
  *
  * A plain navigation, not a fetch: the flow leaves the site and comes back, and the
  * session it returns with arrives as an httpOnly cookie the browser sets on the
  * redirect. `next` is a hash route to return to; the server refuses anything else.
  */
-export function githubSignInUrl(next?: string): string {
+export function oauthSignInUrl(provider: OAuthProvider, next?: string): string {
   const query = next === undefined ? '' : `?next=${encodeURIComponent(next)}`
-  return `${BASE}/auth/github/start${query}`
+  return `${BASE}/auth/${provider}/start${query}`
 }
 
 export function updateProfile(patch: ProfilePatch): Promise<User> {
