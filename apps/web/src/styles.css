@@ -512,6 +512,219 @@ label {
   border-color: var(--edge);
 }
 
+/* --- avatars with a picture ---------------------------------------------------
+ *
+ * The circle already exists for initials; a picture is the same circle with an image
+ * filling it. `object-fit: cover` because a GitHub avatar is square and everything
+ * here is round, and a squashed face is worse than a cropped one.
+ */
+.avatar img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  user-select: none;
+}
+
+/* Both doubled up as `.avatar.avatar-lg`, because the base `.avatar` rule sits
+   further down this file and would otherwise win on source order at equal
+   specificity, leaving a 4.5rem portrait drawn at 1.7rem. */
+.avatar.avatar-lg {
+  width: 3rem;
+  height: 3rem;
+  font-size: 0.95rem;
+  margin: 0;
+  background: var(--accent);
+  border-color: transparent;
+}
+
+.avatar.avatar-xl {
+  width: 4.5rem;
+  height: 4.5rem;
+  font-size: 1.4rem;
+  margin: 0;
+  flex: 0 0 auto;
+  background: var(--accent);
+  border-color: transparent;
+}
+
+/* The sidebar chip is a button now, so the global button chrome has to be undone
+   before the chip's own look survives. */
+.sidebar-foot button.user-chip {
+  width: 100%;
+  justify-content: flex-start;
+  font-weight: 500;
+  text-align: left;
+}
+
+.sidebar-foot button.user-chip:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: transparent;
+}
+
+/* --- profile ------------------------------------------------------------------
+ *
+ * A column of cards on the page background, one card per thing that can be changed.
+ * The GitHub card is the exception and is deliberately not editable: it is a record
+ * of a linked account, not a form.
+ */
+.profile {
+  min-height: 100vh;
+  background: var(--bg);
+}
+
+.profile-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.9rem 1.25rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.profile-head .spacer {
+  flex: 1;
+}
+
+.profile-body {
+  width: 100%;
+  max-width: 42rem;
+  margin: 0 auto;
+  padding: 2rem 1.25rem 4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+.profile-body h1 {
+  font-size: 1.5rem;
+  margin-bottom: 0.2rem;
+}
+
+.profile .card {
+  padding: 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+  background: var(--surface);
+}
+
+.profile .card h2 {
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.profile .hint {
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.45;
+  margin-top: 0.35rem;
+}
+
+.profile-identity {
+  display: flex;
+  align-items: center;
+  gap: 1.1rem;
+}
+
+.profile-identity-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.profile-identity-text strong {
+  font-size: 1.15rem;
+}
+
+.profile-row {
+  display: flex;
+  gap: 0.6rem;
+  margin-top: 0.9rem;
+}
+
+.profile-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.profile-inline-action {
+  margin-top: 0.5rem;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+/* Both pictures on screen at once, each one showing what choosing it would give
+   you. A preview is the only honest label for an avatar setting. */
+.avatar-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  margin-top: 0.9rem;
+}
+
+.avatar-choice {
+  flex: 1 1 10rem;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.9rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  background: var(--surface-2);
+}
+
+.avatar-choice.on {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.signin-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  margin-top: 0.9rem;
+}
+
+.signin-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.signin-what {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.profile-connect {
+  flex: 0 0 auto;
+  margin-top: 1rem;
+}
+
+/* Left, not right: toasts stack in the bottom right corner, and the one control on
+   this page that ends a session should never be under one. */
+.profile-foot {
+  display: flex;
+  justify-content: flex-start;
+}
+
+@media (max-width: 40rem) {
+  .profile-identity {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .profile-row {
+    flex-direction: column;
+  }
+}
+
 /* --- loader screen -----------------------------------------------------------
  *
  * Centred wordmark shown while the session cookie is being exchanged on page

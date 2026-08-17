@@ -1,6 +1,8 @@
 """Pydantic request/response models for auth. Kept separate from the ORM models."""
 
 import uuid
+from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -18,14 +20,61 @@ class LoginRequest(BaseModel):
     password: str = Field(max_length=256)
 
 
+class GitHubIdentityOut(BaseModel):
+    """GitHub's copy of the user, read-only on this side.
+
+    Sent so the profile page can show what the linked account actually is, and so it
+    can offer "use my GitHub name" without inventing the value. Nothing here is
+    writable: these fields are refreshed from GitHub on every sign-in and a profile
+    edit must never be able to change what an account match is made on.
+    """
+
+    username: str
+    name: str | None = None
+    email: str | None = None
+    avatar_url: str | None = None
+    profile_url: str | None = None
+    linked_at: datetime
+
+
 class UserOut(BaseModel):
     id: uuid.UUID
     email: str
     display_name: str
     avatar_url: str | None = None
+    # "none" or "github". Where `avatar_url` came from, so the profile page can show
+    # which option is selected rather than guessing from the URL.
+    avatar_source: str = "none"
+    # False for an account created through GitHub and never given a password. The UI
+    # uses it to explain how this account signs in, and it is not a secret: it is the
+    # caller's own account, and /login already refuses both cases identically.
+    has_password: bool = True
+    github: GitHubIdentityOut | None = None
     # Every user gets a personal workspace at registration, so the client always has
     # somewhere to create a board without a workspace-picker flow first.
     default_workspace_id: uuid.UUID | None = None
+
+
+class ProfileUpdate(BaseModel):
+    """A profile edit. Absent fields are left alone, which is what PATCH means.
+
+    Email is not here on purpose. It is the account key that GitHub sign-in matches
+    on, so changing it is an account-merge question, not a profile field.
+    """
+
+    display_name: str | None = Field(default=None, min_length=1, max_length=80)
+    avatar_source: Literal["none", "github"] | None = None
+
+
+class ProvidersOut(BaseModel):
+    """Which sign-in buttons the client should offer.
+
+    The client cannot infer this: the provider is configured by environment variables
+    the browser never sees, and a button that redirects into a 404 is worse than no
+    button.
+    """
+
+    github: bool = False
 
 
 class TokenPair(BaseModel):

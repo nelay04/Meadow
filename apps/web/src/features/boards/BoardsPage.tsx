@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
+import { Avatar } from '../../ui/Avatar'
 import { Mark, Wordmark } from '../../ui/Brand'
 import {
   IconCanvas,
@@ -48,12 +49,6 @@ const SORTS: { id: SortId; label: string }[] = [
   { id: 'created', label: 'Date created' },
   { id: 'title', label: 'Name' },
 ]
-
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean)
-  if (parts.length === 0) return '?'
-  return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase()
-}
 
 /** "Edited 3 days ago", the way every file browser says it. */
 function relativeTime(iso: string): string {
@@ -295,12 +290,18 @@ export default function BoardsPage({ onOpen }: Props) {
         </nav>
 
         <div className="sidebar-foot">
-          <div className="user-chip">
-            <span className="avatar" aria-hidden="true">
-              {initials(user?.display_name ?? '?')}
-            </span>
+          {/* The chip was a label and is now the way to the profile page: it is
+              already the one place on this screen that names the account. */}
+          <button
+            type="button"
+            className="user-chip"
+            onClick={() => {
+              location.hash = '#/profile'
+            }}
+          >
+            <Avatar name={user?.display_name ?? '?'} url={user?.avatar_url} />
             <span className="name">{user?.display_name}</span>
-          </div>
+          </button>
           <div className="btn-row">
             <ThemeToggle />
             <button type="button" className="ghost" onClick={() => void logout()}>

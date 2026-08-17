@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Single .env at the repo root, shared with docker-compose.local.yml. Resolved from
@@ -53,6 +54,35 @@ class Settings(BaseSettings):
     rate_limit_login: str = "5/60"
     rate_limit_register: str = "3/3600"
     rate_limit_ws_token: str = "30/60"
+    # Both ends of the OAuth dance. The callback is limited too: it is reachable by
+    # anyone, and each call costs two requests to github.com.
+    rate_limit_oauth: str = "20/60"
+
+    # --- GitHub sign-in (ARCHITECTURE 7) ---
+    # Blank by default, and that is the off switch: with either half missing the
+    # provider reports itself unavailable and /auth/github/* answers 404, rather than
+    # the app offering a button that redirects into an error.
+    github_client_id: str = ""
+    # SecretStr so it cannot reach a log, a traceback, or a settings repr by accident.
+    # Only the token exchange unwraps it.
+    github_client_secret: SecretStr = SecretStr("")
+    # Absolute, and it has to match the callback URL registered on the GitHub OAuth
+    # app character for character or GitHub refuses the exchange.
+    github_callback_url: str = "http://localhost:3012/api/v1/auth/github/callback"
+
+    # Where the browser is sent once the callback has minted a session, and the only
+    # origin any post-login redirect may point at. Everything the callback builds is
+    # this value plus a path this code chose - never a value from the query string,
+    # which is how OAuth callbacks become open redirects.
+    web_base_url: str = "http://localhost:3012"
+
+    # Ten minutes: long enough to sign in to GitHub and approve, short enough that a
+    # state value copied out of a browser history is dead by the time it is used.
+    oauth_state_ttl_seconds: int = 600
+
+    @property
+    def github_oauth_enabled(self) -> bool:
+        return bool(self.github_client_id and self.github_client_secret.get_secret_value())
 
 
 settings = Settings()

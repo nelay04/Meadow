@@ -11,12 +11,14 @@ from datetime import datetime
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     DateTime,
     Enum,
     ForeignKey,
     Index,
     LargeBinary,
     String,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.dialects.postgresql import CITEXT, INET, UUID
@@ -43,18 +45,97 @@ board_role_enum = Enum(BoardRole, name="board_role", create_type=False)
 workspace_role_enum = Enum(WorkspaceRole, name="workspace_role", create_type=False)
 
 
+# How `users.avatar_url` got its value. See `User.avatar_source`.
+AVATAR_SOURCES = ("none", "github")
+
+
 class User(Base):
+    """An account, keyed by email.
+
+    Email is the account identity, not just a login field: signing in with GitHub
+    resolves to *this* row when the verified GitHub email matches, rather than making
+    a second account for the same person. See `app/services/accounts.py`, which is the
+    only place that decision is taken.
+    """
+
     __tablename__ = "users"
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     # citext, so Alice@ and alice@ are one account and cannot both be registered.
     email: Mapped[str] = mapped_column(CITEXT, nullable=False, unique=True)
-    password_hash: Mapped[str] = mapped_column(String, nullable=False)
+    # Nullable since GitHub sign-in: an account created through OAuth has no password
+    # to hash, and a placeholder hash would be a credential nobody can revoke. `login`
+    # treats null as "no password login for this account" and answers with the same
+    # message as a wrong one.
+    password_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    # The name the person chose here. Seeded from GitHub at first sign-in and theirs
+    # to change afterwards; later GitHub logins never overwrite it.
     display_name: Mapped[str] = mapped_column(String, nullable=False)
+    # The avatar every view reads. Derived, never typed in: `avatar_source` says where
+    # it came from, so a GitHub avatar keeps following the GitHub account while
+    # "none" means initials and stays that way through the next sign-in.
     avatar_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    avatar_source: Mapped[str] = mapped_column(String, nullable=False, server_default="none")
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "avatar_source in ('none', 'github')", name="ck_users_avatar_source"
+        ),
+    )
+
+
+class UserIdentity(Base):
+    """A third-party login bound to an account. GitHub is the only provider in v1.
+
+    Everything below the foreign key is GitHub's copy of the user, refreshed on every
+    sign-in and never written by the profile editor. That separation is the point:
+    `users.display_name` and `users.avatar_url` are what the person chose here, and
+    these columns are who GitHub says they are. Keeping them apart is what makes
+    "put my GitHub name back" possible, and it means no profile edit can corrupt the
+    fields an account match is made on.
+
+    **No OAuth access token is stored.** It is exchanged, used once server-side to read
+    the profile below, and dropped. Persisting a token that can read someone's private
+    repositories would turn this table into something worth stealing, and nothing here
+    needs to call GitHub again after sign-in.
+    """
+
+    __tablename__ = "user_identities"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    provider: Mapped[str] = mapped_column(String, nullable=False)
+    # GitHub's numeric id, as text. The match is made on this and never on the login
+    # name: a rename would otherwise read as a different person, and a *reused* login
+    # name would read as the same one.
+    provider_user_id: Mapped[str] = mapped_column(String, nullable=False)
+    # GitHub's `login`.
+    username: Mapped[str] = mapped_column(String, nullable=False)
+    # GitHub's `name`, which is optional over there and often unset.
+    provider_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    # The verified email the account was matched on, as GitHub reported it.
+    provider_email: Mapped[str | None] = mapped_column(String, nullable=True)
+    avatar_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    profile_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = _created_at()
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    last_login_at: Mapped[datetime] = _created_at()
+
+    __table_args__ = (
+        # One GitHub account signs in to exactly one Meadow account. Without this a
+        # second account could claim an identity already linked elsewhere, and which
+        # one a sign-in resolved to would depend on row order.
+        UniqueConstraint("provider", "provider_user_id", name="uq_user_identities_provider_user"),
+        # And one account holds at most one identity per provider.
+        UniqueConstraint("user_id", "provider", name="uq_user_identities_user_provider"),
     )
 
 

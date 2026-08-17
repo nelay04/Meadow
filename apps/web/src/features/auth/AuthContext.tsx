@@ -2,7 +2,7 @@ import { createContext, use, useCallback, useEffect, useMemo, useState } from 'r
 import type { ReactNode } from 'react'
 
 import * as api from '../../lib/api'
-import type { User } from '../../lib/api'
+import type { ProfilePatch, User } from '../../lib/api'
 
 type AuthState = {
   user: User | null
@@ -11,26 +11,82 @@ type AuthState = {
   /** True only after a successful login() or register() call, never on session restore. */
   freshLogin: boolean
   clearFreshLogin: () => void
+  /**
+   * Why a GitHub sign-in did not finish, in words. Set when the browser comes back
+   * from the callback with an error, and cleared once the login screen has shown it.
+   */
+  signInError: string | null
+  clearSignInError: () => void
   login: (email: string, password: string) => Promise<void>
   register: (email: string, password: string, displayName: string) => Promise<void>
+  updateProfile: (patch: ProfilePatch) => Promise<void>
   logout: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthState | null>(null)
 
+/**
+ * What the OAuth callback's `auth_error` codes mean to a person.
+ *
+ * The server sends codes rather than sentences because it is redirecting a browser,
+ * not answering a caller, and the wording belongs on this side anyway.
+ */
+const SIGN_IN_ERRORS: Record<string, string> = {
+  denied: 'GitHub sign-in was cancelled.',
+  state: 'That sign-in link expired. Try again.',
+  unverified_email:
+    'Your GitHub account has no verified email address. Verify one on GitHub, then try again.',
+  conflict: 'That email is already signed in with a different GitHub account.',
+  provider: 'GitHub could not be reached. Try again in a moment.',
+}
+
+/**
+ * Read the markers the OAuth callback left in the query string, and remove them.
+ *
+ * They are stripped with `replaceState` rather than left in place: a reload should
+ * not replay the splash screen, and a shared URL should not carry the trace of
+ * somebody else's sign-in. The hash is preserved untouched - it is the app's route,
+ * and the callback puts the destination there.
+ */
+function takeCallbackMarkers(): { signedIn: boolean; error: string | null } {
+  const params = new URLSearchParams(location.search)
+  const signedIn = params.get('auth') === 'github'
+  const code = params.get('auth_error')
+  if (!signedIn && code === null) return { signedIn: false, error: null }
+
+  params.delete('auth')
+  params.delete('auth_error')
+  const query = params.toString()
+  history.replaceState(null, '', `${location.pathname}${query === '' ? '' : `?${query}`}${location.hash}`)
+
+  return {
+    signedIn,
+    error: code === null ? null : (SIGN_IN_ERRORS[code] ?? 'GitHub sign-in did not finish.'),
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
   const [freshLogin, setFreshLogin] = useState(false)
+  const [signInError, setSignInError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
+    // Read before the await, so a re-render cannot see the markers twice.
+    const markers = takeCallbackMarkers()
+    if (markers.error !== null) setSignInError(markers.error)
+
     // The access token was in memory and is gone after a reload. The httpOnly refresh
     // cookie is not, so trade it for a new session before deciding to show the login
-    // form - otherwise every refresh looks like a logout.
+    // form - otherwise every refresh looks like a logout. A GitHub sign-in lands here
+    // too: the callback set that cookie on its way through, and this is what turns it
+    // into a session.
     void api.restoreSession().then((restored) => {
       if (cancelled) return
       setUser(restored)
+      // Coming back from GitHub is a login, so it gets the same welcome as one.
+      if (markers.signedIn && restored !== null) setFreshLogin(true)
       setLoading(false)
     })
     return () => {
@@ -51,7 +107,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [],
   )
 
+  // The response is the whole updated user, so the context takes it as-is rather than
+  // merging a guess about what the server did with the patch.
+  const updateProfile = useCallback(async (patch: ProfilePatch) => {
+    setUser(await api.updateProfile(patch))
+  }, [])
+
   const clearFreshLogin = useCallback(() => setFreshLogin(false), [])
+  const clearSignInError = useCallback(() => setSignInError(null), [])
 
   const logout = useCallback(async () => {
     await api.logout()
@@ -60,8 +123,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const value = useMemo(
-    () => ({ user, loading, freshLogin, clearFreshLogin, login, register, logout }),
-    [user, loading, freshLogin, clearFreshLogin, login, register, logout],
+    () => ({
+      user,
+      loading,
+      freshLogin,
+      clearFreshLogin,
+      signInError,
+      clearSignInError,
+      login,
+      register,
+      updateProfile,
+      logout,
+    }),
+    [
+      user,
+      loading,
+      freshLogin,
+      clearFreshLogin,
+      signInError,
+      clearSignInError,
+      login,
+      register,
+      updateProfile,
+      logout,
+    ],
   )
 
   return <AuthContext value={value}>{children}</AuthContext>

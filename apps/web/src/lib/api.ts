@@ -9,12 +9,42 @@
 
 export type BoardRole = 'owner' | 'editor' | 'commenter' | 'viewer'
 
+/**
+ * GitHub's copy of the user, read-only.
+ *
+ * Separate from the fields above it on purpose: `display_name` and `avatar_url` are
+ * what the person chose here, and these are what GitHub says. The profile page shows
+ * both, and only ever writes the first kind.
+ */
+export type GitHubIdentity = {
+  username: string
+  name: string | null
+  email: string | null
+  avatar_url: string | null
+  profile_url: string | null
+  linked_at: string
+}
+
 export type User = {
   id: string
   email: string
   display_name: string
   avatar_url: string | null
+  /** 'github' or 'none'. Where `avatar_url` came from. */
+  avatar_source: string
+  /** False for an account created through GitHub that never set a password. */
+  has_password: boolean
+  github: GitHubIdentity | null
   default_workspace_id: string | null
+}
+
+export type Providers = {
+  github: boolean
+}
+
+export type ProfilePatch = {
+  display_name?: string
+  avatar_source?: 'none' | 'github'
 }
 
 export type Board = {
@@ -146,6 +176,27 @@ export async function login(email: string, password: string): Promise<User> {
 export async function logout(): Promise<void> {
   await call<void>('/auth/logout', { method: 'POST' })
   accessToken = null
+}
+
+/** Which third-party sign-ins this deployment can actually complete. */
+export function getProviders(): Promise<Providers> {
+  return call<Providers>('/auth/providers')
+}
+
+/**
+ * Where the GitHub button points.
+ *
+ * A plain navigation, not a fetch: the flow leaves the site and comes back, and the
+ * session it returns with arrives as an httpOnly cookie the browser sets on the
+ * redirect. `next` is a hash route to return to; the server refuses anything else.
+ */
+export function githubSignInUrl(next?: string): string {
+  const query = next === undefined ? '' : `?next=${encodeURIComponent(next)}`
+  return `${BASE}/auth/github/start${query}`
+}
+
+export function updateProfile(patch: ProfilePatch): Promise<User> {
+  return call<User>('/auth/me', { method: 'PATCH', body: JSON.stringify(patch) })
 }
 
 /**

@@ -170,6 +170,44 @@ The infrastructure to run the thing. Not deployed yet.
   measuring bar with end ticks rather than as another alignment line. Resizing snaps
   too, so a column of boxes can be made the same width without typing a number.
 
+- **Sign in with GitHub, and a profile page to go with it.** The button on the login
+  card is real now: it starts an OAuth round trip and comes back as an ordinary Meadow
+  session, an httpOnly refresh cookie set on the callback's redirect, with nothing in
+  the URL. A token in a redirect lands in browser history, the referrer and every proxy
+  log on the way, and the whole point of the cookie is that page scripts cannot read it.
+  The provider is off unless `MEADOW_GITHUB_CLIENT_ID` and `MEADOW_GITHUB_CLIENT_SECRET`
+  are set, and off means the endpoints answer 404 and the client hides the button rather
+  than offering one that leads to an error.
+  **An account is its email address**, and that is the rule the whole flow is built
+  around: a GitHub sign-in whose verified email matches an existing account signs in to
+  that account rather than making a second one, whether the first was created with a
+  password or not. Matching is on GitHub's numeric user id once linked, so a rename over
+  there is a refreshed row here and not a new person. An unverified GitHub email is
+  refused outright, because matching on an address nobody has proved is account takeover
+  by anyone who can type it into their GitHub settings.
+  GitHub's copy of the user lives in `user_identities` and is never written by the
+  profile editor: username, name, email, avatar and profile URL are refreshed on every
+  sign-in and are what GitHub says, while `display_name` and the avatar choice on
+  `users` are what the person chose here. That separation is what makes the profile page
+  offering "use my GitHub name" possible at all, and it means no profile edit can
+  corrupt the fields an account match is made on. **No GitHub access token is stored**:
+  it is exchanged, used once server-side to read the profile, and dropped, so the table
+  is not worth stealing.
+  `users.password_hash` is nullable now, since an OAuth account has no password. A
+  placeholder hash would have avoided the migration and would have been a credential
+  nobody holds the input to. Password login on such an account is refused with the same
+  message a wrong password gets, because which accounts use GitHub is not something an
+  anonymous caller may enumerate.
+- **A profile page**, at `#/profile` from the account chip in the sidebar. Display name,
+  the picture (the GitHub one or initials, both shown as previews rather than described
+  by a switch), and a read-only record of how this account signs in. The email is shown
+  and not editable, with the reason in a sentence rather than as a greyed-out box:
+  changing it is an account-merge question, not a profile field. Avatars became one
+  component, `ui/Avatar.tsx`, replacing three copies of the same `initials()`: a remote
+  avatar URL can 404 after a rename or be blocked, so a failed load falls back to
+  initials instead of leaving the broken-image glyph. Remote wanderers on the canvas
+  still draw as initials in WebGL, which is untouched.
+
 ### Changed
 - Every page redrawn. Login is a centred card with a segmented control instead of an
   underlined sentence that behaved like a button; the board list is a grid of preview

@@ -43,6 +43,7 @@ import {
   IconTrash,
   IconUnlock,
 } from '../../ui/icons'
+import { Avatar, initialsOf } from '../../ui/Avatar'
 import { useToast } from '../../ui/Toaster'
 import { ThemeToggle } from '../../ui/ThemeToggle'
 import { createDocSession, roleCanWrite } from '../../doc/mutations'
@@ -116,12 +117,6 @@ const CONNECTION_LABEL: Record<ConnectionState, string> = {
   connected: 'Live',
   disconnected: 'Offline',
   denied: 'No access',
-}
-
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean)
-  if (parts.length === 0) return '?'
-  return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase()
 }
 
 /** One avatar per person, however many tabs they have open. */
@@ -329,19 +324,20 @@ export default function BoardPage({ boardId, onBack }: Props) {
             two wanderers on the canvas but one face here. */}
         <div className="wanderers" aria-label="People here">
           {user !== null && (
-            <span
+            <Avatar
               className="avatar avatar-self"
+              name={user.display_name}
+              url={user.avatar_url}
               style={{ background: `#${colorFor(user.id).toString(16).padStart(6, '0')}` }}
               title={`${user.display_name} (you, ${roleCanWrite(role) ? 'editor' : 'viewer'})`}
             >
-              {initials(user.display_name)}
               <span
                 className={`badge ${roleCanWrite(role) ? 'editor' : 'viewer'}`}
                 aria-hidden="true"
               >
                 {roleCanWrite(role) ? <IconPencil size={9} /> : <IconEye size={9} />}
               </span>
-            </span>
+            </Avatar>
           )}
           {dedupe(wanderers).map((wanderer) => (
             <span
@@ -350,7 +346,7 @@ export default function BoardPage({ boardId, onBack }: Props) {
               style={{ background: `#${wanderer.color.toString(16).padStart(6, '0')}` }}
               title={`${wanderer.name} (${wanderer.canWrite ? 'editor' : 'viewer'})`}
             >
-              {initials(wanderer.name)}
+              {initialsOf(wanderer.name)}
               {/* Which of the two people in a room can actually change it is the one
                   thing about presence that changes how you behave, and a list of
                   identical circles does not say it. */}

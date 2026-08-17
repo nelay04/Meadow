@@ -215,12 +215,28 @@ CRDT blob, not in normalised tables. Do not try to mirror canvas objects into SQ
 ```
 users
   id              uuid pk
-  email           citext unique not null
-  password_hash   text not null
-  display_name    text not null
-  avatar_url      text
+  email           citext unique not null   -- the account identity, see section 7
+  password_hash   text                     -- null for a GitHub-only account (M6)
+  display_name    text not null            -- the user's own, seeded from GitHub once
+  avatar_url      text                     -- derived from avatar_source, not typed in
+  avatar_source   text not null            -- 'none' | 'github'
   created_at      timestamptz
   updated_at      timestamptz
+
+user_identities                            -- M6. GitHub's copy of the user, read-only
+  id                uuid pk                -- to everything except the sign-in itself.
+  user_id           uuid fk -> users on delete cascade
+  provider          text not null          -- 'github'
+  provider_user_id  text not null          -- github's numeric id; survives a rename
+  username          text not null          -- github login
+  provider_name     text
+  provider_email    text                   -- the verified address matched on
+  avatar_url        text
+  profile_url       text
+  created_at, updated_at, last_login_at    timestamptz
+  unique (provider, provider_user_id)      -- one github account -> one meadow account
+  unique (user_id, provider)               -- and one identity per provider per account
+  -- No OAuth access token column, deliberately. See section 7.
 
 refresh_tokens
   id              uuid pk
@@ -816,6 +832,10 @@ POST   /auth/login              -> { access_token, refresh_token }
 POST   /auth/refresh            rotates; reuse detection revokes family
 POST   /auth/logout
 GET    /auth/me
+PATCH  /auth/me                 { display_name?, avatar_source? }  the user's own fields
+GET    /auth/providers          which third-party sign-ins this deployment offers
+GET    /auth/github/start       -> 302 to github, sets the single-use state cookie
+GET    /auth/github/callback    -> 303 back to the app, sets the refresh cookie
 
 GET    /workspaces
 POST   /workspaces
@@ -953,6 +973,48 @@ together both see an empty client set and the second raises out of the teardown 
   around the provider rather than a plain URL string. **Verify what the pinned
   version supports during M0** (five minutes then, an annoying detour in M1).
 - Rate limits (Redis): login 5/min/IP, register 3/hour/IP, ws-token 30/min/user.
+
+### GitHub sign-in (added in M6)
+
+Optional, and off unless `MEADOW_GITHUB_CLIENT_ID` and `MEADOW_GITHUB_CLIENT_SECRET`
+are both set. Off means `/api/v1/auth/github/*` answers 404 and `/auth/providers`
+reports `github: false`, so the client hides a button it cannot complete.
+
+**An account is its email address.** A GitHub sign-in whose *verified* email matches an
+existing user signs in to that user, whatever door they originally came in through. The
+decision lives in exactly one function, `app/services/accounts.py::link_github_profile`,
+for the same reason `resolve_role` is one function: a second place deciding whether two
+logins are the same person is a bug, not a feature. Once linked, matching is on GitHub's
+numeric user id, so a rename over there is a refreshed row here.
+
+An unverified GitHub email is refused. Matching on an unverified address means anyone
+who adds `you@example.com` to their own GitHub account can sign in as you.
+
+- **The flow.** `GET /auth/github/start` redirects to GitHub and sets a state cookie.
+  `GET /auth/github/callback` verifies, exchanges, resolves the account, issues the
+  session, and redirects back to `MEADOW_WEB_BASE_URL`. The session travels as the
+  ordinary httpOnly refresh cookie set on that redirect - never in the URL, which would
+  put it in history, the referrer, and every proxy log on the way.
+- **CSRF.** The state value must match in two places: a single-use Redis key (GETDEL,
+  so a replayed callback URL finds nothing) and an httpOnly cookie, so the callback also
+  has to arrive in the browser that started the flow. Redis alone would accept a state
+  minted in any browser anywhere, which is the login-CSRF attack this defends against.
+- **Open redirect.** Every redirect the callback builds is `MEADOW_WEB_BASE_URL` plus a
+  path this code chose. A `next` parameter is reduced to a `#/` hash route before it is
+  stored with the state, so it can never name a host.
+- **No provider token is stored.** The GitHub access token is exchanged, used for the
+  two profile reads, and dropped. Nothing after sign-in calls GitHub, so keeping it
+  would be storing a credential to someone's repositories for no purpose.
+- **`users.password_hash` is nullable.** An OAuth account has no password; a placeholder
+  hash would be an unrevocable credential nobody holds the input to. Password login
+  against such an account is refused with the same message a wrong password gets.
+- **GitHub's fields are never written by the profile editor.** `user_identities` holds
+  GitHub's copy - username, name, email, avatar, profile URL - refreshed on every
+  sign-in. `users.display_name` and `users.avatar_source` are the user's own, seeded from
+  GitHub at first sign-in and never overwritten again. `avatar_source` is what makes a
+  GitHub avatar keep following the GitHub account while "initials" stays chosen through
+  the next sign-in.
+- Rate limits: 20/min/IP on each of start and callback.
 
 ### Permission resolution
 

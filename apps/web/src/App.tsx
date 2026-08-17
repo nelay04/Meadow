@@ -6,25 +6,30 @@ import { ToastProvider } from './ui/Toaster'
 import { AuthProvider, useAuth } from './features/auth/AuthContext'
 import LoginPage from './features/auth/LoginPage'
 import BoardsPage from './features/boards/BoardsPage'
+import ProfilePage from './features/profile/ProfilePage'
 import { SplashVideo } from './ui/SplashVideo'
 
 /**
- * Routing is a hash and three views. A router library earns its place once there are
- * nested routes and deep links worth preserving; M1 has neither.
+ * Routing is a hash and four views. A router library earns its place once there are
+ * nested routes and deep links worth preserving; this still has neither.
  */
-function boardIdFromHash(): string | null {
+type Route = { name: 'boards' } | { name: 'glade'; boardId: string } | { name: 'profile' }
+
+function routeFromHash(): Route {
   // `field` is the old spelling of the same route, kept readable so a tab left
   // open on one still resolves. Only `glade` is ever written.
-  const match = /^#\/(?:glade|field)\/([0-9a-f-]{36})$/i.exec(location.hash)
-  return match?.[1] ?? null
+  const glade = /^#\/(?:glade|field)\/([0-9a-f-]{36})$/i.exec(location.hash)
+  if (glade !== null) return { name: 'glade', boardId: glade[1] }
+  if (/^#\/profile\/?$/.test(location.hash)) return { name: 'profile' }
+  return { name: 'boards' }
 }
 
 function Shell() {
   const { user, loading, freshLogin, clearFreshLogin } = useAuth()
-  const [boardId, setBoardId] = useState<string | null>(boardIdFromHash)
+  const [route, setRoute] = useState<Route>(routeFromHash)
 
   useEffect(() => {
-    const onHashChange = () => setBoardId(boardIdFromHash())
+    const onHashChange = () => setRoute(routeFromHash())
     window.addEventListener('hashchange', onHashChange)
     return () => window.removeEventListener('hashchange', onHashChange)
   }, [])
@@ -41,10 +46,18 @@ function Shell() {
     page = null
   } else if (user === null) {
     page = <LoginPage />
-  } else if (boardId !== null) {
+  } else if (route.name === 'glade') {
     page = (
       <BoardPage
-        boardId={boardId}
+        boardId={route.boardId}
+        onBack={() => {
+          location.hash = ''
+        }}
+      />
+    )
+  } else if (route.name === 'profile') {
+    page = (
+      <ProfilePage
         onBack={() => {
           location.hash = ''
         }}

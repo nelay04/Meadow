@@ -1,9 +1,12 @@
-"""Registration, login, refresh rotation, logout. ARCHITECTURE 6 and 7."""
+"""Registration, login, refresh rotation, logout, profile. ARCHITECTURE 6 and 7.
 
-import ipaddress
-import re
+GitHub sign-in lives next door in `oauth_github.py`; the two share `app/auth/session.py`
+for issuing a session and `app/services/accounts.py` for everything about an account,
+so neither flow has its own copy of either.
+"""
+
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Cookie, HTTPException, Request, Response, status
@@ -12,11 +15,20 @@ from sqlalchemy.exc import IntegrityError
 
 from app.auth import password as passwords
 from app.auth.deps import CurrentUser, Session
-from app.auth.tokens import create_access_token, hash_refresh_token, new_refresh_token
+from app.auth.session import clear_refresh_cookie, issue_session
+from app.auth.tokens import hash_refresh_token
 from app.config import settings
-from app.models import RefreshToken, User, Workspace, WorkspaceMember
-from app.schemas.auth import AuthResponse, LoginRequest, RegisterRequest, TokenPair, UserOut
-from app.services.permissions import WorkspaceRole
+from app.models import RefreshToken, User
+from app.schemas.auth import (
+    AuthResponse,
+    LoginRequest,
+    ProfileUpdate,
+    ProvidersOut,
+    RegisterRequest,
+    TokenPair,
+    UserOut,
+)
+from app.services import accounts
 from app.services.ratelimit import check as rate_limit_check
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -38,74 +50,10 @@ async def _enforce_rate_limit(request: Request, action: str, identity: str, spec
         )
 
 
-def _client_ip(request: Request) -> str | None:
-    """The peer address, but only if it really is one.
-
-    `ip` is an inet column, so anything unparseable fails the insert and takes the
-    whole login with it. ASGI does not promise a numeric host - the test client sends
-    a name, and a mangled proxy header would do the same in production. Audit metadata
-    is never worth failing an auth request over.
-    """
-    if request.client is None:
-        return None
-    try:
-        ipaddress.ip_address(request.client.host)
-    except ValueError:
-        return None
-    return request.client.host
-
-
-def _slugify(name: str, suffix: str) -> str:
-    base = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "workspace"
-    return f"{base[:40]}-{suffix}"
-
-
-def _set_refresh_cookie(response: Response, raw_token: str) -> None:
-    response.set_cookie(
-        settings.refresh_cookie_name,
-        raw_token,
-        max_age=settings.refresh_token_ttl_days * 24 * 3600,
-        httponly=True,
-        secure=settings.refresh_cookie_secure,
-        samesite="lax",
-        path="/api/v1/auth",
-    )
-
-
-async def _issue_session(
-    session: Session, response: Response, request: Request, user: User, family_id: uuid.UUID
-) -> TokenPair:
-    """Mint an access token and a fresh refresh token in `family_id`'s lineage."""
-    raw_refresh, token_hash = new_refresh_token()
-    session.add(
-        RefreshToken(
-            user_id=user.id,
-            token_hash=token_hash,
-            family_id=family_id,
-            expires_at=datetime.now(UTC) + timedelta(days=settings.refresh_token_ttl_days),
-            user_agent=request.headers.get("user-agent"),
-            ip=_client_ip(request),
-        )
-    )
-    await session.commit()
-
-    access_token, expires_at = create_access_token(user.id)
-    _set_refresh_cookie(response, raw_refresh)
-    return TokenPair(
-        access_token=access_token, expires_in=expires_at - int(datetime.now(UTC).timestamp())
-    )
-
-
-async def _default_workspace_id(session: Session, user: User) -> uuid.UUID | None:
-    return (
-        await session.execute(
-            select(Workspace.id)
-            .join(WorkspaceMember, WorkspaceMember.workspace_id == Workspace.id)
-            .where(WorkspaceMember.user_id == user.id)
-            .order_by(Workspace.created_at)
-            .limit(1)
-        )
-    ).scalar_one_or_none()
+@router.get("/providers", response_model=ProvidersOut)
+async def providers() -> ProvidersOut:
+    """Which third-party sign-ins this deployment can actually complete."""
+    return ProvidersOut(github=settings.github_oauth_enabled)
 
 
 @router.post("/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
@@ -126,35 +74,18 @@ async def register(
     except IntegrityError as exc:
         await session.rollback()
         # Deliberately the same message as a bad password on login. Distinguishing
-        # them turns registration into an account-enumeration oracle.
+        # them turns registration into an account-enumeration oracle, and it would
+        # also report which emails have signed in with GitHub.
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="could not create account"
         ) from exc
 
-    # A personal workspace, so a new user can create a board immediately. Boards
-    # always live in a workspace - that is where the shared permission grant lives.
-    workspace = Workspace(
-        name=f"{body.display_name}'s workspace",
-        slug=_slugify(body.display_name, uuid.uuid4().hex[:8]),
-        owner_id=user.id,
-    )
-    session.add(workspace)
-    await session.flush()
-    session.add(
-        WorkspaceMember(
-            workspace_id=workspace.id, user_id=user.id, role=WorkspaceRole.owner
-        )
-    )
+    workspace = await accounts.create_personal_workspace(session, user)
 
-    tokens = await _issue_session(session, response, request, user, uuid.uuid4())
+    tokens = await issue_session(session, response, request, user, uuid.uuid4())
     return AuthResponse(
         **tokens.model_dump(),
-        user=UserOut(
-            id=user.id,
-            email=user.email,
-            display_name=user.display_name,
-            default_workspace_id=workspace.id,
-        ),
+        user=await accounts.build_user_out(session, user, workspace_id=workspace.id),
     )
 
 
@@ -169,7 +100,14 @@ async def login(
         await session.execute(select(User).where(User.email == str(body.email)))
     ).scalar_one_or_none()
 
-    if user is None or not passwords.verify_password(user.password_hash, body.password):
+    # A GitHub-created account has no password hash, and there is no password that
+    # opens it. Same refusal as a wrong one: telling the caller "this account uses
+    # GitHub" would answer a question they have not proved they may ask.
+    if (
+        user is None
+        or user.password_hash is None
+        or not passwords.verify_password(user.password_hash, body.password)
+    ):
         raise _INVALID_CREDENTIALS
 
     if passwords.needs_rehash(user.password_hash):
@@ -178,16 +116,10 @@ async def login(
 
     # A new login starts a new rotation family: revoking one stolen lineage should
     # not log the user out of their other devices.
-    tokens = await _issue_session(session, response, request, user, uuid.uuid4())
+    tokens = await issue_session(session, response, request, user, uuid.uuid4())
     return AuthResponse(
         **tokens.model_dump(),
-        user=UserOut(
-            id=user.id,
-            email=user.email,
-            display_name=user.display_name,
-            avatar_url=user.avatar_url,
-            default_workspace_id=await _default_workspace_id(session, user),
-        ),
+        user=await accounts.build_user_out(session, user),
     )
 
 
@@ -231,7 +163,7 @@ async def refresh(
             .values(revoked_at=now)
         )
         await session.commit()
-        response.delete_cookie(settings.refresh_cookie_name, path="/api/v1/auth")
+        clear_refresh_cookie(response)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="refresh token reuse detected"
         )
@@ -247,7 +179,7 @@ async def refresh(
 
     # Mark spent rather than delete: reuse detection needs the evidence to survive.
     row.revoked_at = now
-    return await _issue_session(session, response, request, user, row.family_id)
+    return await issue_session(session, response, request, user, row.family_id)
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
@@ -272,15 +204,44 @@ async def logout(
                 .values(revoked_at=datetime.now(UTC))
             )
             await session.commit()
-    response.delete_cookie(settings.refresh_cookie_name, path="/api/v1/auth")
+    clear_refresh_cookie(response)
 
 
 @router.get("/me", response_model=UserOut)
 async def me(user: CurrentUser, session: Session) -> UserOut:
-    return UserOut(
-        id=user.id,
-        email=user.email,
-        display_name=user.display_name,
-        avatar_url=user.avatar_url,
-        default_workspace_id=await _default_workspace_id(session, user),
-    )
+    return await accounts.build_user_out(session, user)
+
+
+@router.patch("/me", response_model=UserOut)
+async def update_me(body: ProfileUpdate, user: CurrentUser, session: Session) -> UserOut:
+    """Edit the parts of the profile that belong to the user.
+
+    Exactly two fields, and neither of them is GitHub's. `display_name` is seeded from
+    GitHub at first sign-in and is the user's own from that moment; `avatar_source`
+    chooses between the linked GitHub picture and initials. The identity row itself is
+    never written here - it is what GitHub says, and it stays that way.
+    """
+    if body.display_name is not None:
+        name = body.display_name.strip()
+        if name == "":
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="display name is empty"
+            )
+        user.display_name = name
+
+    if body.avatar_source is not None:
+        identity = await accounts.github_identity(session, user.id)
+        if body.avatar_source == "github":
+            if identity is None or identity.avatar_url is None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="no linked github avatar",
+                )
+            user.avatar_source = "github"
+            user.avatar_url = identity.avatar_url
+        else:
+            user.avatar_source = "none"
+            user.avatar_url = None
+
+    await session.commit()
+    return await accounts.build_user_out(session, user)

@@ -21,13 +21,15 @@ dependencies = [
     "pyjwt>=2.10",
     "argon2-cffi>=23.1",
     "arq>=0.26",
+    # The GitHub OAuth token exchange and profile fetch. A runtime dependency since
+    # M6, not just a test one.
+    "httpx>=0.28",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
-    "httpx>=0.28",
     "ruff>=0.8",
     "mypy>=1.13",
 ]
