@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
 
 import BoardPage from './features/board/BoardPage'
-import { Wordmark } from './ui/Brand'
 import { ConfirmProvider } from './ui/ConfirmDialog'
 import { ToastProvider } from './ui/Toaster'
 import { AuthProvider, useAuth } from './features/auth/AuthContext'
 import LoginPage from './features/auth/LoginPage'
 import BoardsPage from './features/boards/BoardsPage'
+import { SplashVideo } from './ui/SplashVideo'
 
 /**
  * Routing is a hash and three views. A router library earns its place once there are
@@ -20,7 +20,7 @@ function boardIdFromHash(): string | null {
 }
 
 function Shell() {
-  const { user, loading } = useAuth()
+  const { user, loading, freshLogin, clearFreshLogin } = useAuth()
   const [boardId, setBoardId] = useState<string | null>(boardIdFromHash)
 
   useEffect(() => {
@@ -29,17 +29,20 @@ function Shell() {
     return () => window.removeEventListener('hashchange', onHashChange)
   }, [])
 
-  if (loading) {
-    return (
-      <main className="loading">
-        <Wordmark />
-      </main>
-    )
-  }
-  if (user === null) return <LoginPage />
+  const showLoader = loading
 
-  if (boardId !== null) {
-    return (
+  if (freshLogin) {
+    return <SplashVideo onDone={clearFreshLogin} />
+  }
+
+  // Determine the page content underneath.
+  let page: React.ReactNode = null
+  if (loading) {
+    page = null
+  } else if (user === null) {
+    page = <LoginPage />
+  } else if (boardId !== null) {
+    page = (
       <BoardPage
         boardId={boardId}
         onBack={() => {
@@ -47,14 +50,31 @@ function Shell() {
         }}
       />
     )
+  } else {
+    page = (
+      <BoardsPage
+        onOpen={(id) => {
+          location.hash = `#/glade/${id}`
+        }}
+      />
+    )
   }
 
   return (
-    <BoardsPage
-      onOpen={(id) => {
-        location.hash = `#/glade/${id}`
-      }}
-    />
+    <>
+      {page}
+      {showLoader && (
+        <div className="loader-screen">
+          <div className="loader-wordmark">
+            <img
+              src="/brand/meadow-wordmark.png"
+              alt="Meadow"
+              draggable={false}
+            />
+          </div>
+        </div>
+      )}
+    </>
   )
 }
 

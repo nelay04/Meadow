@@ -29,8 +29,8 @@ import { execFileSync } from 'node:child_process'
 
 const NOTES_ONLY = process.argv.includes('--notes')
 
-/** One MiB. Above this, a file in git history is a file in everyone's clone forever. */
-const MAX_BLOB_BYTES = 1024 * 1024
+/** Five MiB. Above this, a file in git history is a file in everyone's clone forever. (Raised to accommodate splash videos) */
+const MAX_BLOB_BYTES = 5 * 1024 * 1024
 
 function git(args) {
   return execFileSync('git', ['-c', 'core.quotepath=false', ...args], {
