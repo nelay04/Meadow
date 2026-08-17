@@ -376,7 +376,9 @@ export default function BoardPage({ boardId, onBack }: Props) {
           </button>
           <button type="button" onClick={canvas.zoomToFit} title="Zoom to fit">
             <IconFit size={15} />
-            Fit
+            {/* Wrapped so a narrow bar can drop the word and keep the icon. A bare
+                text node has no box to hide. */}
+            <span className="label">Fit</span>
           </button>
         </div>
 
@@ -548,7 +550,12 @@ export default function BoardPage({ boardId, onBack }: Props) {
             ? 'nothing selected'
             : `${canvas.selection.length} selected`}
         </span>
-        <span>
+        {/*
+          * Keyboard and mouse hints, hidden on a touch device rather than reworded.
+          * "Ctrl+Wheel to zoom" is not advice a phone can take, and the touch
+          * equivalents - tap, drag, pinch - are the ones nobody needs telling.
+          */}
+        <span className="hints">
           {canvas.editingId === null ? (
             <>
               <kbd>Double-click</kbd> text to edit <span className="faint">|</span>{' '}

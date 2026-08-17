@@ -416,3 +416,12 @@ export function IconClose(props: IconProps) {
     </Svg>
   )
 }
+
+/** Opens the workspace sidebar when it is a drawer rather than a column. */
+export function IconMenu(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M4.5 7h15M4.5 12h15M4.5 17h15" />
+    </Svg>
+  )
+}

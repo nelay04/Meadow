@@ -34,6 +34,24 @@ The infrastructure to run the thing. Not deployed yet.
 - CI on every push: lint, both test suites, the e2e scripts, and a job that builds the
   images and runs the stack check against them. `release.yml` publishes three images to
   GHCR and deploys over ssh, gated on CI passing.
+- **The app works on a phone.** It had a viewport meta tag and not one width media
+  query, so a 15rem sidebar took 60 percent of a 390px screen and the page scrolled
+  sideways. Everything added is additive: one `pointer: coarse` block and two width
+  breakpoints, chosen from what actually breaks rather than from a device list. At
+  860px the sidebar stops leaving room for a useful grid and becomes a drawer with a
+  scrim; at 560px the vertical tool rail is taller than the canvas beside it and turns
+  into a scrolling bar along the bottom, where a thumb already is. Nothing is removed
+  on the way down: every tool, the lock, the grid, the theme control and the sign-out
+  are all still reachable, and the keyboard hints in the status bar are hidden by input
+  device rather than by width, because a small window on a laptop still has a keyboard.
+- **Pinch to zoom and two-finger pan on the canvas.** One finger already worked, since
+  the tools run on pointer events and a drag is a drag. Two fingers have no pointer
+  event at all: the browser reports two independent streams and leaves the arithmetic
+  to the page. Both readings come off the same pair every move, because nobody pinches
+  without also moving their hand and a canvas that zooms but refuses to follow the
+  drift feels like it is fighting you. The finger that started drawing has its gesture
+  cancelled when the second one lands, so a pinch never leaves a stray rectangle
+  behind it.
 - **A confirmation dialog and toasts**, replacing the last two things in the app that
   spoke through the browser instead of through Meadow. Deleting a glade asked with
   `window.confirm`, which names the origin rather than the app, blocks the main thread,

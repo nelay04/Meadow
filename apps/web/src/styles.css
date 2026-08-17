@@ -1861,3 +1861,324 @@ dialog.modal[open] .modal-card {
     transform: none;
   }
 }
+
+/* --- small screens -----------------------------------------------------------
+ *
+ * Everything below is additive: one `pointer: coarse` block for input that has no
+ * hover, and two width breakpoints. Nothing here changes the desktop layout, which is
+ * the point. A canvas tool's desktop form is the one it was designed as, and a phone
+ * gets the same product rearranged rather than a reduced one: every tool, every
+ * control, and the same board.
+ *
+ * The two widths are chosen from what actually breaks rather than from a device list.
+ * At 860px the 15rem sidebar stops leaving room for a useful grid of cards, and at
+ * 560px a vertical tool rail is taller than the canvas beside it.
+ */
+
+/* --- touch, at any width --- */
+@media (pointer: coarse) {
+  /*
+   * Hover tooltips are dead weight on a touch device: there is no hover, so they only
+   * ever appear on the tap that already did the thing they were explaining. The
+   * accessible name is on `aria-label` and is unaffected.
+   */
+  .tool .tip {
+    display: none;
+  }
+
+  /*
+   * A card's delete button is revealed on hover, which on a touch device means never.
+   * It is the only way to delete a glade, so it is always visible here. The
+   * confirmation dialog is what stops that being dangerous, and on a phone the button
+   * is also further from the thumb's resting position than the card itself.
+   */
+  .board-card .card-delete {
+    opacity: 1;
+  }
+
+  /* 44px is the smallest target most people can hit reliably while walking. */
+  .tool,
+  button.icon {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+  }
+
+  .board-card .card-delete {
+    width: 2.4rem;
+    height: 2.4rem;
+  }
+
+  /* The drawer's footer is the only route to either of these on a phone. */
+  .sidebar-foot .btn-row button {
+    min-height: 2.75rem;
+  }
+}
+
+/* The menu button is a phone control that would be a second way to do nothing on a
+   desktop, where the sidebar is always on screen. */
+.nav-toggle {
+  display: none;
+  flex: 0 0 auto;
+  margin-right: 0.1rem;
+}
+
+/* --- tablet and below: the sidebar becomes a drawer --- */
+@media (max-width: 860px) {
+  /*
+   * `dvh`, not `vh`. On a phone `100vh` is the viewport with the browser's address bar
+   * hidden, which is not the viewport you have while it is showing: the sidebar ends
+   * up taller than the screen and its footer sits under the chrome.
+   */
+  .workspace {
+    min-height: 100dvh;
+  }
+
+  .nav-toggle {
+    display: inline-flex;
+  }
+
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 40;
+    flex: 0 0 auto;
+    width: min(17rem, 82vw);
+    height: 100dvh;
+    transform: translateX(-100%);
+    transition: transform 180ms cubic-bezier(0.2, 0, 0.2, 1);
+    box-shadow: none;
+  }
+
+  .sidebar.open {
+    transform: none;
+    box-shadow: var(--shadow-lg);
+  }
+
+  .sidebar-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 39;
+    background: #0b0d1066;
+    backdrop-filter: blur(2px);
+  }
+
+  /*
+   * The drawer's footer is the only place the theme control and the sign-out live, so
+   * on a phone it is the only way to reach either. They get the full width of the
+   * drawer and a proper target rather than the desktop's tucked-away row.
+   */
+  .sidebar-foot .btn-row {
+    gap: 0.4rem;
+  }
+
+  /* The theme control keeps its square; the sign-out takes the rest of the row and
+     reads from the left like everything above it. */
+  .sidebar-foot .btn-row .ghost:not(.icon) {
+    flex: 1;
+    justify-content: flex-start;
+  }
+
+  .workspace-main {
+    padding: 1rem 1rem 4rem;
+  }
+
+  .board-grid {
+    grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+  }
+
+  /* The glade title gives up its fixed ceiling and takes whatever the bar has left. */
+  .board-bar h1 {
+    max-width: none;
+    min-width: 0;
+    flex: 0 1 auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar {
+    transition: none;
+  }
+}
+
+/* --- phone --- */
+@media (max-width: 560px) {
+  .workspace-head {
+    gap: 0.4rem;
+  }
+
+  .workspace-head h1 {
+    font-size: 1.15rem;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Name and button stack: side by side, the field is too narrow to read what you
+     typed and the button is too narrow to read at all. */
+  .composer {
+    flex-direction: column;
+  }
+
+  .composer .primary {
+    justify-content: center;
+  }
+
+  .board-grid {
+    grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+    gap: 0.7rem;
+  }
+
+  /* --- the board --- */
+  .board-bar {
+    gap: 0.3rem;
+    padding: 0.4rem 0.5rem;
+  }
+
+  .board-bar h1 {
+    font-size: 0.95rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Separators are the first thing to go when the bar is the scarce resource. */
+  .board-bar .divider {
+    display: none;
+  }
+
+  /*
+   * The bar's fixed passengers, in the order they stop earning their place.
+   *
+   * The role pill goes first: the avatar beside it already carries a pencil or an eye,
+   * so it was saying the same thing twice. Then the flexible spacer, because the title
+   * can do that job and a title squeezed to nothing is worse than a bar with no slack.
+   * Then the word beside the fit icon.
+   */
+  .board-bar .role {
+    display: none;
+  }
+
+  .board-bar .spacer {
+    display: none;
+  }
+
+  .board-bar h1 {
+    flex: 1 1 auto;
+  }
+
+  .zoom .label {
+    display: none;
+  }
+
+  .zoom button {
+    padding: 0.25rem 0.45rem;
+  }
+
+  .zoom .readout {
+    min-width: 0;
+    padding: 0.25rem 0.4rem;
+  }
+
+  /* Four faces is already more than the bar can spare; the canvas shows the rest as
+     wanderers, which is where they matter. */
+  .wanderers .avatar:nth-child(n + 4) {
+    display: none;
+  }
+
+  /*
+   * The tool rail turns from a column into a bar along the bottom.
+   *
+   * Vertically it was taller than the canvas it floats over, and horizontally it lands
+   * where a thumb already is. It scrolls, so adding a tool never pushes one off the
+   * screen with no way to reach it.
+   */
+  .toolbar {
+    left: 0.5rem;
+    right: 0.5rem;
+    top: auto;
+    bottom: 0.6rem;
+    transform: none;
+    flex-direction: row;
+    align-items: center;
+    justify-content: safe center;
+    gap: 0.1rem;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+
+  .toolbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* The rule between the tools and the delete button turns with the rail. */
+  .toolbar > hr {
+    border-top: 0;
+    border-left: 1px solid var(--line);
+    width: 0;
+    height: 1.6rem;
+    margin: 0 0.25rem;
+    align-self: center;
+    flex: 0 0 auto;
+  }
+
+  .toolbar .tool {
+    flex: 0 0 auto;
+  }
+
+  /* The arrow-shape flyout opens upward, because the rail it belongs to is now at the
+     bottom of the screen and to the right of it is off the edge. */
+  .tool-submenu {
+    left: 50%;
+    right: auto;
+    top: auto;
+    bottom: calc(100% + 0.55rem);
+    transform: translateX(-50%);
+  }
+
+  /* Clear of the rail, both of them. */
+  .board-notices {
+    bottom: 4.6rem;
+    width: calc(100% - 1.5rem);
+  }
+
+  .board-notices > * {
+    text-align: center;
+  }
+
+  .text-bar {
+    max-width: calc(100% - 1rem);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .statusbar {
+    padding: 0.25rem 0.6rem;
+    font-size: 0.72rem;
+  }
+
+  /*
+   * `:has()` rather than lifting every toast on every page: the rail only exists while
+   * a glade is open, and on the list behind it there is nothing down there to clear.
+   */
+  body:has(.board) .toaster {
+    bottom: 4.6rem;
+  }
+
+  .toaster {
+    right: 0.5rem;
+    left: 0.5rem;
+    width: auto;
+  }
+}
+
+/*
+ * The keyboard hints go by input device, not by width: a small window on a laptop
+ * still has a keyboard, and a large tablet does not.
+ */
+@media (pointer: coarse) {
+  .statusbar .hints {
+    display: none;
+  }
+}

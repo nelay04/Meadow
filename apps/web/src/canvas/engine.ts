@@ -1523,7 +1523,82 @@ export class CanvasEngine {
     }
   }
 
+  /*
+   * --- touch -------------------------------------------------------------------
+   *
+   * One finger is a pointer and needs nothing: the tools already run on pointer
+   * events, so a tap selects and a drag draws exactly as a mouse does. Two fingers
+   * are the gesture a canvas cannot do without, and there is no pointer event for
+   * them - the browser reports two independent streams and leaves the arithmetic to
+   * the page.
+   *
+   * Pinch and two-finger pan are one gesture, not two. Nobody pinches without also
+   * moving their hand, and a canvas that zooms but refuses to follow the drift feels
+   * like it is fighting you. So both are read off the same pair every move: the
+   * change in the distance between the fingers is the zoom, the change in their
+   * midpoint is the pan.
+   */
+
+  /** Where each finger currently is, in canvas pixels. */
+  private touchPoints = new Map<number, Point>()
+
+  /** The last pair reading, or null when fewer than two fingers are down. */
+  private pinch: { distance: number; centre: Point } | null = null
+
+  /**
+   * True from the moment a second finger lands until the last one lifts.
+   *
+   * It outlives `pinch` on purpose. Lifting one finger of two must not hand the
+   * remaining one back to the tool: that finger has been dragging across the screen
+   * for the whole gesture, and resuming from wherever it happens to be would draw a
+   * rectangle from one corner of the pinch.
+   */
+  private pinching = false
+
+  /** Below this the midpoint is meaningless and the ratio explodes. */
+  private static readonly MIN_PINCH_PX = 12
+
+  private readPinch(): { distance: number; centre: Point } | null {
+    const points = [...this.touchPoints.values()]
+    if (points.length < 2) return null
+    const [a, b] = points
+    return {
+      distance: Math.hypot(b.x - a.x, b.y - a.y),
+      centre: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
+    }
+  }
+
+  private applyPinch(): void {
+    const previous = this.pinch
+    const next = this.readPinch()
+    this.pinch = next
+    if (previous === null || next === null) return
+
+    if (previous.distance > CanvasEngine.MIN_PINCH_PX) {
+      this.camera.zoomBy(next.centre.x, next.centre.y, next.distance / previous.distance)
+    }
+    // After the zoom, so the pan is applied to the scale the fingers are now at.
+    this.camera.panByScreen(next.centre.x - previous.centre.x, next.centre.y - previous.centre.y)
+    this.requestRender()
+  }
+
   private onPointerDown = (event: PointerEvent): void => {
+    if (event.pointerType === 'touch') {
+      this.touchPoints.set(event.pointerId, this.toCanvasPoint(event))
+
+      if (this.touchPoints.size >= 2) {
+        if (!this.pinching) {
+          this.pinching = true
+          // The first finger has already started something. Drop it rather than
+          // leaving a half-drawn shape behind the gesture.
+          this.tool.cancel?.()
+          this.events.onPointerWorld?.(null)
+        }
+        this.pinch = this.readPinch()
+        return
+      }
+    }
+
     // Middle-click pans regardless of tool, the convention every canvas app shares.
     if (event.button === 1 || this.spacePanning) {
       this.beginTemporaryPan()
@@ -1536,6 +1611,16 @@ export class CanvasEngine {
   }
 
   private onPointerMove = (event: PointerEvent): void => {
+    if (event.pointerType === 'touch') {
+      if (this.touchPoints.has(event.pointerId)) {
+        this.touchPoints.set(event.pointerId, this.toCanvasPoint(event))
+      }
+      if (this.pinching) {
+        this.applyPinch()
+        return
+      }
+    }
+
     const canvasEvent = this.toPointerEvent(event)
     this.events.onPointerWorld?.(canvasEvent.world)
     this.tool.onPointerMove(canvasEvent)
@@ -1546,6 +1631,21 @@ export class CanvasEngine {
   }
 
   private onPointerUp = (event: PointerEvent): void => {
+    if (event.pointerType === 'touch') {
+      const wasPinching = this.pinching
+      this.touchPoints.delete(event.pointerId)
+
+      if (this.touchPoints.size === 0) this.pinching = false
+      this.pinch = this.readPinch()
+
+      if (wasPinching) {
+        if (this.app.canvas.hasPointerCapture(event.pointerId)) {
+          this.app.canvas.releasePointerCapture(event.pointerId)
+        }
+        return
+      }
+    }
+
     if (this.app.canvas.hasPointerCapture(event.pointerId)) {
       this.app.canvas.releasePointerCapture(event.pointerId)
     }

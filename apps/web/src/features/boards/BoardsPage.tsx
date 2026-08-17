@@ -5,6 +5,7 @@ import {
   IconCanvas,
   IconClock,
   IconGrid,
+  IconMenu,
   IconPlus,
   IconSearch,
   IconShared,
@@ -137,6 +138,13 @@ export default function BoardsPage({ onOpen }: Props) {
   const [view, setView] = useState<ViewId>('all')
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<SortId>('modified')
+  /*
+   * The sidebar is a column on a desktop and a drawer on a phone, and this is the
+   * only part of that the JSX has to know about. Which of the two it is at any width
+   * is CSS: at desktop widths the drawer class does nothing, so this can stay false
+   * forever without the sidebar ever disappearing.
+   */
+  const [navOpen, setNavOpen] = useState(false)
 
   /*
    * A failed load is the only one of the three that stays on the page.
@@ -160,6 +168,17 @@ export default function BoardsPage({ onOpen }: Props) {
   useEffect(() => {
     void reload()
   }, [reload])
+
+  // Escape closes the drawer, which is the keyboard's way out now that the backdrop
+  // is not a control. Bound only while it is open, so nothing listens for nothing.
+  useEffect(() => {
+    if (!navOpen) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setNavOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [navOpen])
 
   const create = async () => {
     if (user?.default_workspace_id == null) return
@@ -228,7 +247,19 @@ export default function BoardsPage({ onOpen }: Props) {
 
   return (
     <div className="workspace">
-      <aside className="sidebar">
+      {/*
+        * A backdrop, not a button.
+        *
+        * It was a button, and the generic `button:hover` rule painted it opaque cream
+        * over the whole page the moment a pointer crossed it. Raising its specificity
+        * would have worked and would have been a lie about what it is: nothing here is
+        * a control. Escape closes the drawer, and so does choosing any view in it.
+        */}
+      {navOpen && (
+        <div className="sidebar-scrim" aria-hidden="true" onClick={() => setNavOpen(false)} />
+      )}
+
+      <aside className={navOpen ? 'sidebar open' : 'sidebar'}>
         <div className="sidebar-brand">
           <Wordmark />
         </div>
@@ -250,7 +281,11 @@ export default function BoardsPage({ onOpen }: Props) {
               type="button"
               className={view === entry.id ? 'nav-item active' : 'nav-item'}
               aria-current={view === entry.id ? 'page' : undefined}
-              onClick={() => setView(entry.id)}
+              onClick={() => {
+                setView(entry.id)
+                // On a phone the drawer is covering the thing it just filtered.
+                setNavOpen(false)
+              }}
             >
               <entry.Icon size={17} />
               <span className="nav-label">{entry.label}</span>
@@ -277,6 +312,15 @@ export default function BoardsPage({ onOpen }: Props) {
 
       <main className="workspace-main">
         <header className="workspace-head">
+          <button
+            type="button"
+            className="icon ghost nav-toggle"
+            aria-label="Menu"
+            aria-expanded={navOpen}
+            onClick={() => setNavOpen(true)}
+          >
+            <IconMenu />
+          </button>
           <h1>{viewLabel}</h1>
           <span className="faint">{visible.length}</span>
           <div className="spacer" />
