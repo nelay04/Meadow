@@ -2,9 +2,21 @@
 
 This module owns one rule, and it is the reason it exists rather than living in the
 routers: **an account is its email address.** Signing in with GitHub or Google resolves
-to the existing row with that verified email, and only creates a new account when there
-is none. If a second place ever starts deciding whether two logins are the same person,
-that is the same class of bug `permissions.py` warns about for roles.
+to the existing row with that verified email, and refuses when there is none. If a
+second place ever starts deciding whether two logins are the same person, that is the
+same class of bug `permissions.py` warns about for roles.
+
+**A sign-in and a registration are different requests, even through the same provider.**
+Which one a round trip was is carried as an `Intent` from the button that started it, so
+the answer does not depend on guessing from the state of the database:
+
+* registering an address that already has an account is refused - log in instead;
+* signing in with an address that has none is refused - register first;
+* and either door can register: the password form, GitHub, or Google.
+
+Without the intent, "this address already exists" would have to mean sign-in on one
+screen and refusal on the other, and the same callback would do different things for
+reasons the user never expressed.
 
 Nothing below knows which provider it is looking at. Every provider produces the same
 `OAuthProfile`, so "same email means same person" is one code path rather than one per
@@ -14,6 +26,7 @@ provider, and a third provider adds no branches here.
 import re
 import uuid
 from datetime import UTC, datetime
+from enum import Enum
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -23,6 +36,46 @@ from app.models import User, UserIdentity, Workspace, WorkspaceMember
 from app.schemas.auth import IdentityOut, UserOut
 from app.services.oauth.base import OAuthProfile
 from app.services.permissions import WorkspaceRole
+
+
+class Intent(Enum):
+    """What the person pressed. Carried through the OAuth round trip in the state."""
+
+    login = "login"
+    register = "register"
+    # Connect, from the profile page of an account that is already signed in. Unlike the
+    # other two this one names a specific account up front, and may only ever touch it.
+    link = "link"
+
+
+class EmailMismatch(Exception):
+    """The provider account's address is not the one on the account being connected.
+
+    Its own outcome rather than a sign-in, because the person asked to connect *this*
+    account to a provider, and the provider answered with someone else's address. Before
+    this existed the flow fell through to the email match and signed them into the other
+    account, which is a surprising place to end up from a button labelled Connect.
+    """
+
+
+class AlreadyRegistered(Exception):
+    """Registration attempted for an address that already has an account.
+
+    Named rather than silently signing them in: someone on the register form has said
+    they think they are new here, and quietly logging them into an existing account
+    answers a question they did not ask.
+    """
+
+
+class UnregisteredEmail(Exception):
+    """The provider's verified email belongs to no account here.
+
+    Not an error in the provider's half of the flow: everything about the sign-in
+    worked, and the answer is that this address has never registered. The caller turns
+    it into "register first", and that message is safe to be specific about because
+    reaching it means completing a sign-in at the provider, which is proof of control
+    over the address it names.
+    """
 
 
 class IdentityConflict(Exception):
@@ -152,20 +205,25 @@ def _follow_avatar(user: User, profile: OAuthProfile) -> None:
         user.avatar_url = profile.avatar_url
 
 
-async def link_oauth_profile(session: AsyncSession, profile: OAuthProfile) -> tuple[User, bool]:
-    """Resolve a third-party profile to an account, creating one if this is a new person.
+async def link_oauth_profile(
+    session: AsyncSession, profile: OAuthProfile, *, intent: Intent
+) -> tuple[User, bool]:
+    """Resolve a third-party profile to an account. Returns `(user, created)`.
 
-    Returns `(user, created)`. Three cases, in this order, and the same three whichever
-    provider the profile came from:
+    Four cases, in this order, and the same four whichever provider the profile came
+    from:
 
-    1. That provider account is already linked - sign that user in. The link is keyed on
-       the provider's own id (GitHub's numeric id, Google's `sub`), so a rename or an
-       email change over there is just a refreshed row here.
-    2. Its verified email matches an existing account - link the two. This is the
-       "same email means same person" rule, and it is only safe because the provider
-       module has already established the email is verified. An unverified email is a
-       claim, and anyone can claim one.
-    3. Neither - create the account, its personal workspace, and the link.
+    1. That provider account is already linked - sign that user in, or refuse if they
+       asked to register. The link is keyed on the provider's own id (GitHub's numeric
+       id, Google's `sub`), so a rename or an email change over there is just a
+       refreshed row here.
+    2. Its verified email matches an existing account - link the two and sign in, or
+       refuse if they asked to register. This is the "same email means same person"
+       rule, and it is only safe because the provider module has already established
+       the email is verified. An unverified email is a claim, and anyone can claim one.
+    3. No account, and they asked to register - create it, unactivated, with its
+       personal workspace and the link. The caller sends the activation mail.
+    4. No account, and they asked to log in - `UnregisteredEmail`.
 
     Case 2 is what makes the providers add up rather than multiply: signing in with
     Google on an account that already has a password and a GitHub link lands on that
@@ -184,6 +242,8 @@ async def link_oauth_profile(session: AsyncSession, profile: OAuthProfile) -> tu
         user = await session.get(User, identity.user_id)
         if user is None:  # pragma: no cover - the FK cascades, so this cannot happen
             raise IdentityConflict("identity points at a deleted account")
+        if intent is Intent.register:
+            raise AlreadyRegistered(profile.email)
         _apply_profile_snapshot(identity, profile)
         _follow_avatar(user, profile)
         await session.commit()
@@ -193,34 +253,96 @@ async def link_oauth_profile(session: AsyncSession, profile: OAuthProfile) -> tu
         await session.execute(select(User).where(User.email == profile.email))
     ).scalar_one_or_none()
 
-    if existing is not None:
-        # Only a clash at the *same* provider is a conflict. Holding a GitHub link says
-        # nothing about whether this Google account may be added, and refusing that
-        # would be refusing the whole point of case 2.
-        if await identity_for(session, existing.id, profile.provider) is not None:
-            raise IdentityConflict(
-                f"account already linked to a different {profile.provider} account"
-            )
-        identity = UserIdentity(
-            user_id=existing.id,
-            provider=profile.provider,
-            provider_user_id=profile.provider_user_id,
-        )
-        _apply_profile_snapshot(identity, profile)
-        session.add(identity)
-        # An account that already exists keeps its own name and avatar. Linking a
-        # provider is not a request to be renamed by it.
-        _follow_avatar(existing, profile)
-        await session.commit()
-        return existing, False
+    if existing is None:
+        if intent is Intent.login:
+            raise UnregisteredEmail(profile.email)
+        return await _register_with_provider(session, profile)
 
+    if intent is Intent.register:
+        raise AlreadyRegistered(profile.email)
+
+    # Only a clash at the *same* provider is a conflict. Holding a GitHub link says
+    # nothing about whether this Google account may be added, and refusing that would
+    # be refusing the whole point of case 2.
+    if await identity_for(session, existing.id, profile.provider) is not None:
+        raise IdentityConflict(f"account already linked to a different {profile.provider} account")
+
+    identity = UserIdentity(
+        user_id=existing.id,
+        provider=profile.provider,
+        provider_user_id=profile.provider_user_id,
+    )
+    _apply_profile_snapshot(identity, profile)
+    session.add(identity)
+    # An account that already exists keeps its own name and avatar. Linking a provider
+    # is not a request to be renamed by it.
+    _follow_avatar(existing, profile)
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        # Two callbacks for the same account and provider, racing. Whoever lost re-reads
+        # the winner's row rather than failing a sign-in that is entirely legitimate.
+        await session.rollback()
+        return await _resolve_after_race(session, profile, exc), False
+    return existing, False
+
+
+async def link_to_user(
+    session: AsyncSession, profile: OAuthProfile, user: User
+) -> User:
+    """Attach a provider account to one specific existing account, or refuse.
+
+    The account is named by the session that started the flow, not found from the
+    profile, so the only question here is whether the two are the same person. The
+    address is the answer: it is what every other match in this file is made on, and
+    accepting a different one would let a provider account be bound to an account it has
+    never proved any relationship to.
+    """
+    if profile.email != user.email:
+        raise EmailMismatch(profile.email)
+
+    existing = await identity_for(session, user.id, profile.provider)
+    if existing is not None:
+        if existing.provider_user_id == profile.provider_user_id:
+            # Connecting something already connected. Refresh it and call it done.
+            _apply_profile_snapshot(existing, profile)
+            _follow_avatar(user, profile)
+            await session.commit()
+            return user
+        raise IdentityConflict(f"account already linked to a different {profile.provider} account")
+
+    identity = UserIdentity(
+        user_id=user.id, provider=profile.provider, provider_user_id=profile.provider_user_id
+    )
+    _apply_profile_snapshot(identity, profile)
+    session.add(identity)
+    _follow_avatar(user, profile)
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        # The unique constraint on (provider, provider_user_id): that provider account
+        # is already signing somebody else in.
+        await session.rollback()
+        raise IdentityConflict("that account is linked elsewhere") from exc
+    return user
+
+
+async def _register_with_provider(
+    session: AsyncSession, profile: OAuthProfile
+) -> tuple[User, bool]:
+    """A new account opened through GitHub or Google.
+
+    Unactivated, like every other registration: the provider verified the address for
+    its own purposes, and this app confirms it for its own. The name and picture are
+    seeded from the provider and are the user's from that moment, never overwritten by a
+    later sign-in.
+    """
     user = User(
         email=profile.email,
         # No password, rather than an unguessable placeholder: a hash nobody holds the
-        # input to is a credential that cannot be revoked or reasoned about.
+        # input to is a credential that cannot be revoked or reasoned about. They can
+        # sign in with the provider, and the profile page says so.
         password_hash=None,
-        # The provider's display name when they have set one, their username when they
-        # have not. Theirs to change afterwards, and never overwritten again.
         display_name=profile.name or profile.username,
         avatar_url=profile.avatar_url,
         # Named after the provider, so the picture keeps following that account and the
@@ -231,10 +353,10 @@ async def link_oauth_profile(session: AsyncSession, profile: OAuthProfile) -> tu
     try:
         await session.flush()
     except IntegrityError as exc:
-        # Two callbacks for the same new person, racing. Whoever lost re-reads the
-        # winner's row rather than failing a sign-in that is entirely legitimate.
+        # Two callbacks for the same new address, racing. The loser is a registration
+        # for an address that now exists, which is exactly what case 2 refuses.
         await session.rollback()
-        return await _resolve_after_race(session, profile, exc)
+        raise AlreadyRegistered(profile.email) from exc
 
     await create_personal_workspace(session, user)
     identity = UserIdentity(
@@ -242,22 +364,22 @@ async def link_oauth_profile(session: AsyncSession, profile: OAuthProfile) -> tu
     )
     _apply_profile_snapshot(identity, profile)
     session.add(identity)
-    await session.commit()
+    await session.flush()
     return user, True
 
 
 async def _resolve_after_race(
     session: AsyncSession, profile: OAuthProfile, cause: IntegrityError
-) -> tuple[User, bool]:
+) -> User:
     existing = (
         await session.execute(select(User).where(User.email == profile.email))
     ).scalar_one_or_none()
     if existing is None:
-        raise IdentityConflict("could not create account") from cause
+        raise UnregisteredEmail(profile.email) from cause
     identity = await identity_for(session, existing.id, profile.provider)
     if identity is None:
-        raise IdentityConflict("account created concurrently without the link") from cause
+        raise IdentityConflict("the link vanished between two attempts") from cause
     _apply_profile_snapshot(identity, profile)
     _follow_avatar(existing, profile)
     await session.commit()
-    return existing, False
+    return existing

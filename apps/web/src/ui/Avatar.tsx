@@ -5,10 +5,10 @@ import type { CSSProperties, ReactNode } from 'react'
  * A person's face: their picture when there is one, their initials when there is not.
  *
  * One component rather than the three copies of `initials()` this replaces, because
- * the picture half has a failure mode the initials half does not. A GitHub avatar is
- * a remote URL on someone else's CDN: it can 404 after an account is renamed, and it
- * can be blocked. `onError` falls back to the initials instead of leaving the broken
- * image glyph, which is the whole reason this is a component and not a template.
+ * the picture half has a failure mode the initials half does not. An avatar is a remote
+ * URL on someone else's CDN: it can 404 after an account is renamed, and it can be
+ * blocked. `onError` falls back to the initials instead of leaving the broken image
+ * glyph, which is the whole reason this is a component and not a template.
  */
 export function initialsOf(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean)
@@ -38,7 +38,21 @@ export function Avatar({ name, url, className = 'avatar', style, title, children
   return (
     <span className={className} style={style} title={title}>
       {showImage ? (
-        <img src={url} alt="" draggable={false} onError={() => setBroken(true)} />
+        <img
+          src={url}
+          alt=""
+          draggable={false}
+          /*
+           * No referrer, or Google's avatar CDN refuses the request.
+           * `lh3.googleusercontent.com` answers 403 to a cross-origin load that arrives
+           * with a Referer header, and the site sends one by default -
+           * `Referrer-Policy: strict-origin-when-cross-origin` in the nginx config.
+           * GitHub's CDN does not care, which is why only the Google picture broke.
+           * Nothing here needs a referrer sent to a third-party CDN anyway.
+           */
+          referrerPolicy="no-referrer"
+          onError={() => setBroken(true)}
+        />
       ) : (
         initialsOf(name)
       )}

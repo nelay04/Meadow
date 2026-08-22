@@ -21,7 +21,7 @@ TEST_DATABASE_URL = os.environ.get(
     "postgresql+asyncpg://meadow:meadow@localhost:5435/meadow_test",
 )
 # Redis db 1, so a test run cannot flush the dev instance's keys.
-TEST_REDIS_URL = os.environ.get("MEADOW_TEST_REDIS_URL", "redis://localhost:6380/1")
+TEST_REDIS_URL = os.environ.get("MEADOW_TEST_REDIS_URL", "redis://localhost:6382/1")
 
 os.environ["MEADOW_DATABASE_URL"] = TEST_DATABASE_URL
 os.environ["MEADOW_REDIS_URL"] = TEST_REDIS_URL
@@ -29,6 +29,13 @@ os.environ["MEADOW_REDIS_URL"] = TEST_REDIS_URL
 os.environ["MEADOW_JWT_SECRET"] = "test-secret-not-used-anywhere-real-0123456789"
 # Brute-force limits are asserted by their own test, which turns them back on.
 os.environ["MEADOW_RATE_LIMIT_ENABLED"] = "false"
+# No mail, whatever the developer's .env says. Two reasons, both about the suite being
+# hermetic: a real relay would put this machine's registrations in somebody's inbox, and
+# a real relay that is slow or unreachable turns every registering test into a timeout.
+# With no host configured accounts are opened immediately, which is the state the rest of
+# the suite assumes; `test_activation.py` monkeypatches the settings and stubs the send.
+os.environ["MEADOW_SMTP_HOST"] = ""
+os.environ["MEADOW_SMTP_FROM"] = ""
 
 import asyncio  # noqa: E402
 import subprocess  # noqa: E402
@@ -182,8 +189,16 @@ def make_user(client: TestClient) -> Any:
             "/api/v1/auth/register",
             json={"email": email, "password": password, "display_name": display_name},
         )
-        assert response.status_code == 201, response.text
-        body = response.json()
+        assert response.status_code == 202, response.text
+        # Registering does not sign anybody in any more - the account waits on its
+        # activation mail - so this logs in afterwards. There is no SMTP configured for
+        # the tests, which is the path that opens the account immediately; the tests
+        # that care about the mail configure it themselves.
+        assert response.json()["activation_required"] is False, response.text
+
+        login = client.post("/api/v1/auth/login", json={"email": email, "password": password})
+        assert login.status_code == 200, login.text
+        body = login.json()
 
         actor = Actor(client, email, password)
         actor.access_token = body["access_token"]

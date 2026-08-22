@@ -11,15 +11,19 @@ holds for GitHub and not for Google, that is the bug this arrangement is meant t
 impossible to write.
 """
 
+import asyncio
+import uuid
 from types import ModuleType
 from typing import Any
 
+import asyncpg
 import pytest
 from pydantic import SecretStr
 from starlette.testclient import TestClient
 
 from app.config import settings
 from app.services.oauth.base import OAuthProfile
+from tests.conftest import TEST_DATABASE_URL, _asyncpg_dsn
 
 STATE_COOKIE = "meadow_oauth_state"
 REFRESH_COOKIE = "meadow_refresh"
@@ -35,6 +39,47 @@ def configure(monkeypatch: pytest.MonkeyPatch, provider: str) -> None:
         settings, f"{provider}_callback_url", f"{WEB}/api/v1/auth/{provider}/callback"
     )
     monkeypatch.setattr(settings, "web_base_url", WEB)
+
+
+PASSWORD = "correct-horse-battery-staple"
+
+
+def register(client: TestClient, email: str | None = None, name: str = "Test User") -> str:
+    """An account that already exists, which is what a sign-in intent needs.
+
+    With no SMTP configured the account is opened immediately, so this returns something
+    usable. Returns the address.
+    """
+    address = email or f"{uuid.uuid4().hex[:12]}@meadow-tests.dev"
+    response = client.post(
+        "/api/v1/auth/register",
+        json={"email": address, "password": PASSWORD, "display_name": name},
+    )
+    assert response.status_code == 202, response.text
+    client.cookies.clear()
+    return address
+
+
+def drop_password(email: str) -> None:
+    """Turn an account into one that can only sign in through a provider.
+
+    Reaching this state through the API is no longer possible - registration is the
+    password form, and a provider sign-in refuses an address that has never registered -
+    but accounts created before that rule still exist and `login` has a branch for them.
+    A branch nothing exercises is a branch nobody knows is broken.
+
+    Its own short-lived connection, for the reason `conftest` gives: `app.db.engine` is
+    bound to the client's portal loop, and a second loop touching it deadlocks.
+    """
+
+    async def run() -> None:
+        conn = await asyncpg.connect(_asyncpg_dsn(TEST_DATABASE_URL))
+        try:
+            await conn.execute("update users set password_hash = null where email = $1", email)
+        finally:
+            await conn.close()
+
+    asyncio.run(run())
 
 
 def state_cookie_path(provider: str) -> str:
@@ -53,15 +98,41 @@ def stub_profile(
     monkeypatch.setattr(module, "fetch_profile", fake_fetch_profile)
 
 
-def start_flow(client: TestClient, provider: str, next_path: str | None = None) -> str:
-    """Begin the dance and return the state the browser is now holding."""
-    client.cookies.clear()
-    query = "" if next_path is None else f"?next={next_path}"
+def start_flow(
+    client: TestClient,
+    provider: str,
+    next_path: str | None = None,
+    intent: str = "login",
+    keep_cookies: bool = False,
+) -> str:
+    """Begin the dance and return the state the browser is now holding.
+
+    Cookies are cleared first so a flow starts from a browser with no session, which is
+    what signing in and registering look like. `keep_cookies` is for connecting a
+    provider, where the session is the whole point: the refresh cookie is what tells the
+    server which account is asking.
+    """
+    if not keep_cookies:
+        client.cookies.clear()
+    params = [f"intent={intent}"]
+    if next_path is not None:
+        params.append(f"next={next_path}")
+    query = "?" + "&".join(params)
     response = client.get(f"/api/v1/auth/{provider}/start{query}", follow_redirects=False)
-    assert response.status_code == 302, response.text
+    if response.status_code != 302:
+        # A refused start (no session behind a link attempt) redirects to the app rather
+        # than to the provider. The caller asserts on it.
+        assert response.status_code == 303, response.text
+        return ""
     state = client.cookies.get(STATE_COOKIE)
     assert state is not None
     return state
+
+
+def sign_in_with_password(client: TestClient, email: str) -> None:
+    """Put a real session in the client's cookie jar, the ordinary way."""
+    response = client.post("/api/v1/auth/login", json={"email": email, "password": PASSWORD})
+    assert response.status_code == 200, response.text
 
 
 def complete_flow(
@@ -77,10 +148,11 @@ def sign_in(
     monkeypatch: pytest.MonkeyPatch,
     module: ModuleType,
     who: OAuthProfile,
+    intent: str = "login",
 ) -> str:
     """A whole successful sign-in. Returns an access token for the resulting session."""
     stub_profile(monkeypatch, module, who)
-    state = start_flow(client, module.PROVIDER)
+    state = start_flow(client, module.PROVIDER, intent=intent)
     response = complete_flow(client, module.PROVIDER, state)
     assert response.status_code == 303, response.text
     assert REFRESH_COOKIE in response.cookies

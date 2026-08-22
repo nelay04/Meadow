@@ -5,6 +5,7 @@ import { ConfirmProvider } from './ui/ConfirmDialog'
 import { ToastProvider } from './ui/Toaster'
 import { AuthProvider, useAuth } from './features/auth/AuthContext'
 import LoginPage from './features/auth/LoginPage'
+import ResetPasswordPage from './features/auth/ResetPasswordPage'
 import BoardsPage from './features/boards/BoardsPage'
 import ProfilePage from './features/profile/ProfilePage'
 import { SplashVideo } from './ui/SplashVideo'
@@ -13,7 +14,11 @@ import { SplashVideo } from './ui/SplashVideo'
  * Routing is a hash and four views. A router library earns its place once there are
  * nested routes and deep links worth preserving; this still has neither.
  */
-type Route = { name: 'boards' } | { name: 'glade'; boardId: string } | { name: 'profile' }
+type Route =
+  | { name: 'boards' }
+  | { name: 'glade'; boardId: string }
+  | { name: 'profile' }
+  | { name: 'reset'; token: string }
 
 function routeFromHash(): Route {
   // `field` is the old spelling of the same route, kept readable so a tab left
@@ -21,11 +26,15 @@ function routeFromHash(): Route {
   const glade = /^#\/(?:glade|field)\/([0-9a-f-]{36})$/i.exec(location.hash)
   if (glade !== null) return { name: 'glade', boardId: glade[1] }
   if (/^#\/profile\/?$/.test(location.hash)) return { name: 'profile' }
+  // The password reset link from the mail. The token lives in the fragment, so it never
+  // reaches a server log on the way here.
+  const reset = /^#\/reset\/([A-Za-z0-9_-]{16,256})$/.exec(location.hash)
+  if (reset !== null) return { name: 'reset', token: reset[1] }
   return { name: 'boards' }
 }
 
 function Shell() {
-  const { user, loading, freshLogin, clearFreshLogin } = useAuth()
+  const { user, loading, justRegistered, clearJustRegistered } = useAuth()
   const [route, setRoute] = useState<Route>(routeFromHash)
 
   useEffect(() => {
@@ -34,15 +43,31 @@ function Shell() {
     return () => window.removeEventListener('hashchange', onHashChange)
   }, [])
 
-  const showLoader = loading
+  // The reset screen does not wait on a session, so it must not be covered by the
+  // loader that exists to hide a half-restored one.
+  const showLoader = loading && route.name !== 'reset'
 
-  if (freshLogin) {
-    return <SplashVideo onDone={clearFreshLogin} />
+  // Only a brand new account gets the splash, and it is skippable. A returning user
+  // signing in has seen it, and a video between them and their glades every time is a
+  // toll rather than a welcome.
+  if (justRegistered) {
+    return <SplashVideo onDone={clearJustRegistered} />
   }
 
   // Determine the page content underneath.
   let page: React.ReactNode = null
-  if (loading) {
+  if (route.name === 'reset') {
+    // Ahead of the session check on purpose: whoever followed this link is proving the
+    // account is theirs, and being signed in as somebody else does not change that.
+    page = (
+      <ResetPasswordPage
+        token={route.token}
+        onDone={() => {
+          location.hash = ''
+        }}
+      />
+    )
+  } else if (loading) {
     page = null
   } else if (user === null) {
     page = <LoginPage />

@@ -125,6 +125,17 @@ services:
       # will ever redirect to. Must be the public URL of the site.
       MEADOW_WEB_BASE_URL: ${MEADOW_WEB_BASE_URL:-}
       MEADOW_OAUTH_STATE_TTL_SECONDS: ${MEADOW_OAUTH_STATE_TTL_SECONDS:-600}
+      # Activation mail. Blank host means accounts are created already activated, which
+      # is a development convenience and wrong here: set these.
+      MEADOW_SMTP_HOST: ${MEADOW_SMTP_HOST:-}
+      MEADOW_SMTP_PORT: ${MEADOW_SMTP_PORT:-587}
+      MEADOW_SMTP_USER: ${MEADOW_SMTP_USER:-}
+      MEADOW_SMTP_PASSWORD: ${MEADOW_SMTP_PASSWORD:-}
+      MEADOW_SMTP_FROM: ${MEADOW_SMTP_FROM:-}
+      MEADOW_SMTP_FROM_NAME: ${MEADOW_SMTP_FROM_NAME:-Meadow}
+      MEADOW_SMTP_STARTTLS: ${MEADOW_SMTP_STARTTLS:-true}
+      MEADOW_SMTP_SSL: ${MEADOW_SMTP_SSL:-false}
+      MEADOW_ACTIVATION_TTL_HOURS: ${MEADOW_ACTIVATION_TTL_HOURS:-24}
       # Exactly one address, the web container's, on a subnet this file pins. Anything
       # wider and a client could choose its own rate-limit bucket by sending
       # X-Forwarded-For itself. See the note in docker/api/Dockerfile.

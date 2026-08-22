@@ -74,6 +74,23 @@ class ProfileUpdate(BaseModel):
     avatar_source: Literal["none", "github", "google"] | None = None
 
 
+class RegistrationPending(BaseModel):
+    """What registering answers with now: no session, because the address has not spoken.
+
+    A registration used to come back signed in. It cannot any more - the account is
+    unusable until the link in the activation mail is followed - and returning tokens
+    for an account that cannot be used would be a lie the client would have to unpick.
+    """
+
+    email: str
+    # False only on a deployment with no SMTP configured, where the account is opened
+    # immediately. The client shows "check your mail" or "you can log in now" from this
+    # rather than assuming which world it is in.
+    activation_required: bool = True
+    # True when a fresh link was put in the post as part of this request.
+    activation_sent: bool = True
+
+
 class ProvidersOut(BaseModel):
     """Which sign-in buttons the client should offer.
 
@@ -84,6 +101,21 @@ class ProvidersOut(BaseModel):
 
     github: bool = False
     google: bool = False
+
+
+class ResendActivation(BaseModel):
+    email: EmailStr
+
+
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+
+class PasswordReset(BaseModel):
+    token: str = Field(max_length=256)
+    # The same floor registration uses. A reset is not a place to relax it: it is the
+    # one moment an attacker with a stolen link would choose the password.
+    password: str = Field(min_length=12, max_length=256)
 
 
 class TokenPair(BaseModel):

@@ -287,12 +287,17 @@ docker compose -f docker-compose.local.yml --profile app exec web pnpm --filter 
 | API docs | http://localhost:8012/docs |
 | pgAdmin | http://localhost:5051 |
 | Postgres | localhost:5435 (`meadow`, and `meadow_test` for the suite) |
-| Redis | localhost:6380 (db 0 dev, db 1 tests) |
+| Redis | localhost:6382 (db 0 dev, db 1 tests) |
 
 Ports are read from `.env` by `docker-compose.local.yml`, the API (via
 pydantic-settings), and Vite alike, so there is one place to change them. Postgres sits on 5435 and Redis on
-6380 to avoid colliding with native instances commonly already running on the
-default ports.
+6382 to avoid colliding with native instances commonly already running on the
+default ports, and with other compose stacks, which reach for 6380 as the obvious
+second choice. Both are bound to 127.0.0.1 rather than every interface.
+
+Those published ports exist only for the host-based flow. Under `--profile app` the
+API and worker reach postgres and redis by service name over the compose network, and
+nothing needs a host port at all; the production stack publishes neither.
 
 Register an account, create a field, and open it. To see convergence, open the same
 field in two browsers (two tabs of the same browser also work, but they sync through a

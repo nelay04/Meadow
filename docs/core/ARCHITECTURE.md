@@ -217,6 +217,7 @@ users
   id              uuid pk
   email           citext unique not null   -- the account identity, see section 7
   password_hash   text                     -- null for an OAuth-only account (M6)
+  activated_at    timestamptz              -- null until the address answers; no login
   display_name    text not null            -- the user's own, seeded from a provider once
   avatar_url      text                     -- derived from avatar_source, not typed in
   avatar_source   text not null            -- 'none' | 'github' | 'google'
@@ -237,6 +238,14 @@ user_identities                            -- M6. A provider's copy of the user,
   unique (provider, provider_user_id)      -- one provider account -> one meadow account
   unique (user_id, provider)               -- and one identity per provider per account
   -- No OAuth access token column, deliberately. See section 7.
+
+email_verifications                        -- M6. Activation links, hashed and single use
+  id              uuid pk
+  user_id         uuid fk -> users on delete cascade
+  token_hash      text not null          -- sha256 of the raw token; the link is in the mail
+  expires_at      timestamptz not null
+  used_at         timestamptz            -- kept, not deleted: a second click is not a forgery
+  created_at      timestamptz
 
 refresh_tokens
   id              uuid pk
@@ -990,8 +999,84 @@ function: a second place deciding whether two logins are the same person is a bu
 feature. Once linked, matching is on the provider's own id - GitHub's numeric user id,
 Google's `sub` - so a rename or an email change over there is a refreshed row here.
 
+**A sign-in and a registration are different requests, and the flow carries which.**
+Any of the three doors can register - the password form, GitHub, Google - and any of them
+can sign in, but the round trip says which one it is: `/auth/<provider>/start?intent=`
+stores `login` or `register` in the state, and the callback answers accordingly.
+
+* Register an address that already has an account: refused, `already_registered`. They
+  said they were new; silently signing them in answers a question they did not ask.
+* Sign in with an address that has none: refused, `no_account`, sent to register. This
+  is what stops a mistyped or wrong-account choice at a consent screen from producing an
+  account nobody meant to open while the person's real one sits empty.
+* Connect (`intent=link`, from the profile page): the account being connected is fixed at
+  `/start` from the refresh cookie and stored in the state, and the callback attaches the
+  provider to *that* account or refuses. A provider account on a different address is
+  `email_mismatch`, not a sign-in. Without this the flow fell through to the email match
+  and signed the person into whichever other account held that address, which is a
+  surprising place to arrive from a button labelled Connect. No session is issued on this
+  path: they were already signed in, and connecting has no business changing as whom.
+
+The intent travels in the state and never in the callback URL. Everything in that URL is
+attacker-supplied by the time it comes back, and "may this request create an account" is
+not a decision to hand over. Anything that is not exactly `register` is read as a
+sign-in, so an unrecognised value fails closed.
+
+**A registration is not finished until the address answers.** Every door writes the
+account and stops: the row holds the email so nobody else can claim it, and no method
+signs in to it until the link in the activation mail is followed. `POST /auth/register`
+answers 202 with no session at all, because a session for an account every other endpoint
+refuses would be a lie the client has to unpick. `GET /auth/activate?token=` spends the
+link and issues the session there - the click proves control of the address, which is
+what was missing. The token is 256 bits, stored as a sha256 digest, single use, and
+expires in `MEADOW_ACTIVATION_TTL_HOURS`; asking for a new one retires the old, so two
+working keys never sit in one inbox. `POST /auth/activation/resend` is the one endpoint
+here that says nothing about who exists - not for enumeration, which login and
+registration already permit, but because it posts mail to an address the caller chose.
+
+The address matters more here than in most apps: it *is* the account identity, the thing
+a GitHub or Google sign-in matches on. An unconfirmed address is an identity nobody has
+proved.
+
+**Passwords are set by the same kind of link.** `email_verifications` carries a `purpose`
+(`activation` or `password_reset`) rather than a second table, since both are a hashed,
+single-use, expiring token proving the same fact - that whoever followed the link reads
+mail at that address. The purpose is checked on redemption, so neither can be spent at
+the other's endpoint. `POST /auth/password/reset-request` posts the link (quiet, 204
+either way, like the activation resend); `POST /auth/password/reset` spends it, sets the
+hash, and revokes every refresh family on the account, including the caller's - someone
+resetting a password they did not lose believes somebody else has it, and leaving that
+somebody's token alive would make the reset decorative. Reset links last
+`MEADOW_PASSWORD_RESET_TTL_HOURS` (1) rather than a day: this one opens an account that
+already has something in it.
+
+The same endpoint gives a *first* password to an account opened through GitHub or Google,
+which is the profile page's "Set a password" button. Adding and replacing are one
+request; only the wording of the mail differs. Asking to reset an account that has never
+been activated sends the activation link instead - it has no password to reset, and the
+link it does need proves the same thing.
+
+With no SMTP configured (`MEADOW_SMTP_HOST` blank) accounts are created already
+activated, and the API logs a warning every time. That is a development convenience, and
+a production deployment reaching it has a misconfiguration rather than a feature.
+
 An unverified email is refused. Matching on an unverified address means anyone who adds
 `you@example.com` to their own account at a provider can sign in as you.
+
+**The refusals are specific, and that is a reversal too.** Login and registration used to
+answer every failure identically so that neither could be used to enumerate accounts.
+That protected a fact of low value (whether an address has an account) at the cost of the
+two cases a real person actually hits: an address that never registered, and one that
+registered through another door. Both were told only "no", which reads as the app being
+broken rather than as an instruction. So `/login` now distinguishes "email is not
+registered", "account has no password", "account is not activated" (403, checked after
+the password so the state of somebody else's account is not readable without it), and a
+wrong password; `/register` says "email is already registered"; and the OAuth callback
+has `no_account`, `already_registered` and `not_activated`. Account existence is
+therefore probeable, held down by the rate limits (5/min login, 3/hour register, 20/min
+OAuth, per IP) and nothing else. Nothing beyond existence is revealed: no name, no
+provider, no hash. If this ever needs reversing again, reverse it in
+`app/api/v1/auth.py`, where the three refusals are defined together with this reasoning.
 
 - **One implementation, N providers.** A provider module (`app/services/oauth/github.py`,
   `google.py`) does one job: turn an authorization code into an `OAuthProfile`, or raise.
@@ -1024,13 +1109,14 @@ An unverified email is refused. Matching on an unverified address means anyone w
   means JWKS fetching, caching and rotation done correctly. A TLS call to Google carrying
   a token Google just issued needs none of it. `email_verified` is checked against both
   the boolean and the string form, because `"false"` is truthy.
-- **`users.password_hash` is nullable.** An OAuth account has no password; a placeholder
-  hash would be an unrevocable credential nobody holds the input to. Password login
-  against such an account is refused with the same message a wrong password gets.
+- **`users.password_hash` is nullable.** An account registered through a provider has no
+  password, and `login` answers "account has no password" rather than imitating a wrong
+  one. A placeholder hash would have been an unrevocable credential nobody holds the
+  input to.
 - **A provider's fields are never written by the profile editor.** `user_identities`
   holds each provider's copy - username, name, email, avatar, profile URL - refreshed on
   every sign-in. `users.display_name` and `users.avatar_source` are the user's own,
-  seeded from the first provider signed in with and never overwritten again.
+  seeded at registration and never overwritten by a provider.
   `avatar_source` names the provider the picture came from, which is what makes one
   provider's avatar keep following its account while a second provider linked later
   leaves it alone, and what keeps "initials" chosen through the next sign-in.
@@ -1087,7 +1173,8 @@ Deliberately absent: **MinIO** (nothing in v1 writes to it; thumbnails are rows)
 
 ```yaml
 # docker-compose.local.yml — services, project name meadow
-postgres:  published on 5435, redis on 6380, pgadmin on 5051
+postgres:  published on 5435, redis on 6382, pgadmin on 5051 - all bound to 127.0.0.1,
+           and only for the host-based flow; the app profile uses service names
 
 # behind `--profile app`, for running the whole thing in docker with hot reload
 migrate:   api dev image, alembic upgrade head, one-shot

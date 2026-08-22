@@ -18,12 +18,16 @@ from app.config import settings
 from app.services.oauth import github, google
 from tests.conftest import Actor
 from tests.oauth_flow import (
+    PASSWORD,
     REFRESH_COOKIE,
     WEB,
     complete_flow,
     configure,
+    drop_password,
     me,
+    register,
     sign_in,
+    sign_in_with_password,
     start_flow,
     stub_profile,
 )
@@ -53,6 +57,13 @@ def profile(
         avatar_url=avatar_url,
         profile_url=None,
     )
+
+
+def known(client: TestClient, name: str = "Ada Lovelace", **kwargs: Any) -> google.GoogleProfile:
+    """A Google profile whose email has an account here, which is what lets it sign in."""
+    who: google.GoogleProfile = profile(**kwargs)
+    register(client, email=who.email, name=name)
+    return who
 
 
 def github_profile(*, email: str, provider_user_id: str = "9001") -> github.GitHubProfile:
@@ -107,7 +118,8 @@ def test_a_google_state_cannot_be_spent_on_the_github_callback(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The state carries which provider it was minted for, and redemption checks it."""
-    stub_profile(monkeypatch, github, github_profile(email="crossed@meadow-tests.dev"))
+    email = register(client)
+    stub_profile(monkeypatch, github, github_profile(email=email))
     state = start_flow(client, google.PROVIDER)
     # Present the cookie the way a browser following a crafted URL would.
     client.cookies.set("meadow_oauth_state", state, path="/api/v1/auth/github")
@@ -121,7 +133,7 @@ def test_a_google_state_cannot_be_spent_on_the_github_callback(
 def test_a_google_state_works_exactly_once(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    stub_profile(monkeypatch, google, profile())
+    stub_profile(monkeypatch, google, known(client))
     state = start_flow(client, google.PROVIDER)
     assert complete_flow(client, google.PROVIDER, state).status_code == 303
 
@@ -135,7 +147,7 @@ def test_a_failure_names_the_provider_it_came_from(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """So the login screen can say which button did not work, without guessing."""
-    stub_profile(monkeypatch, google, profile())
+    stub_profile(monkeypatch, google, known(client))
     start_flow(client, google.PROVIDER)
     response = client.get(
         "/api/v1/auth/google/callback?error=access_denied", follow_redirects=False
@@ -147,28 +159,41 @@ def test_a_failure_names_the_provider_it_came_from(
 # --- account matching -----------------------------------------------------------
 
 
-def test_first_sign_in_creates_an_account_with_a_personal_workspace(
+def test_signing_in_links_google_to_the_account_that_holds_the_email(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    who = profile()
+    who = known(client)
     body = me(client, sign_in(client, monkeypatch, google, who))
 
     assert body["email"] == who.email
+    # The account's own name, not Google's: it existed before the link did.
     assert body["display_name"] == "Ada Lovelace"
-    assert body["avatar_url"] == who.avatar_url
-    assert body["avatar_source"] == "google"
-    assert body["has_password"] is False
+    assert body["has_password"] is True
     assert body["default_workspace_id"]
     assert body["identities"]["google"]["username"] == who.email
+    assert body["identities"]["google"]["name"] == "Ada Lovelace"
     # Google publishes no profile page, and a guessed URL is worse than none.
     assert body["identities"]["google"]["profile_url"] is None
+
+
+def test_an_unregistered_email_is_sent_to_register_rather_than_signed_up(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A provider sign-in is a way into an account, never a way to make one."""
+    stub_profile(monkeypatch, google, profile())
+    state = start_flow(client, google.PROVIDER)
+
+    response = complete_flow(client, google.PROVIDER, state)
+
+    assert response.headers["location"] == f"{WEB}/?auth_error=no_account&provider=google#/"
+    assert REFRESH_COOKIE not in response.cookies
 
 
 def test_google_and_github_on_one_email_are_one_account(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The whole point of matching on email: two doors, one account behind them."""
-    first = me(client, sign_in(client, monkeypatch, google, profile()))
+    first = me(client, sign_in(client, monkeypatch, google, known(client)))
 
     second = me(
         client, sign_in(client, monkeypatch, github, github_profile(email=first["email"]))
@@ -185,9 +210,14 @@ def test_a_second_provider_does_not_take_over_the_chosen_avatar(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """`avatar_source` names one provider, and only that one's picture follows."""
-    who = profile()
-    first = me(client, sign_in(client, monkeypatch, google, who))
-    assert first["avatar_source"] == "google"
+    who = known(client)
+    token = sign_in(client, monkeypatch, google, who)
+    chosen = client.patch(
+        "/api/v1/auth/me",
+        json={"avatar_source": "google"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert chosen.json()["avatar_source"] == "google"
 
     second = me(client, sign_in(client, monkeypatch, github, github_profile(email=who.email)))
 
@@ -198,7 +228,7 @@ def test_a_second_provider_does_not_take_over_the_chosen_avatar(
 def test_switching_the_avatar_to_the_other_linked_provider(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    who = profile()
+    who = known(client)
     sign_in(client, monkeypatch, google, who)
     linked = github_profile(email=who.email)
     token = sign_in(client, monkeypatch, github, linked)
@@ -226,7 +256,7 @@ def test_a_second_google_account_cannot_claim_a_linked_one(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Otherwise whoever can put a shared address on a Google account displaces the first."""
-    first = profile(provider_user_id="sub-1")
+    first = known(client, provider_user_id="sub-1")
     me(client, sign_in(client, monkeypatch, google, first))
 
     intruder = profile(provider_user_id="sub-2", email=first.email)
@@ -242,7 +272,7 @@ def test_a_google_email_change_is_still_the_same_link(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """`sub` is the only stable field Google publishes, and it is what the link is on."""
-    first = profile(provider_user_id="sub-stable")
+    first = known(client, provider_user_id="sub-stable")
     created = me(client, sign_in(client, monkeypatch, google, first))
 
     renamed = profile(
@@ -260,19 +290,22 @@ def test_a_google_email_change_is_still_the_same_link(
     assert again["display_name"] == "Ada Lovelace"
 
 
-def test_password_login_is_refused_for_a_google_only_account(
+def test_an_account_with_no_password_is_told_to_use_its_provider(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    who = profile()
+    """Accounts predating "registration is the password form" still exist and still work."""
+    who = known(client)
     sign_in(client, monkeypatch, google, who)
+    drop_password(who.email)
     client.cookies.clear()
 
-    response = client.post(
-        "/api/v1/auth/login", json={"email": who.email, "password": "correct-horse-battery"}
-    )
+    response = client.post("/api/v1/auth/login", json={"email": who.email, "password": PASSWORD})
 
     assert response.status_code == 401
-    assert response.json()["detail"] == "invalid email or password"
+    assert response.json()["detail"] == "account has no password"
+    # And the provider still opens it, which is the whole reason this branch says
+    # something different from a wrong password.
+    assert me(client, sign_in(client, monkeypatch, google, who))["has_password"] is False
 
 
 # --- the payload decisions ------------------------------------------------------
@@ -326,3 +359,191 @@ def test_an_unverified_email_beats_a_missing_sub_to_the_refusal() -> None:
     """Both are refusals, and neither may fall through to a profile."""
     with pytest.raises(google.OAuthError):
         google.profile_from_userinfo({"sub": "1", "email_verified": True})
+
+
+def test_a_sign_in_never_marks_itself_as_a_registration(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The splash video greets a new account, and a provider no longer makes one."""
+    stub_profile(monkeypatch, google, known(client))
+
+    response = complete_flow(client, google.PROVIDER, start_flow(client, google.PROVIDER))
+
+    assert response.headers["location"] == f"{WEB}/?auth=google#/"
+    assert "created" not in response.headers["location"]
+
+
+# --- register or log in, and the difference between them ------------------------
+
+
+def test_registering_with_google_creates_the_account(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The intent is what permits this. The same round trip under Log in is refused."""
+    who = profile()
+    stub_profile(monkeypatch, google, who)
+
+    response = complete_flow(
+        client, google.PROVIDER, start_flow(client, google.PROVIDER, intent="register")
+    )
+
+    assert "auth_pending=registered" in response.headers["location"]
+    assert "provider=google" in response.headers["location"]
+    # No session: the account waits on its address like every other registration.
+    assert REFRESH_COOKIE not in response.cookies
+    # And it is now a real account, which the register form agrees about.
+    taken = client.post(
+        "/api/v1/auth/register",
+        json={"email": who.email, "password": PASSWORD, "display_name": "Someone"},
+    )
+    assert taken.status_code == 409
+
+
+def test_registering_with_google_on_a_taken_address_is_refused(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """They said they were new. Signing them in instead answers a question they did not ask."""
+    who = known(client)
+    stub_profile(monkeypatch, google, who)
+
+    response = complete_flow(
+        client, google.PROVIDER, start_flow(client, google.PROVIDER, intent="register")
+    )
+
+    assert "auth_error=already_registered" in response.headers["location"]
+    assert REFRESH_COOKIE not in response.cookies
+
+
+def test_registering_again_with_a_linked_google_account_is_refused(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    who = known(client)
+    sign_in(client, monkeypatch, google, who)
+    stub_profile(monkeypatch, google, who)
+
+    response = complete_flow(
+        client, google.PROVIDER, start_flow(client, google.PROVIDER, intent="register")
+    )
+
+    assert "auth_error=already_registered" in response.headers["location"]
+
+
+def test_an_unrecognised_intent_cannot_create_an_account(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fails closed: anything that is not exactly "register" is read as a sign-in."""
+    stub_profile(monkeypatch, google, profile())
+
+    response = complete_flow(
+        client, google.PROVIDER, start_flow(client, google.PROVIDER, intent="REGISTER")
+    )
+
+    assert "auth_error=no_account" in response.headers["location"]
+
+
+# --- connecting a provider from the profile page ---------------------------------
+
+
+def test_connecting_attaches_the_provider_to_the_account_that_asked(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    who = known(client)
+    sign_in_with_password(client, who.email)
+    stub_profile(monkeypatch, google, who)
+
+    response = complete_flow(
+        client,
+        google.PROVIDER,
+        start_flow(client, google.PROVIDER, intent="link", keep_cookies=True),
+    )
+
+    assert "auth_linked=google" in response.headers["location"]
+    token = client.post("/api/v1/auth/refresh").json()["access_token"]
+    assert me(client, token)["identities"]["google"]["email"] == who.email
+
+
+def test_connecting_a_provider_on_another_address_is_refused(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The bug this exists for: pressing Connect used to sign you into the other account.
+
+    Signed in as one address, the provider answers with another that has its own account
+    here, and the email match further down would have found it. From a button labelled
+    Connect, being silently swapped to somebody else's account is the wrong end.
+    """
+    mine = register(client, name="Mine")
+    theirs = known(client, name="Theirs")
+    sign_in_with_password(client, mine)
+    stub_profile(monkeypatch, google, theirs)
+
+    response = complete_flow(
+        client,
+        google.PROVIDER,
+        start_flow(client, google.PROVIDER, "%23/profile", intent="link", keep_cookies=True),
+    )
+
+    assert "auth_error=email_mismatch" in response.headers["location"]
+    # Back to the page it started on, still signed in as the same person.
+    assert response.headers["location"].endswith("#/profile")
+    assert REFRESH_COOKIE not in response.cookies
+    still_me = me(client, client.post("/api/v1/auth/refresh").json()["access_token"])
+    assert still_me["email"] == mine
+    assert still_me["identities"] == {}
+
+
+def test_connecting_a_provider_account_already_linked_elsewhere_is_refused(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One provider account signs in to exactly one Meadow account."""
+    first = known(client)
+    sign_in(client, monkeypatch, google, first)
+
+    # A second account, whose address happens to match what the provider will report.
+    twin = profile(provider_user_id=first.provider_user_id, email=register(client))
+    sign_in_with_password(client, twin.email)
+    stub_profile(monkeypatch, google, twin)
+
+    response = complete_flow(
+        client,
+        google.PROVIDER,
+        start_flow(client, google.PROVIDER, intent="link", keep_cookies=True),
+    )
+
+    assert "auth_error=conflict" in response.headers["location"]
+
+
+def test_connecting_without_a_session_is_refused_before_leaving_the_site(
+    client: TestClient,
+) -> None:
+    """No session means no account to connect to, and nothing to ask the provider."""
+    client.cookies.clear()
+
+    response = client.get(
+        "/api/v1/auth/google/start?intent=link", follow_redirects=False
+    )
+
+    assert response.status_code == 303
+    assert "auth_error=session" in response.headers["location"]
+    assert "accounts.google.com" not in response.headers["location"]
+
+
+def test_connecting_the_same_account_twice_is_not_an_error(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    who = known(client)
+    sign_in_with_password(client, who.email)
+    stub_profile(monkeypatch, google, who)
+    complete_flow(
+        client,
+        google.PROVIDER,
+        start_flow(client, google.PROVIDER, intent="link", keep_cookies=True),
+    )
+
+    stub_profile(monkeypatch, google, who)
+    again = complete_flow(
+        client,
+        google.PROVIDER,
+        start_flow(client, google.PROVIDER, intent="link", keep_cookies=True),
+    )
+
+    assert "auth_linked=google" in again.headers["location"]

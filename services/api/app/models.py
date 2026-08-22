@@ -77,6 +77,12 @@ class User(Base):
     # while "none" means initials and stays that way through the next sign-in.
     avatar_url: Mapped[str | None] = mapped_column(String, nullable=True)
     avatar_source: Mapped[str] = mapped_column(String, nullable=False, server_default="none")
+    # When the address answered. Null means the registration is not finished: the
+    # account exists, holds the email so nobody else can take it, and cannot be signed
+    # in to by any method until the link in the activation mail is followed.
+    activated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
@@ -142,6 +148,42 @@ class UserIdentity(Base):
         UniqueConstraint("provider", "provider_user_id", name="uq_user_identities_provider_user"),
         # And one account holds at most one identity per provider.
         UniqueConstraint("user_id", "provider", name="uq_user_identities_user_provider"),
+    )
+
+
+# What a link in an email is for. One table, because the mechanics are identical -
+# hashed, single use, expiring - and the difference is what redeeming it does.
+LINK_PURPOSES = ("activation", "password_reset")
+
+
+class EmailVerification(Base):
+    """One issued link. Hashed, single use, and it expires.
+
+    Same three rules as `refresh_tokens`, for the same reasons: the raw token only ever
+    exists in the mail, a database leak yields no usable link, and a spent row is kept
+    rather than deleted so a second click can be told what happened instead of looking
+    like a forgery.
+    """
+
+    __tablename__ = "email_verifications"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    token_hash: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    # "activation" or "password_reset". Checked on redemption, so an activation link
+    # cannot be posted to the password endpoint or the other way round.
+    purpose: Mapped[str] = mapped_column(String, nullable=False, server_default="activation")
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = _created_at()
+
+    __table_args__ = (
+        CheckConstraint(
+            "purpose in ('activation', 'password_reset')", name="ck_email_verifications_purpose"
+        ),
+        Index("ix_email_verifications_user_id", "user_id"),
     )
 
 

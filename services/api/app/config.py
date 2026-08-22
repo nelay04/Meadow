@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     )
 
     database_url: str = "postgresql+asyncpg://meadow:meadow@localhost:5435/meadow"
-    redis_url: str = "redis://localhost:6380/0"
+    redis_url: str = "redis://localhost:6382/0"
 
     # --- auth (ARCHITECTURE 7) ---
     # One secret signs both the access JWT and the ws-token. They are different token
@@ -87,6 +87,41 @@ class Settings(BaseSettings):
     # Ten minutes: long enough to sign in at the provider and approve, short enough that a
     # state value copied out of a browser history is dead by the time it is used.
     oauth_state_ttl_seconds: int = 600
+
+    # --- activation mail ---
+    # A registration is not finished until the address answers, so this is what makes
+    # an account usable at all. Blank host is the off switch and it is honest about
+    # itself: with no SMTP configured an account is created already activated, because
+    # the alternative is an account nobody can ever open. That is a development
+    # convenience and the API logs a warning every time it takes that path.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    # The sender's mailbox, and usually also the login. Kept as two settings because a
+    # relay often authenticates as one identity and sends as another.
+    smtp_user: str = ""
+    smtp_password: SecretStr = SecretStr("")
+    smtp_from: str = ""
+    smtp_from_name: str = "Meadow"
+    # STARTTLS on the submission port (587). Set false with port 465 for implicit TLS,
+    # which `smtp_ssl` selects instead. One of the two is always on: an unencrypted
+    # submission would put the password on the wire.
+    smtp_starttls: bool = True
+    smtp_ssl: bool = False
+    smtp_timeout_seconds: int = 15
+
+    # A day. Long enough for someone who registers at night and reads mail in the
+    # morning, short enough that a link sitting in an unattended inbox is not a
+    # standing key to the account.
+    activation_ttl_hours: int = 24
+
+    # One hour, not a day. A reset link is a key to an account that already exists and
+    # has something in it, so it should be usable now and dead soon; an activation link
+    # opens an empty account and can afford to wait for someone's morning.
+    password_reset_ttl_hours: int = 1
+
+    @property
+    def mail_enabled(self) -> bool:
+        return bool(self.smtp_host and self.smtp_from)
 
     @property
     def github_oauth_enabled(self) -> bool:

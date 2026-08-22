@@ -365,6 +365,63 @@ label {
   font-weight: 600;
 }
 
+/* A label with an action at its far end. The label text keeps its own styling; this only
+   puts the two on one line. */
+.label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+/* Quiet, and a control by colour rather than by an underline or a box: an underlined
+   button is a link that failed to become one.
+
+   The base `button:hover` fills a background, which on a control with no padding paints
+   a chip the exact size of the words and leaves it touching everything around it. Both
+   the fill and the border are turned off here rather than padded around, because the
+   thing sitting at the end of a label row should read as part of the label, not as a
+   second button competing with the field's own. */
+.label-action {
+  padding: 0.1rem 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color var(--fast);
+}
+
+.label-action:hover:not(:disabled),
+.label-action:focus-visible {
+  background: none;
+  border-color: transparent;
+  color: var(--accent);
+}
+
+.label-action:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+/* The same shape as `.error`, in the accent rather than the danger colour. Registering
+   successfully ends in a message, and painting that red would say the opposite of what
+   happened. */
+.notice {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0.55rem 0.8rem;
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
 .banner {
   display: flex;
   align-items: center;
@@ -455,6 +512,40 @@ label {
 
 .auth form button[type='submit'] {
   margin-top: 0.2rem;
+  padding: 0.62rem 0.9rem;
+}
+
+/* The finished state of the reset screen. A column, so the button stretches the way the
+   form's submit does rather than shrinking to its label in the corner. */
+.auth-done {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin: 1.4rem 0 0.2rem;
+}
+
+.auth-done-head {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  color: var(--accent);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+/* The same head, for an outcome that is not a success. Colour is the only difference:
+   the shape says "this is the result", the colour says which kind. */
+.auth-done-head-warn {
+  color: var(--danger);
+}
+
+.auth-done .hint {
+  margin: 0;
+}
+
+.auth-done button {
+  margin-top: 0.35rem;
   padding: 0.62rem 0.9rem;
 }
 
@@ -704,26 +795,41 @@ label {
   font-weight: 600;
 }
 
+/* Ending the session is a decision, so it reads as one: a card with a sentence, after
+   the sign-in card it belongs with, rather than a button loose at the end of the page. */
+.profile-signout {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.profile-signout-text h2 {
+  margin: 0;
+}
+
+.profile-signout-text .hint {
+  margin: 0.25rem 0 0;
+}
+
+/* The state of an unconnected provider and the button that changes it, on one line.
+   The button sits with its own row rather than in a stack at the end of the card, where
+   it would have to repeat the provider's name to say what it acts on. */
+.signin-state {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
 .profile-connect {
   flex: 0 0 auto;
-  margin-top: 1rem;
-}
-
-/* A second unconnected provider follows the first closely rather than restating the
-   gap that separates the list above from them both. */
-.profile-connect + .profile-connect {
-  margin-top: 0.6rem;
-}
-
-/* Left, not right: toasts stack in the bottom right corner, and the one control on
-   this page that ends a session should never be under one. */
-.profile-foot {
-  display: flex;
-  justify-content: flex-start;
+  padding: 0.25rem 0.7rem;
+  font-size: 0.8rem;
 }
 
 @media (max-width: 40rem) {
-  .profile-identity {
+  .profile-identity,
+  .profile-signout {
     flex-direction: column;
     align-items: flex-start;
   }

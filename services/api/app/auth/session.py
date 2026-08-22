@@ -11,9 +11,10 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from fastapi import Request, Response
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.tokens import create_access_token, new_refresh_token
+from app.auth.tokens import create_access_token, hash_refresh_token, new_refresh_token
 from app.config import settings
 from app.models import RefreshToken, User
 from app.schemas.auth import TokenPair
@@ -38,6 +39,29 @@ def client_ip(request: Request) -> str | None:
     except ValueError:
         return None
     return request.client.host
+
+
+async def session_user(db: AsyncSession, request: Request) -> User | None:
+    """Who is signed in, judged by the refresh cookie alone.
+
+    For the one flow that leaves the site and comes back: connecting a provider from the
+    profile page is a top-level navigation, so there is no access token to send in a
+    header. The refresh cookie is presented, it is scoped to these routes already, and a
+    live unrevoked one is exactly the proof "there is a session here" needs. It is only
+    read, never rotated - rotating on a navigation would race the app's own refresh.
+    """
+    raw = request.cookies.get(settings.refresh_cookie_name)
+    if raw is None:
+        return None
+
+    row = (
+        await db.execute(
+            select(RefreshToken).where(RefreshToken.token_hash == hash_refresh_token(raw))
+        )
+    ).scalar_one_or_none()
+    if row is None or row.revoked_at is not None or row.expires_at <= datetime.now(UTC):
+        return None
+    return await db.get(User, row.user_id)
 
 
 def set_refresh_cookie(response: Response, raw_token: str) -> None:

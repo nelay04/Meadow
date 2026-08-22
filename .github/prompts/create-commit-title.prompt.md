@@ -1,6 +1,7 @@
 ---
 agent: 'agent'
 description: 'Generate a conventional-commit title for the local diff in Meadow'
+model: 'haiku'
 ---
 
 # Generate Commit Title
@@ -8,6 +9,12 @@ description: 'Generate a conventional-commit title for the local diff in Meadow'
 ## Purpose
 Provide a single-line, ready-to-paste git commit title (<= 72 characters) that reflects
 the most important local changes since `HEAD`.
+
+Always run this on Claude Haiku, never on a larger model. Titling a diff is a
+summarization task with a fixed, mechanical output format, not a reasoning task, and
+the convention above is already explicit enough for the smallest model to follow
+faithfully. Switch back to Haiku before invoking this command if the session is on
+something else.
 
 ## Input to collect
 - Run exactly one command to view the local diff:

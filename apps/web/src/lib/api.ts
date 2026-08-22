@@ -49,6 +49,15 @@ export type User = {
 
 export type Providers = Record<OAuthProvider, boolean>
 
+/** What registering answers with: an account waiting on its address, not a session. */
+export type RegistrationPending = {
+  email: string
+  /** False only where the deployment has no SMTP and opened the account immediately. */
+  activation_required: boolean
+  /** False when the relay refused, so the client can offer to send it again. */
+  activation_sent: boolean
+}
+
 export type ProfilePatch = {
   display_name?: string
   avatar_source?: 'none' | OAuthProvider
@@ -158,17 +167,19 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 // --- auth ---
 
-export async function register(
+/**
+ * Open an account. Does not sign in, and cannot: the account is unusable until the link
+ * in the activation mail is followed, so there is no session to hand back yet.
+ */
+export function register(
   email: string,
   password: string,
   displayName: string,
-): Promise<User> {
-  const body = await call<AuthResponse>('/auth/register', {
+): Promise<RegistrationPending> {
+  return call<RegistrationPending>('/auth/register', {
     method: 'POST',
     body: JSON.stringify({ email, password, display_name: displayName }),
   })
-  accessToken = body.access_token
-  return body.user
 }
 
 export async function login(email: string, password: string): Promise<User> {
@@ -197,9 +208,68 @@ export function getProviders(): Promise<Providers> {
  * session it returns with arrives as an httpOnly cookie the browser sets on the
  * redirect. `next` is a hash route to return to; the server refuses anything else.
  */
-export function oauthSignInUrl(provider: OAuthProvider, next?: string): string {
-  const query = next === undefined ? '' : `?next=${encodeURIComponent(next)}`
-  return `${BASE}/auth/${provider}/start${query}`
+export function oauthSignInUrl(
+  provider: OAuthProvider,
+  options: { next?: string; intent?: 'login' | 'register' | 'link' } = {},
+): string {
+  // The intent is which button was pressed: "register" may create an account, "link"
+  // connects one to the account already signed in, and anything else is a sign-in. The
+  // server reads it the same way and refuses the mismatch rather than guessing.
+  const query = new URLSearchParams()
+  if (options.next !== undefined) query.set('next', options.next)
+  if (options.intent !== undefined) query.set('intent', options.intent)
+  const suffix = query.toString()
+  return `${BASE}/auth/${provider}/start${suffix === '' ? '' : `?${suffix}`}`
+}
+
+/**
+ * Ask for a password reset link, or a first password on an account that has none.
+ *
+ * Always resolves, whether or not the address has an account: the server answers 204
+ * either way, because it posts mail to an address the caller chose.
+ */
+export function requestPasswordReset(email: string): Promise<void> {
+  return call<void>('/auth/password/reset-request', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  })
+}
+
+/**
+ * Mail me a link to set or change my own password.
+ *
+ * The signed-in counterpart of `requestPasswordReset`, and unlike it this one reports
+ * failure: it is the caller's own account, so there is nothing to keep quiet about, and
+ * a screen saying "sent" when nothing was sent is worse than an error.
+ */
+export function requestPasswordChange(): Promise<void> {
+  return call<void>('/auth/password/change-request', { method: 'POST' })
+}
+
+/**
+ * Is this reset link still good? Asked before drawing the form, and it spends nothing.
+ *
+ * A link works exactly once, so without this a spent one would open a form that looks
+ * alive and only fails after a password has been chosen and typed twice.
+ */
+export function checkResetLink(token: string): Promise<void> {
+  return call<void>(`/auth/password/reset?token=${encodeURIComponent(token)}`)
+}
+
+/** Spend a reset link. Ends every session on the account, including this browser's. */
+export function resetPassword(token: string, password: string): Promise<void> {
+  return call<void>('/auth/password/reset', {
+    method: 'POST',
+    body: JSON.stringify({ token, password }),
+  })
+}
+
+/** Ask for another activation link. Always resolves: the server says nothing either way. */
+export function resendActivation(email: string): Promise<void> {
+  return call<void>('/auth/activation/resend', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  })
 }
 
 export function updateProfile(patch: ProfilePatch): Promise<User> {

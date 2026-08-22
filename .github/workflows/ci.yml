@@ -138,7 +138,7 @@ jobs:
           --health-retries 10
       redis:
         image: redis:7-alpine
-        ports: ["6380:6379"]
+        ports: ["6382:6379"]
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 5s

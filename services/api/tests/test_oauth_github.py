@@ -4,6 +4,10 @@ The flow harness lives in `tests/oauth_flow.py` and is shared with the Google fi
 because the two flows are the same flow with a different provider module bolted in.
 What is here is either GitHub-specific (its payloads, its scopes) or a rule that has to
 hold for every provider and is easiest to read written out once.
+
+A provider sign-in resolves to an account that already exists and refuses when there is
+none, so nearly every test below registers first. That is the point rather than an
+inconvenience: an account can begin in exactly one place.
 """
 
 import uuid
@@ -21,6 +25,7 @@ from tests.oauth_flow import (
     WEB,
     configure,
     me,
+    register,
     state_cookie_path,
 )
 from tests.oauth_flow import complete_flow as complete
@@ -50,6 +55,13 @@ def profile(
         avatar_url=avatar_url,
         profile_url=f"https://github.com/{username}",
     )
+
+
+def known(client: TestClient, name: str = "Test User", **kwargs: Any) -> github.GitHubProfile:
+    """A GitHub profile whose email has an account here, which is what lets it sign in."""
+    who: github.GitHubProfile = profile(**kwargs)
+    register(client, email=who.email, name=name)
+    return who
 
 
 def stub_profile(monkeypatch: pytest.MonkeyPatch, result: github.GitHubProfile | Exception) -> None:
@@ -108,7 +120,7 @@ def test_callback_refuses_a_state_the_browser_never_received(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The login-CSRF case: a callback URL minted elsewhere, replayed into this browser."""
-    stub_profile(monkeypatch, profile())
+    stub_profile(monkeypatch, known(client))
     start_flow(client)
     client.cookies.delete(STATE_COOKIE, path=state_cookie_path(github.PROVIDER))
 
@@ -122,7 +134,7 @@ def test_callback_refuses_a_state_the_browser_never_received(
 def test_callback_refuses_a_state_that_does_not_match_the_cookie(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    stub_profile(monkeypatch, profile())
+    stub_profile(monkeypatch, known(client))
     start_flow(client)
 
     response = complete_flow(client, "not-the-state-in-the-cookie")
@@ -135,7 +147,7 @@ def test_a_state_works_exactly_once(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Redemption is GETDEL, so a replayed callback URL finds nothing."""
-    stub_profile(monkeypatch, profile())
+    stub_profile(monkeypatch, known(client))
     state = start_flow(client)
     assert complete_flow(client, state).status_code == 303
 
@@ -149,7 +161,7 @@ def test_a_state_works_exactly_once(
 def test_a_refusal_on_githubs_consent_screen_is_not_an_error(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    stub_profile(monkeypatch, profile())
+    stub_profile(monkeypatch, known(client))
     start_flow(client)
     response = client.get(
         "/api/v1/auth/github/callback?error=access_denied", follow_redirects=False
@@ -161,34 +173,10 @@ def test_a_refusal_on_githubs_consent_screen_is_not_an_error(
 # --- account matching ----------------------------------------------------------
 
 
-def test_first_sign_in_creates_an_account_with_a_personal_workspace(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    who = profile(name="The Octocat", username="octocat")
-    body = me(client, sign_in(client, monkeypatch, who))
-
-    assert body["email"] == who.email
-    # GitHub's name by default, and the login only when there is no name.
-    assert body["display_name"] == "The Octocat"
-    assert body["avatar_url"] == who.avatar_url
-    assert body["avatar_source"] == "github"
-    assert body["has_password"] is False
-    assert body["default_workspace_id"]
-    assert body["identities"]["github"]["username"] == "octocat"
-    assert body["identities"]["github"]["profile_url"] == "https://github.com/octocat"
-
-
-def test_an_account_with_no_github_name_falls_back_to_the_login(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    body = me(client, sign_in(client, monkeypatch, profile(name=None, username="ghost")))
-    assert body["display_name"] == "ghost"
-
-
-def test_the_same_email_is_the_same_account(
+def test_signing_in_with_github_finds_the_account_that_holds_the_email(
     client: TestClient, monkeypatch: pytest.MonkeyPatch, make_user: Any
 ) -> None:
-    """Email is the account identity: signing in with GitHub must not fork the account."""
+    """Email is the account identity: a GitHub sign-in must not fork the account."""
     actor: Actor = make_user("Password Person")
     before = me(client, actor.access_token)
 
@@ -200,13 +188,44 @@ def test_the_same_email_is_the_same_account(
     assert after["display_name"] == "Password Person"
     assert after["has_password"] is True
     assert after["identities"]["github"]["username"] == "octocat"
+    assert after["identities"]["github"]["profile_url"] == "https://github.com/octocat"
+
+
+def test_an_unregistered_email_cannot_sign_in_and_creates_nothing(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A provider sign-in is a way into an account, never a way to make one.
+
+    Otherwise a mistyped address at the consent screen silently produces an account the
+    person never knowingly opened, while their real one stays empty.
+    """
+    stranger = profile()
+    stub_profile(monkeypatch, stranger)
+    state = start_flow(client)
+
+    response = complete_flow(client, state)
+
+    assert response.headers["location"] == f"{WEB}/?auth_error=no_account&provider=github#/"
+    assert REFRESH_COOKIE not in response.cookies
+    # Nothing was created on the way past, so the address is still registerable.
+    assert (
+        client.post(
+            "/api/v1/auth/register",
+            json={
+                "email": stranger.email,
+                "password": "correct-horse-battery",
+                "display_name": "The Real One",
+            },
+        ).status_code
+        == 202
+    )
 
 
 def test_signing_in_again_after_a_github_rename_is_the_same_account(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The match is on GitHub's numeric id, so a rename over there changes nothing here."""
-    first = profile(provider_user_id="42", username="octocat")
+    first = known(client, name="The Octocat", provider_user_id="42", username="octocat")
     created = me(client, sign_in(client, monkeypatch, first))
 
     renamed = profile(
@@ -225,7 +244,7 @@ def test_a_second_github_account_cannot_claim_a_linked_one(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Otherwise whoever adds a shared email to a GitHub account displaces the first."""
-    first = profile(provider_user_id="1", username="first")
+    first = known(client, provider_user_id="1", username="first")
     me(client, sign_in(client, monkeypatch, first))
 
     intruder = profile(provider_user_id="2", username="second", email=first.email)
@@ -249,27 +268,13 @@ def test_an_unverified_github_email_is_refused(
     assert REFRESH_COOKIE not in response.cookies
 
 
-def test_password_login_is_refused_for_a_github_only_account(
+# --- what the refusals say -------------------------------------------------------
+
+
+def test_registering_an_email_that_already_signs_in_with_github_says_it_is_taken(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    who = profile()
-    sign_in(client, monkeypatch, who)
-    client.cookies.clear()
-
-    response = client.post(
-        "/api/v1/auth/login", json={"email": who.email, "password": "correct-horse-battery"}
-    )
-
-    assert response.status_code == 401
-    # The same message a wrong password gets: which accounts use GitHub is not
-    # something an anonymous caller may enumerate.
-    assert response.json()["detail"] == "invalid email or password"
-
-
-def test_registering_over_a_github_account_does_not_leak_that_it_exists(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    who = profile()
+    who = known(client)
     sign_in(client, monkeypatch, who)
     client.cookies.clear()
 
@@ -277,8 +282,9 @@ def test_registering_over_a_github_account_does_not_leak_that_it_exists(
         "/api/v1/auth/register",
         json={"email": who.email, "password": "correct-horse-battery", "display_name": "X"},
     )
+
     assert response.status_code == 409
-    assert response.json()["detail"] == "could not create account"
+    assert response.json()["detail"] == "email is already registered"
 
 
 # --- what the redirect may carry ------------------------------------------------
@@ -288,7 +294,7 @@ def test_the_session_never_travels_in_the_url(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A token in a redirect lands in history, the referrer, and every proxy log."""
-    stub_profile(monkeypatch, profile())
+    stub_profile(monkeypatch, known(client))
     state = start_flow(client)
     response = complete_flow(client, state)
 
@@ -302,7 +308,7 @@ def test_a_requested_destination_survives_the_round_trip(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     board = uuid.uuid4()
-    stub_profile(monkeypatch, profile())
+    stub_profile(monkeypatch, known(client))
     state = start_flow(client, next_path=f"%23/glade/{board}")
     response = complete_flow(client, state)
 
@@ -317,7 +323,7 @@ def test_the_callback_cannot_be_pointed_off_site(
     client: TestClient, monkeypatch: pytest.MonkeyPatch, hostile: str
 ) -> None:
     """The classic OAuth open redirect, made worse by arriving with a fresh session."""
-    stub_profile(monkeypatch, profile())
+    stub_profile(monkeypatch, known(client))
     state = start_flow(client, next_path=hostile)
     response = complete_flow(client, state)
 
@@ -331,7 +337,7 @@ def test_the_callback_cannot_be_pointed_off_site(
 def test_a_profile_edit_never_touches_the_github_identity(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    who = profile()
+    who = known(client)
     token = sign_in(client, monkeypatch, who)
     auth = {"Authorization": f"Bearer {token}"}
 
@@ -359,7 +365,7 @@ def test_a_profile_edit_never_touches_the_github_identity(
 def test_a_dropped_avatar_stays_dropped_across_the_next_sign_in(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    who = profile(provider_user_id="77")
+    who = known(client, provider_user_id="77")
     token = sign_in(client, monkeypatch, who)
     client.patch(
         "/api/v1/auth/me",
@@ -376,8 +382,14 @@ def test_a_dropped_avatar_stays_dropped_across_the_next_sign_in(
 def test_a_github_avatar_follows_the_github_account(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    who = profile(provider_user_id="88", avatar_url="https://avatars.example/one.png")
-    sign_in(client, monkeypatch, who)
+    who = known(client, provider_user_id="88", avatar_url="https://avatars.example/one.png")
+    token = sign_in(client, monkeypatch, who)
+    # A password account keeps its initials until it asks for the picture.
+    client.patch(
+        "/api/v1/auth/me",
+        json={"avatar_source": "github"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
 
     moved = profile(
         provider_user_id="88",
@@ -438,3 +450,29 @@ def test_a_payload_without_an_id_is_refused() -> None:
             {"login": "octocat"},
             [{"email": "a@example.com", "primary": True, "verified": True}],
         )
+
+
+def test_registering_with_github_creates_the_account_without_a_session(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Both providers can register, and neither signs in on the way.
+
+    The suite has no SMTP configured, so the account is opened immediately and the
+    marker says the mail did not go out. `test_activation.py` covers the other half,
+    with the relay stubbed.
+    """
+    who = profile()
+    stub_profile(monkeypatch, who)
+
+    response = complete(
+        client, github.PROVIDER, start(client, github.PROVIDER, intent="register")
+    )
+
+    assert "auth_pending=registered_nomail" in response.headers["location"]
+    assert REFRESH_COOKIE not in response.cookies
+    # The address is taken now, which the register form agrees about.
+    taken = client.post(
+        "/api/v1/auth/register",
+        json={"email": who.email, "password": "correct-horse-battery", "display_name": "X"},
+    )
+    assert taken.status_code == 409

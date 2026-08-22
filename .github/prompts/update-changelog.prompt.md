@@ -1,6 +1,7 @@
 ---
 agent: 'agent'
 description: 'Add or update a CHANGELOG.md entry for Meadow from the real changes'
+model: 'sonnet'
 ---
 
 # Update the Changelog

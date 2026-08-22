@@ -195,9 +195,9 @@ The infrastructure to run the thing. Not deployed yet.
   is not worth stealing.
   `users.password_hash` is nullable now, since an OAuth account has no password. A
   placeholder hash would have avoided the migration and would have been a credential
-  nobody holds the input to. Password login on such an account is refused with the same
-  message a wrong password gets, because which accounts use GitHub is not something an
-  anonymous caller may enumerate.
+  nobody holds the input to. (Both halves of that were later revised: see Reversed
+  below. No new account can be passwordless, and the refusal for one that already is
+  now says so rather than imitating a wrong password.)
 - **A profile page**, at `#/profile` from the account chip in the sidebar. Display name,
   the picture (the GitHub one or initials, both shown as previews rather than described
   by a switch), and a read-only record of how this account signs in. The email is shown
@@ -230,8 +230,90 @@ The infrastructure to run the thing. Not deployed yet.
   The profile page grew with it rather than gaining a second column of the same thing:
   the picture is chosen from every linked account that has one plus initials, and
   `avatar_source` names a provider, so a Google picture is not replaced by linking
-  GitHub later. Each provider is independent in configuration too - either, both or
+  GitHub later. Each unconnected provider carries its own Connect button in its own row,
+  because a stack of buttons under a list has to repeat the provider's name to say what
+  it acts on. Each provider is independent in configuration too - either, both or
   neither, with an unconfigured one hidden rather than offered as a button that 404s.
+  One fix worth naming: a Google avatar loaded as a broken image while GitHub's was
+  fine. `lh3.googleusercontent.com` answers 403 to a cross-origin request carrying a
+  Referer, and the site sends one by default, so the `<img>` now sets
+  `referrerpolicy="no-referrer"`. Nothing needs a referrer sent to a third-party CDN.
+- **The splash video greets a new account only.** It played on every login, which makes
+  a welcome into a toll. Now it plays once, when the activation link opens the account,
+  which is the moment a registration actually finishes.
+- **Registering now confirms the address.** Every door - the password form, GitHub,
+  Google - writes the account and stops there. The row holds the email so nobody else
+  can claim it, and no method signs in to it until the link in the activation mail is
+  followed. `POST /auth/register` answers 202 with no session, because a session for an
+  account every other endpoint refuses is a lie the client would have to unpick;
+  `/auth/activate` spends the link and issues the session there, since the click is what
+  proves the address is theirs. The link is 256 bits, stored as a sha256 digest, single
+  use, and expires in a day, exactly like a refresh token and for the same reasons.
+  Asking for a new one retires the old, so two working keys never sit in one inbox.
+  The mail is `multipart/alternative` and its own design: the app's light palette as hex,
+  Inter with real fallbacks, table layout and inline styles because Gmail strips a
+  `<style>` block and Outlook renders with Word, and the destination printed as text
+  under the button - a button whose target cannot be read is what a phishing mail looks
+  like. Sending is stdlib `smtplib` on a worker thread rather than another dependency.
+  A relay that refuses does not lose the registration: the account stays, unactivated,
+  and the screen offers to send the link again. With `MEADOW_SMTP_HOST` blank the
+  account is opened immediately and the API warns about it on every registration, which
+  keeps a development machine working and is a misconfiguration anywhere else.
+- **Forgotten passwords, and first passwords.** "Forgot password?" sits at the end of the
+  password field's own label on the login form, because that is where the thought occurs,
+  and the profile page has the same thing as "Set a password" for an account opened
+  through GitHub or Google that has none. They are one request: adding a first password
+  and replacing a lost one both mean "prove you read mail at this address, then choose
+  one", and only the wording of the mail differs. The link runs on the activation
+  machinery - `email_verifications` grew a `purpose` rather than a near-identical sibling
+  table - and neither kind can be spent at the other's endpoint. It lasts an hour rather
+  than a day, and spending it revokes every refresh family on the account including the
+  browser doing the resetting: somebody resetting a password they did not lose thinks
+  another person has it, and leaving that person's session alive would make the reset
+  decorative. The reset form is its own screen at `#/reset/<token>`, with the token in
+  the fragment so it never lands in a server or proxy log, and it renders before the
+  session check because whoever holds the link is proving the account is theirs.
+- **Registering, signing in, and connecting are told apart, through every door.** The
+  OAuth flow now carries an intent: `?intent=register` from the Register tab, `login`
+  from the other one, `link` from the profile page, stored in the state rather than in
+  the callback URL, because everything in that URL is attacker-supplied by the time it
+  returns. Registering an address that already has an account is refused and points at
+  Log in; signing in with an address that has none is refused and points at Register.
+  Both messages name what to do next, which the old generic refusals could not.
+- **Fixed: Connect could sign you in as somebody else.** Signed in as `a@example.com`,
+  pressing Connect and authorising a provider account whose verified address is
+  `b@example.com` swapped the session to whichever account held `b@` - the flow had no
+  idea it was a connect attempt, so it fell through to the ordinary "same email, same
+  person" match. It is now its own intent: the account being connected is fixed from the
+  session before leaving the site and travels in the state, the callback attaches the
+  provider to that account or refuses with `email_mismatch`, and no session is issued on
+  that path at all. Connecting also returns to the profile page rather than the login
+  screen, since the person was never logged out.
+
+### Reversed
+- **A provider sign-in no longer creates an account by accident.** The first GitHub or
+  Google sign-in used to register one silently. What that cost was an account nobody
+  meant to open: pick the wrong account at a consent screen, or sign in with a work
+  address when the real account is on a personal one, and Meadow made a second empty
+  account and put you in it. Signing up with a provider is still possible and is now
+  something you ask for - the Register tab sends `intent=register` - while pressing Log
+  in with an unknown address is refused with `no_account`. (This landed in two steps: it
+  was first removed outright, making registration password-only, and then brought back
+  behind the intent. The intermediate state is not in any release; the reasoning is kept
+  because the second version only makes sense as an answer to the first.)
+- **Login and registration name their refusals.** Both used to answer every failure with
+  one message so that neither could be used to enumerate accounts. The protected fact
+  was worth little; the cost was that the two cases a real person hits - an address that
+  never registered, and one that registered through another door - were told only "no",
+  which reads as the app being broken rather than as an instruction. Now `/login`
+  distinguishes an unregistered email, an account with no password, and a wrong
+  password, and `/register` says an email is already registered. The trade is accepted
+  deliberately: account existence is probeable, with only the rate limits (5/min login,
+  3/hour register, per IP) holding it down, and nothing past existence is revealed. The
+  test that pinned the old behaviour is rewritten to pin the new one, including why.
+  One exception stayed quiet: `/auth/activation/resend` says nothing either way, because
+  it posts mail to an address the caller chose and a caller who can tell hits from
+  misses can use it to find live addresses.
 
 ### Changed
 - Every page redrawn. Login is a centred card with a segmented control instead of an
