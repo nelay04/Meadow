@@ -39,6 +39,102 @@
   --grid-minor: light-dark(#1b1c1f07, #ffffff05);
   --grid-major: light-dark(#1b1c1f0f, #ffffff0a);
 
+  /*
+   * The lea's paper.
+   *
+   * A diary is warm where the rest of the app is neutral, and that warmth is the
+   * whole reason the kind exists: it should feel like reaching for a different book,
+   * not like flipping a switch. Aged rather than yellow - the cream is barely two
+   * steps off the app's own, and the age comes from the shade at the edges and the
+   * fibre over the top, which is how paper actually reads.
+   *
+   * The dark theme is not a dark grey with the same lines on it. It is the same page
+   * under a lamp at night: a warm near-black, a faintly warm rule, and the same
+   * geometry. Inverting the paper and keeping a blue rule is what makes a "dark mode
+   * notebook" look like a text editor.
+   */
+  /*
+   * The lea's paper: kraft, and the same kraft in both themes.
+   *
+   * Deliberately outside `light-dark()`, which every other colour in this file is
+   * inside. A sheet of paper does not invert at night. Putting the lea on the theme
+   * gave a dark-mode diary that was a brown-grey rectangle with faint lines on it -
+   * legible, and nothing whatever to do with the object it is meant to be. The desk it
+   * lies on follows the theme instead, which is the part of the picture that is a
+   * room rather than a thing.
+   *
+   * Knocked back from the first kraft, which was a shade brighter and read as yellow
+   * card rather than paper - a full-screen surface at that saturation glares, and it
+   * glares hardest surrounded by a dark UI, which is where most of this app is looked
+   * at. The mottling came down with it: a highlight fleck bright enough to see on the
+   * old stock lifts the whole sheet on this one.
+   */
+  --lea-paper: #b39a76;
+  /* Pulp. Two flecks, one darker than the sheet and one lighter, tiled at a size big
+     enough that the repeat does not read as a pattern. */
+  --lea-mottle: #8f714824;
+  --lea-mottle-2: #d8bd8d20;
+  /*
+   * Paper, as two scales of fractal noise.
+   *
+   * This was a `repeating-linear-gradient` at 115 degrees, and a repeating gradient is
+   * a comb: at any alpha you can actually see, it reads as diagonal hatching ruled
+   * across the page, which is the one texture paper does not have. `feTurbulence`
+   * generates the real thing, and `stitchTiles` joins the tile edges so a square
+   * repeats over a whole page with no visible grid.
+   *
+   * Two scales, because one is not paper. The fine one is tooth - the surface you
+   * would feel - and it is stretched along x, since fibres in a sheet lie with the
+   * grain rather than isotropically. The coarse one is the pulp underneath: slow,
+   * cloudy unevenness at a scale of inches, which is what actually makes stock read as
+   * made rather than printed, and it does the job the four smooth radial blotches used
+   * to do badly.
+   */
+  /* Age, gathered where a page is handled, and the sheet's own edge shadow. */
+  --lea-shade: #4a34182e;
+  /* The writing line. Thin and definite, but a good way off black: a rule is there to
+     be written along, not read, and at full strength it competed with the writing on
+     it instead of carrying it. */
+  --lea-rule: #2b22164a;
+  --lea-ink: #241c11;
+  /*
+   * The desk. This one is a room, so this one is themed.
+   *
+   * Light is the app's own `--bg` rather than a colour of its own: a brown desk under
+   * a brown sheet made the page hard to find, and the light theme reads better with
+   * the lea sitting on the same ground as every other screen.
+   */
+  --lea-desk: light-dark(#f4f1ec, #0e0c09);
+
+  --lea-layer-rule: linear-gradient(
+    to bottom,
+    transparent 0,
+    var(--lea-rule) 0.4px,
+    var(--lea-rule) 1.4px,
+    transparent 1.8px
+  );
+
+  --lea-layer-fibre: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.42 0.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23f)' opacity='0.3'/%3E%3C/svg%3E");
+  /*
+   * The coarse layer tiles at 900px, not 420.
+   *
+   * `stitchTiles` joins turbulence across a tile edge by rounding the base frequency to
+   * something the tile divides evenly, and at a frequency this low the rounding is a
+   * large fraction of the value, so the seam survives - it showed as a soft vertical
+   * band down the middle of the page. A bigger tile makes the rounding proportionally
+   * smaller and puts any residue off-screen on most windows.
+   */
+  --lea-layer-pulp-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='900' height='900'%3E%3Cfilter id='c'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.02' numOctaves='5' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='900' height='900' filter='url(%23c)' opacity='0.3'/%3E%3C/svg%3E");
+
+  /* Tooth, then the pulp under it, then one soft blotch to break the symmetry the two
+     tiled layers would otherwise have, then the age gathered at the edges. */
+  --lea-layer-pulp:
+    var(--lea-layer-fibre),
+    var(--lea-layer-pulp-noise),
+    radial-gradient(ellipse 46% 34% at 24% 26%, var(--lea-mottle) 0, transparent 70%),
+    radial-gradient(ellipse 40% 30% at 78% 72%, var(--lea-mottle-2) 0, transparent 70%),
+    radial-gradient(140% 120% at 50% 42%, transparent 40%, var(--lea-shade) 100%);
+
   /* Ink. */
   --fg: light-dark(#1b1c1f, #e9ecf1);
   --fg-strong: light-dark(#0c0d0f, #ffffff);
@@ -645,15 +741,106 @@ label {
 /* The sidebar chip is a button now, so the global button chrome has to be undone
    before the chip's own look survives. */
 .sidebar-foot button.user-chip {
-  width: 100%;
   justify-content: flex-start;
   font-weight: 500;
   text-align: left;
 }
 
 .sidebar-foot button.user-chip:hover:not(:disabled) {
-  background: var(--surface-2);
+  background: var(--surface-3);
   border-color: transparent;
+}
+
+/*
+ * The theme picker: three options, all visible, the current one marked.
+ *
+ * Not the cycling icon this replaced. Cycling is right in a toolbar where there is
+ * room for one control and wrong on a settings page, where the question is "what are
+ * my options" and a button that answers it only by being pressed twice is a puzzle.
+ */
+.theme-choices {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.9rem;
+}
+
+.theme-choice {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.85rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+/*
+ * The stock, shown rather than named.
+ *
+ * Ruled, because half of what tells the four apart at this size is whether the rules
+ * read as dark lines on a pale sheet or pale lines on a dark one, and a flat square of
+ * colour says none of that. The vintage swatch is the page's own kraft, so the choice
+ * you make here is the colour you get.
+ */
+.paper-swatch {
+  width: 2.2rem;
+  height: 1.5rem;
+  border-radius: 3px;
+  border: 1px solid var(--edge);
+  background-color: #b39a76;
+  background-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #2b221636 0.4px,
+    #2b221636 1.4px,
+    transparent 1.8px
+  );
+  background-size: 100% 5px;
+  background-position: 0 2px;
+}
+
+.paper-swatch[data-paper='light'] {
+  background-color: #faf7f1;
+}
+
+.paper-swatch[data-paper='dark'] {
+  background-color: #262119;
+  background-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #e8dcc44a 0.4px,
+    #e8dcc44a 1.4px,
+    transparent 1.8px
+  );
+}
+
+/* The half-and-half: the same two stocks this one resolves to, split down the middle,
+   because "match theme" is not a colour and a swatch that picked one of them would be
+   telling you the wrong half the time. */
+.paper-swatch[data-paper='system'] {
+  background-color: #faf7f1;
+  background-image:
+    linear-gradient(to bottom, transparent 0, #2b221636 0.4px, #2b221636 1.4px, transparent 1.8px),
+    linear-gradient(to right, transparent 50%, #262119 50%);
+  background-size: 100% 5px, 100% 100%;
+  background-position: 0 2px, 0 0;
+}
+
+.theme-choice:hover:not(:disabled) {
+  border-color: var(--edge);
+  background: var(--surface-3);
+  color: var(--fg-strong);
+}
+
+.theme-choice.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 /* --- profile ------------------------------------------------------------------
@@ -1050,10 +1237,37 @@ label {
   background: var(--surface);
 }
 
+/*
+ * The filter groups, stacked and scrollable.
+ *
+ * Two groups rather than one long list, because they answer different questions: the
+ * first is whose a glade is, the second is what it is. The second is generated from
+ * the kind registry, so a new kind of glade appears here with no edit to the sidebar.
+ * `min-height: 0` is what lets the column actually scroll instead of pushing the
+ * account chip off the bottom once there are enough kinds to fill it.
+ */
+.sidebar-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 .sidebar-nav {
   display: flex;
   flex-direction: column;
   gap: 0.1rem;
+}
+
+.nav-heading {
+  margin: 0 0 0.15rem;
+  padding: 0 0.6rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--faint);
 }
 
 .nav-item {
@@ -1098,20 +1312,54 @@ label {
 }
 
 /* Pinned to the bottom, which is where an app of this shape puts the account. */
+/*
+ * The account, and the one action about it.
+ *
+ * One row rather than two. The second row used to hold a theme control and a text
+ * link, and neither belonged: the theme is a setting and lives on the profile page
+ * now, and signing out reads as an action rather than as a link once it has an edge.
+ */
 .sidebar-foot {
   margin-top: auto;
   display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+  align-items: center;
+  gap: 0.4rem;
   padding-top: 0.75rem;
   border-top: 1px solid var(--line);
 }
 
+/*
+ * Padded to the same inset as a nav item, so the hover fill clears the avatar the way
+ * it clears every other row's icon. At `0.1rem` the highlight ran into the picture,
+ * which made the chip look like a different kind of thing from the list above it.
+ */
 .sidebar-foot .user-chip {
-  border: none;
+  flex: 1;
+  min-width: 0;
+  justify-content: flex-start;
+  border: 1px solid transparent;
   background: transparent;
-  padding: 0.1rem;
-  gap: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  gap: 0.55rem;
+  border-radius: var(--radius-sm);
+}
+
+/* An edge, because it is an action. A bare word beside a name reads as a caption. */
+.sign-out {
+  flex: 0 0 auto;
+  padding: 0.4rem 0.7rem;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.sign-out:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+  color: var(--danger);
 }
 
 .sidebar-foot .avatar {
@@ -1143,22 +1391,46 @@ label {
   flex: 1;
 }
 
-.sort select {
-  font: inherit;
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--muted);
-  padding: 0.35rem 0.6rem;
+/*
+ * A filter dropdown: the trigger, and the app's own menu beneath it.
+ *
+ * These were native `<select>`s. The closed control was fine; the options list was an
+ * operating-system popup with square corners on a page made of soft-edged cards, and
+ * no amount of CSS reaches inside it. Rebuilding the whole control is the only way the
+ * list rounds, and it also fixes the chevron, which the browser jams against the right
+ * border with no way to move it.
+ */
+.dropdown {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.dropdown-button {
+  display: inline-flex;
+  align-items: center;
+  /* The gap is the space after the chevron: it separates the glyph from the label on
+     one side, and the padding below separates it from the border on the other. */
+  gap: 0.5rem;
+  padding: 0.4rem 0.7rem;
   border-radius: var(--radius);
   border: 1px solid var(--edge);
   background: var(--surface);
-  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 600;
 }
 
-.sort select:hover {
+.dropdown-button:hover:not(:disabled) {
   border-color: var(--accent);
   color: var(--fg-strong);
 }
+
+.dropdown-button > svg {
+  flex: 0 0 auto;
+  opacity: 0.75;
+}
+
+
 
 /* Present for screen readers, absent on screen. */
 .visually-hidden {
@@ -1188,12 +1460,19 @@ label {
   color: var(--fg);
 }
 
-/* The create composer. A field and one primary action, on a card so it reads as
-   the page's main verb. */
+/*
+ * The create composer, on a kind's own page.
+ *
+ * Only there. Under Everything or Recent the list holds several kinds and a card that
+ * offers to name a new glade is either wrong or needs a picker inside it; the header's
+ * New menu asks the question properly. Under Glades or Leas the question is already
+ * answered, and then a name field and one button is the fastest thing there is.
+ */
 .composer {
   display: flex;
-  gap: 0.6rem;
-  padding: 0.55rem;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.7rem;
   margin-bottom: 1.25rem;
   border-radius: var(--radius-lg);
   border: 1px solid var(--line);
@@ -1201,18 +1480,150 @@ label {
   box-shadow: var(--shadow-sm);
 }
 
-.composer input {
+.composer-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+
+.composer-row input {
+  flex: 1;
+  min-width: 0;
   border-color: transparent;
   background: transparent;
 }
 
-.composer input:hover {
+.composer-row input:hover {
   border-color: transparent;
 }
 
-.composer input:focus {
+.composer-row input:focus {
   border-color: var(--accent);
   background: var(--surface);
+}
+
+/* What this kind actually is, in a sentence. */
+.composer-hint {
+  margin: 0;
+  padding: 0 0.2rem;
+  font-size: 0.78rem;
+  color: var(--faint);
+}
+
+/*
+ * What the composer will make, stated and not offered.
+ *
+ * Not a control. The sidebar chose it, and a picker here was a second switch for the
+ * same decision: standing under a heading that reads Leas with a toggle beside it set
+ * to Glade is two controls disagreeing in front of the user.
+ */
+.composer-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: 0 0 auto;
+  padding: 0 0.7rem;
+  border-radius: var(--pill);
+  background: var(--surface-3);
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+/* A lea's composer wears the paper it will make. */
+.composer.kind-lea .composer-kind {
+  background: var(--lea-paper);
+  color: var(--lea-ink);
+}
+
+/*
+ * The popup a dropdown opens.
+ *
+ * Rounded, shadowed and themed like every other surface in the app, which is the whole
+ * reason the filters are not native `<select>`s: a browser's options list is drawn by
+ * the operating system with square corners and cannot be reached from here.
+ */
+.menu {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  right: 0;
+  z-index: 20;
+  min-width: 17rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.3rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg, var(--shadow));
+}
+
+.menu-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.5rem 0.6rem;
+  border-color: transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+}
+
+.menu-item:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--surface-3);
+}
+
+/* A shorter row for a list of one-line choices, and the tick that says which. */
+.menu-compact {
+  min-width: 11rem;
+}
+
+.menu-compact .menu-item {
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.85rem;
+}
+
+.menu-item.selected .menu-label {
+  color: var(--accent);
+}
+
+.menu-item.selected > svg {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+
+.menu-item > svg {
+  flex: 0 0 auto;
+  margin-top: 0.1rem;
+  color: var(--muted);
+}
+
+.menu-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.menu-label {
+  font-weight: 700;
+  color: var(--fg-strong);
+}
+
+/* What the kind actually is, in a sentence. Two words cannot explain the difference
+   between graph paper and a diary, and this is the one place there is room. */
+.menu-blurb {
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--faint);
+  white-space: normal;
 }
 
 .section-label {
@@ -1333,6 +1744,53 @@ label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/*
+ * What kind of glade this is, beside how long ago it was touched.
+ *
+ * On the card rather than only in the sidebar, because the grid mixes kinds and the
+ * thumbnail of an empty lea and an empty glade are both very nearly nothing.
+ */
+.kind-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-right: 0.4rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: var(--pill);
+  background: var(--surface-3);
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+/* A lea's card carries its own paper, so the grid tells you what a thing is before
+   you have read a word of it. */
+/*
+ * A lea's preview well is its own paper.
+ *
+ * The ruling is drawn much lighter here than on the page itself, and closer together.
+ * At card size the real weight reads as a barcode: this is a hint at what the thing is,
+ * not a scale model of it.
+ */
+.board-card.kind-lea .board-thumb {
+  background-color: var(--lea-paper);
+  background-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #2b22162e 0.4px,
+    #2b22162e 1.2px,
+    transparent 1.6px
+  );
+  background-size: 100% 0.62rem;
+  color: var(--lea-ink);
+  border-bottom-color: #00000024;
+}
+
+.board-card.kind-lea .kind-badge {
+  background: var(--lea-paper);
+  color: var(--lea-ink);
 }
 
 .board-title {
@@ -1463,6 +1921,44 @@ label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/*
+ * The board's name: a field that does not look like one until you go near it.
+ *
+ * A permanent input box in the header would read as a form on every board you open,
+ * and this is a label ninety-nine times out of a hundred. It sizes to its own content
+ * through the `size` attribute rather than through CSS, because an input has no
+ * intrinsic width and a fixed one would leave a short name floating in a long trough.
+ */
+.board-name {
+  width: auto;
+  min-width: 4rem;
+  max-width: 22rem;
+  padding: 0.2rem 0.4rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--fg-strong);
+  text-overflow: ellipsis;
+}
+
+.board-name:hover:not(:read-only) {
+  border-color: var(--line);
+}
+
+.board-name:focus {
+  border-color: var(--accent);
+  background: var(--surface);
+  outline: none;
+}
+
+/* A viewer sees the name and cannot change it, so it must not offer a caret. */
+.board-name:read-only {
+  cursor: default;
 }
 
 .board-bar .spacer {
@@ -1696,6 +2192,529 @@ label {
 }
 
 .canvas-host.no-grid {
+  background-image: none;
+}
+
+/*
+ * The ruled surface: a lea.
+ *
+ * Same canvas, same engine, same objects. Only the paper changes, and it changes in
+ * CSS for exactly the reasons the grid does: no draw calls, no geometry, and none of
+ * it lands in `captureThumbnail`.
+ *
+ * A sheet on a desk, not a full-bleed texture. The camera is fenced to a fixed column
+ * at zoom 1, so where the page sits on screen only changes when the window is resized,
+ * and the engine hands that over as five custom properties:
+ *
+ *   --lea-page-left / --lea-page-width   where the sheet is
+ *   --lea-rule-inset                     how far the ruling stops short of its edge
+ *   --lea-rule-size / --lea-rule-offset  the ruling's pitch and its scroll phase
+ *
+ * Everything else about the paper is here, which means adding a layer to it never
+ * touches the engine.
+ */
+/*
+ * The stocks a lea can be printed on.
+ *
+ * Five variables and nothing else: the pulp, the mottling, the ruling, the ink and the
+ * desk. Every layer above is written against those, so a stock is this block and no
+ * change anywhere else - not to the engine, which reads the ink back off the host, and
+ * not to the header furniture, which is all `currentColor` and `--lea-rule`.
+ *
+ * The kraft defaults live at the top of this file and are what `vintage` restores;
+ * these override them on the host, which is where `--lea-*` is read from.
+ *
+ * `system` is the light and dark stocks under `light-dark()` rather than a stock of
+ * its own, so it follows the theme toggle with nothing subscribed to it.
+ */
+.canvas-host.surface-ruled[data-paper='light'] {
+  --lea-paper: #faf7f1;
+  --lea-mottle: #b7a68e14;
+  --lea-mottle-2: #ffffff18;
+  --lea-shade: #6b573c1a;
+  --lea-rule: #2b221636;
+  --lea-ink: #241c11;
+  --lea-desk: light-dark(#e7e2d9, #0e0c09);
+}
+
+.canvas-host.surface-ruled[data-paper='dark'] {
+  /* Not the theme's surface colour. A page has to read as a sheet lying on the desk,
+     so it stays a step lighter than whatever is around it, and the ink goes warm
+     rather than white: white text on near-black is a terminal, not a diary. */
+  --lea-paper: #262119;
+  --lea-mottle: #00000020;
+  --lea-mottle-2: #d8bd8d10;
+  --lea-shade: #0000003d;
+  --lea-rule: #e8dcc44a;
+  --lea-ink: #ece3d2;
+  --lea-desk: light-dark(#3a332a, #0e0c09);
+}
+
+.canvas-host.surface-ruled[data-paper='system'] {
+  --lea-paper: light-dark(#faf7f1, #262119);
+  --lea-mottle: light-dark(#b7a68e14, #00000020);
+  --lea-mottle-2: light-dark(#ffffff18, #d8bd8d10);
+  --lea-shade: light-dark(#6b573c1a, #0000003d);
+  --lea-rule: light-dark(#2b221636, #e8dcc44a);
+  --lea-ink: light-dark(#241c11, #ece3d2);
+  --lea-desk: light-dark(#e7e2d9, #0e0c09);
+}
+
+.canvas-host.surface-ruled {
+  color: var(--lea-ink);
+  background-color: var(--lea-desk);
+  background-image: none;
+  /* So the sheet and its ruling can sit at z-index -1: behind the canvas, in front of
+     the desk. Without a stacking context here they fall behind the desk instead. */
+  isolation: isolate;
+
+  /* Sane values for the frame before the engine's first camera sync. */
+  --lea-page-left: 0px;
+  --lea-page-width: 100%;
+  --lea-page-top: 0px;
+  --lea-page-height: 100%;
+  --lea-rule-inset: 22px;
+  --lea-rule-size: 28px;
+  --lea-rule-top: 0px;
+  --lea-rule-height: 100%;
+  --lea-header-top: 0px;
+  --lea-header-height: 22px;
+  --lea-column-left: 0px;
+  --lea-column-width: 100%;
+  --lea-subject-width: 330px;
+  --lea-date-width: 230px;
+  --lea-type-size: 21px;
+  --lea-page-end: 100%;
+}
+
+/* The sheet: stock, pulp, and the shading that gives it an edge. */
+.canvas-host.surface-ruled::before {
+  content: '';
+  position: absolute;
+  top: var(--lea-page-top);
+  height: var(--lea-page-height);
+  left: var(--lea-page-left);
+  width: var(--lea-page-width);
+  z-index: -1;
+  pointer-events: none;
+  background-color: var(--lea-paper);
+  background-image: var(--lea-layer-pulp);
+  background-size:
+    240px 240px,
+    900px 900px,
+    auto,
+    auto,
+    auto;
+  background-repeat: repeat, repeat, no-repeat, no-repeat, no-repeat;
+  /* The sheet lifted off the desk. Slight, because a page in a book is not a card. */
+  box-shadow: 0 0 22px -6px #00000038;
+}
+
+/*
+ * The ruling, inset from the sheet's edges the way a printed journal's is.
+ *
+ * Its own element rather than another layer on the sheet, because it is the only part
+ * of the page that moves: it scrolls with the camera while the pulp stays put, and the
+ * two would otherwise have to share one background-position list.
+ */
+.canvas-host.surface-ruled::after {
+  content: '';
+  position: absolute;
+  /* The element *is* the ruling: it starts on the first rule and ends on the last, so
+     the pattern needs no offset of its own and the page has a visible end. */
+  top: var(--lea-rule-top);
+  height: var(--lea-rule-height);
+  left: calc(var(--lea-page-left) + var(--lea-rule-inset));
+  width: calc(var(--lea-page-width) - var(--lea-rule-inset) * 2);
+  z-index: -1;
+  pointer-events: none;
+  background-image: var(--lea-layer-rule);
+  background-size: 100% var(--lea-rule-size);
+  background-repeat: repeat-y;
+}
+
+/*
+ * The header: what the page is about, and when.
+ *
+ * Positioned entirely from the custom properties the engine writes, so it rides the
+ * camera without React hearing about the camera. Two lines to write on, the way a page
+ * of stationery is printed: the subject on the left and the date on the right, both
+ * set in the page's own type so they scale with it rather than staying a fixed number
+ * of pixels as the page is zoomed.
+ */
+.lea-header {
+  position: absolute;
+  left: var(--lea-column-left);
+  width: var(--lea-column-width);
+  top: var(--lea-header-top);
+  height: var(--lea-header-height);
+  /* Over the canvas rather than under it: these are controls now and a click has to
+     reach them. The box is only the header line, so the rest of the page is page. */
+  z-index: 3;
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 1.75rem;
+  font-family: 'Comic Neue', 'Comic Sans MS', ui-rounded, cursive;
+  /* A shade under the writing. The header is printed furniture, not a line of the
+     diary, and matching the hand exactly made it read as the first entry. */
+  font-size: calc(var(--lea-type-size) * 0.86);
+  color: var(--lea-ink);
+}
+
+.lea-field {
+  min-width: 0;
+  display: flex;
+  /* Stated, not assumed: the app's `label` rule is a column, and a field that only
+     said `display: flex` would inherit that direction and stack. */
+  flex-direction: row;
+  align-items: flex-end;
+  gap: 0.45rem;
+}
+
+.lea-field-subject {
+  width: var(--lea-subject-width);
+}
+
+.lea-field-date {
+  position: relative;
+  width: var(--lea-date-width);
+}
+
+/*
+ * Printed on the paper, not part of the line you write on.
+ *
+ * Bottom-aligned by the same construction as the value beside it, and for the same
+ * reason: a caption whose line box is a different height puts its baseline somewhere
+ * else, and a caption floating above the date it labels reads as two lines of writing
+ * rather than one.
+ */
+.lea-field-label {
+  font-size: 0.8em;
+  font-style: italic;
+  line-height: 1.15;
+  margin-bottom: -0.34em;
+  opacity: 0.75;
+  white-space: nowrap;
+}
+
+.lea-field-slot {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  align-self: stretch;
+  border-bottom: 1px solid var(--lea-rule);
+}
+
+.lea-field-slot:focus-within {
+  border-bottom-color: var(--lea-ink);
+}
+
+/*
+ * The subject and the date, written on their lines.
+ *
+ * Every box an input draws for itself is the wrong furniture on a sheet of paper, so
+ * the border, the background and the ring all come off and the printed line does the
+ * work.
+ */
+.lea-subject,
+.lea-date-value {
+  font: inherit;
+  font-size: 1em;
+  line-height: 1.15;
+  color: var(--lea-ink);
+}
+
+/*
+ * Stated for every state, the way the Add-lines button has to be.
+ *
+ * The app's inputs are a bordered surface that takes an accent border on hover and a
+ * focus ring on focus. Turning the border off is not enough to turn those off: the
+ * ring is a `box-shadow`, so it kept painting a blue plate over the paper whenever the
+ * subject was hovered or had the caret.
+ */
+.lea-subject,
+.lea-subject:hover,
+.lea-subject:focus {
+  width: 100%;
+  height: 100%;
+  /* Off the line rather than sitting on it. Writing that touches the rule reads as
+     text in a box, which is the thing this whole surface is avoiding. */
+  /* The left step keeps an italic first letter off the edge of its own box: the
+     placeholder's W was being clipped by the slot rather than by the page. */
+  padding: 0 0 0.55em 0.35em;
+  border: 0;
+  border-color: transparent;
+  background: none;
+  outline: none;
+  box-shadow: none;
+}
+
+/* Legible on kraft, which grey at low opacity is not: the page's own ink, held back
+   enough to read as a prompt rather than as something somebody wrote. */
+.lea-subject::placeholder,
+.lea-date-value.empty {
+  color: var(--lea-ink);
+  font-style: italic;
+  opacity: 0.45;
+}
+
+.lea-subject:hover::placeholder,
+.lea-subject:focus::placeholder,
+.lea-field-date:hover .lea-date-value.empty {
+  opacity: 0.7;
+}
+
+/* The date is a button, because opening a calendar is what it does. Everything the app
+   gives a button - surface, border, ring, lift - is undone for the same reason the
+   inputs are: this one lives on paper. */
+.lea-date,
+.lea-date:hover:not(:disabled),
+.lea-date:active:not(:disabled) {
+  background: none;
+  border-color: transparent;
+  box-shadow: none;
+  transform: none;
+}
+
+/*
+ * Sat on the line, not floating over it.
+ *
+ * The subject is an `<input>`, which centres its one line of text inside its content
+ * box; this is a `<button>`, whose span is aligned to the bottom of its. Those two put
+ * a baseline in visibly different places - measured on a driven page, the date sat
+ * 13.3px above its line while the subject sat 1.3px above its - and the fix is the
+ * difference between them, taken from the measurement rather than guessed at.
+ */
+.lea-date {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border-radius: 0;
+  font: inherit;
+  font-weight: inherit;
+  /* `font: inherit` carries the type and not the colour, so without this the button
+     kept the app's own button ink and the icon drew a shade off the caption. */
+  color: var(--lea-ink);
+  transition: none;
+}
+
+.lea-date-value {
+  margin-bottom: -0.02em;
+}
+
+/*
+ * Centred on the writing, not sat on the line.
+ *
+ * The value's box is a line box, so bottom-aligning the icon to the same edge parks it
+ * against the descenders and it reads as having slipped below the date. Its own half
+ * of that difference brings it back onto the x-height.
+ */
+.lea-date svg {
+  margin-bottom: 0.16em;
+}
+
+.lea-date-value {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* As dark as the printed caption beside it, because it is the same printing. */
+.lea-date svg {
+  flex: none;
+  color: var(--lea-ink);
+  opacity: 0.75;
+}
+
+.lea-field-date:hover .lea-date svg,
+.lea-field-date:focus-within .lea-date svg {
+  opacity: 1;
+}
+
+/*
+ * The calendar.
+ *
+ * The app's own menu rather than the platform's, which cannot be styled at all and
+ * arrives looking like a different application every time somebody opens one. Anchored
+ * to the date field and drawn in app colours, not paper ones: it is a control that has
+ * opened over the page, not something printed on it.
+ */
+.lea-calendar {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  z-index: 30;
+  width: 17.5rem;
+  padding: 0.6rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg, var(--shadow));
+  font-family: inherit;
+  color: var(--fg);
+  font-size: 0.85rem;
+}
+
+.lea-calendar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  margin-bottom: 0.4rem;
+}
+
+.lea-calendar-month {
+  font-weight: 650;
+  font-size: 0.9rem;
+}
+
+.lea-calendar-head button {
+  padding: 0.25rem 0.45rem;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+}
+
+.lea-calendar-head button:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--fg);
+}
+
+.lea-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.15rem;
+}
+
+.lea-calendar-dow {
+  padding: 0.25rem 0;
+  text-align: center;
+  font-size: 0.7rem;
+  font-weight: 650;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.lea-calendar-day {
+  padding: 0.35rem 0;
+  border-color: transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg);
+  font-weight: 500;
+  font-size: 0.82rem;
+}
+
+.lea-calendar-day:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: transparent;
+}
+
+.lea-calendar-day.outside {
+  color: var(--muted);
+  opacity: 0.55;
+}
+
+.lea-calendar-day.today {
+  box-shadow: inset 0 0 0 1px var(--edge);
+}
+
+.lea-calendar-day.chosen,
+.lea-calendar-day.chosen:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--accent-ink);
+  font-weight: 650;
+}
+
+.lea-calendar-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--line);
+}
+
+.lea-calendar-foot button {
+  flex: 1;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.8rem;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+}
+
+.lea-calendar-foot button:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--fg);
+}
+
+/*
+ * Past the last rule: the page has an end, and this is how it gets longer.
+ *
+ * On the paper rather than in the toolbar, because it belongs to this page rather than
+ * to the app - the same reason the date is written on the page and not in a dialog.
+ */
+.lea-add-lines {
+  position: absolute;
+  left: var(--lea-page-left);
+  width: var(--lea-page-width);
+  top: calc(var(--lea-page-end) + 1.4rem);
+  display: flex;
+  justify-content: center;
+  padding: 0;
+  border-radius: 0;
+  transition: none;
+}
+
+/*
+ * Stated for every state, not just the resting one.
+ *
+ * The app's buttons are a surface with a border, and this one is a pill on paper: it
+ * is the `span` inside that is the button you see. Resetting only the resting state
+ * left `button:hover` to paint a full-width bar of app-coloured surface across the
+ * page, which is exactly as bad as it sounds.
+ */
+.lea-add-lines,
+.lea-add-lines:hover:not(:disabled),
+.lea-add-lines:active:not(:disabled) {
+  background: none;
+  border-color: transparent;
+  box-shadow: none;
+  transform: none;
+}
+
+/* Contrast against kraft, which a thin low-opacity outline does not have. The ink is
+   the page's own, and the plate under it is what makes it read at a glance. */
+.lea-add-lines span {
+  border: 1px solid #2b221659;
+  border-radius: 999px;
+  padding: 0.4rem 1rem;
+  font-size: 0.85rem;
+  font-weight: 550;
+  color: var(--lea-ink);
+  background: #ffffff40;
+  box-shadow: 0 1px 3px #0000001f;
+}
+
+.lea-add-lines:hover span {
+  background: #ffffff73;
+  border-color: var(--lea-ink);
+}
+
+.lea-add-lines:disabled {
+  display: none;
+}
+
+/* The ruling is the one part of this paper the grid toggle governs. */
+.canvas-host.surface-ruled.no-grid::after {
   background-image: none;
 }
 
@@ -2512,12 +3531,24 @@ dialog.modal[open] .modal-card {
 
   /* Name and button stack: side by side, the field is too narrow to read what you
      typed and the button is too narrow to read at all. */
-  .composer {
-    flex-direction: column;
+  .composer-row {
+    flex-wrap: wrap;
   }
 
-  .composer .primary {
+  .composer-row input {
+    flex: 1 0 100%;
+    order: -1;
+  }
+
+  .composer-row .primary {
+    flex: 1;
     justify-content: center;
+  }
+
+  /* A menu wider than the screen is a menu with a word missing off each line. */
+  .menu {
+    min-width: 0;
+    width: min(20rem, calc(100vw - 1.5rem));
   }
 
   .board-grid {

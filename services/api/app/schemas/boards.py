@@ -5,6 +5,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from app.services.board_kinds import DEFAULT_BOARD_KIND, BoardKind
 from app.services.permissions import BoardRole, WorkspaceRole
 
 
@@ -34,6 +35,11 @@ class MemberOut(BaseModel):
 class BoardCreate(BaseModel):
     workspace_id: uuid.UUID
     title: str = Field(default="Untitled", max_length=200)
+    # Chosen once, at creation. A kind decides what the surface looks like and nothing
+    # about the document, so converting one to another later is a client-side setting
+    # rather than a migration; it is still not offered, because a glade drawn against
+    # a diary's ruling does not read the same on graph paper.
+    kind: BoardKind = DEFAULT_BOARD_KIND
 
 
 class BoardPatch(BaseModel):
@@ -45,6 +51,7 @@ class BoardOut(BaseModel):
     id: uuid.UUID
     workspace_id: uuid.UUID
     title: str
+    kind: BoardKind
     is_archived: bool
     created_at: datetime
     updated_at: datetime

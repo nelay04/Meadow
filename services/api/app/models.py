@@ -24,6 +24,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import CITEXT, INET, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+from app.services.board_kinds import BOARD_KINDS, DEFAULT_BOARD_KIND
 from app.services.permissions import BoardRole, WorkspaceRole
 
 
@@ -253,6 +254,12 @@ class Board(Base):
         UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
     )
     title: Mapped[str] = mapped_column(String, nullable=False, default="Untitled")
+    # What kind of paper the canvas is drawn on. Never what kind of editor it is:
+    # every kind is the same infinite canvas over the same CRDT document, and the
+    # client resolves this to a surface. See `app.services.board_kinds`.
+    kind: Mapped[str] = mapped_column(
+        String, nullable=False, default=DEFAULT_BOARD_KIND, server_default=DEFAULT_BOARD_KIND
+    )
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
@@ -263,7 +270,13 @@ class Board(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
 
-    __table_args__ = (Index("ix_boards_workspace_id_is_archived", "workspace_id", "is_archived"),)
+    __table_args__ = (
+        Index("ix_boards_workspace_id_is_archived", "workspace_id", "is_archived"),
+        CheckConstraint(
+            "kind in (" + ", ".join(f"'{k}'" for k in BOARD_KINDS) + ")",
+            name="ck_boards_kind",
+        ),
+    )
 
 
 class BoardMember(Base):

@@ -217,6 +217,15 @@ export function IconClock(props: IconProps) {
   )
 }
 
+export function IconCalendar(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="3.5" y="5" width="17" height="15" rx="2.5" />
+      <path d="M3.5 9.5h17M8 3.5v3M16 3.5v3" />
+    </Svg>
+  )
+}
+
 export function IconUser(props: IconProps) {
   return (
     <Svg {...props}>
@@ -273,6 +282,41 @@ export function IconCanvas(props: IconProps) {
       <rect x="3.5" y="5" width="17" height="14" rx="2" />
       <circle cx="8.5" cy="10" r="1.6" />
       <path d="M3.5 16.5 8 12.5l3.5 3 3-2.5 6 5" />
+    </Svg>
+  )
+}
+
+/**
+ * A lea: a spiral diary seen face on.
+ *
+ * The rings are the whole icon. A plain rectangle with two lines in it is a document,
+ * and at 17px the only mark that says "notebook" rather than "file" is the binding,
+ * so the spiral gets three coils and the ruling gets two rules and no more.
+ */
+export function IconDiary(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M7.5 4.5h11a1.5 1.5 0 0 1 1.5 1.5v13a1.5 1.5 0 0 1-1.5 1.5h-11z" />
+      <path d="M7.5 4.5A2.5 2.5 0 0 0 5 7v10a2.5 2.5 0 0 0 2.5 2.5" />
+      <path d="M4 7.5h4M4 12h4M4 16.5h4" />
+      <path d="M11 9.5h6M11 13.5h6" />
+    </Svg>
+  )
+}
+
+/**
+ * The paper a lea is printed on: two sheets, the top one turned back.
+ *
+ * A stack rather than a single sheet, because a single sheet is the document icon
+ * every toolbar already has. What this picks is which stock, so the mark is one sheet
+ * lying over another.
+ */
+export function IconPaper(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M8.5 3.5h7.4L20 7.6V17a1.5 1.5 0 0 1-1.5 1.5h-10A1.5 1.5 0 0 1 7 17V5a1.5 1.5 0 0 1 1.5-1.5z" />
+      <path d="M15.6 3.6V7.4h3.9" />
+      <path d="M4 7.5v12A1.5 1.5 0 0 0 5.5 21h9" />
     </Svg>
   )
 }
@@ -418,6 +462,15 @@ export function IconClose(props: IconProps) {
 }
 
 /** Opens the workspace sidebar when it is a drawer rather than a column. */
+/** A menu opens below this. Small, and only ever beside a word that says what. */
+export function IconChevronDown(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M6 9.5 12 15.5 18 9.5" />
+    </Svg>
+  )
+}
+
 export function IconMenu(props: IconProps) {
   return (
     <Svg {...props}>

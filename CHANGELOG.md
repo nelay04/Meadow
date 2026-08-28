@@ -14,6 +14,226 @@ away getting there.
 The infrastructure to run the thing. Not deployed yet.
 
 ### Added
+- **Wheel scrolling is eased rather than applied on arrival.** A mouse wheel does not
+  send a stream: one notch is a single 100px event, and moving the camera the moment it
+  lands is a jump. On a lea that read as a stutter, because a page of ruling is a
+  repeating pattern and the eye tracks it. A wheel event now adds to a target and the
+  render loop walks toward it exponentially, against elapsed time so it takes the same
+  wall clock at 60Hz and at 144. No gain on the delta: smoothing is about when the
+  movement happens, not how much of it there is. `deltaMode` is honoured, so the
+  browsers that measure the wheel in lines or pages scroll the same distance as the
+  ones that measure it in pixels. Zoom stays immediate, because easing a move anchored
+  to the pointer slides the thing you are pointing at out from under it.
+
+- **A lea can be printed on other paper, and you can say what your default is.** Four
+  stocks: vintage kraft, light, dark, and one that matches the theme. The page's own
+  choice lives in the document beside its date and subject, so stationery travels with
+  the diary and everyone opening it sees the same page; the profile setting is the
+  other question - what a page that never chose should look like *to you* - and lives
+  in this browser beside the theme. A page set to Default takes the reader's.
+
+  A stock is five variables and nothing else: pulp, mottling, ruling, ink, desk. Every
+  layer above is written against those, so adding one is a `[data-paper]` block and a
+  name in one list, with no change to the engine and none to the header furniture. The
+  engine still learns its ink the way it always has, by reading the host's `color` back
+  off the cascade, so the writing follows the paper without a second copy of the
+  colours to keep in step.
+
+- **Glades have kinds, and the first new one is a lea: a diary.** Kraft paper, ruled for
+  writing, on a fixed column you scroll down rather than a plane you fly over.
+  `boards.kind` is a string with a check constraint, backfilled to `glade`, and "glade"
+  stays the word for a board of any kind rather than becoming the name of one of them.
+
+  **Every rule is its own writing slot**, the way a spreadsheet's rows are. Click the
+  tenth or the hundredth and the caret is there; the ones between stay empty rather than
+  having to be typed past. A row is an ordinary `text` object at `(0, row * spacing)`
+  carrying the page's type, created on the click that needs it and discarded again if
+  the caret leaves without anything typed, so clicking around a page does not litter it.
+  This replaced a single flowing column, which was the same idea in text-box form: it
+  could only be appended to, and where line fifty fell depended on how much had been
+  written above it rather than on where you pointed.
+
+  Nothing in the CRDT moved. A lea is the same Y.Doc and the same flat `objects` map,
+  and its page is one ordinary `text` object; a client that has never heard of leas
+  renders it correctly. The kind decides three client-side things: the surface, which
+  tools the rail and the keyboard offer, and whether the camera is fenced. The fence
+  lives in `Camera` rather than at the call sites, because a camera can be moved from
+  six places and a rule enforced at each of them is a rule missing from the seventh.
+
+  The ruling is spaced at exactly one line of the column's type and phased to its
+  baseline, so the writing rests on the lines instead of walking off them down the page.
+
+  The page is not an object you select. One click anywhere on it starts writing on the
+  rule you clicked, and there is no selection box, no resize handles
+  and no formatting bar until the caret is actually in the page. Select-then-double-
+  click-to-edit is how you handle an object lying on a canvas and not how anybody
+  handles paper. The page also cannot be deleted, and leaving it clears the selection,
+  so the toolbar's delete button never quietly arms itself against the paper while the
+  chrome that would have shown it is hidden. Anything else added to a lea with the text
+  tool selects, moves and deletes normally.
+  That needed a new `paragraphSpacing` text prop: the 0.4em between blocks is right for
+  a note and puts every paragraph on a ruled page a little lower than the last. The size
+  control is gone from a lea's formatting bar for the same reason - the ruling is spaced
+  at one line of the page's type, so a size chosen per paragraph is a paragraph that no
+  longer sits on the lines. Weight and slant stay; the measure belongs to the paper.
+
+  The type is 21/1.45 rather than 16/1.75 - the same rule pitch with bigger letters in
+  it. Size and leading move together on purpose, because the ruling is spaced at
+  `fontSize * lineHeight`: growing the type alone would push the lines apart rather
+  than fill them, and at the smaller size the writing floated in the middle of each
+  band with air above and below. Type that does not fill its line does not read as
+  written *on* anything.
+
+  Phasing the ruling to the type is now a measurement rather than a fitted constant.
+  It was a fraction of the font size, calibrated by driving a real page, and the
+  trouble with that is that it is only right for the size it was fitted at - the first
+  step up in type walked the writing six pixels off the rules. The engine now lays out
+  one line in the offscreen measurer, reads where the browser put its baseline, and
+  phases the rules to that. Measured over a driven page: **the baseline lands on the
+  rule within 0.03px, at device scale 1, 1.25 and 1.5.**
+
+- **Fixed: you could not click into an empty rule between two written ones.** The
+  writing went to the end of the line above instead. A row's box was one line plus its
+  padding top and bottom, on a page whose rules are one line apart, so every row
+  overlapped the band below it; the click then hit-tested the objects before falling
+  back to the rule, and a hit test carries a tolerance on top of that. Rows are now
+  exactly one band tall - the margin beside the writing is the paper's, not the row's -
+  and on a fenced page the rule you clicked is the only thing that decides. A row that
+  has wrapped over several rules still takes a click on any of them, so long writing is
+  continued rather than written over.
+
+- **Fixed: a lea written before the type changed had its writing walking off the
+  rules.** A row's position is a band index times the rule pitch, and the pitch is the
+  page's own `fontSize * lineHeight`. Change the type and every row already in the
+  document is anchored to a pitch that no longer exists: measured on a page written at
+  16/1.75 and reopened at 21/1.45, the first line was still right and each one after it
+  was a further 2.45 units out, so by the tenth the writing sat half a band above its
+  rule. It read as the page coming apart rather than as a setting that changed.
+
+  Opening a ruled page now puts its rows back on the ruling, in the order they already
+  sit in and never merging two onto one rule. Same page after the repair: rows at 0,
+  30.45, 60.9, 91.35, 121.8 and every baseline within 0.02 of where it belongs. A
+  no-op once a page is on its bands, so it costs a scan and no write from then on.
+
+- **A lea is a page now, not an endless roll.** Twenty-five rules and then paper stops,
+  with an *Add 10 lines* button past the last one when you need more. Writing into something
+  with no bottom is a different feeling from writing into something with an end, and a
+  diary is the second one: the point of a page is that you can fill it. The length
+  lives in the document's `meta` root, so lengthening a page sticks and reaches
+  everyone on it.
+
+- **The page has a printed header: a subject, and a date.** Two short lines above the
+  writing, the way stationery prints them, set in the page's own type so they scale
+  with it. Both are page values in `meta` rather than objects on the canvas - a note on
+  a page could sensibly exist twice, a page's date could not.
+
+  The date is a picker, and the calendar is ours. `<input type="date">` was the first
+  answer and is the better one on paper - it knows about locales, keyboards and screen
+  readers, and costs nothing - but two things ruled it out. Its face cannot be told to
+  print `28th May, 2026`, which is how a diary writes a date and no locale does; and
+  the popup it opens is the browser's, which on a page of kraft arrives looking like a
+  different application. What was kept is what mattered: a real button, real keys, and
+  a labelled dialog.
+
+  Both fields fought the app's own form styling, which is worth writing down because
+  the same trap is one line away anywhere else on this surface: turning a border off
+  does not turn off `input:focus`'s ring, which is a `box-shadow`, and resetting a
+  button's resting state leaves `button:hover` free to paint a full-width bar of
+  app-coloured surface across the page. On this surface every state has to be stated.
+
+  Where the writing sits on its line was measured rather than eyeballed: an `<input>`
+  centres its text in its content box and a `<button>` bottom-aligns its span, which
+  put the date 13.3px above its line while the subject sat 1.3px above its. The
+  correction is the difference between those two numbers.
+
+- **The first line clears the toolbar.** A page whose writing opens under the chrome
+  reads as clipped. The air above the first rule is now two numbers rather than one -
+  the header is stationery, the margin over it is about the app - so changing the
+  toolbar moves one of them and not the other.
+
+- **Ctrl and the wheel zoom a lea**, between half and twice its set size. The zoom used
+  to be pinned at 1, on the reasoning that a zoom control over a column of text is a
+  font-size control wearing a magnifying glass. True, and beside the point: a page you
+  cannot zoom is a page somebody with tired eyes cannot read. The band is narrow so the
+  measure the surface is built around still means something.
+
+- **The writing sits a unit clear of its rule** rather than resting exactly on it.
+  A baseline on the line is the typographically correct answer and it reads a shade
+  high: a letter's optical weight sits above its baseline, and the eye puts the word
+  where the weight is. Three was enough for the rule to visibly cross the feet of the
+  letters, and it walked back from there through zero - a baseline exactly on the line -
+  to a hair of daylight underneath. One constant, `WRITING_DROP`, negative for lift.
+
+- **Up and Down move between the rules of a lea.** Every rule is its own object, so
+  Down at the end of a line was a key that did nothing; now it steps to the next rule,
+  making it if nobody has written there yet, and Up steps back. Up from the first rule
+  stays put, because the page has a top. Writing that has wrapped over several rules is
+  stepped through line by line first, so the keys behave like a caret inside a
+  paragraph and like a cursor between cells at its edges. The neighbour is worked out
+  from the band rather than from any ordering in the document, so a row a peer wrote
+  between two of yours is stepped through like any other.
+
+- **No text tool on a lea.** On a ruled page you click a rule and write on it; a button
+  that places a text box is a second way to do the same thing, and it puts the writing
+  somewhere the rules are not.
+
+- **No connector dots on a lea.** Four blue dots followed the pointer around the page,
+  offering to start an arrow from whatever it was over. There is no arrow tool on a
+  diary, so nothing was behind the offer. They are gated on the surface offering arrows
+  at all rather than on the kind, so a surface that adds them back gets them back.
+
+- **The page's side margins are narrower**, 36 world units either side of the writing
+  rather than 56.
+
+- **A lea's rows are set in the page's type, not the type they were written in.** The
+  metrics are still written onto each row, so a client that has never heard of this
+  kind still renders one sensibly, but the surface overrides them when it draws. Two
+  copies of a number that has to agree, and the rules are drawn from one of them, so
+  it cannot be the copy frozen into a row somebody typed a year ago. Without this,
+  changing the page's type left every existing lea with its old writing stranded
+  between the new lines.
+
+- **Fixed: text changed colour the moment you stopped typing.** The idle text layer
+  falls back to the surface's ink for an object whose document names no colour; the
+  editor did not, and took the schema's default instead. On a lea that is navy ink on
+  brown paper and impossible to miss. It was there on a dark glade all along and simply
+  looked like the caret being a different shade. `EngineHost.beginEdit` now takes the
+  ink, so both paths apply the same rule with the same limit: an object that names a
+  colour keeps it.
+- Board list rebuilt around the kind registry in `features/boards/kinds.ts`. The
+  sidebar's Kinds group, the create composer, the card badges, the card previews, the
+  tool rail and the page geometry all read off that one array, so a third kind of glade
+  is one entry there plus one value in `board_kinds.py`.
+
+  Every control now appears only where it has an answer. Ownership left the sidebar for
+  a header dropdown, because "owned by me" is a question about the list you are looking
+  at rather than a place to go, and it was taking the same weight as a whole kind of
+  board. Creating happens on a kind's own page and nowhere else: the composer there
+  already knows what it is making, and any control on the mixed views would be the one
+  place that has to ask an extra question first. Kind badges appear only on the mixed
+  views, since under a heading that says Leas a Lea badge per row is the heading
+  repeated once per card. Coming back from a board returns you to the view you left
+  rather than to Everything.
+- The two header filters are real dropdowns rather than native `<select>`s. The closed
+  control was never the problem; the options list is drawn by the operating system with
+  square corners and its own typography, and no CSS reaches inside it, so on a page made
+  of soft-edged cards the one control with a list behind it looked imported. Rebuilding
+  it also freed the chevron, which a browser jams against the right border.
+- Boards are renamed on their own header rather than named before they exist. Creating
+  from the New menu does not ask for a name at all: a form standing between you and the
+  thing you came to do is a toll, and the title is one click away in the place you are
+  looking when you decide what the board is.
+- Theme moved out of the chrome and into Profile, under Appearance, as three visible
+  options rather than one button cycling through three states. Cycling is right in a
+  toolbar with room for one control and wrong on a settings page, where the question is
+  what the options are and a button that answers only by being pressed twice is a
+  puzzle. `boards.kind` previews follow the same principle: a lea shows its mark rather
+  than a capture, because a page of body text at card size is a grey smudge and every
+  page's smudge is identical.
+- `Camera.setFence`, `CanvasEngine.setColumn` and `CanvasEngine.setAvailableTools`. The
+  last of those exists because hiding a tool button does not unbind its shortcut: a lea
+  with no rectangle in the rail still drew rectangles on R until the engine, rather than
+  the toolbar, was the thing that knew.
 - Production stack in `docker-compose.yml`, with development moved to
   `docker-compose.local.yml`. The file that runs unattended on a server is the one that
   should not need a flag to select. The two pin different compose project names so a
@@ -291,6 +511,20 @@ The infrastructure to run the thing. Not deployed yet.
   screen, since the person was never logged out.
 
 ### Reversed
+- **The lea's spiral binding is gone.** A fixed strip down the left of the viewport with
+  tiled CSS coils and punched holes, and the tool rail pushed clear of it. It read as
+  hatching rather than as a binding at the size it actually appeared, and the version
+  that read correctly at a crop read as decoration at full size. The page is better
+  without it and the rail is back where it was on every other board.
+- **The lea's first paper was cream with pale blue rules**, two shades off the app's own
+  surface. That is an exercise book. It went to kraft stock with thin dark rules, and in
+  the process the whole lea palette moved outside `light-dark()`: a sheet of paper does
+  not invert at night. The desk it lies on is themed instead, which is the part of the
+  picture that is a room rather than a thing.
+- **The create composer's kind picker is gone**, one commit after it was added. A row of
+  pills choosing what to make, sitting under a sidebar heading that had already chosen,
+  is two controls disagreeing in front of the user. The sidebar's Kinds group is the
+  switch; the composer states what it will make and does not offer to change it.
 - **A provider sign-in no longer creates an account by accident.** The first GitHub or
   Google sign-in used to register one silently. What that cost was an account nobody
   meant to open: pick the wrong account at a consent screen, or sign in with a work

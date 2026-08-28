@@ -53,6 +53,42 @@ export function projectPoint(transform: ViewTransform, worldX: number, worldY: n
   }
 }
 
+/**
+ * A fence the camera may not leave.
+ *
+ * What turns an endless surface into a page you write down: the horizontal range is
+ * the column, the vertical range is the paper, and the zoom is held to a band around
+ * the size the page was set at.
+ *
+ * Expressed in world units and applied by the camera rather than by whoever moved it,
+ * because a camera can be moved from six places - a wheel, a pinch, the hand tool, a
+ * keyboard shortcut, a fit, a reset - and a rule enforced at the call sites is a rule
+ * that is missing from the seventh.
+ */
+export type CameraFence = {
+  /** World x of the column's left edge. */
+  left: number
+  /** World x of its right edge. */
+  right: number
+  /** The lowest world y the top of the viewport may reach. */
+  top: number
+  /**
+   * World y of the bottom of the paper. The camera stops when this reaches the bottom
+   * of the window, so a page has an end you can see rather than running on forever.
+   */
+  bottom: number
+  /**
+   * The zoom range this camera is held to.
+   *
+   * It was one fixed zoom, on the reasoning that a zoom control over a column of text
+   * is a font-size control wearing a magnifying glass. True, and beside the point: a
+   * page you cannot zoom is a page somebody with tired eyes cannot read. The range is
+   * narrow, so the measure the surface is built around still means something.
+   */
+  minZoom: number
+  maxZoom: number
+}
+
 export class Camera {
   x = 0
   y = 0
@@ -60,6 +96,72 @@ export class Camera {
 
   /** Bumped on every change, so a renderer can tell whether it needs to redraw. */
   version = 0
+
+  private fence: CameraFence | null = null
+  private viewW = 0
+  private viewH = 0
+
+  /**
+   * Tell the camera how big the window is.
+   *
+   * Only a fenced camera cares: it has to re-centre a column when the window changes
+   * width, and it cannot ask. Cheap enough to call every frame, and it does nothing
+   * at all when the size has not moved.
+   */
+  setViewport(width: number, height: number): void {
+    if (width === this.viewW && height === this.viewH) return
+    this.viewW = width
+    this.viewH = height
+    this.constrain()
+  }
+
+  /** Fence the camera into a column, or pass null to free it. */
+  setFence(fence: CameraFence | null): void {
+    // A page opens at its top. `constrain` only stops the camera going above `top`, so
+    // without this the first line would sit hard against the window's top edge and
+    // under whatever floats there. Only from the origin, so re-fencing a camera
+    // somebody has already scrolled does not throw their place away.
+    if (fence !== null && this.y === 0) this.y = fence.top
+    this.fence = fence
+    this.constrain()
+  }
+
+  get fenced(): boolean {
+    return this.fence !== null
+  }
+
+  /**
+   * Pull the camera back inside its fence.
+   *
+   * Called after every move rather than instead of one: the move is still applied and
+   * then corrected, so a pan that is half vertical and half horizontal keeps the half
+   * that is allowed. Refusing the whole gesture instead makes a fenced board feel
+   * stuck rather than guided.
+   */
+  private constrain(): void {
+    const fence = this.fence
+    if (fence === null || this.viewW <= 0) return
+
+    const before = `${this.x}|${this.y}|${this.zoom}`
+    this.zoom = Math.min(fence.maxZoom, Math.max(fence.minZoom, this.zoom))
+
+    const column = fence.right - fence.left
+    const visible = this.viewW / this.zoom
+    this.x =
+      visible >= column
+        ? // Wider window than column: centre it, and the margins are the page's.
+          fence.left - (visible - column) / 2
+        : // Narrower: the column runs off the edge, so allow sideways movement inside
+          // it and no further. A phone reads the same page, just less of it at a time.
+          Math.min(Math.max(this.x, fence.left), fence.right - visible)
+
+    // The last line stops at the bottom of the window, not the top of it. `top` wins
+    // when the whole page fits on screen, or the page would jump away from its start.
+    const floor = Math.max(fence.top, fence.bottom - this.viewH / this.zoom)
+    this.y = Math.min(Math.max(this.y, fence.top), floor)
+
+    if (`${this.x}|${this.y}|${this.zoom}` !== before) this.version += 1
+  }
 
   screenToWorld(screenX: number, screenY: number): Point {
     return { x: screenX / this.zoom + this.x, y: screenY / this.zoom + this.y }
@@ -78,6 +180,7 @@ export class Camera {
     this.x -= dxScreen / this.zoom
     this.y -= dyScreen / this.zoom
     this.version += 1
+    this.constrain()
   }
 
   /**
@@ -95,6 +198,7 @@ export class Camera {
     this.x = anchor.x - screenX / clamped
     this.y = anchor.y - screenY / clamped
     this.version += 1
+    this.constrain()
   }
 
   zoomBy(screenX: number, screenY: number, factor: number): void {
@@ -132,6 +236,7 @@ export class Camera {
     this.x = (rect.minX + rect.maxX) / 2 - viewportWidth / 2 / zoom
     this.y = (rect.minY + rect.maxY) / 2 - viewportHeight / 2 / zoom
     this.version += 1
+    this.constrain()
   }
 
   reset(): void {
@@ -139,5 +244,6 @@ export class Camera {
     this.y = 0
     this.zoom = 1
     this.version += 1
+    this.constrain()
   }
 }

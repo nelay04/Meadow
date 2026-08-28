@@ -55,6 +55,18 @@ export type TextEditorOptions = {
    * whole time somebody is typing.
    */
   onMarks?(marks: TextMark[]): void
+  /**
+   * The caret tried to walk off the top or the bottom of this object.
+   *
+   * Only ever called from the first or the last line: inside the text, Up and Down do
+   * what they do everywhere else. Return true to say the move was taken somewhere
+   * else, which suppresses the key; false leaves it to the editor.
+   *
+   * This is what makes a ruled page behave like ruled paper rather than like a stack
+   * of boxes. Every rule is its own object, so without it Down at the end of a line is
+   * a key that does nothing at all.
+   */
+  onLeave?(direction: 'up' | 'down'): boolean
 }
 
 /**
@@ -91,10 +103,34 @@ export function createTextEditor(options: TextEditorOptions): TextEditorHandle {
     // a second time on every mount.
     injectCSS: false,
     editorProps: {
-      handleKeyDown: (_view, event) => {
-        if (event.key !== 'Escape') return false
+      handleKeyDown: (view, event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          options.onExit()
+          return true
+        }
+
+        if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return false
+        if (options.onLeave === undefined) return false
+
+        const down = event.key === 'ArrowDown'
+        const selection = view.state.selection
+        // A selection being dragged with the keyboard is not a caret walking out.
+        if (!selection.empty) return false
+        // ProseMirror's own answer to "would this move leave the line", which accounts
+        // for wrapping. A row whose writing has wrapped over three rules steps through
+        // all three before this is reached.
+        if (!view.endOfTextblock(down ? 'down' : 'up')) return false
+
+        // And the outermost block, so a second paragraph inside one row is stepped
+        // into rather than jumped over.
+        const head = selection.$head
+        const atEdge = down
+          ? head.after(1) >= view.state.doc.content.size
+          : head.before(1) <= 0
+        if (!atEdge || !options.onLeave(down ? 'down' : 'up')) return false
+
         event.preventDefault()
-        options.onExit()
         return true
       },
     },

@@ -20,7 +20,7 @@
 
 import type { TextProps } from '@meadow/schema'
 
-import { applyContentStyle, contentWidth } from './textStyle'
+import { applyBoxStyle, applyContentStyle, contentWidth } from './textStyle'
 
 let host: HTMLDivElement | null = null
 
@@ -50,6 +50,7 @@ const cache = new Map<string, number>()
 
 export function clearMeasureCache(): void {
   cache.clear()
+  baselines.clear()
 }
 
 /**
@@ -84,6 +85,54 @@ export function measureObjectHeight(html: string, width: number, props: TextProp
   const inner = measureContentHeight(html, contentWidth(width, props), props)
   const oneLine = props.fontSize * props.lineHeight
   return Math.ceil(Math.max(inner, oneLine) + props.padding * 2)
+}
+
+/**
+ * Where the first baseline sits below a text object's top edge, in world units.
+ *
+ * Laid out and read rather than computed. The arithmetic looks easy - half the leading
+ * plus the ascent, plus the padding - and every term in it is a place to be wrong: the
+ * ascent is the face's own and not a fraction of the em, the half-leading depends on
+ * both, and the padding is only there when the box's vertical alignment leaves it
+ * there. A constant fitted to one size then walks off the rules at the next.
+ *
+ * The empty inline-block is the trick that makes this a measurement. It has no size,
+ * so it cannot move the line it lands in, and its bottom edge is the baseline, because
+ * that is where the browser aligns it.
+ *
+ * Used by the ruled surface to phase its rules to the type. Cached, because it is read
+ * on every camera change and the answer only moves when the column does.
+ */
+const baselines = new Map<string, number>()
+
+export function measureBaselineOffset(props: TextProps, width: number): number {
+  const key = `${width}|${props.fontFamily}|${props.fontSize}|${props.lineHeight}|${props.padding}|${props.verticalAlign}`
+  const hit = baselines.get(key)
+  if (hit !== undefined) return hit
+
+  const outer = measurer()
+  outer.style.width = `${width}px`
+
+  const box = document.createElement('div')
+  applyBoxStyle(box, props)
+  box.style.width = `${width}px`
+  box.style.height = `${measureObjectHeight('<p>Hxg</p>', width, props)}px`
+
+  const content = document.createElement('div')
+  applyContentStyle(content, props)
+  content.innerHTML = '<p>Hxg<span data-strut style="display:inline-block;width:0;height:0"></span></p>'
+  box.appendChild(content)
+  outer.replaceChildren(box)
+
+  const strut = content.querySelector('[data-strut]')
+  const offset =
+    strut === null
+      ? props.fontSize * props.lineHeight
+      : strut.getBoundingClientRect().bottom - box.getBoundingClientRect().top
+  outer.replaceChildren()
+
+  baselines.set(key, offset)
+  return offset
 }
 
 /**

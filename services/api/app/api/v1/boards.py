@@ -13,6 +13,7 @@ from sqlalchemy import delete, or_, select
 from app.auth.deps import CurrentUser, Session, board_editor, board_owner, board_viewer
 from app.models import Board, BoardMember, BoardThumbnail, User, WorkspaceMember
 from app.schemas.boards import BoardCreate, BoardMemberAdd, BoardOut, BoardPatch, MemberOut
+from app.services.board_kinds import BoardKind
 from app.services.permissions import BoardRole, at_least, resolve_role
 
 router = APIRouter(prefix="/boards", tags=["boards"])
@@ -28,6 +29,7 @@ def _out(board: Board, role: BoardRole) -> BoardOut:
         id=board.id,
         workspace_id=board.workspace_id,
         title=board.title,
+        kind=BoardKind(board.kind),
         is_archived=board.is_archived,
         created_at=board.created_at,
         updated_at=board.updated_at,
@@ -81,7 +83,12 @@ async def create_board(body: BoardCreate, user: CurrentUser, session: Session) -
     if member is None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="no access")
 
-    board = Board(workspace_id=body.workspace_id, title=body.title, created_by=user.id)
+    board = Board(
+        workspace_id=body.workspace_id,
+        title=body.title,
+        kind=body.kind,
+        created_by=user.id,
+    )
     session.add(board)
     await session.flush()
 

@@ -27,6 +27,7 @@ import {
 } from '@meadow/schema'
 
 import type { ViewTransform } from '../camera'
+import type { SurfaceType } from '../surface'
 import { measureObjectHeight } from '../text/measure'
 import {
   type BoxVariant,
@@ -166,6 +167,12 @@ export class TextLayer {
 
   /** The theme's default text colour, set by the engine. See `update`. */
   ink = 0x2a3340
+
+  /**
+   * The type every text object on this layer is set in, or null to use each object's
+   * own. Set from the surface's writing column; see `SurfaceType`.
+   */
+  columnType: SurfaceType | null = null
 
   private readonly mounted = new Map<string, Mounted>()
   private readonly pool: { box: HTMLDivElement; content: HTMLDivElement }[] = []
@@ -347,6 +354,18 @@ export class TextLayer {
      * layout input, so nothing here can change a measured height.
      */
     if (typeof object.props.color !== 'number') props.color = this.ink
+
+    /*
+     * On a ruled surface the page sets the type, not the object.
+     *
+     * Unlike the colour above, this overrides what the document says rather than
+     * filling in what it left out. A row stores the metrics it was created with so a
+     * client that has never heard of this kind still renders it sensibly, but here the
+     * rules are drawn from the column and the writing has to land on them. Whichever
+     * of the two is allowed to win, the other has to follow it, and it cannot be the
+     * copy frozen into a row somebody typed a year ago.
+     */
+    if (this.columnType !== null) Object.assign(props, this.columnType)
 
     // `styleKey` includes the colour, so a theme change restyles what is mounted
     // instead of leaving the old ink on screen until an object happens to move.

@@ -45,7 +45,7 @@ export const CONTENT_CLASS = 'meadow-rt'
 
 const CONTENT_CSS = `
 .${CONTENT_CLASS} > * { margin: 0; padding: 0; }
-.${CONTENT_CLASS} > * + * { margin-top: 0.4em; }
+.${CONTENT_CLASS} > * + * { margin-top: var(--meadow-rt-gap, 0.4em); }
 .${CONTENT_CLASS} h1 { font-size: 1.6em; font-weight: 650; line-height: 1.2; }
 .${CONTENT_CLASS} h2 { font-size: 1.3em; font-weight: 650; line-height: 1.25; }
 .${CONTENT_CLASS} h3 { font-size: 1.1em; font-weight: 650; line-height: 1.3; }
@@ -116,6 +116,9 @@ export function applyContentStyle(
   style.fontFamily = FONT_STACKS[props.fontFamily]
   style.fontSize = `${props.fontSize}px`
   style.lineHeight = String(props.lineHeight)
+  // A property rather than a class, so the measurer and the live overlay cannot end up
+  // with different block spacing and disagree about how tall the text is.
+  style.setProperty('--meadow-rt-gap', `${props.paragraphSpacing}em`)
   style.color = cssColor(props.color)
   style.textAlign = props.align
   style.whiteSpace = 'pre-wrap'

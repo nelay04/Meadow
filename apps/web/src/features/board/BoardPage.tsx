@@ -14,6 +14,8 @@ import type { ArrowRouting } from '@meadow/schema'
 import { IndexeddbPersistence } from 'y-indexeddb'
 import * as Y from 'yjs'
 
+import { PAGE_LINES_STEP } from '../../canvas/engine'
+
 import type { Wanderer } from '../../canvas/overlay/wandererLayer'
 import type { ToolId } from '../../canvas/tools/types'
 import { TEXT_MARKS, type TextMark } from '../../doc/richText'
@@ -45,13 +47,21 @@ import {
 } from '../../ui/icons'
 import { Avatar, initialsOf } from '../../ui/Avatar'
 import { useToast } from '../../ui/Toaster'
-import { ThemeToggle } from '../../ui/ThemeToggle'
 import { createDocSession, roleCanWrite } from '../../doc/mutations'
-import type { BoardRole } from '../../lib/api'
+import type { BoardKind, BoardRole } from '../../lib/api'
 import * as api from '../../lib/api'
+import { boardKind, boardPath } from '../boards/kinds'
 import { type PresenceHandle, colorFor, trackPresence } from '../../sync/awareness'
 import { type BoardConnection, type ConnectionState, connectBoard } from '../../sync/provider'
 import { useAuth } from '../auth/AuthContext'
+import {
+  PAPER_EVENT,
+  type Paper,
+  readPaperPreference,
+  resolvePaper,
+} from '../../ui/paper'
+import { LeaDate } from './LeaDate'
+import { LeaPaper } from './LeaPaper'
 import { useCanvas } from './useCanvas'
 
 type Props = {
@@ -134,6 +144,15 @@ function dedupe(wanderers: readonly Wanderer[]): Wanderer[] {
 
 export default function BoardPage({ boardId, onBack }: Props) {
   const [title, setTitle] = useState('')
+  /*
+   * What paper this glade is drawn on.
+   *
+   * Metadata, so it arrives with the title one request after mount and the board opens
+   * on graph paper for that moment. That is deliberate: waiting for it would hold the
+   * canvas back behind a REST round trip to decide a background, and the surface swap
+   * is a class and two style writes rather than a rebuild.
+   */
+  const [kind, setKind] = useState<BoardKind>('glade')
   // Seeded from the ws-token mint and refreshed on every reconnect. The server is
   // always the authority; this is what lets the UI stop a write before it happens.
   const [role, setRole] = useState<BoardRole>('viewer')
@@ -145,6 +164,14 @@ export default function BoardPage({ boardId, onBack }: Props) {
    */
   const [locked, setLocked] = useState(false)
   const [detail, setDetail] = useState('')
+  /*
+   * Whether this client has the document, not merely a socket.
+   *
+   * Only a writing surface cares, and it cares a great deal: it creates its column
+   * when the document turns out to be empty, and "empty" before the first sync means
+   * every reload of a lea would add another blank paragraph to it.
+   */
+  const [docReady, setDocReady] = useState(false)
   const connection = useRef<BoardConnection | null>(null)
 
   const { user } = useAuth()
@@ -166,8 +193,47 @@ export default function BoardPage({ boardId, onBack }: Props) {
     [],
   )
 
+  /*
+   * The last name the server accepted.
+   *
+   * Held in a ref rather than a second piece of state because nothing renders it: its
+   * only jobs are to tell a blur whether anything actually changed, and to give Escape
+   * something to put back.
+   */
+  const savedTitle = useRef('')
+
+  const commitTitle = useCallback(async () => {
+    const next = title.trim()
+    if (next === savedTitle.current) return
+    if (next === '') {
+      // A board with no name is a row of blank cards in the list. Refuse quietly and
+      // put the old one back rather than saving nothing.
+      setTitle(savedTitle.current)
+      return
+    }
+
+    try {
+      const board = await api.renameBoard(boardId, next)
+      savedTitle.current = board.title
+      setTitle(board.title)
+    } catch {
+      setTitle(savedTitle.current)
+      toast.error('Could not rename this board.')
+    }
+  }, [boardId, title, toast])
+
+  const spec = boardKind(kind)
+  const noun = spec.label.toLowerCase()
+  // The rail, cut to what this kind offers. `TOOLS` stays the single ordered list of
+  // every tool; a kind never adds one, so a tool can never appear here without a
+  // label, a shortcut and an icon.
+  const tools = TOOLS.filter((tool) => spec.tools.includes(tool.id))
+
   const canvas = useCanvas(session, presenceBridge, {
     authorName: user?.display_name ?? '',
+    surface: spec.surface,
+    tools: spec.tools,
+    column: spec.column,
     // A refusal is an event, so it toasts rather than parking a banner over the board.
     // The stack dedupes, which matters here more than anywhere else in the app: this
     // fires from a pointer handler and a two second drag on a read-only glade would
@@ -195,7 +261,21 @@ export default function BoardPage({ boardId, onBack }: Props) {
       .getBoard(boardId)
       .then((board) => {
         setTitle(board.title)
+        savedTitle.current = board.title
+        setKind(board.kind)
         setRole(board.role)
+
+        /*
+         * Correct the address bar if the link disagreed with the board.
+         *
+         * The kind is in the path so a URL says what it opens, but the path cannot be
+         * the authority on it: an old `#/glade/...` link, or one typed by hand, has to
+         * open the right board anyway. `replaceState` rather than assigning to
+         * `location.hash`, so this does not add a history entry the back button then
+         * has to be pressed twice to get past.
+         */
+        const path = boardPath(board.kind, boardId)
+        if (location.hash !== path) history.replaceState(null, '', path)
       })
       .catch(() => setTitle('(unavailable)'))
   }, [boardId])
@@ -215,6 +295,13 @@ export default function BoardPage({ boardId, onBack }: Props) {
       onRole: setRole,
     })
     connection.current = link
+    // Either source of truth will do: the local copy is the same document, and a lea
+    // opened offline should still open into writing.
+    const onSync = (isSynced: boolean) => {
+      if (isSynced) setDocReady(true)
+    }
+    link.provider.on('sync', onSync)
+    void idb.whenSynced.then(() => setDocReady(true))
 
     // Presence is bound to the provider's awareness, not to the doc, so it comes and
     // goes with the connection.
@@ -229,6 +316,8 @@ export default function BoardPage({ boardId, onBack }: Props) {
     presence.current = handle
 
     return () => {
+      link.provider.off('sync', onSync)
+      setDocReady(false)
       connection.current = null
       presence.current = null
       handle?.destroy()
@@ -244,6 +333,28 @@ export default function BoardPage({ boardId, onBack }: Props) {
   // offer something the mutation layer would refuse.
   const canWrite = roleCanWrite(role) && !locked
 
+  /*
+   * The stock this page is on.
+   *
+   * Two sources with one answer: the page's own choice, and the reader's default for
+   * pages that made none. The default is this browser's rather than the document's, so
+   * it is read here and re-read when the profile changes it, the same shape the theme
+   * uses.
+   */
+  const [paperPreference, setPaperPreference] = useState<Paper>(readPaperPreference)
+  useEffect(() => {
+    const onPaper = () => setPaperPreference(readPaperPreference())
+    window.addEventListener(PAPER_EVENT, onPaper)
+    return () => window.removeEventListener(PAPER_EVENT, onPaper)
+  }, [])
+  const paper = resolvePaper(canvas.pagePaper, paperPreference)
+
+  // The stock carries the ink, and WebGL cannot read the cascade. Same call the theme
+  // toggle makes, after React has put the attribute on the host.
+  useEffect(() => {
+    canvas.syncTheme()
+  }, [paper, canvas.syncTheme])
+
   // The role arrives on the handshake, after presence is bound, so it is republished
   // rather than captured. The lock is deliberately not part of it: it is a guard on
   // your own hands, per-tab and never sent to anyone, so a locked tab still shows the
@@ -251,6 +362,31 @@ export default function BoardPage({ boardId, onBack }: Props) {
   useEffect(() => {
     presence.current?.setCanWrite(roleCanWrite(role))
   }, [role])
+
+  /*
+   * A new lea opens with the caret on its first line.
+   *
+   * Only when the page is genuinely empty. Once there is writing on it, forcing a
+   * caret somewhere would be the app choosing where you carry on, and on a page where
+   * every rule is its own slot that choice is always wrong: you click the line you
+   * mean. An empty page has only one line you could mean.
+   *
+   * Never for a reader. Someone with viewer access opens a lea and reads it; a caret
+   * in a page they cannot change is an editor that refuses every keystroke.
+   */
+  const openIntoWriting = canvas.beginWritingRow
+  const empty = canvas.objectCount === 0
+  useEffect(() => {
+    if (spec.column === null || !docReady || !canWrite || !empty) return
+
+    // The engine learns about the document through its own observer, which may not
+    // have run yet. One frame is enough, and failing quietly is correct: the page is
+    // still perfectly usable, it just did not focus itself.
+    const frame = requestAnimationFrame(() => {
+      openIntoWriting(0)
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [spec.column, docReady, canWrite, empty, openIntoWriting])
 
   /*
    * Capture a preview for the board list.
@@ -297,12 +433,40 @@ export default function BoardPage({ boardId, onBack }: Props) {
   }, [boardId, canWrite, canvas.engine])
 
   return (
-    <main className="board">
+    <main className={`board board-${spec.id}`}>
       <header className="board-bar">
         <button type="button" className="icon ghost" onClick={onBack} title="Back to your glades" aria-label="Back to your glades">
           <IconBack />
         </button>
-        <h1>{title}</h1>
+        {/*
+          The name, edited in place.
+          There is nowhere else to name a board any more: creating one no longer asks,
+          because a form you fill in before you are allowed to start is a toll on the
+          thing you actually came to do. This is where you are looking when you decide
+          what it is. Editors and above only; a viewer sees the same text and cannot
+          type into it.
+        */}
+        <input
+          className="board-name"
+          value={title}
+          readOnly={!roleCanWrite(role)}
+          aria-label="Name"
+          size={Math.max(6, title.length)}
+          onChange={(event) => setTitle(event.target.value)}
+          onFocus={(event) => {
+            // An untitled board is named by typing, not by deleting the placeholder
+            // word first. Anything the user chose themselves is left alone.
+            if (event.target.value === 'Untitled') event.target.select()
+          }}
+          onBlur={() => void commitTitle()}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') event.currentTarget.blur()
+            if (event.key === 'Escape') {
+              setTitle(savedTitle.current)
+              event.currentTarget.blur()
+            }
+          }}
+        />
         <span className={`role role-${role}`}>{role}</span>
 
         {/* Nothing at all while connected. That is the state you are in essentially
@@ -359,6 +523,9 @@ export default function BoardPage({ boardId, onBack }: Props) {
 
         <span className="divider" />
 
+        {/* A fenced page zooms too, within a narrow band, so the readout and its reset
+            belong on both. Not Fit: fitting the content of a page whose width is the
+            whole point of the surface is a button that undoes the surface. */}
         <div className="zoom" role="group" aria-label="Zoom">
           {/* The readout is the reset button. Showing the current zoom beside a
               button also labelled 100% reads as the same number printed twice. */}
@@ -370,13 +537,25 @@ export default function BoardPage({ boardId, onBack }: Props) {
           >
             {Math.round(canvas.zoom * 100)}%
           </button>
-          <button type="button" onClick={canvas.zoomToFit} title="Zoom to fit">
-            <IconFit size={15} />
-            {/* Wrapped so a narrow bar can drop the word and keep the icon. A bare
-                text node has no box to hide. */}
-            <span className="label">Fit</span>
-          </button>
+          {spec.column === null && (
+            <button type="button" onClick={canvas.zoomToFit} title="Zoom to fit">
+              <IconFit size={15} />
+              {/* Wrapped so a narrow bar can drop the word and keep the icon. A bare
+                  text node has no box to hide. */}
+              <span className="label">Fit</span>
+            </button>
+          )}
         </div>
+
+        {/* Only where there is paper to choose. A glade's surface is the theme's. */}
+        {spec.column !== null && (
+          <LeaPaper
+            value={canvas.pagePaper}
+            fallback={paperPreference}
+            editable={canWrite}
+            onChange={canvas.setPaper}
+          />
+        )}
 
         <button
           type="button"
@@ -397,21 +576,20 @@ export default function BoardPage({ boardId, onBack }: Props) {
             className={locked ? 'icon ghost active' : 'icon ghost'}
             aria-pressed={locked}
             onClick={() => setLocked((on) => !on)}
-            title={locked ? 'Unlock this glade' : 'Lock this glade against edits'}
-            aria-label={locked ? 'Unlock this glade' : 'Lock this glade against edits'}
+            title={locked ? `Unlock this ${noun}` : `Lock this ${noun} against edits`}
+            aria-label={locked ? `Unlock this ${noun}` : `Lock this ${noun} against edits`}
           >
             {locked ? <IconLock /> : <IconUnlock />}
           </button>
         )}
 
-        <ThemeToggle />
       </header>
 
       <div className="board-body">
         {/* The rail floats over the canvas rather than taking a column out of it.
             ARCHITECTURE 1: the drawing surface is the product. */}
         <nav className="toolbar" aria-label="Tools">
-          {TOOLS.map((tool) => (
+          {tools.map((tool) => (
             <div key={tool.id} className="tool-slot">
               <button
                 type="button"
@@ -466,8 +644,54 @@ export default function BoardPage({ boardId, onBack }: Props) {
           </button>
         </nav>
 
-        {/* The engine mounts its own canvas here and sizes to this element. */}
-        <div className="canvas-host" ref={canvas.containerRef} />
+        {/*
+          The engine mounts its own canvas here and sizes to this element.
+
+          The two children are the page's own furniture, and they are here rather than
+          in the engine because they are DOM with copy and a click on it. Both are
+          placed entirely by the custom properties the engine writes on this element,
+          so they ride the camera without React being told the camera moved.
+        */}
+        <div className="canvas-host" ref={canvas.containerRef} data-paper={paper}>
+          {spec.column !== null && (
+            <div className="lea-header">
+              {/* No printed caption: the placeholder already says what the line is
+                  for, and a page of stationery that labels every line reads like a
+                  form. The date keeps its caption because a bare date needs one. */}
+              <div className="lea-field lea-field-subject">
+                <span className="lea-field-slot">
+                  <input
+                    type="text"
+                    className="lea-subject"
+                    aria-label="Subject of this page"
+                    placeholder="What is in your mind today?"
+                    maxLength={120}
+                    value={canvas.pageSubject}
+                    disabled={!canWrite}
+                    onChange={(event) => canvas.setSubject(event.target.value)}
+                  />
+                </span>
+              </div>
+
+              <LeaDate
+                value={canvas.pageDate}
+                editable={canWrite}
+                onChange={canvas.setDate}
+              />
+            </div>
+          )}
+
+          {spec.column !== null && (
+            <button
+              type="button"
+              className="lea-add-lines"
+              disabled={!canWrite}
+              onClick={canvas.addLines}
+            >
+              <span>Add {PAGE_LINES_STEP} lines</span>
+            </button>
+          )}
+        </div>
 
         {/*
           The text formatting bar.
@@ -478,25 +702,39 @@ export default function BoardPage({ boardId, onBack }: Props) {
           mousedown, because the editor exits on blur and a button that steals focus
           would close the thing it is meant to format.
         */}
-        {canWrite && canvas.canFormatText && (
+        {/* On a writing surface, only while the caret is actually in the page. A greyed
+            formatting bar hanging over the paper the rest of the time is a toolbar
+            reminding you that you are in an app. */}
+        {canWrite && canvas.canFormatText && (spec.column === null || canvas.editingId !== null) && (
           <div className="text-bar" role="group" aria-label="Text formatting">
-            <label className="text-size">
-              <span className="sr-only">Text size</span>
-              <select
-                value={canvas.textSize ?? ''}
-                onMouseDown={(event) => event.stopPropagation()}
-                onChange={(event) => canvas.setTextSize(Number(event.target.value))}
-              >
-                {canvas.textSize === null && <option value="">Mixed</option>}
-                {TEXT_SIZES.map((size) => (
-                  <option key={size} value={size}>
-                    {size}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {/*
+              No size control on a ruled page.
+              The ruling is spaced at exactly one line of the page's own type, so a
+              size chosen per paragraph is a paragraph that no longer sits on the
+              lines - and the whole look of the surface is that it does. Weight and
+              slant are free; the measure is the paper's.
+            */}
+            {spec.column === null && (
+              <>
+                <label className="text-size">
+                  <span className="sr-only">Text size</span>
+                  <select
+                    value={canvas.textSize ?? ''}
+                    onMouseDown={(event) => event.stopPropagation()}
+                    onChange={(event) => canvas.setTextSize(Number(event.target.value))}
+                  >
+                    {canvas.textSize === null && <option value="">Mixed</option>}
+                    {TEXT_SIZES.map((size) => (
+                      <option key={size} value={size}>
+                        {size}
+                      </option>
+                    ))}
+                  </select>
+                </label>
 
-            <hr />
+                <hr />
+              </>
+            )}
 
             {TEXT_MARKS.map((mark) => {
               const button = MARK_BUTTONS[mark]
@@ -523,28 +761,41 @@ export default function BoardPage({ boardId, onBack }: Props) {
         <div className="board-notices">
           {locked ? (
             <p className="banner">
-              This glade is locked.
+              This {noun} is locked.
               <button type="button" className="link" onClick={() => setLocked(false)}>
                 Unlock
               </button>
             </p>
           ) : (
             !canWrite && (
-              <p className="banner">You have {role} access to this glade. Editing is disabled.</p>
+              <p className="banner">
+                You have {role} access to this {noun}. Editing is disabled.
+              </p>
             )
           )}
         </div>
       </div>
 
       <footer className="statusbar">
+        {/* A count of objects and a count of selected ones is a canvas talking about
+            itself, which is the right readout on a glade and the wrong one on paper:
+            the page is not a thing you selected, it is the thing you are writing on. */}
         <span>
-          <span data-testid="object-count">
-            {canvas.objectCount} object{canvas.objectCount === 1 ? '' : 's'}
-          </span>
-          {' \u00b7 '}
-          {canvas.selection.length === 0
-            ? 'nothing selected'
-            : `${canvas.selection.length} selected`}
+          {spec.column !== null ? (
+            <span data-testid="object-count">
+              {canvas.editingId !== null ? 'Writing' : 'Ready'}
+            </span>
+          ) : (
+            <>
+              <span data-testid="object-count">
+                {canvas.objectCount} object{canvas.objectCount === 1 ? '' : 's'}
+              </span>
+              {' \u00b7 '}
+              {canvas.selection.length === 0
+                ? 'nothing selected'
+                : `${canvas.selection.length} selected`}
+            </>
+          )}
         </span>
         {/*
           * Keyboard and mouse hints, hidden on a touch device rather than reworded.
@@ -552,15 +803,23 @@ export default function BoardPage({ boardId, onBack }: Props) {
           * equivalents - tap, drag, pinch - are the ones nobody needs telling.
           */}
         <span className="hints">
-          {canvas.editingId === null ? (
+          {canvas.editingId !== null ? (
+            <>
+              Writing <span className="faint">|</span> <kbd>Esc</kbd> to finish
+            </>
+          ) : spec.column !== null ? (
+            // Nothing about zooming or panning sideways: neither is possible here, and
+            // a hint for a gesture the surface refuses is worse than no hint.
+            <>
+              <kbd>Click</kbd> the page to write <span className="faint">|</span>{' '}
+              <kbd>Up</kbd>/<kbd>Down</kbd> to move a line <span className="faint">|</span>{' '}
+              <kbd>Wheel</kbd> to scroll the page
+            </>
+          ) : (
             <>
               <kbd>Double-click</kbd> text to edit <span className="faint">|</span>{' '}
               <kbd>Space</kbd> or middle-drag to pan <span className="faint">|</span>{' '}
               <kbd>Ctrl</kbd>+<kbd>Wheel</kbd> to zoom
-            </>
-          ) : (
-            <>
-              Editing text <span className="faint">|</span> <kbd>Esc</kbd> to finish
             </>
           )}
         </span>

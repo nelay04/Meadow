@@ -40,6 +40,15 @@ export const textProps = z.object({
   fontFamily: z.enum(FONT_FAMILIES).default('comic'),
   fontSize: z.number().min(6).max(288).default(16),
   lineHeight: z.number().min(0.8).max(3).default(1.45),
+  /*
+   * The gap between blocks, in ems, on top of the line height.
+   *
+   * A paragraph wants air after it, and 0.4em is what makes a note readable rather
+   * than a wall. Zero is the case that needs it to be a property at all: on a ruled
+   * surface every line has to land on a rule, and a gap between paragraphs walks the
+   * writing off them a little further with each one.
+   */
+  paragraphSpacing: z.number().min(0).max(2).default(0.4),
   color: z.number().int().default(0x2a3340),
   align: z.enum(TEXT_ALIGNMENTS).default('left'),
   verticalAlign: z.enum(VERTICAL_ALIGNMENTS).default('top'),
@@ -125,6 +134,7 @@ export function resolveTextProps(object: ObjectData): TextProps {
   pick('fontFamily', oneOf(FONT_FAMILIES))
   pick('fontSize', isFinite)
   pick('lineHeight', isFinite)
+  pick('paragraphSpacing', isFinite)
   pick('color', isFinite)
   pick('align', oneOf(TEXT_ALIGNMENTS))
   pick('verticalAlign', oneOf(VERTICAL_ALIGNMENTS))

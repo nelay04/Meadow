@@ -564,6 +564,153 @@ export function sendBackward(session: DocSession, ids: readonly string[]): void 
 }
 
 /**
+ * How many rules this page has, and how to ask for more.
+ *
+ * In `meta` rather than in an object, because it is a property of the page and not
+ * something on it. `meta` is a designated document root that nothing has needed until
+ * now, so this costs no change to the object schema, which ARCHITECTURE 4 fixes.
+ *
+ * Deliberately outside the undo stack. Undo is for what you wrote; a page that got
+ * longer is not an edit to take back, and having Ctrl+Z shorten the paper under
+ * writing that is already on it would be worse than not being able to undo at all.
+ */
+const META_PAGE_LINES = 'pageLines'
+
+export function readPageLines(session: DocSession, fallback: number): number {
+  const stored = session.meta.get(META_PAGE_LINES)
+  return typeof stored === 'number' && Number.isFinite(stored) && stored > 0
+    ? Math.round(stored)
+    : fallback
+}
+
+/** Lengthen the page. Returns the new count. */
+export function addPageLines(session: DocSession, current: number, step: number): number {
+  const next = current + step
+  if (!session.canWrite) return current
+  session.doc.transact(() => {
+    session.meta.set(META_PAGE_LINES, next)
+  }, LOCAL_ORIGIN)
+  return next
+}
+
+/**
+ * The date printed at the top of a ruled page, as `YYYY-MM-DD`, or '' for none.
+ *
+ * In `meta` beside the page length and for the same reason: it belongs to the page
+ * rather than being something on it. One value with one right answer, so it is not an
+ * object - an object is something you could make two of, and two dates on one page is
+ * a state the surface should not be able to reach.
+ */
+const META_PAGE_DATE = 'pageDate'
+
+export function readPageDate(session: DocSession): string {
+  const stored = session.meta.get(META_PAGE_DATE)
+  return typeof stored === 'string' ? stored : ''
+}
+
+export function setPageDate(session: DocSession, iso: string): void {
+  if (!session.canWrite || readPageDate(session) === iso) return
+  session.doc.transact(() => {
+    session.meta.set(META_PAGE_DATE, iso)
+  }, LOCAL_ORIGIN)
+}
+
+/** What this page is about, printed beside the date. '' for none. */
+const META_PAGE_SUBJECT = 'pageSubject'
+
+export function readPageSubject(session: DocSession): string {
+  const stored = session.meta.get(META_PAGE_SUBJECT)
+  return typeof stored === 'string' ? stored : ''
+}
+
+export function setPageSubject(session: DocSession, subject: string): void {
+  if (!session.canWrite || readPageSubject(session) === subject) return
+  session.doc.transact(() => {
+    session.meta.set(META_PAGE_SUBJECT, subject)
+  }, LOCAL_ORIGIN)
+}
+
+/**
+ * The stock this page is printed on, or '' to take the reader's own default.
+ *
+ * The page's, not the reader's: stationery is a property of the diary, the way ruling
+ * and measure already are, so a page somebody chose to keep on kraft looks like that
+ * page to everyone who opens it. '' is the deferral - the page has no opinion, and
+ * each reader's profile default decides - which is why this is a string rather than
+ * one of the four papers with a fifth invented for "unset".
+ *
+ * Unvalidated on read beyond "is it a string": an older client that has never heard of
+ * a paper added later should fall back to its own default rather than render nothing,
+ * and the styling layer already ignores a name it has no rules for.
+ */
+const META_PAGE_PAPER = 'pagePaper'
+
+export function readPagePaper(session: DocSession): string {
+  const stored = session.meta.get(META_PAGE_PAPER)
+  return typeof stored === 'string' ? stored : ''
+}
+
+export function setPagePaper(session: DocSession, paper: string): void {
+  if (!session.canWrite || readPagePaper(session) === paper) return
+  session.doc.transact(() => {
+    session.meta.set(META_PAGE_PAPER, paper)
+  }, LOCAL_ORIGIN)
+}
+
+/** Subscribe to the page's own values. For `useSyncExternalStore`. */
+export function observePageMeta(session: DocSession, onChange: () => void): () => void {
+  const handler = (): void => onChange()
+  session.meta.observe(handler)
+  return () => session.meta.unobserve(handler)
+}
+
+/**
+ * Put every row of a ruled page back on the ruling.
+ *
+ * A row's position is a band index times the rule pitch, and the pitch is
+ * `fontSize * lineHeight` of the page's own type. Change the type and every row
+ * already in the document is anchored to a pitch that no longer exists: the first line
+ * still looks right, the second is a couple of pixels out, and by the tenth the
+ * writing is sitting half a band above its rule. It reads as the page slowly coming
+ * apart rather than as a setting that changed, which is why this repairs rather than
+ * leaving it to the reader to notice.
+ *
+ * Rows are re-seated in the order they already sit in, never merged: two rows that
+ * round onto the same band push the later one down. Blank rules between entries are
+ * kept where rounding allows and closed up where it does not, because losing a blank
+ * line is a much smaller wrong than stacking two entries on one rule.
+ *
+ * A no-op once everything is on a band, so opening a page that has already been
+ * repaired writes nothing and a viewer never needs it at all.
+ */
+export function reseatWritingRows(session: DocSession, spacing: number): void {
+  if (!session.canWrite || !Number.isFinite(spacing) || spacing <= 0) return
+
+  const rows = Array.from(session.objects.keys())
+    .map((id) => ({ id, object: readObjectById(session, id) }))
+    .filter((row): row is { id: string; object: ObjectData } => row.object?.type === 'text')
+    .sort((a, b) => a.object.y - b.object.y)
+
+  const patches: { id: string; patch: Partial<ObjectData> }[] = []
+  // Not zero: a ruled page can have rows above its first rule - the header's date is
+  // one - and starting the run at the top rule would drag them down onto the page.
+  let lastBand = Number.NEGATIVE_INFINITY
+
+  for (const { id, object } of rows) {
+    const band = Math.max(Math.round(object.y / spacing), lastBand + 1)
+    lastBand = band
+
+    const y = band * spacing
+    // Exact equality would rewrite every row on every open, because the pitch is a
+    // product of two floats and the stored value is what a previous round of this
+    // wrote. A twentieth of a unit is far below anything anybody can see.
+    if (Math.abs(object.y - y) > 0.05) patches.push({ id, patch: { y } })
+  }
+
+  if (patches.length > 0) updateObjects(session, patches)
+}
+
+/**
  * Ensure `order` lists every object exactly once.
  *
  * A document written by an older client, or one where a concurrent delete raced an

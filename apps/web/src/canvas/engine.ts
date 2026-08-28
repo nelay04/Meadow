@@ -24,6 +24,8 @@ import {
   objectBounds,
   resolveArrowProps,
   resolveTextProps,
+  type TextProps,
+  textProps,
 } from '@meadow/schema'
 import { Application, Container, Graphics, Rectangle } from 'pixi.js'
 
@@ -38,10 +40,16 @@ import {
 import { TextLayer } from './overlay/textLayer'
 import { type Wanderer, type WandererSelection, WandererLayer } from './overlay/wandererLayer'
 import { SpatialIndex } from './spatialIndex'
+import {
+  type CanvasSurface,
+  DEFAULT_SURFACE,
+  type SurfaceType,
+  surfaceClass,
+} from './surface'
 import { type ArrowDraw, ArrowPass } from './renderers/arrowPass'
 import { ShapeBatch } from './renderers/shapeBatch'
 import type { SnapGuide } from './snapping'
-import { whenFontsReady } from './text/measure'
+import { measureBaselineOffset, whenFontsReady } from './text/measure'
 import { FONT_STACKS } from './text/textStyle'
 import {
   BINDING_COLOR,
@@ -137,6 +145,139 @@ const GRID_BASE_WORLD = 20
 const GRID_MIN_PX = 14
 const GRID_MAX_PX = 56
 
+/**
+ * The ruling on the `ruled` surface: one line every 28 world units.
+ *
+ * Stepped by two rather than by the grid's four. Graph paper is a ruler and wants a
+ * decimal-ish cell; a diary's ruling is a writing line, and halving it is the
+ * difference between wide-ruled and narrow-ruled paper rather than a different kind
+ * of paper. The band is a little taller than the grid's for the same reason: lines
+ * you are meant to write between should not close up to a hatch.
+ */
+/**
+ * The header: paper above the first rule, where the date goes.
+ *
+ * Real ruled stationery leaves this, and it is not decoration. A page whose first line
+ * starts at the top of the window opens with its writing already under the toolbar,
+ * and there is nowhere to put the date.
+ */
+const PAGE_HEADER = 108
+
+/**
+ * Air above the header, so the top of the page clears whatever floats over the canvas.
+ *
+ * Separate from the header rather than folded into it, because they answer different
+ * questions: this one is about the chrome of the app, and the header is part of the
+ * stationery. Changing the toolbar should move one of them and not the other.
+ */
+const COLUMN_TOP_MARGIN = PAGE_HEADER + 28
+
+/**
+ * How many rules a page has before anybody adds more, and how many an add adds.
+ *
+ * A page rather than an endless roll. Writing into something with no bottom is a
+ * different feeling from writing into something with an end, and a diary is the second
+ * one: the point of a page is that you can fill it.
+ */
+export const DEFAULT_PAGE_LINES = 25
+export const PAGE_LINES_STEP = 10
+
+/**
+ * Which band the header's line sits on, counted back from the first rule.
+ *
+ * Geometry only. What is written there - the subject and the date - is not a row of
+ * the page and not an object in the document: each is one value with one right answer,
+ * so each is a control on the header and a key in `meta`, rather than something you
+ * write and could write twice.
+ */
+const HEADER_ROW = -2
+
+/** How much of the column's width the date takes, in world units. */
+const DATE_WIDTH = 230
+
+/** And the subject, which is a line to write on rather than the whole measure. */
+const SUBJECT_WIDTH = 330
+
+/**
+ * How far a page may be zoomed, as a multiple of its set size.
+ *
+ * Narrow on purpose. The measure a writing column is built around is how much text
+ * fits on a line, and a wide zoom range makes that depend on the wheel. This is the
+ * range in which a page is still the page and merely easier or harder to read.
+ */
+const PAGE_MIN_ZOOM = 0.5
+const PAGE_MAX_ZOOM = 2
+
+/** Paper either side of the writing column, in world units. The page's margins. */
+const PAGE_MARGIN = 36
+
+/** How far the ruled lines stop short of the page's edge, in world units. */
+const RULE_INSET = 22
+
+/**
+ * How far below its rule the writing sits, in world units. Negative lifts it clear.
+ *
+ * Zero is the typographically correct answer, a baseline exactly on the line, and it
+ * is not the floor: this went from three units below the rule - far enough that the
+ * rule visibly crossed the feet of the letters - through zero and out the other side.
+ * A hair of daylight under the writing is a real look, and the one asked for here.
+ *
+ * Kept small in either direction. Much past a unit or two the writing stops belonging
+ * to a rule at all and starts floating between two of them, which is the thing the
+ * whole ruled surface exists to prevent.
+ */
+const WRITING_DROP = -1
+
+/*
+ * How wheel scrolling is eased. See `stepWheel`.
+ *
+ * The time constant is the whole feel of it. Under about 50ms the smoothing stops
+ * being visible and a notch is a jump again; over about 150ms the page keeps moving
+ * after you have stopped asking it to, which reads as weight rather than as response.
+ * 90ms settles a notch in roughly a fifth of a second, which is fast enough to feel
+ * connected to the wheel and slow enough that the ruling never strobes.
+ */
+const WHEEL_TAU_MS = 90
+/* A line, for the browsers that measure the wheel in lines rather than pixels. */
+const WHEEL_LINE_PX = 16
+/*
+ * The most scrolling that can be owed at once. A fast flick can queue thousands of
+ * pixels, and without a ceiling the page carries on travelling long after the wheel
+ * has stopped - the one thing worse than a jump.
+ */
+const WHEEL_MAX_PENDING = 1600
+
+function clamp(value: number, low: number, high: number): number {
+  return Math.min(high, Math.max(low, value))
+}
+
+/**
+ * A writing column: how wide the page is, and the type it is ruled for.
+ *
+ * The metrics rather than the geometry, because the engine needs both and they have to
+ * agree exactly: the ruling is spaced at one line of this type, and a row created by
+ * clicking on a rule has to be *this* type or its writing lands somewhere else. Two
+ * numbers that must agree are one number and a derivation.
+ *
+ * `width` is world units; the rest are the text object's own props.
+ *
+ * No padding, and that is load-bearing rather than an omission. A row's box has to be
+ * exactly the band it is written on: rows are placed one `fontSize * lineHeight` apart,
+ * so a box padded top and bottom is taller than the pitch and overlaps the row below
+ * it, and a click meant for the empty rule between two lines lands in the line above
+ * instead. The margin beside the writing is the paper's, `PAGE_MARGIN`, not the row's.
+ */
+export type WritingColumn = {
+  width: number
+  fontSize: number
+  lineHeight: number
+}
+
+
+const RULE_BASE_WORLD = 28
+const RULE_MIN_PX = 18
+const RULE_MAX_PX = 72
+
 export type EngineHost = {
   /** Ascending z-order of every object id. */
   order(): readonly string[]
@@ -167,7 +308,25 @@ export type EngineHost = {
    * Mount a rich-text editor into an overlay element. Returns the teardown, or null
    * when this host cannot edit. The engine never learns what the editor is.
    */
-  beginEdit(id: string, element: HTMLElement, onExit: () => void): (() => void) | null
+  /**
+   * Mount an editor into `element`.
+   *
+   * `surface` is what the page contributes rather than the object: the ink an object
+   * that names no colour is drawn in, the type a ruled page sets over whatever its
+   * rows were created with, and where the caret goes when it walks off the top or the
+   * bottom. The editor has to agree with the idle text layer on the first two, or text
+   * changes appearance the moment you stop typing.
+   */
+  beginEdit(
+    id: string,
+    element: HTMLElement,
+    onExit: () => void,
+    surface: {
+      ink: number
+      type: SurfaceType | null
+      onLeave?: (direction: 'up' | 'down') => boolean
+    },
+  ): (() => void) | null
   /** Toggle an inline mark in the live editor. No-op when nothing is being edited. */
   toggleTextMark(mark: TextMark): void
 }
@@ -252,6 +411,28 @@ export class CanvasEngine {
    */
   private arrowRouting: ArrowRouting = 'straight'
 
+  /*
+   * Wheel scrolling, eased.
+   *
+   * A mouse wheel does not send a stream: one notch is a single 100px event, and
+   * applying it the moment it arrives moves the page in one jump. On a free canvas
+   * that reads as a big surface being shoved; on a lea, where the whole picture is a
+   * sheet of paper sliding under a fixed window, it reads as a stutter, because the
+   * ruling is a repeating pattern and the eye tracks it.
+   *
+   * So a wheel event does not move the camera. It adds to a target, and the render
+   * loop walks toward that target by a fixed fraction of what is left per unit of
+   * time. Exponentially, so it starts at the speed you asked for and settles rather
+   * than stopping dead - and against elapsed time rather than per frame, so it takes
+   * the same amount of wall clock at 60Hz and at 144.
+   *
+   * No gain on the delta. Smoothing is about *when* the movement happens, not how much
+   * of it there is: multiplying it up as well is how a page ends up outrunning the
+   * wheel, which is the other half of scrolling that feels wrong.
+   */
+  private wheelPending = { x: 0, y: 0 }
+  private wheelAt = 0
+
   private dirty = true
   private frame = 0
   private disposed = false
@@ -269,6 +450,41 @@ export class CanvasEngine {
 
   private gridVisible = true
   private lastGridKey = ''
+  private surface: CanvasSurface = DEFAULT_SURFACE
+  /*
+   * Whether `init` finished.
+   *
+   * Not the same question as `this.app === undefined`, which is what the theme sync
+   * used to ask. The Application object exists one await before the layers that hang
+   * off it do, so anything called from a React effect during that window found an app
+   * and no text layer. That window is small and entirely reachable: the board view
+   * learns the glade's kind from a REST response and applies the surface the moment
+   * it lands, which is very often exactly then.
+   */
+  private ready = false
+
+  /*
+   * The tools this board offers, or null for all of them.
+   *
+   * Held here rather than only in the rail, because the rail is not the only way to
+   * reach a tool: every one of them has a single-key shortcut, and a lea that hides
+   * the rectangle button while R still draws rectangles has not removed anything. The
+   * engine stays generic - it does not know what a lea is - and simply refuses to
+   * enter a tool it was not given.
+   */
+  private available: ReadonlySet<ToolId> | null = null
+
+  /**
+   * The world width of the writing column, or null for an unfenced canvas.
+   *
+   * The engine does not know what a lea is; it knows that some boards are a column
+   * you scroll down rather than a plane you fly over, and that is the whole of it.
+   */
+  private column: WritingColumn | null = null
+  /** The measured first-baseline offset of `column`'s type. See `rulePhase`. */
+  private columnBaseline = 0
+  /** How many rules this page has. Document state, so it arrives from the host. */
+  private pageLines = DEFAULT_PAGE_LINES
 
   /** Rolling render cost, exposed for the perf overlay. */
   private lastRenderMs = 0
@@ -348,6 +564,7 @@ export class CanvasEngine {
       },
     })
     this.textLayer.ink = this.canvasInk
+    this.textLayer.columnType = this.surfaceType
 
     this.world = new Container()
     this.batch = new ShapeBatch(MIN_BATCH_CAPACITY)
@@ -369,6 +586,7 @@ export class CanvasEngine {
 
     this.setTool('select')
     this.attachInput()
+    this.ready = true
     this.resync()
     this.loop()
   }
@@ -380,6 +598,7 @@ export class CanvasEngine {
     cancelAnimationFrame(this.frame)
     this.stopEditing()
     this.detachInput()
+    this.ready = false
     if (this.textLayer !== undefined) this.textLayer.destroy()
     if (this.wanderers !== undefined) this.wanderers.destroy()
     if (this.arrows !== undefined) this.arrows.destroy()
@@ -443,7 +662,7 @@ export class CanvasEngine {
    * Called by the board view when the theme toggle fires.
    */
   syncTheme(): void {
-    if (this.app === undefined) return
+    if (!this.ready) return
     // Only the ink. The board's surface and its grid are CSS and re-resolve
     // themselves the moment the root's colour-scheme changes.
     this.canvasInk = readCanvasInk(this.element)
@@ -468,6 +687,30 @@ export class CanvasEngine {
   }
 
   /**
+   * Choose the paper.
+   *
+   * The class is what actually paints it; this method exists because the repeating
+   * layers have to be positioned against the camera, and only the engine knows where
+   * the camera is. Idempotent, and safe to call before `init`: the class lands on the
+   * host either way and the first camera sync writes the offsets.
+   */
+  setSurface(surface: CanvasSurface): void {
+    if (surface === this.surface) return
+
+    this.element.classList.remove(surfaceClass(this.surface))
+    this.surface = surface
+    this.element.classList.add(surfaceClass(surface))
+
+    // The two surfaces write different numbers of background layers, so the cached
+    // key describes a string that is no longer on the element.
+    this.lastGridKey = ''
+    this.syncGrid(this.lastTransform)
+    // The ruled surface paints a warm paper rather than the theme's board colour, and
+    // `isDarkSurface` reads that colour back to pick default fills and ink.
+    this.syncTheme()
+  }
+
+  /**
    * Keep the CSS grid in step with the camera.
    *
    * The cell is chosen in world units so the grid means something - it is a ruler,
@@ -481,6 +724,10 @@ export class CanvasEngine {
    */
   private syncGrid(transform: ViewTransform): void {
     if (!this.gridVisible) return
+    if (this.surface === 'ruled') {
+      this.syncRuling(transform)
+      return
+    }
 
     let world = GRID_BASE_WORLD
     let minor = world * transform.scale
@@ -510,7 +757,289 @@ export class CanvasEngine {
     style.backgroundPosition = `${majorX}px ${majorY}px, ${majorX}px ${majorY}px, ${minorX}px ${minorY}px, ${minorX}px ${minorY}px`
   }
 
+  /**
+   * The ruled surface's writing lines, kept in step with the camera.
+   *
+   * Horizontal only, and stepped by two so the line height stays in a band you could
+   * actually write in at any zoom. The rest of the paper - its mottling, its fibre and
+   * the shade at its edges - is not drawn on the page and does not move with it, so it
+   * lives on the host's `::before` and is none of this method's business.
+   */
+  private syncRuling(transform: ViewTransform): void {
+    /*
+     * On a writing column the ruling is not decoration, it is the type's own leading:
+     * one line of paper per line of text, phased so a rule lands where a line of
+     * writing ends. Getting this from the column rather than from a constant is what
+     * makes the writing sit *on* the lines instead of drifting across them.
+     *
+     * Elsewhere it is a texture, and it steps through a legible band with the zoom the
+     * way the graph paper does.
+     */
+    const column = this.column
+    if (column !== null) {
+      const scale = transform.scale
+      const rule = this.ruleSpacing * scale
+
+      // Where the sheet is on screen. Computed from the same transform as everything
+      // else rather than from the viewport - one source of truth for where world zero
+      // landed - so the paper, the ruling and the header cannot disagree.
+      const project = (worldY: number): number => worldY * scale + transform.ty
+      const pageLeft = -PAGE_MARGIN * scale + transform.tx
+      const pageWidth = (column.width + PAGE_MARGIN * 2) * scale
+
+      // The rule a row is written on, and so the first and the last of them.
+      const firstRule = project(this.rulePhase + this.ruleSpacing)
+      const ruleSpan = (this.pageLines - 1) * rule
+
+      const pageTop = project(-COLUMN_TOP_MARGIN)
+      const pageHeight = (this.pageBottom + COLUMN_TOP_MARGIN * 2) * scale
+
+      const headerTop = project(this.rowTop(HEADER_ROW))
+
+      const key = `page|${rule}|${firstRule}|${pageLeft}|${pageWidth}|${this.pageLines}`
+      if (key === this.lastGridKey) return
+      this.lastGridKey = key
+
+      /*
+       * A dozen custom properties, and CSS draws the paper.
+       *
+       * Not `background-size` and `background-position` the way the graph paper is
+       * done. A page is several layers - stock, pulp, shade, ruling, header - and they
+       * move together, so writing the shorthands from here would mean this method
+       * knowing how many layers the stylesheet happens to have and in what order.
+       * Handing over numbers instead leaves the paper entirely to the stylesheet,
+       * which is where it belongs.
+       *
+       * They are read by more than the stylesheet now: the board view puts the date
+       * field and the button that lengthens the page at these coordinates, so the
+       * chrome that belongs to the paper lands on the paper without React being told
+       * about the camera on every frame.
+       */
+      const style = this.element.style
+      style.setProperty('--lea-page-left', `${pageLeft}px`)
+      style.setProperty('--lea-page-width', `${pageWidth}px`)
+      style.setProperty('--lea-page-top', `${pageTop}px`)
+      style.setProperty('--lea-page-height', `${pageHeight}px`)
+      style.setProperty('--lea-rule-inset', `${RULE_INSET * scale}px`)
+      style.setProperty('--lea-rule-size', `${rule}px`)
+      // The ruling element starts on the first rule, so the pattern needs no phase of
+      // its own: the 0.4px is where the gradient puts the line inside its own tile.
+      style.setProperty('--lea-rule-top', `${firstRule - 0.4}px`)
+      style.setProperty('--lea-rule-height', `${ruleSpan + 1.8}px`)
+      style.setProperty('--lea-header-top', `${headerTop}px`)
+      style.setProperty(
+        '--lea-header-height',
+        `${(this.rulePhase + this.ruleSpacing) * scale}px`,
+      )
+      // The header spans the measure, and the date takes a fixed slice of its right.
+      style.setProperty('--lea-column-left', `${transform.tx}px`)
+      style.setProperty('--lea-column-width', `${column.width * scale}px`)
+      style.setProperty('--lea-subject-width', `${SUBJECT_WIDTH * scale}px`)
+      style.setProperty('--lea-date-width', `${DATE_WIDTH * scale}px`)
+      // The header is written in the page's own type, so it scales with the page
+      // rather than staying a fixed number of CSS pixels as you zoom.
+      style.setProperty('--lea-type-size', `${column.fontSize * scale}px`)
+      // Below the last rule, where a page run out of lines offers more.
+      style.setProperty('--lea-page-end', `${firstRule + ruleSpan}px`)
+      return
+    }
+
+    let world = RULE_BASE_WORLD
+    let rule = world * transform.scale
+    while (rule < RULE_MIN_PX) {
+      world *= 2
+      rule = world * transform.scale
+    }
+    while (rule > RULE_MAX_PX) {
+      world /= 2
+      rule = world * transform.scale
+    }
+
+    const ruleY = ((transform.ty % rule) + rule) % rule
+
+    const key = `ruled|${rule}|${ruleY}`
+    if (key === this.lastGridKey) return
+    this.lastGridKey = key
+
+    // One layer, because the ruling is the only part of this paper that moves with
+    // the camera. The pulp is on the host's `::before` and never moves.
+    const style = this.element.style
+    style.backgroundSize = `100% ${rule}px`
+    style.backgroundPosition = `0px ${ruleY}px`
+  }
+
+  /**
+   * Fence the canvas into a writing column of this world width, or null to free it.
+   *
+   * The zoom is held to a narrow band rather than pinned, and the page has a bottom:
+   * `pageLines` rules and then paper stops.
+   */
+  setColumn(column: WritingColumn | null): void {
+    this.column = column
+    this.columnBaseline =
+      column === null ? 0 : measureBaselineOffset(this.columnProps(column), column.width)
+    this.applyFence()
+  }
+
+  /**
+   * How many rules the page has. Nothing happens below the last one.
+   *
+   * Document state rather than a setting of the surface, so it arrives the same way
+   * the objects do and a peer adding ten lines lengthens the page here too.
+   */
+  setPageLines(lines: number): void {
+    const next = Math.max(1, Math.round(lines))
+    if (next === this.pageLines) return
+    this.pageLines = next
+    this.applyFence()
+  }
+
+  /** World y of the last rule: where the paper ends. */
+  private get pageBottom(): number {
+    return this.pageLines * this.ruleSpacing
+  }
+
+  private applyFence(): void {
+    const column = this.column
+    this.camera.setFence(
+      column === null
+        ? null
+        : {
+            left: 0,
+            right: column.width,
+            top: -COLUMN_TOP_MARGIN,
+            // Past the last rule by the same air the page opens with, so the end of
+            // the paper is something you can see rather than something you hit.
+            bottom: this.pageBottom + COLUMN_TOP_MARGIN,
+            minZoom: PAGE_MIN_ZOOM,
+            maxZoom: PAGE_MAX_ZOOM,
+          },
+    )
+    // The ruling is a function of the type and of where the page ends, so both have to
+    // be recomputed rather than left at whatever the last surface asked for.
+    this.lastGridKey = ''
+    this.syncGrid(this.lastTransform)
+    if (this.ready) {
+      this.textLayer.columnType = this.surfaceType
+      this.textLayer.invalidateAll()
+    }
+    this.requestRender()
+  }
+
+  get writingColumn(): WritingColumn | null {
+    return this.column
+  }
+
+  /**
+   * The type this surface sets over its objects' own, or null on a free canvas.
+   *
+   * Padding is part of it, and zero: a row's box is its band, and the writing has to
+   * start at the top of that band on a row written before this was true as much as on
+   * one written after.
+   */
+  private get surfaceType(): SurfaceType | null {
+    const column = this.column
+    if (column === null) return null
+    return { fontSize: column.fontSize, lineHeight: column.lineHeight, padding: 0 }
+  }
+
+  /**
+   * The text style a row of this column is written in.
+   *
+   * The same properties `beginWritingRow` writes onto a new row, resolved through the
+   * schema so the face and the alignment are the ones a row will actually be rendered
+   * with. Measuring against anything else would phase the rules to type nobody sets.
+   */
+  private columnProps(column: WritingColumn): TextProps {
+    return textProps.parse({
+      fontSize: column.fontSize,
+      lineHeight: column.lineHeight,
+      padding: 0,
+      paragraphSpacing: 0,
+    })
+  }
+
+  /** One line of the column's type, in world units. The ruling's pitch. */
+  private get ruleSpacing(): number {
+    const column = this.column
+    return column === null ? 0 : column.fontSize * column.lineHeight
+  }
+
+  /**
+   * Where the first rule sits, relative to a row object's own top edge.
+   *
+   * One rule *above* the first baseline, so the writing rests on a rule rather than
+   * being struck through by it: rules repeat every `ruleSpacing`, so subtracting one
+   * spacing from the baseline offset is the same set of lines, phased to sit under the
+   * type instead of through it. `WRITING_DROP` then lets the words ride into the rule
+   * by a hair, which is what handwriting does.
+   *
+   * The baseline offset is measured, never fitted. It was a constant here once - a
+   * fraction of the font size, calibrated by driving a real page - and the trouble with
+   * that is that it is only a constant for the size it was fitted at. Raising the type
+   * one step walked the writing six pixels off the rules, which is a lot on a 30px
+   * line, and there is no reason to keep paying that every time the type changes.
+   */
+  private get rulePhase(): number {
+    if (this.column === null) return 0
+    return this.columnBaseline - this.ruleSpacing - WRITING_DROP
+  }
+
+  /**
+   * The row a world y falls in, counting from the first line of the page.
+   *
+   * Row n's line box runs from `padding + n * spacing`, so this is the inverse of
+   * `rowTop` below, and exactly its inverse. It was not: it subtracted the row's
+   * padding while `rowTop` did not, so the two disagreed about where a row began and a
+   * click near a band's edge resolved to its neighbour.
+   *
+   * Clamped at zero: the fence stops the camera going above the first line, but a
+   * click can still land in the margin above it, and that means row zero rather than a
+   * row that does not exist.
+   */
+  private rowAt(worldY: number): number {
+    if (this.column === null) return 0
+    return this.clampRow(Math.floor(worldY / this.ruleSpacing))
+  }
+
+  /**
+   * The nearest band that is actually a row of this page.
+   *
+   * A page's bands are its rules and nothing else. The header above them and the paper
+   * past the last one are margin, and a click there would otherwise make a row off the
+   * page that nobody can see, so both ends resolve to the nearest real line.
+   */
+  private clampRow(row: number): number {
+    return Math.min(Math.max(row, 0), this.pageLines - 1)
+  }
+
+  /** The world y a row object is placed at, so its first line lands on row n. */
+  private rowTop(row: number): number {
+    return row * this.ruleSpacing
+  }
+
+  /**
+   * Limit the rail and the shortcuts to these tools. Pass null for every tool.
+   *
+   * `select` is always allowed whatever is passed: it is how you get out of any other
+   * tool, and a board nobody can select on is a board nobody can edit.
+   */
+  setAvailableTools(ids: readonly ToolId[] | null): void {
+    this.available = ids === null ? null : new Set<ToolId>([...ids, 'select'])
+    // The kind arrives one request after the canvas mounts, so dots can already be on
+    // screen by the time this says they should not be.
+    if (!this.offersConnectors) this.connectorHost = null
+    if (this.available !== null && !this.available.has(this.toolId)) this.setTool('select')
+  }
+
+  /** Whether this surface offers arrows at all, and so whether connectors mean anything. */
+  private get offersConnectors(): boolean {
+    return this.available === null || this.available.has('arrow') || this.available.has('line')
+  }
+
   setTool(id: ToolId): void {
+    if (this.available !== null && !this.available.has(id)) return
+
     // Connector dots belong to the select tool's hover state. Leaving them painted
     // after a switch to the arrow or shape tool offers a target that nothing handles.
     this.connectorHost = null
@@ -636,7 +1165,14 @@ export class CanvasEngine {
 
   deleteSelection(): void {
     if (this.selected.size === 0) return
-    this.host.deleteObjects(Array.from(this.selected))
+
+    // The page itself is never deletable. It is the paper, not something on it, and
+    // there is no state a writing surface with no page is in that anybody wants: the
+    // board view would simply create another one on the next load.
+    const doomed = Array.from(this.selected).filter((id) => !this.isPageRow(id))
+    if (doomed.length === 0) return
+
+    this.host.deleteObjects(doomed)
     this.setSelection([])
     this.host.commit()
   }
@@ -744,6 +1280,11 @@ export class CanvasEngine {
    * object created a microsecond ago has nowhere to put an editor yet.
    */
   beginTextEdit(id: string): boolean {
+    // The overlay does not exist until `init` has run. Callers retry rather than
+    // assume, because the board view asks for a caret as soon as the document lands
+    // and that can be before the renderer is up.
+    if (!this.ready) return false
+
     const object = this.cache.get(id)
     if (object === undefined || !isTextBearing(object.type) || object.locked) return false
     if (this.editing?.id === id) return true
@@ -758,7 +1299,11 @@ export class CanvasEngine {
     const element = this.textLayer.beginEdit(id)
     if (element === null) return false
 
-    const teardown = this.host.beginEdit(id, element, () => this.stopEditing())
+    const teardown = this.host.beginEdit(id, element, () => this.stopEditing(), {
+      ink: this.canvasInk,
+      type: this.surfaceType,
+      onLeave: (direction) => this.leaveRow(id, direction),
+    })
     if (teardown === null) {
       this.textLayer.endEdit()
       return false
@@ -768,6 +1313,112 @@ export class CanvasEngine {
     this.events.onEditingChange?.(id)
     this.requestRender()
     return true
+  }
+
+  /**
+   * The object a writing surface's page *is*, or null.
+   *
+   * The first text object in z-order, which is the same rule `ensureWritingColumn` in
+   * doc/mutations.ts uses to find it: a fenced board creates its column into an empty
+   * document, so it is always at the bottom of the stack. Both sides state the
+   * invariant rather than passing an id around, and neither can drift from the other
+   * without the rule itself changing.
+   *
+   * Null on an unfenced board. A glade has no page; it has objects.
+   */
+  /** Is this object one of the page's own rows? */
+  private isPageRow(id: string): boolean {
+    if (this.column === null) return false
+    return this.cache.get(id)?.type === 'text'
+  }
+
+  /**
+   * Move the caret off a row and onto its neighbour. False when there is no neighbour.
+   *
+   * Rows are geometry, not a list, so the neighbour is worked out from the band rather
+   * than from any ordering in the document: a row is `bands` rules tall, so the one
+   * below starts that many rules down. Nothing has to be kept in sync, and a row
+   * written by a peer between two of yours is stepped through like any other.
+   *
+   * Up from the first rule does nothing. The page has a top and this is it.
+   */
+  private leaveRow(id: string, direction: 'up' | 'down'): boolean {
+    const object = this.cache.get(id)
+    if (this.column === null || object === undefined) return false
+
+    const first = Math.round(object.y / this.ruleSpacing)
+    // The first rule is the top of the page: the header above it is not written on.
+    if (direction === 'up') return first <= 0 ? false : this.beginWritingRow(first - 1)
+
+    const bands = Math.max(1, Math.round(object.h / this.ruleSpacing))
+    const next = first + bands
+    // The last rule is the end of the page. Somebody who wants more asks for more.
+    return next > this.pageLines - 1 ? false : this.beginWritingRow(next)
+  }
+
+  /**
+   * Put the caret on a row of the page, making the row if it is not there yet.
+   *
+   * Every rule is its own writing slot, the way a spreadsheet's rows are: the tenth and
+   * the hundredth are equally available, and the ones between stay empty rather than
+   * having to be typed past. That is what makes a lea feel like paper instead of like a
+   * text box - on paper you write where you point, not at the end of what you wrote
+   * last.
+   *
+   * A row is an ordinary `text` object at `(0, row * spacing)` carrying the column's
+   * own type. Nothing about the schema knows what a row is; the position and the
+   * metrics are the whole of it, which is why a client that has never heard of leas
+   * still renders one correctly.
+   *
+   * The row is created empty and `discardIfEmpty` removes it again if the caret leaves
+   * without anything being typed, so clicking around a page does not litter it with
+   * blank objects.
+   */
+  beginWritingRow(row: number): boolean {
+    const column = this.column
+    if (column === null || !this.ready || !this.host.canWrite) return false
+
+    const top = this.rowTop(row)
+    // An existing row wins, including a taller one whose writing has wrapped down into
+    // this rule. Clicking on wrapped writing continues it rather than starting a
+    // second object on top of it.
+    const existing = this.rowObjectAt(top)
+    if (existing !== null) return this.beginTextEdit(existing)
+
+    const id = this.host.createObject({
+      type: 'text',
+      x: 0,
+      y: top,
+      w: column.width,
+      // One band tall, so rows tile the page exactly rather than overlapping.
+      h: this.ruleSpacing,
+      props: {
+        fontSize: column.fontSize,
+        lineHeight: column.lineHeight,
+        padding: 0,
+        // No gap between paragraphs: on ruled paper a new paragraph is the next rule,
+        // not the next rule plus a bit.
+        paragraphSpacing: 0,
+      },
+    })
+    if (id === null) return false
+
+    this.host.commit()
+    return this.beginTextEdit(id)
+  }
+
+  /** The row object covering this world y, or null. */
+  private rowObjectAt(worldY: number): string | null {
+    const spacing = this.ruleSpacing
+    // The middle of the row's line box, so a row whose top edge is a fraction out
+    // still answers, and a neighbouring row does not.
+    const probe = worldY + spacing / 2
+    for (const id of this.host.order()) {
+      const object = this.cache.get(id)
+      if (object === undefined || object.type !== 'text') continue
+      if (probe >= object.y && probe < object.y + object.h) return id
+    }
+    return null
   }
 
   stopEditing(): void {
@@ -787,6 +1438,18 @@ export class CanvasEngine {
     this.textLayer.endEdit()
     this.discardIfEmpty(active.id)
     this.host.commit()
+
+    /*
+     * Leaving the page leaves nothing selected.
+     *
+     * `beginTextEdit` selects what it is about to edit, which is right for an object
+     * on a canvas and wrong for the paper: the page draws no chrome, so a selection
+     * nobody can see would sit there afterwards making the toolbar's delete button
+     * look live. Honest state, not just a guard - `deleteSelection` refuses the page
+     * anyway, and this is what stops the button offering in the first place.
+     */
+    if (this.isPageRow(active.id)) this.setSelection([])
+
     this.events.onEditingChange?.(null)
     this.requestRender()
     if (this.app !== undefined) this.app.canvas.focus()
@@ -883,8 +1546,12 @@ export class CanvasEngine {
         this.hoverTarget = id
       },
       setConnectorHost: (id) => {
-        if (this.connectorHost === id) return
-        this.connectorHost = id
+        // A connector dot is an offer to drag an arrow out of the object under the
+        // pointer. On a surface with no arrow tool there is nothing behind the offer,
+        // so it is four blue dots that do nothing but follow the cursor around.
+        const next = this.offersConnectors ? id : null
+        if (this.connectorHost === next) return
+        this.connectorHost = next
         this.requestRender()
       },
       createObject: (input) => this.host.createObject(input),
@@ -917,7 +1584,48 @@ export class CanvasEngine {
   }
 
   private setCursor(cursor: string): void {
-    if (this.app !== undefined) this.app.canvas.style.cursor = cursor
+    // `ready`, not `app !== undefined`. The Application object exists one await before
+    // its renderer does, and Pixi's `canvas` getter reads through the renderer, so
+    // anything that sets a tool from a React effect during that window threw here.
+    if (this.ready) this.app.canvas.style.cursor = cursor
+  }
+
+  /**
+   * One frame of eased wheel scrolling.
+   *
+   * The remainder is applied whole once it is under a pixel: easing toward a target
+   * approaches it without arriving, and a camera left a third of a pixel out keeps the
+   * loop dirty forever for a move nobody can see.
+   */
+  private stepWheel(): void {
+    const pending = this.wheelPending
+    if (pending.x === 0 && pending.y === 0) return
+
+    const now = performance.now()
+    // A first step, or a tab that was in the background, has no useful elapsed time.
+    const elapsed = this.wheelAt === 0 ? 16 : Math.min(64, now - this.wheelAt)
+    this.wheelAt = now
+
+    const fraction = 1 - Math.exp(-elapsed / WHEEL_TAU_MS)
+    let dx = pending.x * fraction
+    let dy = pending.y * fraction
+    if (Math.abs(pending.x - dx) < 0.5) dx = pending.x
+    if (Math.abs(pending.y - dy) < 0.5) dy = pending.y
+
+    pending.x -= dx
+    pending.y -= dy
+
+    const beforeX = this.camera.x
+    const beforeY = this.camera.y
+    this.camera.panByScreen(dx, dy)
+
+    // Against the fence with nowhere to go. Keeping the target would leave the page
+    // holding a scroll it can never spend, which then fires the moment you turn
+    // round - the top of a diary bouncing when you finally scroll back down.
+    if (this.camera.x === beforeX && this.camera.y === beforeY) {
+      pending.x = 0
+      pending.y = 0
+    }
   }
 
   // --- render loop ------------------------------------------------------------
@@ -925,6 +1633,13 @@ export class CanvasEngine {
   private loop = (): void => {
     if (this.disposed) return
     this.frame = requestAnimationFrame(this.loop)
+
+    this.stepWheel()
+
+    // A fenced camera re-centres its column when the window changes width, and this is
+    // where it finds out that it did. A no-op at the same size, and on an unfenced
+    // camera it is two comparisons.
+    this.camera.setViewport(this.viewportWidth, this.viewportHeight)
 
     if (this.camera.version !== this.lastCameraVersion) {
       this.lastCameraVersion = this.camera.version
@@ -971,6 +1686,11 @@ export class CanvasEngine {
   }
 
   private render(): void {
+    // Nothing to paint on before `init` has built the layers. Reachable because the
+    // board view applies a surface, a tool set and a column from React effects, any of
+    // which can land while the renderer is still coming up.
+    if (!this.ready) return
+
     // One transform, snapped to device pixels once, handed to both layers. See
     // camera.ts: this is the whole reason the DOM text sits exactly on its shape.
     const transform = viewTransform(this.camera, window.devicePixelRatio || 1)
@@ -1008,7 +1728,7 @@ export class CanvasEngine {
    * shows where the writing is beats one that pretends there is none.
    */
   async captureThumbnail(maxDimension = 512): Promise<Blob | null> {
-    if (this.app === undefined || this.cache.size === 0) return null
+    if (!this.ready || this.cache.size === 0) return null
 
     const bounds = unionBounds(Array.from(this.cache.values()))
     if (bounds === null) return null
@@ -1361,8 +2081,18 @@ export class CanvasEngine {
         .stroke({ width: 1, color: SELECTION_COLOR, alpha: 0.7 })
     }
 
+    /*
+     * The page is not an object you select.
+     *
+     * On a writing surface the column is the paper, and a blue box with eight handles
+     * round the paper is the app admitting it is a canvas editor wearing a diary. It
+     * cannot be moved or resized either - the fence decides where it is and how wide -
+     * so chrome offering both would be chrome for two things that do not happen.
+     * Anything else on the page still selects and still shows its box.
+     */
     const selectedObjects: ObjectData[] = []
     for (const id of this.selected) {
+      if (this.isPageRow(id)) continue
       const object = this.cache.get(id)
       if (object !== undefined) selectedObjects.push(object)
     }
@@ -1606,6 +2336,27 @@ export class CanvasEngine {
       return
     }
 
+    /*
+     * On a writing surface, a click on the page starts writing on the rule you clicked.
+     *
+     * Not select-then-double-click-to-edit, which is how you handle an object lying on
+     * a canvas and not how anybody handles paper.
+     *
+     * The band decides, and nothing else does. This used to hit-test the objects first
+     * and only fall back to the band, which sounds more precise and is the bug: a hit
+     * test is generous by design - it carries a tolerance so small things stay
+     * clickable - and on a page where every band touches the next one, generosity means
+     * a row claiming the rule below it. An empty rule between two written ones could
+     * not be clicked into at all; the writing went to the end of the line above.
+     * `beginWritingRow` still hands a click back to whichever row already covers that
+     * band, so writing that has wrapped over several rules is continued rather than
+     * written over.
+     */
+    if (this.column !== null && this.toolId === 'select' && this.host.canWrite) {
+      this.beginWritingRow(this.rowAt(this.toPointerEvent(event).world.y))
+      return
+    }
+
     this.app.canvas.setPointerCapture(event.pointerId)
     this.tool.onPointerDown(this.toPointerEvent(event))
   }
@@ -1667,6 +2418,23 @@ export class CanvasEngine {
     this.temporaryPanFrom = null
   }
 
+  /**
+   * A wheel event in pixels.
+   *
+   * `deltaY` is only a pixel count when `deltaMode` says so. Firefox reports lines on a
+   * mouse wheel and some browsers report pages, and reading either as pixels gives a
+   * page that either barely moves or leaps a screen at a time.
+   */
+  private wheelPixels(event: WheelEvent): { x: number; y: number } {
+    const scale =
+      event.deltaMode === 1
+        ? WHEEL_LINE_PX
+        : event.deltaMode === 2
+          ? this.viewportHeight
+          : 1
+    return { x: event.deltaX * scale, y: event.deltaY * scale }
+  }
+
   private onWheel = (event: WheelEvent): void => {
     event.preventDefault()
     const point = this.toCanvasPoint(event)
@@ -1674,11 +2442,20 @@ export class CanvasEngine {
     // Ctrl or meta plus wheel is zoom. A trackpad pinch arrives as ctrl+wheel too,
     // which is why both map to the same gesture.
     if (event.ctrlKey || event.metaKey) {
-      this.camera.zoomBy(point.x, point.y, Math.exp(-event.deltaY * 0.01))
-    } else if (event.shiftKey) {
-      this.camera.panByScreen(-event.deltaY, 0)
+      // Zoom stays immediate. It is anchored to the pointer, and easing a move that has
+      // to keep one world point under the cursor makes the thing you are pointing at
+      // slide out from under it.
+      this.camera.zoomBy(point.x, point.y, Math.exp(-this.wheelPixels(event).y * 0.01))
     } else {
-      this.camera.panByScreen(-event.deltaX, -event.deltaY)
+      const delta = this.wheelPixels(event)
+      // Shift is the horizontal wheel, which is a wheel that only reports deltaY.
+      const dx = event.shiftKey ? delta.y : delta.x
+      const dy = event.shiftKey ? 0 : delta.y
+      this.wheelPending.x = clamp(this.wheelPending.x - dx, -WHEEL_MAX_PENDING, WHEEL_MAX_PENDING)
+      this.wheelPending.y = clamp(this.wheelPending.y - dy, -WHEEL_MAX_PENDING, WHEEL_MAX_PENDING)
+      // The next step is measured from now, not from whenever the last one ran, or a
+      // wheel that has been still for a second starts with a full frame of catch-up.
+      if (this.wheelAt === 0) this.wheelAt = performance.now()
     }
     this.requestRender()
   }
@@ -1862,7 +2639,12 @@ export class CanvasEngine {
   }
 
   private detachInput(): void {
-    const canvas = this.app?.canvas
+    // `this.app?.canvas` is not the guard it looks like. Pixi's `canvas` getter reads
+    // through `renderer`, which does not exist until `app.init` resolves, so an engine
+    // torn down mid-init threw here rather than returning undefined. Nothing was
+    // attached in that case anyway: `attachInput` runs at the end of `init`.
+    if (!this.ready) return
+    const canvas = this.app.canvas
     if (canvas !== undefined) {
       canvas.removeEventListener('pointerdown', this.onPointerDown)
       canvas.removeEventListener('pointermove', this.onPointerMove)

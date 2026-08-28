@@ -9,14 +9,34 @@
  * correct.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { ArrowRouting } from '@meadow/schema'
 import type { TextMark } from '../../doc/richText'
-import { CanvasEngine } from '../../canvas/engine'
+import {
+  CanvasEngine,
+  DEFAULT_PAGE_LINES,
+  PAGE_LINES_STEP,
+  type WritingColumn,
+} from '../../canvas/engine'
+import { type CanvasSurface, DEFAULT_SURFACE } from '../../canvas/surface'
 import type { Wanderer } from '../../canvas/overlay/wandererLayer'
 import type { ToolId } from '../../canvas/tools/types'
 import { DocEngineHost, observeDocument } from '../../doc/engineHost'
-import { type DocSession, reconcileBindings, reconcileOrder } from '../../doc/mutations'
+import {
+  type DocSession,
+  addPageLines,
+  observePageMeta,
+  readPageDate,
+  readPageLines,
+  readPagePaper,
+  readPageSubject,
+  setPageDate,
+  setPagePaper,
+  setPageSubject,
+  reconcileBindings,
+  reconcileOrder,
+  reseatWritingRows,
+} from '../../doc/mutations'
 import { createTextEditor } from '../../overlay/textEditor'
 import { THEME_EVENT } from '../../ui/theme'
 
@@ -53,6 +73,25 @@ export type CanvasHandle = {
   setWanderers(wanderers: readonly Wanderer[]): void
   zoomToFit(): void
   resetZoom(): void
+  /** Put the caret in a text-bearing object. False if it is not editable yet. */
+  beginTextEdit(id: string): boolean
+  /** Put the caret on a row of a writing surface, making the row if it is not there. */
+  beginWritingRow(row: number): boolean
+  /** How many rules this page has, on a writing surface. Zero on a free canvas. */
+  pageLines: number
+  /** Lengthen the page by one step. No-op when the role cannot write. */
+  addLines(): void
+  /** The date printed at the top of the page, `YYYY-MM-DD` or '' for none. */
+  pageDate: string
+  setDate(iso: string): void
+  /** What the page is about, written beside the date. */
+  pageSubject: string
+  setSubject(subject: string): void
+  /** The stock this page is printed on, or '' to take the reader's own default. */
+  pagePaper: string
+  setPaper(paper: string): void
+  /** Re-read the surface colours. For anything that repaints the page under WebGL. */
+  syncTheme(): void
   deleteSelection(): void
   /** Graph paper on the board surface. Cosmetic, remembered across sessions. */
   gridVisible: boolean
@@ -94,6 +133,27 @@ export type CanvasPresence = {
 export type CanvasOptions = {
   /** The signed-in person's display name, for the byline on a sticky they create. */
   authorName?: string
+  /**
+   * The paper under the canvas, chosen by the glade's kind.
+   *
+   * It arrives one request after the page mounts, so it is applied by its own effect
+   * rather than only at init. Changing it never rebuilds the engine: it is a class on
+   * the host and two style writes, and tearing the canvas down for a background would
+   * drop the camera and the selection.
+   */
+  surface?: CanvasSurface
+  /**
+   * The tools this kind of glade offers, or undefined for all of them.
+   *
+   * Applied to the engine and not only to the rail, because every tool also has a
+   * single-key shortcut and hiding a button does not unbind a key.
+   */
+  tools?: readonly ToolId[]
+  /**
+   * Fence the canvas into a writing column of this world width. Undefined leaves it
+   * as an unbounded plane.
+   */
+  column?: WritingColumn | null
   /**
    * A write the role would not allow. Fired from a pointer handler, so it can arrive
    * once a frame for as long as someone keeps dragging on a board they cannot edit.
@@ -183,6 +243,10 @@ export function useCanvas(
     void engine.init().then(() => {
       if (cancelled) return
       engine.setGridVisible(gridRef.current)
+      engine.setSurface(optionsRef.current.surface ?? DEFAULT_SURFACE)
+      engine.setAvailableTools(optionsRef.current.tools ?? null)
+      engine.setColumn(optionsRef.current.column ?? null)
+      engine.setPageLines(readPageLines(current(), DEFAULT_PAGE_LINES))
       reconcileOrder(current())
       // A target may have moved while this client was offline, or the document may
       // have been written by a client that solved differently.
@@ -207,6 +271,96 @@ export function useCanvas(
       engine.destroy()
     }
   }, [element])
+
+  // Depends on the value, not on `options`: the hook is called with a fresh options
+  // object every render, and depending on that would re-run this on every keystroke.
+  const surface = options.surface ?? DEFAULT_SURFACE
+  useEffect(() => {
+    engineRef.current?.setSurface(surface)
+  }, [surface, element])
+
+  // The kind registry's arrays are module-level constants, so this identity is stable
+  // and the effect runs when the kind actually changes rather than on every render.
+  const tools = options.tools ?? null
+  useEffect(() => {
+    engineRef.current?.setAvailableTools(tools)
+  }, [tools, element])
+
+  /*
+   * Split into its own numbers rather than passed as an object, because the page
+   * builds a fresh one every render and an object dependency would re-fence the camera
+   * on every keystroke.
+   */
+  const column = options.column ?? null
+  const width = column?.width ?? null
+  const fontSize = column?.fontSize ?? 0
+  const lineHeight = column?.lineHeight ?? 0
+  useEffect(() => {
+    engineRef.current?.setColumn(width === null ? null : { width, fontSize, lineHeight })
+  }, [width, fontSize, lineHeight, element])
+
+  /*
+   * Put an older page's rows back on the ruling.
+   *
+   * Waits for objects, because the kind and the document arrive from two different
+   * requests and repairing an empty document repairs nothing. Keyed on the pitch it
+   * last repaired for rather than a boolean, so a page opened before its type changed
+   * is repaired again afterwards, and typing a new row does not re-run it.
+   */
+  /*
+   * The page's length, read from the document rather than held here.
+   *
+   * `useSyncExternalStore` over the doc's `meta`, for the same reason every other
+   * document value is read that way: a copy in React state is a copy that is wrong the
+   * moment a peer lengthens the page.
+   */
+  const subscribeMeta = useCallback(
+    (onChange: () => void) => observePageMeta(session, onChange),
+    [session],
+  )
+  const pageLines = useSyncExternalStore(subscribeMeta, () =>
+    readPageLines(session, DEFAULT_PAGE_LINES),
+  )
+  const pageDate = useSyncExternalStore(subscribeMeta, () => readPageDate(session))
+  const pageSubject = useSyncExternalStore(subscribeMeta, () => readPageSubject(session))
+  const pagePaper = useSyncExternalStore(subscribeMeta, () => readPagePaper(session))
+  useEffect(() => {
+    engineRef.current?.setPageLines(pageLines)
+  }, [pageLines, element])
+
+  const addLines = useCallback(() => {
+    addPageLines(
+      sessionRef.current,
+      readPageLines(sessionRef.current, DEFAULT_PAGE_LINES),
+      PAGE_LINES_STEP,
+    )
+  }, [])
+
+  const setDate = useCallback((iso: string) => {
+    setPageDate(sessionRef.current, iso)
+  }, [])
+
+  const setSubject = useCallback((subject: string) => {
+    setPageSubject(sessionRef.current, subject)
+  }, [])
+
+  const setPaper = useCallback((paper: string) => {
+    setPagePaper(sessionRef.current, paper)
+  }, [])
+
+  // The stock decides the ink, and the ink is the one colour WebGL cannot re-resolve
+  // for itself. Same call the theme toggle makes, for the same reason.
+  const syncTheme = useCallback(() => {
+    engineRef.current?.syncTheme()
+  }, [])
+
+  const reseated = useRef<number | null>(null)
+  useEffect(() => {
+    const spacing = fontSize * lineHeight
+    if (width === null || objectCount === 0 || reseated.current === spacing) return
+    reseated.current = spacing
+    reseatWritingRows(sessionRef.current, spacing)
+  }, [width, fontSize, lineHeight, objectCount])
 
   const setTool = useCallback((next: ToolId) => {
     engineRef.current?.setTool(next)
@@ -234,6 +388,24 @@ export function useCanvas(
     engineRef.current?.setWanderers(wanderers)
   }, [])
 
+  /*
+   * Stable, and that matters more here than for the other handles on this object.
+   *
+   * The rest of them are only ever called from a click. This one is called from an
+   * effect - the board view puts the caret on a writing surface's first line - and a
+   * fresh identity every render would make that effect run every render, which put the
+   * caret back every time the user clicked away from it.
+   */
+  const beginTextEdit = useCallback((id: string) => {
+    return engineRef.current?.beginTextEdit(id) ?? false
+  }, [])
+
+  // Stable for the same reason as `beginTextEdit`: the board view calls it from an
+  // effect when a lea is opened empty.
+  const beginWritingRow = useCallback((row: number) => {
+    return engineRef.current?.beginWritingRow(row) ?? false
+  }, [])
+
   return {
     containerRef: setElement,
     engine: engineRef.current,
@@ -244,6 +416,17 @@ export function useCanvas(
     zoom,
     editingId,
     setWanderers,
+    beginTextEdit,
+    beginWritingRow,
+    pageLines: options.column === null || options.column === undefined ? 0 : pageLines,
+    addLines,
+    pageDate,
+    setDate,
+    pageSubject,
+    setSubject,
+    pagePaper,
+    setPaper,
+    syncTheme,
     zoomToFit: () => engineRef.current?.zoomToFit(),
     resetZoom: () => engineRef.current?.resetZoom(),
     deleteSelection: () => engineRef.current?.deleteSelection(),

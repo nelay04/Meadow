@@ -7,6 +7,7 @@ import { AuthProvider, useAuth } from './features/auth/AuthContext'
 import LoginPage from './features/auth/LoginPage'
 import ResetPasswordPage from './features/auth/ResetPasswordPage'
 import BoardsPage from './features/boards/BoardsPage'
+import { BOARD_PATH_SEGMENTS, boardPath } from './features/boards/kinds'
 import ProfilePage from './features/profile/ProfilePage'
 import { SplashVideo } from './ui/SplashVideo'
 
@@ -16,15 +17,24 @@ import { SplashVideo } from './ui/SplashVideo'
  */
 type Route =
   | { name: 'boards' }
-  | { name: 'glade'; boardId: string }
+  | { name: 'board'; boardId: string }
   | { name: 'profile' }
   | { name: 'reset'; token: string }
 
+/*
+ * One route per kind of board, all matching the same view.
+ *
+ * The segment is the kind - `#/glade/...`, `#/lea/...` - because the address bar is
+ * the one piece of this app a person reads and sends on. It is not load-bearing: the
+ * board view learns the real kind from the server and rewrites the hash if the link
+ * disagreed, so an old link, a hand-edited one, or a link to a board somebody has
+ * since changed all still open the right thing.
+ */
+const BOARD_ROUTE = new RegExp(`^#/(?:${BOARD_PATH_SEGMENTS.join('|')})/([0-9a-f-]{36})$`, 'i')
+
 function routeFromHash(): Route {
-  // `field` is the old spelling of the same route, kept readable so a tab left
-  // open on one still resolves. Only `glade` is ever written.
-  const glade = /^#\/(?:glade|field)\/([0-9a-f-]{36})$/i.exec(location.hash)
-  if (glade !== null) return { name: 'glade', boardId: glade[1] }
+  const board = BOARD_ROUTE.exec(location.hash)
+  if (board !== null) return { name: 'board', boardId: board[1] }
   if (/^#\/profile\/?$/.test(location.hash)) return { name: 'profile' }
   // The password reset link from the mail. The token lives in the fragment, so it never
   // reaches a server log on the way here.
@@ -71,7 +81,7 @@ function Shell() {
     page = null
   } else if (user === null) {
     page = <LoginPage />
-  } else if (route.name === 'glade') {
+  } else if (route.name === 'board') {
     page = (
       <BoardPage
         boardId={route.boardId}
@@ -91,8 +101,8 @@ function Shell() {
   } else {
     page = (
       <BoardsPage
-        onOpen={(id) => {
-          location.hash = `#/glade/${id}`
+        onOpen={(id, kind) => {
+          location.hash = boardPath(kind, id)
         }}
       />
     )

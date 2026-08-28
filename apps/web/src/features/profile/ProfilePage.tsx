@@ -3,8 +3,15 @@ import type { FormEvent } from 'react'
 
 import { Wordmark } from '../../ui/Brand'
 import { Avatar } from '../../ui/Avatar'
-import { IconCheck } from '../../ui/icons'
-import { ThemeToggle } from '../../ui/ThemeToggle'
+import { IconAuto, IconBack, IconCheck, IconMoon, IconSun } from '../../ui/icons'
+import {
+  PAPERS,
+  PAPER_LABEL,
+  type Paper,
+  readPaperPreference,
+  writePaperPreference,
+} from '../../ui/paper'
+import { type Theme, applyTheme, readTheme } from '../../ui/theme'
 import { useToast } from '../../ui/Toaster'
 import * as api from '../../lib/api'
 import { ApiError } from '../../lib/api'
@@ -15,6 +22,12 @@ import { OAUTH_PROVIDERS } from '../auth/providers'
 type Props = {
   onBack: () => void
 }
+
+const THEME_CHOICES: { id: Theme; label: string; Icon: typeof IconSun }[] = [
+  { id: 'system', label: 'Match system', Icon: IconAuto },
+  { id: 'light', label: 'Light', Icon: IconSun },
+  { id: 'dark', label: 'Dark', Icon: IconMoon },
+]
 
 function linkedOn(iso: string): string {
   const when = new Date(iso)
@@ -43,6 +56,10 @@ export default function ProfilePage({ onBack }: Props) {
   const [sendingPassword, setSendingPassword] = useState(false)
   const [passwordLinkSent, setPasswordLinkSent] = useState(false)
   const [providers, setProviders] = useState<Providers | null>(null)
+  // Read once, from the same place the toggle used to read it, so a theme chosen in an
+  // earlier session is the one shown as chosen here.
+  const [theme, setTheme] = useState<Theme>(readTheme)
+  const [paper, setPaper] = useState<Paper>(readPaperPreference)
 
   // The context is the source of truth; this input is a draft of one field of it. It
   // re-seeds when the stored value changes, which is what makes a failed save snap
@@ -161,13 +178,21 @@ export default function ProfilePage({ onBack }: Props) {
   return (
     <div className="profile">
       <header className="profile-head">
-        <button type="button" className="ghost" onClick={onBack}>
-          Back to glades
+        {/* The same mark as the board view's, rather than a worded button. Every
+            other screen in the app leaves by this arrow in this corner, and one page
+            spelling it out reads as a different kind of page. */}
+        <button
+          type="button"
+          className="icon ghost"
+          onClick={onBack}
+          title="Back to your glades"
+          aria-label="Back to your glades"
+        >
+          <IconBack />
         </button>
         <span className="spacer" />
         <Wordmark />
         <span className="spacer" />
-        <ThemeToggle />
       </header>
 
       <main className="profile-body">
@@ -351,6 +376,74 @@ export default function ProfilePage({ onBack }: Props) {
               you stay signed in as yourself either way.
             </p>
           )}
+        </section>
+
+        {/*
+          Appearance.
+          This was a single icon in the sidebar that cycled three states, which is the
+          right control when it has to fit beside a name and the wrong one anywhere
+          there is room: cycling makes you press a button twice to find out what it
+          does, and it never showed the two options you were not on. A settings page
+          has room, so all three are on screen and the current one is simply marked.
+        */}
+        <section className="card">
+          <h2>Appearance</h2>
+          <p className="hint">
+            Applies to this browser only, and takes effect as you choose it. Matching
+            the system follows it when it changes, including at sunset.
+          </p>
+          <div className="theme-choices" role="radiogroup" aria-label="Theme">
+            {THEME_CHOICES.map((choice) => (
+              <button
+                key={choice.id}
+                type="button"
+                role="radio"
+                aria-checked={theme === choice.id}
+                className={theme === choice.id ? 'theme-choice active' : 'theme-choice'}
+                onClick={() => {
+                  setTheme(choice.id)
+                  applyTheme(choice.id)
+                }}
+              >
+                <choice.Icon size={20} />
+                <span>{choice.label}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        {/*
+          The stock a diary opens on.
+          Only the default: a lea can be printed on whatever its own paper menu says,
+          and a page that chose is left alone. This answers the other question - what a
+          page that never chose should look like to you - which is why it is a
+          preference of this browser rather than something written into any document.
+        */}
+        <section className="card">
+          <h2>Diary paper</h2>
+          <p className="hint">
+            What a lea is printed on when the page has not chosen for itself. Matching
+            the theme gives a page that turns dark with the rest of the app; the others
+            stay what they are in both.
+          </p>
+          <div className="theme-choices" role="radiogroup" aria-label="Diary paper">
+            {PAPERS.map((choice) => (
+              <button
+                key={choice}
+                type="button"
+                role="radio"
+                aria-checked={paper === choice}
+                className={paper === choice ? 'theme-choice active' : 'theme-choice'}
+                onClick={() => {
+                  setPaper(choice)
+                  writePaperPreference(choice)
+                }}
+              >
+                <span className="paper-swatch" data-paper={choice} aria-hidden="true" />
+                <span>{PAPER_LABEL[choice]}</span>
+              </button>
+            ))}
+          </div>
         </section>
 
         {/* After Sign-in, because it is the other half of the same subject: how this

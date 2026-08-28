@@ -22,6 +22,7 @@ import {
 import type * as Y from 'yjs'
 
 import type { EngineHost } from '../canvas/engine'
+import type { SurfaceType } from '../canvas/surface'
 import {
   type DocSession,
   ReadOnlyError,
@@ -53,6 +54,7 @@ export type EditorFactory = (options: {
   props: TextProps
   editable: boolean
   onExit(): void
+  onLeave?(direction: 'up' | 'down'): boolean
   onMarks?(marks: TextMark[]): void
 }) => {
   destroy(): void
@@ -219,7 +221,16 @@ export class DocEngineHost implements EngineHost {
    * Mount an editor into an overlay element. Returns the teardown, or null when this
    * host has no editor factory or the object carries no fragment.
    */
-  beginEdit(id: string, element: HTMLElement, onExit: () => void): (() => void) | null {
+  beginEdit(
+    id: string,
+    element: HTMLElement,
+    onExit: () => void,
+    surface: {
+      ink: number
+      type: SurfaceType | null
+      onLeave?: (direction: 'up' | 'down') => boolean
+    },
+  ): (() => void) | null {
     const factory = this.options.createEditor
     if (factory === undefined) return null
 
@@ -231,14 +242,32 @@ export class DocEngineHost implements EngineHost {
     const object = this.object(id)
     if (object === undefined) return null
 
+    /*
+     * The same ink fallback the idle text layer applies, for the same reason and with
+     * the same limit: an object whose document names a colour keeps it, and one that
+     * does not follows the surface.
+     *
+     * Without this the editor took the schema's default instead, so text changed colour
+     * the moment you stopped typing. On a lea that is brown paper against navy ink and
+     * impossible to miss; on a dark glade it was there all along and simply looked like
+     * the caret being a different shade.
+     */
+    const props = resolveTextProps(object)
+    if (typeof object.props.color !== 'number') props.color = surface.ink
+
+    // And the same override, for the same reason: the ruled page sets the type its
+    // rows are written in, whatever metrics a given row happens to carry.
+    if (surface.type !== null) Object.assign(props, surface.type)
+
     const editor = factory({
       element,
       fragment,
-      props: resolveTextProps(object),
+      props,
       // A viewer still gets a caret and can select and copy. The write path is what is
       // closed off, in exactly one place, the same as every other mutation.
       editable: this.session.canWrite,
       onExit,
+      onLeave: surface.onLeave,
       onMarks: (marks) => this.options.onMarks?.(marks),
     })
 

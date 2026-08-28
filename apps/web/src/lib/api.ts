@@ -63,10 +63,18 @@ export type ProfilePatch = {
   avatar_source?: 'none' | OAuthProvider
 }
 
+/**
+ * What paper a glade is drawn on. Never what editor it opens in: every kind is the
+ * same infinite canvas over the same document. See `features/boards/kinds.ts`, which
+ * is where a kind becomes a label, an icon and a canvas surface.
+ */
+export type BoardKind = 'glade' | 'lea'
+
 export type Board = {
   id: string
   workspace_id: string
   title: string
+  kind: BoardKind
   is_archived: boolean
   created_at: string
   updated_at: string
@@ -296,10 +304,22 @@ export function listBoards(archived = false): Promise<Board[]> {
   return call<Board[]>(`/boards?archived=${archived}`)
 }
 
-export function createBoard(workspaceId: string, title: string): Promise<Board> {
+export function createBoard(
+  workspaceId: string,
+  title: string,
+  kind: BoardKind = 'glade',
+): Promise<Board> {
   return call<Board>('/boards', {
     method: 'POST',
-    body: JSON.stringify({ workspace_id: workspaceId, title }),
+    body: JSON.stringify({ workspace_id: workspaceId, title, kind }),
+  })
+}
+
+/** Rename. Editor and above; the server is the authority, this only asks. */
+export function renameBoard(boardId: string, title: string): Promise<Board> {
+  return call<Board>(`/boards/${boardId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ title }),
   })
 }
 

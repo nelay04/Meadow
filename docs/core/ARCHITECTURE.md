@@ -269,6 +269,7 @@ boards
   id              uuid pk
   workspace_id    uuid fk -> workspaces
   title           text not null default 'Untitled'
+  kind            text not null default 'glade'   -- check in ('glade','lea')
   created_by      uuid fk -> users
   thumbnail_url   text
   is_archived     bool default false
@@ -400,6 +401,14 @@ Y.Doc {
   "meta":     Y.Map<...>                    // title, background, grid settings
 }
 ```
+
+`meta` was reserved here and unused until M6, when the lea surface needed somewhere to
+put a page's own values: `pageLines`, `pageSubject`, `pageDate`, `pagePaper`. The test for what
+belongs in it rather than in `objects` is whether the thing could sensibly exist twice.
+A note on the page could; a page's date could not, and two of them is a state the
+surface should not be able to reach. `meta` is deliberately outside the UndoManager's
+scope - undo is for what you wrote, and Ctrl+Z shortening the paper under writing that
+is already on it would be worse than not being able to undo it at all.
 
 ### Object
 
@@ -1386,6 +1395,63 @@ drawn by dragging a dot on a shape rather than by picking a tool first, an arrow
 re-aimed and bent after it exists, and the alignment help learned to distribute as well
 as to align. The reasoning for each lives in §5 rather than here; what belongs in the
 record is that none of it was a schema change beyond two additive props on arrows.
+
+**Glades have kinds, and a kind is paper rather than a mode.** `boards.kind` is a
+plain string with a check constraint, `'glade'` or `'lea'`, backfilled to `'glade'`
+because that is what every board already was. A **lea** is a diary: kraft stock, ruled
+for writing, opening with the caret already on the first line.
+
+Nothing about the CRDT changes. A lea is the same Y.Doc, the same flat `objects` map,
+the same `text` object carrying a `Y.XmlFragment`, and a client that has never heard of
+leas renders one correctly as a text object on a canvas. What the kind decides is three
+things on the client: which surface the host element wears, which tools the rail and the
+keyboard shortcuts offer, and whether the camera is fenced.
+
+That fence is the part worth arguing about, because §1 says there is no page and no
+document editor. A lea is fenced to a 760-unit column at zoom 1, scrolls down forever
+and no higher than its first line, and creates one text object sized to the column when
+it is opened empty. Every one of those is a constraint on the *camera* and one ordinary
+object; the engine, the schema, the sync path and the permission model are untouched,
+and `src/canvas/` still knows nothing about diaries - it knows about ruled paper and
+about a fence, both of which are generic. The rule holds: it is still one canvas with
+objects at (x, y), and dropping the fence would leave a working glade with kraft paper
+on it. Anything that *would* need a page - flowing text across sheet breaks, per-page
+anything - is out, and stays out.
+
+One consequence worth stating, because it is the difference between a diary and a
+glade with kraft paper on it: on a fenced board the page is *paper*, not an object. Its
+rows draw no selection chrome, a single click starts writing on the rule under the
+pointer rather than selecting, `deleteSelection` refuses them, and leaving the editor
+clears the selection so nothing downstream believes it is holding one.
+
+**Each rule is a row, and a row is one `text` object at `(0, row * spacing)`.** The
+first version was a single flowing column, which is a text box wearing a page: it could
+only be appended to, and which rule line fifty landed on depended on how much had been
+written above it. Rows are created by the click that needs them and discarded by
+`discardIfEmpty` when the caret leaves an untouched one. Nothing in the schema knows
+what a row is - the position and the type metrics are the whole of it - so a client that
+has never heard of leas still renders one correctly, which is the same test every part
+of this feature has to pass.
+
+The extension point is `apps/web/src/features/boards/kinds.ts`. The sidebar's Kinds
+filters, the create composer, the card badges, the tool rail and the page geometry are
+all read off that one array, so a third kind is an entry there plus a value in
+`app/services/board_kinds.py` and its check constraint.
+
+Three things were built and thrown away here. A spiral binding down the left edge,
+drawn as tiled CSS gradients, read as hatching at the sizes it actually appeared at and
+was cut. So did the paper's first texture, a `repeating-linear-gradient` at 115 degrees
+standing in for fibre: a repeating gradient is a comb, and at any alpha you can see it
+reads as diagonal hatching ruled across the page, which is the one texture paper does
+not have. The replacement is two scales of `feTurbulence` as data-URI backgrounds -
+fine tooth stretched along the grain, and slow cloudy pulp at a scale of inches - which
+is irregular in the way real stock is. `stitchTiles` joins the tile edges; the coarse
+layer tiles at 900px rather than 420 because stitching rounds the base frequency to
+something the tile divides evenly, and at that frequency the rounding was large enough
+to leave a visible seam down the middle of the page. And the first paper was a cream two shades off the app's own with pale blue rules,
+which is an exercise book, not a journal; kraft with thin dark rules is the second
+attempt and the reason the palette sits outside `light-dark()` - paper does not invert
+at night, so the sheet is fixed and the desk under it is themed.
 
 **`docker-compose.yml` is production and `docker-compose.local.yml` is development**,
 which is the reverse of the usual arrangement. The file that runs unattended on a
