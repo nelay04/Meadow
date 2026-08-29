@@ -6,12 +6,13 @@ import { Avatar } from '../../ui/Avatar'
 import { IconAuto, IconBack, IconCheck, IconMoon, IconSun } from '../../ui/icons'
 import {
   PAPERS,
+  PAPER_EVENT,
   PAPER_LABEL,
   type Paper,
   readPaperPreference,
   writePaperPreference,
 } from '../../ui/paper'
-import { type Theme, applyTheme, readTheme } from '../../ui/theme'
+import { THEME_EVENT, type Theme, applyTheme, readTheme } from '../../ui/theme'
 import { useToast } from '../../ui/Toaster'
 import * as api from '../../lib/api'
 import { ApiError } from '../../lib/api'
@@ -60,6 +61,24 @@ export default function ProfilePage({ onBack }: Props) {
   // earlier session is the one shown as chosen here.
   const [theme, setTheme] = useState<Theme>(readTheme)
   const [paper, setPaper] = useState<Paper>(readPaperPreference)
+
+  /*
+   * Both are settings of this browser rather than of this page, so this page is not the
+   * only thing that can move them: another tab's profile can, and `ui/paper.ts` turns
+   * a cross-tab `storage` event into the same event a local change fires. Without this
+   * the radios here would sit on a stale answer while the rest of the app had already
+   * changed.
+   */
+  useEffect(() => {
+    const onPaper = (): void => setPaper(readPaperPreference())
+    const onTheme = (): void => setTheme(readTheme())
+    window.addEventListener(PAPER_EVENT, onPaper)
+    window.addEventListener(THEME_EVENT, onTheme)
+    return () => {
+      window.removeEventListener(PAPER_EVENT, onPaper)
+      window.removeEventListener(THEME_EVENT, onTheme)
+    }
+  }, [])
 
   // The context is the source of truth; this input is a draft of one field of it. It
   // re-seeds when the stored value changes, which is what makes a failed save snap
@@ -413,18 +432,19 @@ export default function ProfilePage({ onBack }: Props) {
         </section>
 
         {/*
-          The stock a diary opens on.
-          Only the default: a lea can be printed on whatever its own paper menu says,
-          and a page that chose is left alone. This answers the other question - what a
-          page that never chose should look like to you - which is why it is a
-          preference of this browser rather than something written into any document.
+          The stock every diary is printed on.
+          The same setting as the paper menu in a lea's own toolbar, not a default
+          underneath it: either control moves this one value. It is a preference of this
+          browser rather than something written into a document, so it is how leas look
+          to you and changes nothing for anyone you share one with.
         */}
         <section className="card">
           <h2>Diary paper</h2>
           <p className="hint">
-            What a lea is printed on when the page has not chosen for itself. Matching
-            the theme gives a page that turns dark with the rest of the app; the others
-            stay what they are in both.
+            What every lea is printed on, for you. The paper menu on a lea itself is the
+            same setting, so changing it in either place changes both. Matching the theme
+            gives a page that turns dark with the rest of the app; the others stay what
+            they are in both.
           </p>
           <div className="theme-choices" role="radiogroup" aria-label="Diary paper">
             {PAPERS.map((choice) => (

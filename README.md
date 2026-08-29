@@ -213,14 +213,70 @@ pnpm check:stack                                 # 15 assertions against the rea
 
 ## Running it
 
-Requires Docker, Node 22+, pnpm, Python 3.13, and uv.
+Requires Docker. One command, no host Python and no host Node:
 
 ```bash
 cp .env.example .env          # ports and credentials live here
 
-# postgres, redis, pgadmin. The -f is not optional: docker-compose.yml is the
-# production stack, and a bare `docker compose up -d` here starts that instead.
-docker compose -f docker-compose.local.yml up -d
+# The -f is not optional: docker-compose.yml is the production stack, and a bare
+# `docker compose up -d` here starts that instead.
+docker compose -f docker-compose.local.yml up -d          # or: pnpm local
+```
+
+That is postgres, redis, pgAdmin, a one-shot `migrate`, the API, the arq worker and the
+web app, with your working tree bind-mounted into them. Edits reload in place: uvicorn
+restarts the API on a Python change, vite hot-reloads the browser on a TypeScript one,
+and watchfiles restarts the arq worker. Nothing needs a rebuild until a dependency
+changes.
+
+`migrate` is a one-shot: it runs `alembic upgrade head`, exits, and the API waits for it
+to have succeeded. Seeing `meadow-migrate-1 ... Exited (0)` in `docker ps -a` is the
+healthy state, not a failure.
+
+The app services used to sit behind a `--profile app` flag, so that `api` and `web` did
+not hold `API_PORT` and `WEB_PORT` for anyone running those servers on the host. That
+was the wrong default: it put the flag on the ordinary case, which is to run the app.
+The host flow asks for the data services by name instead, below.
+
+Two things are worth knowing about how it is wired, because getting either wrong
+produces a confusing failure:
+
+- **`node_modules` is the image's, never the host's.** The bind mount covers
+  `apps/web`, and two anonymous volumes sit on top of the `node_modules` directories to
+  keep the container's copy. The host tree is installed for the host platform, and
+  pnpm's symlinked layout does not survive being half-overlaid; the symptom reads like
+  a vite bug rather than a mount problem.
+- **File watching may need polling.** Bind mounts on WSL and on docker-for-mac often do
+  not deliver inotify events into the container. If an edit does not trigger a reload,
+  set `MEADOW_WATCH_POLL=true` in `.env`. It is off by default because on a native
+  filesystem it is wasted CPU forever.
+
+Run the checks inside the containers too, if you would rather not install the
+toolchains:
+
+```bash
+docker compose -f docker-compose.local.yml exec api pytest -q
+docker compose -f docker-compose.local.yml exec api ruff check .
+docker compose -f docker-compose.local.yml exec web pnpm --filter web test
+```
+
+| Service | URL |
+|---|---|
+| Web app | http://localhost:3012 |
+| API | http://localhost:8012 |
+| API docs | http://localhost:8012/docs |
+| pgAdmin | http://localhost:5051 |
+| Postgres | localhost:5435 (`meadow`, and `meadow_test` for the suite) |
+| Redis | localhost:6382 (db 0 dev, db 1 tests) |
+
+### Or run the API and the web app on the host
+
+For a debugger on the API, or the two-terminal flow. Start the data services by name so
+that nothing holds `API_PORT` and `WEB_PORT`, and install the toolchains: Node 22+,
+pnpm, Python 3.13 and uv.
+
+```bash
+docker compose -f docker-compose.local.yml up -d postgres redis pgadmin   # or: pnpm local:data
 
 cd services/api
 uv venv --python 3.13
@@ -241,53 +297,8 @@ cd services/api && .venv/bin/python -m uvicorn app.main:app --port 8012
 pnpm --filter web dev
 ```
 
-### Or run everything in Docker, with hot reload
-
-One command, no host Python and no host Node:
-
-```bash
-docker compose -f docker-compose.local.yml --profile app up
-```
-
-That adds `api`, `worker`, `web` and a one-shot `migrate` alongside postgres and redis,
-with your working tree bind-mounted into them. Edits reload in place: uvicorn restarts
-the API on a Python change, vite hot-reloads the browser on a TypeScript one, and
-watchfiles restarts the arq worker. Nothing needs a rebuild until a dependency changes.
-
-The containers sit behind a `--profile app` flag rather than starting by default,
-because they take the same two ports the M0 gate and the e2e scripts need for the
-servers they spawn themselves. A plain `up -d` still brings up infrastructure only.
-
-Two things are worth knowing about how it is wired, because getting either wrong
-produces a confusing failure:
-
-- **`node_modules` is the image's, never the host's.** The bind mount covers
-  `apps/web`, and two anonymous volumes sit on top of the `node_modules` directories to
-  keep the container's copy. The host tree is installed for the host platform, and
-  pnpm's symlinked layout does not survive being half-overlaid; the symptom reads like
-  a vite bug rather than a mount problem.
-- **File watching may need polling.** Bind mounts on WSL and on docker-for-mac often do
-  not deliver inotify events into the container. If an edit does not trigger a reload,
-  set `MEADOW_WATCH_POLL=true` in `.env`. It is off by default because on a native
-  filesystem it is wasted CPU forever.
-
-Run the checks inside the containers too, if you would rather not install the
-toolchains:
-
-```bash
-docker compose -f docker-compose.local.yml --profile app exec api pytest -q
-docker compose -f docker-compose.local.yml --profile app exec api ruff check .
-docker compose -f docker-compose.local.yml --profile app exec web pnpm --filter web test
-```
-
-| Service | URL |
-|---|---|
-| Web app | http://localhost:3012 |
-| API | http://localhost:8012 |
-| API docs | http://localhost:8012/docs |
-| pgAdmin | http://localhost:5051 |
-| Postgres | localhost:5435 (`meadow`, and `meadow_test` for the suite) |
-| Redis | localhost:6382 (db 0 dev, db 1 tests) |
+The scripts that start servers of their own never collide with either arrangement: the
+M0 gate takes 8013, `board-e2e` 8014/3094, `presence-e2e` 8016/3097.
 
 Ports are read from `.env` by `docker-compose.local.yml`, the API (via
 pydantic-settings), and Vite alike, so there is one place to change them. Postgres sits on 5435 and Redis on
@@ -295,9 +306,9 @@ pydantic-settings), and Vite alike, so there is one place to change them. Postgr
 default ports, and with other compose stacks, which reach for 6380 as the obvious
 second choice. Both are bound to 127.0.0.1 rather than every interface.
 
-Those published ports exist only for the host-based flow. Under `--profile app` the
-API and worker reach postgres and redis by service name over the compose network, and
-nothing needs a host port at all; the production stack publishes neither.
+The postgres and redis host ports exist for what runs outside the compose network:
+pytest, the gate and the e2e scripts. The api and worker containers reach both by
+service name and need no host port at all; the production stack publishes neither.
 
 Register an account, create a field, and open it. To see convergence, open the same
 field in two browsers (two tabs of the same browser also work, but they sync through a

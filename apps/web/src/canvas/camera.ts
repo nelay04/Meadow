@@ -163,6 +163,20 @@ export class Camera {
     if (`${this.x}|${this.y}|${this.zoom}` !== before) this.version += 1
   }
 
+  /**
+   * Put the top of the viewport at this world y, leaving x and the zoom alone.
+   *
+   * For a jump that is not a gesture: turning to another page of a lea opens it at its
+   * first line. Fenced like any other move, so a page shorter than the window still
+   * lands where the fence says rather than where the caller asked.
+   */
+  scrollTo(worldY: number): void {
+    if (this.y === worldY) return
+    this.y = worldY
+    this.version += 1
+    this.constrain()
+  }
+
   screenToWorld(screenX: number, screenY: number): Point {
     return { x: screenX / this.zoom + this.x, y: screenY / this.zoom + this.y }
   }

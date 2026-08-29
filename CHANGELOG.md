@@ -14,6 +14,59 @@ away getting there.
 The infrastructure to run the thing. Not deployed yet.
 
 ### Added
+- **A lea has pages now, and the diary lists them beside the paper.** A notebook that
+  could only ever be one page is a diary to look at rather than one to keep: the only
+  answer to a full page was another ten rules on the end of the same one. *New page*
+  starts a fresh sheet with the caret already on its first line, and every page in the
+  book is a row down the right hand side, titled by its own subject. Click one and the
+  diary turns to it. There is no second name to keep in step - the title in the list is
+  the line you write at the top of the page - and a page nobody has titled says so
+  rather than inventing one.
+
+  One line per page, set the way a book's contents are: number, title, length, and the
+  way to tear it out. It was two lines with a little ruled sheet standing in for the
+  number, which gave every row three left edges and a column of identical thumbnails of
+  the one thing every row in the list already is. Tearing a page out asks in the same
+  modal the board list asks with, in the middle of the screen, rather than in a strip
+  inside the row being deleted: one way of putting a destructive question in this app,
+  and it is the one that cannot be mistaken for part of the thing it is about.
+
+  A page is a strip of the world, not a document. A row is still one ordinary `text`
+  object and the CRDT schema has not moved; the row sits at `(slot * stride, band *
+  spacing)` now, and which page it is on is *where it is*, exactly as which rule it is
+  on is where it is. Nothing is stamped onto a row, so a client that has never heard of
+  pages still renders one correctly.
+
+  Pages are side by side rather than stacked down one column, and the slot a page sits
+  in is handed out once and never reused. Both of those are about what happens later:
+  sharing a column would mean lengthening page one moves every line of every page after
+  it, and a reused slot would hand a torn out page's writing to whatever page took its
+  place.
+
+  Which page you are on is yours. It is not written to the document, because two people
+  reading one diary are rarely on the same page. Turning a page re-fences the camera and
+  lands at the top of the new one; the caret, the selection and any scrolling still owed
+  to the wheel stay behind with the page they belonged to.
+
+  Tearing a page out takes the writing on it, asks first, and cannot be undone. Undo is
+  scoped to the objects, so an undo of the delete on its own would put the writing back
+  without the page: rows in a strip of the world nothing can scroll to, which is worse
+  than the delete being final. Being final is why it asks, and why the last page in a
+  diary cannot be torn out at all.
+
+- **The page list is a column of the view, not a panel over it.** So the paper
+  re-centres into what is left rather than sitting underneath the list, with nothing
+  having to tell the engine that a sidebar opened: a lea is centred in the canvas host,
+  and the host is what narrows. It closes from its own header as well as from the board
+  bar, and stays closed across visits, which is a preference of this browser rather than
+  of the diary. Under 900px wide it floats over the desk after all, because by then what
+  is left of the window is narrower than the measure the whole surface exists to hold.
+
+  A closed list leaves a handle on the edge it came off, carrying the number of pages
+  behind it. The board bar has the same toggle, but a button in a row of eight icons is
+  not what somebody looks at when they wonder where their pages went - the first person
+  to close the list could not find it again, which is the whole argument.
+
 - **Wheel scrolling is eased rather than applied on arrival.** A mouse wheel does not
   send a stream: one notch is a single 100px event, and moving the camera the moment it
   lands is a jump. On a lea that read as a stutter, because a page of ruling is a
@@ -312,10 +365,9 @@ The infrastructure to run the thing. Not deployed yet.
 - `/fix-precommit.prompt`, the third shared agent command, for diagnosing a blocked
   commit. It maps each finding to its actual fix and rules out the workarounds,
   `--no-verify` included.
-- A development profile that runs the whole app in Docker with hot reload:
-  `docker compose -f docker-compose.local.yml --profile app up`. uvicorn reloads on a
-  Python edit, vite hot-reloads on a TypeScript one, and watchfiles restarts the arq
-  worker.
+- The whole app runs in Docker with hot reload, from
+  `docker compose -f docker-compose.local.yml up -d`. uvicorn reloads on a Python edit,
+  vite hot-reloads on a TypeScript one, and watchfiles restarts the arq worker.
 - README architecture diagram and the CRDT-versus-OT rationale.
 - A design system in `apps/web/src/styles.css`: one token layer for surfaces, ink,
   lines, accent, radii and shadows, with light and dark expressed through CSS
@@ -511,6 +563,15 @@ The infrastructure to run the thing. Not deployed yet.
   screen, since the person was never logged out.
 
 ### Reversed
+- **The stock a lea is printed on is the diary's, not the page's.** It was a page value,
+  decided in the same unreleased block above: stationery travels with the page, so
+  everyone who opens it sees the same paper. That was right while a lea was one page.
+  With several, turning from kraft to dark halfway through a notebook reads as a bug
+  rather than as a choice, because a real notebook is bound with one stock. The control
+  is in the same place, does the same thing, and now does it to the whole lea. The key
+  in `meta` is unchanged, so no page written before this loses its paper. Ruling,
+  length, subject and date stay per page, which is the line that matters: the paper is
+  the book, the writing is the page.
 - **The lea's spiral binding is gone.** A fixed strip down the left of the viewport with
   tiled CSS coils and punched holes, and the tool rail pushed clear of it. It read as
   hatching rather than as a binding at the size it actually appeared, and the version
@@ -550,6 +611,43 @@ The infrastructure to run the thing. Not deployed yet.
   misses can use it to find live addresses.
 
 ### Changed
+- **The board list stopped wearing the diary's paper.** A lea's card preview and its
+  kind badge were printed in kraft, and the composer's pill with them, so that the grid
+  said what a thing was before you had read a word of it. Wrong surface for it: the
+  boards page is the app talking about a diary rather than the diary itself, and a
+  swatch of kraft was the one thing on a dark screen that did not follow the theme. The
+  preview keeps its ruling, drawn in the theme's own line colour on the theme's own
+  surface; the mark and the word Lea carry the kind, which is what they were for.
+- **Light, dark and match-theme are plain sheets now.** Colour and ruling, and nothing
+  else: no fibre, no pulp, no mottling, no aged edges. Those layers are what make kraft
+  read as paper rather than as a brown rectangle, and on a white or a near-black sheet
+  the same noise has nothing to be the grain of - it reads as a wash of damp across the
+  page. Vintage keeps every layer it had, which is what the texture was built for.
+- **The dark stock is the app's own dark surface, `#171c23`.** It was a warm near-black
+  of its own, which is what a kraft page looks like with the lights turned off. This is
+  a dark page rather than a dimmed one, so it takes the colour every other dark surface
+  in the app is drawn from, and the desk under it takes a step further down. The ink
+  stays warm: white on near-black is a terminal, not a diary, and cream on navy is a
+  combination paper has actually been printed in. Match-theme's dark half is the same
+  values, because it is the two stocks and never a palette of its own.
+
+  The desk also had to move for a second reason. It was a step *lighter* than the sheet
+  in the light theme, which makes the page read as a hole cut in the desk rather than
+  something lying on it - invisible while a texture painted over the difference, and
+  obvious the moment the sheet went flat.
+- **Running the app locally no longer takes a flag.** `api`, `worker`, `web` and
+  `migrate` sat behind `--profile app`, so that they did not hold `API_PORT` and
+  `WEB_PORT` for anyone running those two servers on the host. The protection was worth
+  less than it cost: it put the flag on the ordinary case, which is to run the app, and
+  the ports it defended are wanted only when you have deliberately chosen the other
+  arrangement. A plain `up -d` is the whole stack now, and the host flow asks for
+  `postgres redis pgadmin` by name. `pnpm local`, `pnpm local:data` and `pnpm local:down`
+  are the three commands without a file path to remember.
+
+  The M0 gate was the one thing that genuinely needed the port, because it starts an API
+  and restarts it mid-run to prove persistence against a cold process. It has a port of
+  its own now, 8013, the same way `board-e2e` and `presence-e2e` already had 8014 and
+  8016. Nothing in the repo has to be stopped before running any of the three.
 - Every page redrawn. Login is a centred card with a segmented control instead of an
   underlined sentence that behaved like a button; the board list is a grid of preview
   cards with a create composer, a skeleton state and a real empty state instead of a
@@ -616,6 +714,45 @@ The infrastructure to run the thing. Not deployed yet.
   else.
 
 ### Fixed
+- **A preference changed in one tab never reached the others.** The diary paper and the
+  theme are settings of this browser: they live in `localStorage`, which every tab
+  shares, and they are announced with a `CustomEvent`, which no other tab hears. So a
+  lea open in one window kept the stock it had read at mount while the profile in
+  another window had already changed it, and the profile's own radios sat on a stale
+  answer for the same reason. `storage` is the browser's answer to exactly this - it
+  fires in every tab except the one that wrote, which is the half that was missing,
+  because the writer already announced it itself. It is translated into the same event
+  a local change fires, so nothing downstream has to know there are two ways a
+  preference can move. A page that chose its own stock still ignores the default: that
+  was never the reader's question to answer.
+- **A stock's own colours never reached its paper.** The ruling and the pulp are
+  composite layers built out of the stock's variables, and both were declared on
+  `:root`. A custom property is substituted on the element that declares it, so their
+  inner `var(--lea-rule)` and `var(--lea-mottle)` resolved against the kraft defaults
+  sitting there, and what inherited down to the page was already final. Every stock got
+  kraft's rules and kraft's brown mottling however it had been defined: the light sheet
+  wore a brown wash, and the dark sheet was ruled in a dark brown that cannot be seen
+  against it, which read as the dark paper simply having no lines. The two layers are
+  declared on the canvas host now, beside the `[data-paper]` blocks that set the
+  colours, so a stock's own values are the ones substituted. Adding a stock works the
+  way the comment above it always claimed.
+- **The paper picker opened behind the page list.** The board bar carried the same
+  `z-index` as the body under it, and `z-index` on a flex item makes a stacking
+  context: the menu's own place in the order counted only inside the bar, and equal
+  numbers are settled by which came later in the markup. The bar sits above the body
+  now, which is what a bar with menus hanging off it has to be.
+
+- **The canvas kept its old size when something beside it changed width.**
+  Pixi sizes its drawing buffer from the window, which covered every way the canvas
+  could change size until the page list became the first thing in this app to take a
+  column out of the board while the window stood still. The buffer stayed the old
+  width and a fenced page stayed where it had been, until some later window resize
+  corrected both. The render loop now checks the host's own size, which is where the
+  camera already learns that its viewport moved. A `ResizeObserver` is wired up as
+  well and is not enough on its own: it is delivered on a frame the browser chooses
+  to run, and a page whose only change is a sidebar appearing can go several frames
+  without one.
+
 - **A NUL byte in `canvas/overlay/textLayer.ts` made the file binary to every tool that
   reads source as text.** It was the sentinel for "nothing has been rendered into this
   node yet", written as the character rather than as `\u0000`. git diffed the file as

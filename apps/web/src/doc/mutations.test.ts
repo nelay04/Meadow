@@ -13,6 +13,8 @@ import * as Y from 'yjs'
 import {
   ReadOnlyError,
   addObject,
+  addPage,
+  addPageLines,
   bringForward,
   bringToFront,
   clearObjects,
@@ -20,8 +22,13 @@ import {
   ensureObjectFragment,
   deleteObjects,
   endGesture,
+  readObjectById,
+  readPages,
   reconcileOrder,
+  removePage,
+  reseatWritingRows,
   sendBackward,
+  setPageSubject,
   sendToBack,
   updateObject,
   updateObjects,
@@ -372,5 +379,115 @@ describe('the local edit lock', () => {
   it('defaults to unlocked, so an existing caller is unaffected', () => {
     expect(createDocSession(new Y.Doc(), 'owner').locked).toBe(false)
     expect(createDocSession(new Y.Doc(), 'owner').canWrite).toBe(true)
+  })
+})
+
+/*
+ * The pages of a lea.
+ *
+ * The invariants worth a test are the ones that fail quietly: a page's writing is
+ * identified by where it is rather than by an id on it, so a slot handed out twice or
+ * a span computed a little wrong loses somebody's diary entry rather than throwing.
+ */
+describe('pages', () => {
+  const LINES = 25
+  /** The same arithmetic `pageSpan` does, kept here so the test states it too. */
+  const span = (slot: number) => ({ left: slot * 2760, right: slot * 2760 + 760 })
+
+  it('reads a lea that predates the page list as its one page', () => {
+    const doc = session()
+    doc.meta.set('pageSubject', 'The old page')
+    doc.meta.set('pageDate', '2026-03-12')
+    doc.meta.set('pageLines', 40)
+
+    expect(readPages(doc, LINES)).toEqual([
+      { id: 'page-1', slot: 0, subject: 'The old page', date: '2026-03-12', lines: 40 },
+    ])
+  })
+
+  it('keeps what that page said when the first write materialises the list', () => {
+    const doc = session()
+    doc.meta.set('pageSubject', 'The old page')
+    doc.meta.set('pageLines', 40)
+
+    addPage(doc, LINES)
+
+    const pages = readPages(doc, LINES)
+    expect(pages).toHaveLength(2)
+    expect(pages[0]?.subject).toBe('The old page')
+    expect(pages[0]?.lines).toBe(40)
+    expect(pages[1]?.subject).toBe('')
+  })
+
+  it('gives every page a slot of its own, and never reuses one', () => {
+    const doc = session()
+    addPage(doc, LINES)
+    addPage(doc, LINES)
+    expect(readPages(doc, LINES).map((page) => page.slot)).toEqual([0, 1, 2])
+
+    removePage(doc, 1, span(1))
+    addPage(doc, LINES)
+    // Not 1 again: writing left in that strip by a client that never saw the removal
+    // would otherwise turn up on the new page.
+    expect(readPages(doc, LINES).map((page) => page.slot)).toEqual([0, 2, 3])
+  })
+
+  it('writes a subject onto the page it was given, not onto the open one', () => {
+    const doc = session()
+    addPage(doc, LINES)
+    setPageSubject(doc, 1, 'Tuesday', LINES)
+    expect(readPages(doc, LINES).map((page) => page.subject)).toEqual(['', 'Tuesday'])
+  })
+
+  it('does nothing when the page it was given is no longer there', () => {
+    const doc = session()
+    addPage(doc, LINES)
+    removePage(doc, 1, span(1))
+    setPageSubject(doc, 1, 'Tuesday', LINES)
+    expect(readPages(doc, LINES).map((page) => page.subject)).toEqual([''])
+  })
+
+  it('takes the writing on a page out with it, and leaves every other page alone', () => {
+    const doc = session()
+    addPage(doc, LINES)
+    const kept = addObject(doc, { type: 'text', x: 0, y: 30, w: 760, h: 30 })
+    const torn = addObject(doc, { type: 'text', x: 2760, y: 30, w: 760, h: 30 })
+
+    expect(removePage(doc, 1, span(1))).toBe(true)
+    expect(doc.objects.has(kept)).toBe(true)
+    expect(doc.objects.has(torn)).toBe(false)
+    expect(doc.order.toArray()).toEqual([kept])
+  })
+
+  it('refuses to remove the last page', () => {
+    const doc = session()
+    addPage(doc, LINES)
+    expect(removePage(doc, 0, span(0))).toBe(true)
+    expect(removePage(doc, 0, span(1))).toBe(false)
+    expect(readPages(doc, LINES)).toHaveLength(1)
+  })
+
+  it('refuses every page write to a viewer', () => {
+    const doc = session('viewer')
+    expect(addPage(doc, LINES)).toBe(-1)
+    setPageSubject(doc, 0, 'Tuesday', LINES)
+    addPageLines(doc, 0, 10, LINES)
+    expect(readPages(doc, LINES)).toEqual([
+      { id: 'page-1', slot: 0, subject: '', date: '', lines: LINES },
+    ])
+  })
+
+  it('re-seats each page onto its own ruling rather than across all of them', () => {
+    const doc = session()
+    // Two pages, both written before the type changed: the same bands, in two strips.
+    const first = addObject(doc, { type: 'text', x: 0, y: 0, w: 760, h: 28 })
+    const second = addObject(doc, { type: 'text', x: 2760, y: 0, w: 760, h: 28 })
+
+    reseatWritingRows(doc, 30.45, 2760)
+
+    // Page two's first line stays its first line. Across one run it would have been
+    // pushed a rule down for colliding with page one's.
+    expect(readObjectById(doc, first)?.y).toBeCloseTo(0, 5)
+    expect(readObjectById(doc, second)?.y).toBeCloseTo(0, 5)
   })
 })

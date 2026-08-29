@@ -403,12 +403,19 @@ Y.Doc {
 ```
 
 `meta` was reserved here and unused until M6, when the lea surface needed somewhere to
-put a page's own values: `pageLines`, `pageSubject`, `pageDate`, `pagePaper`. The test for what
-belongs in it rather than in `objects` is whether the thing could sensibly exist twice.
-A note on the page could; a page's date could not, and two of them is a state the
-surface should not be able to reach. `meta` is deliberately outside the UndoManager's
-scope - undo is for what you wrote, and Ctrl+Z shortening the paper under writing that
-is already on it would be worse than not being able to undo it at all.
+put what belongs to the diary rather than to anything on it: `pages`, a `Y.Array` of
+one small `Y.Map` per page (`id`, `slot`, `subject`, `date`, `lines`), and `pagePaper`,
+which is the whole lea's stock. The test for what belongs in it rather than in
+`objects` is whether the thing could sensibly exist twice. A note on the page could; a
+page's date could not, and two of them is a state the surface should not be able to
+reach. `meta` is deliberately outside the UndoManager's scope - undo is for what you
+wrote, and Ctrl+Z shortening the paper under writing that is already on it would be
+worse than not being able to undo it at all.
+
+The single-page keys that came first - `pageLines`, `pageSubject`, `pageDate` - are
+still read when there is no `pages` array, as that document's one page, and the first
+write materialises them into the list. They are never written again: two copies of one
+number is exactly what §4 exists to prevent.
 
 ### Object
 
@@ -1183,9 +1190,11 @@ Deliberately absent: **MinIO** (nothing in v1 writes to it; thumbnails are rows)
 ```yaml
 # docker-compose.local.yml — services, project name meadow
 postgres:  published on 5435, redis on 6382, pgadmin on 5051 - all bound to 127.0.0.1,
-           and only for the host-based flow; the app profile uses service names
+           and only for what runs outside the network; the app uses service names
 
-# behind `--profile app`, for running the whole thing in docker with hot reload
+# started by a plain `up -d` as well, so one command is the whole app with hot reload.
+# `up -d postgres redis pgadmin` is the data services alone, for running a server on
+# the host. These four were behind a `--profile app` flag until M6.
 migrate:   api dev image, alembic upgrade head, one-shot
 api:       uvicorn --reload, source bind-mounted, published on 8012
 worker:    arq under watchfiles, so a compaction edit restarts it
@@ -1432,6 +1441,31 @@ written above it. Rows are created by the click that needs them and discarded by
 what a row is - the position and the type metrics are the whole of it - so a client that
 has never heard of leas still renders one correctly, which is the same test every part
 of this feature has to pass.
+
+**A lea has pages, and a page is a strip of the world rather than a document.** A
+diary that could only ever be one page was a diary in look and not in use, so `meta`
+carries a list of them and each is `id`, `slot`, `subject`, `date` and `lines`. The
+writing itself did not move: a row is still one ordinary `text` object, now at
+`(slot * (width + gap), band * spacing)`, and which page it is on is *where it is* and
+nothing else. No id is stamped on a row, exactly as no rule number is stamped on one.
+
+`slot` is not the page's index in the list, and that is the load-bearing distinction.
+Slots are handed out once, never reused, and survive the pages before them being torn
+out, so removing page two can never hand its writing to whatever becomes page two next.
+Pages are side by side rather than stacked on one column because a page's length is its
+own: lengthening page one would otherwise move every line of every page after it.
+
+Which page is open is the *client's*, not the document's - two people reading one diary
+are rarely on the same page - so it is React state, and the engine hears only
+`setPageSlot`. Turning a page is a re-fence and a jump to the top of the new one; the
+fence is still the only thing that makes a page a page. Removing one is the single
+change in this app that deliberately sits outside undo: undo is scoped to `objects`, so
+an undo would restore the writing without the page, leaving rows in a strip of the world
+nothing can scroll to. Being final, it asks first.
+
+The stock moved the other way in the same change. It was a page value; it is now the
+lea's, because a notebook is bound with one paper and turning a page to find a
+different stock reads as a bug rather than as a choice.
 
 The extension point is `apps/web/src/features/boards/kinds.ts`. The sidebar's Kinds
 filters, the create composer, the card badges, the tool rail and the page geometry are

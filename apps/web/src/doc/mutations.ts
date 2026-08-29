@@ -46,6 +46,15 @@ import { setFragmentPlainText } from './richText'
 /** Origin tag for local edits. Undo filters on it; the provider ignores it. */
 export const LOCAL_ORIGIN = 'local'
 
+/**
+ * Origin tag for a change to the diary's structure: removing a page and its writing.
+ *
+ * A second origin rather than a second flag, because `Y.UndoManager` selects on
+ * exactly this. Anything written under it syncs like any other change and is simply
+ * not on the undo stack, which is what a page removal has to be: see `removePage`.
+ */
+export const PAGE_ORIGIN = 'page'
+
 export class ReadOnlyError extends Error {
   /**
    * The message names the actual cause. A refusal reaches the user as a notice, and
@@ -202,31 +211,39 @@ export function updateObjects(
 
 export function deleteObjects(session: DocSession, ids: readonly string[]): void {
   if (ids.length === 0) return
-  const doomed = new Set(ids)
+  write(session, () => purgeObjects(session, new Set(ids)))
+}
 
-  write(session, () => {
-    for (const id of doomed) session.objects.delete(id)
+/**
+ * Take these objects out of the document, with `order` and the bindings in step.
+ *
+ * The body of a delete without the transaction around it, so a caller that has to
+ * delete under a different origin - removing a page takes its writing with it, and
+ * that one is not undoable - does not restate the bindings rule and get it subtly
+ * different. Must be called inside a transaction, and after the role has been checked.
+ */
+function purgeObjects(session: DocSession, doomed: ReadonlySet<string>): void {
+  for (const id of doomed) session.objects.delete(id)
 
-    // Walk `order` backwards: deleting shifts every later index.
-    for (let index = session.order.length - 1; index >= 0; index -= 1) {
-      if (doomed.has(session.order.get(index))) session.order.delete(index, 1)
+  // Walk `order` backwards: deleting shifts every later index.
+  for (let index = session.order.length - 1; index >= 0; index -= 1) {
+    if (doomed.has(session.order.get(index))) session.order.delete(index, 1)
+  }
+
+  // ARCHITECTURE 4: a binding to a deleted object becomes a free endpoint. The
+  // arrow survives with a loose end rather than disappearing along with its target.
+  // The endpoint is deliberately left where it was: it was last solved against the
+  // target's final position, so the arrow stays pointing at the space the shape
+  // occupied instead of snapping somewhere arbitrary.
+  for (const [key, binding] of session.bindings.entries()) {
+    // A binding whose arrow is gone is garbage, and it would resurrect the arrow's
+    // geometry if the delete were undone and redone.
+    if (doomed.has(String(binding.get('arrowId')))) {
+      session.bindings.delete(key)
+      continue
     }
-
-    // ARCHITECTURE 4: a binding to a deleted object becomes a free endpoint. The
-    // arrow survives with a loose end rather than disappearing along with its target.
-    // The endpoint is deliberately left where it was: it was last solved against the
-    // target's final position, so the arrow stays pointing at the space the shape
-    // occupied instead of snapping somewhere arbitrary.
-    for (const [key, binding] of session.bindings.entries()) {
-      // A binding whose arrow is gone is garbage, and it would resurrect the arrow's
-      // geometry if the delete were undone and redone.
-      if (doomed.has(String(binding.get('arrowId')))) {
-        session.bindings.delete(key)
-        continue
-      }
-      if (doomed.has(binding.get('targetId') as string)) binding.set('targetId', null)
-    }
-  })
+    if (doomed.has(binding.get('targetId') as string)) binding.set('targetId', null)
+  }
 }
 
 // --- arrows and bindings ------------------------------------------------------
@@ -564,104 +581,313 @@ export function sendBackward(session: DocSession, ids: readonly string[]): void 
 }
 
 /**
- * How many rules this page has, and how to ask for more.
+ * The pages of a lea.
  *
- * In `meta` rather than in an object, because it is a property of the page and not
- * something on it. `meta` is a designated document root that nothing has needed until
- * now, so this costs no change to the object schema, which ARCHITECTURE 4 fixes.
+ * A diary has pages. Until now a lea had exactly one, and its length, its subject and
+ * its date were three keys in `meta` - the right shape for a value with a single
+ * answer, and the wrong one the moment there can be a second. Each is a field of an
+ * entry in `meta.pages` now, and that array is the diary's spine.
  *
- * Deliberately outside the undo stack. Undo is for what you wrote; a page that got
- * longer is not an edit to take back, and having Ctrl+Z shorten the paper under
- * writing that is already on it would be worse than not being able to undo at all.
+ * Nothing in the CRDT schema moved, per ARCHITECTURE 4. `objects` is still one flat
+ * map, a row is still an ordinary `text` object, and a page is still not an object: it
+ * is a strip of the world its rows are written in, plus the stationery printed above
+ * them.
+ *
+ * Which strip is `slot`, and it is deliberately not this array's index. A row is
+ * placed at `(slot * stride, band * spacing)` and carries no idea which page it is on,
+ * exactly as it carries no idea which rule it is on. Geometry is a fact two clients
+ * cannot disagree about; a page id stamped onto every row is one more thing to keep in
+ * step and one more thing a concurrent edit can tear. Slots are handed out once and
+ * never reused, so removing a page can never hand its writing to whichever page takes
+ * its place in the list.
+ */
+export type PageMeta = {
+  /** Stable across a removal, so a React key never follows the index. */
+  id: string
+  /** The strip of the world this page's rows are written in. */
+  slot: number
+  /** What the page is about. Printed at its top, and its title in the page list. */
+  subject: string
+  /** `YYYY-MM-DD`, or '' for a page nobody has dated. */
+  date: string
+  /** How many rules it has. */
+  lines: number
+}
+
+/** A page's strip of world x. `pageSpan` in canvas/engine.ts is what computes one. */
+export type PageSpan = { left: number; right: number }
+
+const META_PAGES = 'pages'
+
+/*
+ * Where a one-page lea kept its values.
+ *
+ * Read, never written. A document with no `pages` array is a page one that predates
+ * them, so it is read as exactly that and the first write materialises it into the
+ * list. Dual-writing these afterwards would leave two copies of one number to keep in
+ * agreement, which is the class of bug this file exists to make impossible.
  */
 const META_PAGE_LINES = 'pageLines'
+const META_PAGE_DATE = 'pageDate'
+const META_PAGE_SUBJECT = 'pageSubject'
 
-export function readPageLines(session: DocSession, fallback: number): number {
-  const stored = session.meta.get(META_PAGE_LINES)
-  return typeof stored === 'number' && Number.isFinite(stored) && stored > 0
-    ? Math.round(stored)
+function text(value: unknown): string {
+  return typeof value === 'string' ? value : ''
+}
+
+function count(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? Math.round(value)
     : fallback
 }
 
-/** Lengthen the page. Returns the new count. */
-export function addPageLines(session: DocSession, current: number, step: number): number {
-  const next = current + step
-  if (!session.canWrite) return current
-  session.doc.transact(() => {
-    session.meta.set(META_PAGE_LINES, next)
-  }, LOCAL_ORIGIN)
-  return next
+function readPageMap(map: Y.Map<unknown>, index: number, fallbackLines: number): PageMeta {
+  const slot = map.get('slot')
+  const id = map.get('id')
+  return {
+    // The index is the fallback for both, and it is only reachable through a document
+    // written by something other than this file. A page with no slot still has to land
+    // on paper of its own rather than on top of page one's.
+    id: text(id) === '' ? `page-${index}` : text(id),
+    slot: typeof slot === 'number' && Number.isFinite(slot) ? Math.round(slot) : index,
+    subject: text(map.get('subject')),
+    date: text(map.get('date')),
+    lines: count(map.get('lines'), fallbackLines),
+  }
+}
+
+/** The page a lea had before it had a list of them. */
+function legacyPage(session: DocSession, fallbackLines: number): PageMeta {
+  return {
+    id: 'page-1',
+    slot: 0,
+    subject: text(session.meta.get(META_PAGE_SUBJECT)),
+    date: text(session.meta.get(META_PAGE_DATE)),
+    lines: count(session.meta.get(META_PAGE_LINES), fallbackLines),
+  }
+}
+
+function storedPages(session: DocSession): Y.Array<Y.Map<unknown>> | null {
+  const stored = session.meta.get(META_PAGES)
+  return stored instanceof Y.Array ? (stored as Y.Array<Y.Map<unknown>>) : null
 }
 
 /**
- * The date printed at the top of a ruled page, as `YYYY-MM-DD`, or '' for none.
- *
- * In `meta` beside the page length and for the same reason: it belongs to the page
- * rather than being something on it. One value with one right answer, so it is not an
- * object - an object is something you could make two of, and two dates on one page is
- * a state the surface should not be able to reach.
+ * Every page of this lea, in order. Never empty: a diary with no pages is not a state
+ * the surface can be in, so a document that has none reads as the one page it is.
  */
-const META_PAGE_DATE = 'pageDate'
+export function readPages(session: DocSession, fallbackLines: number): PageMeta[] {
+  const pages = storedPages(session)
+  if (pages === null || pages.length === 0) return [legacyPage(session, fallbackLines)]
 
-export function readPageDate(session: DocSession): string {
-  const stored = session.meta.get(META_PAGE_DATE)
-  return typeof stored === 'string' ? stored : ''
+  return pages
+    .toArray()
+    .map((map, index) =>
+      map instanceof Y.Map
+        ? readPageMap(map, index, fallbackLines)
+        : legacyPage(session, fallbackLines),
+    )
 }
 
-export function setPageDate(session: DocSession, iso: string): void {
-  if (!session.canWrite || readPageDate(session) === iso) return
+function pageMap(page: PageMeta): Y.Map<unknown> {
+  const map = new Y.Map<unknown>()
+  map.set('id', page.id)
+  map.set('slot', page.slot)
+  map.set('subject', page.subject)
+  map.set('date', page.date)
+  map.set('lines', page.lines)
+  return map
+}
+
+/**
+ * The list, creating it from the one-page keys if this document still has those.
+ *
+ * Only ever called from inside a transaction that is about to write a page value, so
+ * merely opening an old lea never touches it and a viewer never needs it at all.
+ */
+function ensurePages(session: DocSession, fallbackLines: number): Y.Array<Y.Map<unknown>> {
+  let pages = storedPages(session)
+  if (pages === null) {
+    pages = new Y.Array<Y.Map<unknown>>()
+    session.meta.set(META_PAGES, pages)
+  }
+  if (pages.length === 0) pages.push([pageMap(legacyPage(session, fallbackLines))])
+  return pages
+}
+
+/**
+ * Change one page.
+ *
+ * Out of range does nothing rather than clamping. The index comes from a list this
+ * client last read, and a peer can remove a page between the read and the click; the
+ * clamped version of that writes somebody's subject onto a different page, which is a
+ * far worse answer than the button doing nothing.
+ */
+function writePage(
+  session: DocSession,
+  index: number,
+  fallbackLines: number,
+  patch: (page: Y.Map<unknown>) => void,
+): void {
+  if (!session.canWrite) return
   session.doc.transact(() => {
-    session.meta.set(META_PAGE_DATE, iso)
-  }, LOCAL_ORIGIN)
-}
-
-/** What this page is about, printed beside the date. '' for none. */
-const META_PAGE_SUBJECT = 'pageSubject'
-
-export function readPageSubject(session: DocSession): string {
-  const stored = session.meta.get(META_PAGE_SUBJECT)
-  return typeof stored === 'string' ? stored : ''
-}
-
-export function setPageSubject(session: DocSession, subject: string): void {
-  if (!session.canWrite || readPageSubject(session) === subject) return
-  session.doc.transact(() => {
-    session.meta.set(META_PAGE_SUBJECT, subject)
+    const pages = ensurePages(session, fallbackLines)
+    if (index < 0 || index >= pages.length) return
+    const page = pages.get(index)
+    if (page instanceof Y.Map) patch(page)
   }, LOCAL_ORIGIN)
 }
 
 /**
- * The stock this page is printed on, or '' to take the reader's own default.
+ * How many rules a page has, and how to ask for more.
  *
- * The page's, not the reader's: stationery is a property of the diary, the way ruling
- * and measure already are, so a page somebody chose to keep on kraft looks like that
- * page to everyone who opens it. '' is the deferral - the page has no opinion, and
- * each reader's profile default decides - which is why this is a string rather than
- * one of the four papers with a fifth invented for "unset".
+ * Deliberately outside the undo stack, which is what the origin here does *not* do:
+ * `meta` is not one of the roots `Y.UndoManager` is scoped to, so no page value is
+ * undoable. Undo is for what you wrote. A page that got longer is not an edit to take
+ * back, and Ctrl+Z shortening the paper under writing already on it would be worse
+ * than not being able to undo it at all.
+ */
+export function addPageLines(
+  session: DocSession,
+  index: number,
+  step: number,
+  fallbackLines: number,
+): void {
+  writePage(session, index, fallbackLines, (page) => {
+    page.set('lines', count(page.get('lines'), fallbackLines) + step)
+  })
+}
+
+/** What this page is about, printed at its top and shown as its title in the list. */
+export function setPageSubject(
+  session: DocSession,
+  index: number,
+  subject: string,
+  fallbackLines: number,
+): void {
+  writePage(session, index, fallbackLines, (page) => {
+    if (text(page.get('subject')) !== subject) page.set('subject', subject)
+  })
+}
+
+/** The date printed at the top of a page, as `YYYY-MM-DD`, or '' for none. */
+export function setPageDate(
+  session: DocSession,
+  index: number,
+  iso: string,
+  fallbackLines: number,
+): void {
+  writePage(session, index, fallbackLines, (page) => {
+    if (text(page.get('date')) !== iso) page.set('date', iso)
+  })
+}
+
+/**
+ * Turn to a new page. Returns its index, or -1 if the role could not.
+ *
+ * The slot is one past the highest ever handed out rather than the new length, because
+ * a page that has been removed still has writing nobody deleted in some documents and
+ * a reused slot would put the new page on top of it.
+ */
+export function addPage(session: DocSession, fallbackLines: number): number {
+  if (!session.canWrite) return -1
+
+  let created = -1
+  session.doc.transact(() => {
+    const pages = ensurePages(session, fallbackLines)
+    const slots = pages
+      .toArray()
+      .map((page, index) =>
+        page instanceof Y.Map ? readPageMap(page, index, fallbackLines).slot : index,
+      )
+    pages.push([
+      pageMap({
+        id: nanoid(),
+        slot: Math.max(...slots, -1) + 1,
+        subject: '',
+        date: '',
+        lines: fallbackLines,
+      }),
+    ])
+    created = pages.length - 1
+  }, LOCAL_ORIGIN)
+
+  return created
+}
+
+/**
+ * Tear a page out, and the writing on it with it.
+ *
+ * Never the last one. A lea is a diary, and a diary with no pages is a state with no
+ * way back out of it: there would be nothing to click to start writing again.
+ *
+ * Outside undo on purpose, and the one place in this file where that is a loss rather
+ * than a relief. Undo is scoped to `objects`, so an undo could bring the writing back
+ * while the page it was written on stayed gone - rows in a strip of the world nothing
+ * can scroll to, which is worse than the delete being final. Since it is final, the
+ * page list asks first.
+ */
+export function removePage(session: DocSession, index: number, span: PageSpan): boolean {
+  if (!session.canWrite) return false
+
+  const pages = storedPages(session)
+  if (pages === null || pages.length <= 1 || index < 0 || index >= pages.length) return false
+
+  const doomed = new Set<string>()
+  for (const id of session.objects.keys()) {
+    const object = readObjectById(session, id)
+    if (object === undefined) continue
+    // The centre, not the left edge: a row is exactly its page's width, so its middle
+    // is inside its own page's strip however the two edges round.
+    const centre = object.x + object.w / 2
+    if (centre >= span.left && centre < span.right) doomed.add(id)
+  }
+
+  session.doc.transact(() => {
+    purgeObjects(session, doomed)
+    pages.delete(index, 1)
+  }, PAGE_ORIGIN)
+
+  return true
+}
+
+/**
+ * The stock this lea is printed on, or '' to take the reader's own default.
+ *
+ * The diary's, not the page's and not the reader's. A notebook is bound with one
+ * paper: flipping to the next page and finding a different stock reads as a bug rather
+ * than as a choice, so this is one value for the whole document even though ruling and
+ * measure are per page. '' is the deferral - the lea has no opinion, and each reader's
+ * profile default decides - which is why this is a string rather than one of the four
+ * papers with a fifth invented for "unset".
  *
  * Unvalidated on read beyond "is it a string": an older client that has never heard of
  * a paper added later should fall back to its own default rather than render nothing,
  * and the styling layer already ignores a name it has no rules for.
  */
-const META_PAGE_PAPER = 'pagePaper'
+const META_PAPER = 'pagePaper'
 
-export function readPagePaper(session: DocSession): string {
-  const stored = session.meta.get(META_PAGE_PAPER)
-  return typeof stored === 'string' ? stored : ''
+export function readLeaPaper(session: DocSession): string {
+  return text(session.meta.get(META_PAPER))
 }
 
-export function setPagePaper(session: DocSession, paper: string): void {
-  if (!session.canWrite || readPagePaper(session) === paper) return
+export function setLeaPaper(session: DocSession, paper: string): void {
+  if (!session.canWrite || readLeaPaper(session) === paper) return
   session.doc.transact(() => {
-    session.meta.set(META_PAGE_PAPER, paper)
+    session.meta.set(META_PAPER, paper)
   }, LOCAL_ORIGIN)
 }
 
-/** Subscribe to the page's own values. For `useSyncExternalStore`. */
+/**
+ * Subscribe to the diary's own values. For `useSyncExternalStore`.
+ *
+ * Deep, because a page's subject lives in a `Y.Map` inside the list and a shallow
+ * observer on `meta` hears the list being replaced and nothing that happens inside it.
+ */
 export function observePageMeta(session: DocSession, onChange: () => void): () => void {
   const handler = (): void => onChange()
-  session.meta.observe(handler)
-  return () => session.meta.unobserve(handler)
+  session.meta.observeDeep(handler)
+  return () => session.meta.unobserveDeep(handler)
 }
 
 /**
@@ -680,11 +906,16 @@ export function observePageMeta(session: DocSession, onChange: () => void): () =
  * kept where rounding allows and closed up where it does not, because losing a blank
  * line is a much smaller wrong than stacking two entries on one rule.
  *
+ * Page by page, because two pages are two strips of the world at the same heights: a
+ * run computed across all of them would see page two's first line as a collision with
+ * page one's and push it a rule down the paper it does not share.
+ *
  * A no-op once everything is on a band, so opening a page that has already been
  * repaired writes nothing and a viewer never needs it at all.
  */
-export function reseatWritingRows(session: DocSession, spacing: number): void {
+export function reseatWritingRows(session: DocSession, spacing: number, stride: number): void {
   if (!session.canWrite || !Number.isFinite(spacing) || spacing <= 0) return
+  if (!Number.isFinite(stride) || stride <= 0) return
 
   const rows = Array.from(session.objects.keys())
     .map((id) => ({ id, object: readObjectById(session, id) }))
@@ -694,11 +925,13 @@ export function reseatWritingRows(session: DocSession, spacing: number): void {
   const patches: { id: string; patch: Partial<ObjectData> }[] = []
   // Not zero: a ruled page can have rows above its first rule - the header's date is
   // one - and starting the run at the top rule would drag them down onto the page.
-  let lastBand = Number.NEGATIVE_INFINITY
+  const lastBand = new Map<number, number>()
 
   for (const { id, object } of rows) {
-    const band = Math.max(Math.round(object.y / spacing), lastBand + 1)
-    lastBand = band
+    const slot = Math.round(object.x / stride)
+    const floor = lastBand.get(slot) ?? Number.NEGATIVE_INFINITY
+    const band = Math.max(Math.round(object.y / spacing), floor + 1)
+    lastBand.set(slot, band)
 
     const y = band * spacing
     // Exact equality would rewrite every row on every open, because the pitch is a

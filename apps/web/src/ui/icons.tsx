@@ -321,6 +321,23 @@ export function IconPaper(props: IconProps) {
   )
 }
 
+/**
+ * The page list, drawn as the thing the button does rather than the thing it lists.
+ *
+ * A panel down the right of the view, with the rules of what is in it. A stack of
+ * sheets would be the more literal mark and would be a second icon that looks like
+ * `IconPaper` at 17px, which is the size that matters.
+ */
+export function IconPanel(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="3" y="4.5" width="18" height="15" rx="2" />
+      <path d="M14 4.5v15" />
+      <path d="M16.5 9.5h3M16.5 13h3" />
+    </Svg>
+  )
+}
+
 /*
  * The three arrow routings, drawn as the path each one produces between the same two
  * points. A picker for connector shapes has to show the shape, not name it: "straight,
@@ -467,6 +484,15 @@ export function IconChevronDown(props: IconProps) {
   return (
     <Svg {...props}>
       <path d="M6 9.5 12 15.5 18 9.5" />
+    </Svg>
+  )
+}
+
+/** The same chevron turned, for a panel that closes towards the edge it sits on. */
+export function IconChevronRight(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M9.5 6 15.5 12 9.5 18" />
     </Svg>
   )
 }

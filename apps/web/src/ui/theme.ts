@@ -51,6 +51,21 @@ export function applyTheme(theme: Theme): void {
   window.dispatchEvent(new CustomEvent(THEME_EVENT, { detail: theme }))
 }
 
+/*
+ * The same tab-to-tab bridge the paper preference has, and for the same reason: this
+ * is one browser's setting, so a window that did not make the change still has to hear
+ * about it. `storage` fires everywhere but the tab that wrote, which already announced
+ * it. See the note in ui/paper.ts.
+ */
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (event: StorageEvent) => {
+    if (event.key !== null && event.key !== STORAGE_KEY) return
+    const theme = readTheme()
+    document.documentElement.style.colorScheme = theme === 'system' ? 'light dark' : theme
+    window.dispatchEvent(new CustomEvent(THEME_EVENT, { detail: theme }))
+  })
+}
+
 /** Call once at startup, before the first paint, so the stored theme does not flash. */
 export function initTheme(): Theme {
   const theme = readTheme()

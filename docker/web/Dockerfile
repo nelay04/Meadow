@@ -64,7 +64,7 @@ HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=5 \
 
 # --- development ---------------------------------------------------------------
 #
-# `docker compose -f docker-compose.local.yml --profile app up`. The vite dev server
+# `docker compose -f docker-compose.local.yml up -d`. The vite dev server
 # with source bind-mounted from the host, so an edit hot-reloads in the browser.
 #
 # It inherits `deps`, not `build`: dependencies are installed into the image, and only

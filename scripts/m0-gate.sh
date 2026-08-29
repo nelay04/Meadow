@@ -23,14 +23,20 @@ else
   {
     echo ""
     echo "${bold}WARNING: no .env at the repo root.${reset}"
-    echo "${bold}Falling back to built-in defaults: API_PORT=8012, WEB_PORT=3012,${reset}"
+    echo "${bold}Falling back to built-in defaults: WEB_PORT=3012,${reset}"
     echo "${bold}and the database and redis URLs compiled into app/config.py.${reset}"
     echo "${bold}If your postgres or redis is anywhere else, this run will not reach it.${reset}"
     echo "${bold}Copy .env.example to .env to make the settings explicit.${reset}"
     echo ""
   } >&2
 fi
-: "${API_PORT:=8012}"
+# A port of this run's own, not the one in .env.
+#
+# The gate starts an API, kills it and starts it again, so it cannot share a port with
+# anything: the local stack publishes API_PORT for the containerised api, and a gate
+# that took the same number could only be run with the stack down. Same convention the
+# e2e scripts already use for theirs. Override with GATE_API_PORT if 8013 is taken.
+API_PORT="${GATE_API_PORT:-8013}"
 : "${WEB_PORT:=3012}"
 export API_PORT WEB_PORT
 

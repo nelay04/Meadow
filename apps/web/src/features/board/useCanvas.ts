@@ -16,6 +16,8 @@ import {
   CanvasEngine,
   DEFAULT_PAGE_LINES,
   PAGE_LINES_STEP,
+  pageSpan,
+  pageStride,
   type WritingColumn,
 } from '../../canvas/engine'
 import { type CanvasSurface, DEFAULT_SURFACE } from '../../canvas/surface'
@@ -24,14 +26,15 @@ import type { ToolId } from '../../canvas/tools/types'
 import { DocEngineHost, observeDocument } from '../../doc/engineHost'
 import {
   type DocSession,
+  type PageMeta,
+  addPage,
   addPageLines,
   observePageMeta,
-  readPageDate,
-  readPageLines,
-  readPagePaper,
-  readPageSubject,
+  readLeaPaper,
+  readPages,
+  removePage,
+  setLeaPaper,
   setPageDate,
-  setPagePaper,
   setPageSubject,
   reconcileBindings,
   reconcileOrder,
@@ -77,18 +80,33 @@ export type CanvasHandle = {
   beginTextEdit(id: string): boolean
   /** Put the caret on a row of a writing surface, making the row if it is not there. */
   beginWritingRow(row: number): boolean
-  /** How many rules this page has, on a writing surface. Zero on a free canvas. */
+  /**
+   * The pages of a lea, in order, and which one is open.
+   *
+   * Empty on a free canvas: a glade is not a diary and has no pages. Which page is
+   * open is this client's alone and never written to the document - two people reading
+   * one diary are usually not on the same page, and a shared cursor through the pages
+   * would make that impossible.
+   */
+  pages: readonly PageMeta[]
+  pageIndex: number
+  turnToPage(index: number): void
+  /** Add a page at the end and turn to it. No-op when the role cannot write. */
+  addPage(): void
+  /** Tear a page out, and the writing on it. Refuses the last page. */
+  removePage(index: number): void
+  /** How many rules the open page has, on a writing surface. Zero on a free canvas. */
   pageLines: number
-  /** Lengthen the page by one step. No-op when the role cannot write. */
+  /** Lengthen the open page by one step. No-op when the role cannot write. */
   addLines(): void
-  /** The date printed at the top of the page, `YYYY-MM-DD` or '' for none. */
+  /** The date printed at the top of the open page, `YYYY-MM-DD` or '' for none. */
   pageDate: string
   setDate(iso: string): void
-  /** What the page is about, written beside the date. */
+  /** What the open page is about, written above its first rule. */
   pageSubject: string
   setSubject(subject: string): void
-  /** The stock this page is printed on, or '' to take the reader's own default. */
-  pagePaper: string
+  /** The stock this lea is printed on, or '' to take the reader's own default. */
+  paper: string
   setPaper(paper: string): void
   /** Re-read the surface colours. For anything that repaints the page under WebGL. */
   syncTheme(): void
@@ -162,6 +180,25 @@ export type CanvasOptions = {
   onRefused?(message: string): void
 }
 
+/** A glade has no pages, and one frozen empty array keeps that a stable identity. */
+const EMPTY_PAGES: readonly PageMeta[] = []
+
+/** Field by field, because the snapshot has to be stable while nothing has changed. */
+function samePages(a: readonly PageMeta[], b: readonly PageMeta[]): boolean {
+  if (a.length !== b.length) return false
+  return a.every((page, index) => {
+    const other = b[index]
+    return (
+      other !== undefined &&
+      page.id === other.id &&
+      page.slot === other.slot &&
+      page.subject === other.subject &&
+      page.date === other.date &&
+      page.lines === other.lines
+    )
+  })
+}
+
 export function useCanvas(
   session: DocSession,
   presence?: CanvasPresence,
@@ -205,6 +242,17 @@ export function useCanvas(
   const optionsRef = useRef(options)
   optionsRef.current = options
 
+  /*
+   * The page that is open, for the engine's first frame.
+   *
+   * The effects below keep the engine in step once it exists, but the engine is built
+   * inside an effect of its own and reads its starting state there. A ref rather than a
+   * dependency, for the reason every other one here is: naming the open page as a
+   * dependency of the effect that builds the canvas would tear the canvas down and
+   * rebuild it every time somebody turned a page.
+   */
+  const openPageRef = useRef<PageMeta | null>(null)
+
   useEffect(() => {
     if (element === null) return
 
@@ -246,7 +294,8 @@ export function useCanvas(
       engine.setSurface(optionsRef.current.surface ?? DEFAULT_SURFACE)
       engine.setAvailableTools(optionsRef.current.tools ?? null)
       engine.setColumn(optionsRef.current.column ?? null)
-      engine.setPageLines(readPageLines(current(), DEFAULT_PAGE_LINES))
+      engine.setPageSlot(openPageRef.current?.slot ?? 0)
+      engine.setPageLines(openPageRef.current?.lines ?? DEFAULT_PAGE_LINES)
       reconcileOrder(current())
       // A target may have moved while this client was offline, or the document may
       // have been written by a client that solved differently.
@@ -300,53 +349,143 @@ export function useCanvas(
   }, [width, fontSize, lineHeight, element])
 
   /*
-   * Put an older page's rows back on the ruling.
-   *
-   * Waits for objects, because the kind and the document arrive from two different
-   * requests and repairing an empty document repairs nothing. Keyed on the pitch it
-   * last repaired for rather than a boolean, so a page opened before its type changed
-   * is repaired again afterwards, and typing a new row does not re-run it.
-   */
-  /*
-   * The page's length, read from the document rather than held here.
+   * The diary itself, read from the document rather than held here.
    *
    * `useSyncExternalStore` over the doc's `meta`, for the same reason every other
    * document value is read that way: a copy in React state is a copy that is wrong the
-   * moment a peer lengthens the page.
+   * moment a peer lengthens a page or starts a new one.
+   *
+   * The snapshot has to be the *same array* until something actually changes, or React
+   * re-renders forever: `readPages` builds a fresh one on every call, and
+   * `useSyncExternalStore` compares snapshots by identity. So the last one is kept and
+   * handed back until a field of it differs.
    */
   const subscribeMeta = useCallback(
     (onChange: () => void) => observePageMeta(session, onChange),
     [session],
   )
-  const pageLines = useSyncExternalStore(subscribeMeta, () =>
-    readPageLines(session, DEFAULT_PAGE_LINES),
-  )
-  const pageDate = useSyncExternalStore(subscribeMeta, () => readPageDate(session))
-  const pageSubject = useSyncExternalStore(subscribeMeta, () => readPageSubject(session))
-  const pagePaper = useSyncExternalStore(subscribeMeta, () => readPagePaper(session))
+  const lastPages = useRef<readonly PageMeta[]>([])
+  const readPagesStable = useCallback((): readonly PageMeta[] => {
+    const next = readPages(session, DEFAULT_PAGE_LINES)
+    if (!samePages(next, lastPages.current)) lastPages.current = next
+    return lastPages.current
+  }, [session])
+  const pages = useSyncExternalStore(subscribeMeta, readPagesStable)
+  const paper = useSyncExternalStore(subscribeMeta, () => readLeaPaper(session))
+
+  /*
+   * Which page is open. This client's own, never the document's.
+   *
+   * Clamped on read rather than corrected in an effect, because a peer can remove the
+   * page you are on: the state is then an index past the end for exactly as long as it
+   * takes to render, and clamping here means that render is already correct rather than
+   * being a frame of nothing followed by a fix.
+   */
+  const [wantedIndex, setWantedIndex] = useState(0)
+  const pageIndex = Math.min(Math.max(wantedIndex, 0), pages.length - 1)
+  const openPage = pages[pageIndex] ?? null
+  // Callbacks below write to the page that is open without depending on which one it
+  // is, so that none of them changes identity when a page is turned.
+  const pageIndexRef = useRef(pageIndex)
+  pageIndexRef.current = pageIndex
+
+  openPageRef.current = openPage
+
+  const pageLines = openPage?.lines ?? DEFAULT_PAGE_LINES
+  const pageDate = openPage?.date ?? ''
+  const pageSubject = openPage?.subject ?? ''
+
   useEffect(() => {
     engineRef.current?.setPageLines(pageLines)
   }, [pageLines, element])
 
+  // The slot, not the index: which strip of the world this page's writing is in is a
+  // property of the page and survives the pages before it being torn out.
+  const pageSlot = openPage?.slot ?? 0
+  useEffect(() => {
+    engineRef.current?.setPageSlot(pageSlot)
+  }, [pageSlot, element])
+
+  /*
+   * A page you have just started opens with the caret on its first line.
+   *
+   * Only that one, and never a page you turned to: once there is writing on a page,
+   * choosing where you carry on is the app choosing for you, and on a surface where
+   * every rule is its own slot that choice is always wrong. A blank page has one line
+   * you could mean.
+   *
+   * One frame, because the engine learns about the new page from the effect above and
+   * about the document from its own observer, and neither has necessarily run.
+   */
+  const caretOnSlot = useRef<number | null>(null)
+  useEffect(() => {
+    if (caretOnSlot.current !== pageSlot) return
+    caretOnSlot.current = null
+    const frame = requestAnimationFrame(() => {
+      engineRef.current?.beginWritingRow(0)
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [pageSlot])
+
+  // A different board is a different diary. Open it at its first page rather than at
+  // whatever page number was open in the last one.
+  const boardDoc = session.doc
+  useEffect(() => {
+    setWantedIndex(0)
+  }, [boardDoc])
+
   const addLines = useCallback(() => {
-    addPageLines(
-      sessionRef.current,
-      readPageLines(sessionRef.current, DEFAULT_PAGE_LINES),
-      PAGE_LINES_STEP,
-    )
+    addPageLines(sessionRef.current, pageIndexRef.current, PAGE_LINES_STEP, DEFAULT_PAGE_LINES)
   }, [])
 
   const setDate = useCallback((iso: string) => {
-    setPageDate(sessionRef.current, iso)
+    setPageDate(sessionRef.current, pageIndexRef.current, iso, DEFAULT_PAGE_LINES)
   }, [])
 
   const setSubject = useCallback((subject: string) => {
-    setPageSubject(sessionRef.current, subject)
+    setPageSubject(sessionRef.current, pageIndexRef.current, subject, DEFAULT_PAGE_LINES)
   }, [])
 
-  const setPaper = useCallback((paper: string) => {
-    setPagePaper(sessionRef.current, paper)
+  const setPaper = useCallback((next: string) => {
+    setLeaPaper(sessionRef.current, next)
   }, [])
+
+  const turnToPage = useCallback((index: number) => {
+    setWantedIndex(index)
+  }, [])
+
+  /*
+   * A new page, and you are on it.
+   *
+   * Turning to it is the whole gesture. Adding a page you are then asked to go and
+   * find is two steps for something that is one thing: you reached for a new page
+   * because you want to write on it.
+   */
+  const startPage = useCallback(() => {
+    const created = addPage(sessionRef.current, DEFAULT_PAGE_LINES)
+    if (created < 0) return
+    // The new page is empty by construction, so there is exactly one line the caret
+    // could mean. Recorded as a slot rather than as an index, because it is the engine
+    // catching up with the slot that this is waiting for.
+    const pagesNow = readPages(sessionRef.current, DEFAULT_PAGE_LINES)
+    caretOnSlot.current = pagesNow[created]?.slot ?? null
+    setWantedIndex(created)
+  }, [])
+
+  const tearOutPage = useCallback(
+    (index: number) => {
+      if (width === null) return
+      const target = readPages(sessionRef.current, DEFAULT_PAGE_LINES)[index]
+      if (target === undefined) return
+
+      const span = pageSpan({ width, fontSize, lineHeight }, target.slot)
+      if (!removePage(sessionRef.current, index, span)) return
+      // Stay where you were in the diary rather than jumping to the end: removing page
+      // three should leave you looking at what is now page three.
+      setWantedIndex((current) => (current > index ? current - 1 : current))
+    },
+    [width, fontSize, lineHeight],
+  )
 
   // The stock decides the ink, and the ink is the one colour WebGL cannot re-resolve
   // for itself. Same call the theme toggle makes, for the same reason.
@@ -354,12 +493,20 @@ export function useCanvas(
     engineRef.current?.syncTheme()
   }, [])
 
+  /*
+   * Put an older page's rows back on the ruling.
+   *
+   * Waits for objects, because the kind and the document arrive from two different
+   * requests and repairing an empty document repairs nothing. Keyed on the pitch it
+   * last repaired for rather than a boolean, so a page opened before its type changed
+   * is repaired again afterwards, and typing a new row does not re-run it.
+   */
   const reseated = useRef<number | null>(null)
   useEffect(() => {
     const spacing = fontSize * lineHeight
     if (width === null || objectCount === 0 || reseated.current === spacing) return
     reseated.current = spacing
-    reseatWritingRows(sessionRef.current, spacing)
+    reseatWritingRows(sessionRef.current, spacing, pageStride({ width, fontSize, lineHeight }))
   }, [width, fontSize, lineHeight, objectCount])
 
   const setTool = useCallback((next: ToolId) => {
@@ -418,13 +565,18 @@ export function useCanvas(
     setWanderers,
     beginTextEdit,
     beginWritingRow,
+    pages: options.column === null || options.column === undefined ? EMPTY_PAGES : pages,
+    pageIndex,
+    turnToPage,
+    addPage: startPage,
+    removePage: tearOutPage,
     pageLines: options.column === null || options.column === undefined ? 0 : pageLines,
     addLines,
     pageDate,
     setDate,
     pageSubject,
     setSubject,
-    pagePaper,
+    paper,
     setPaper,
     syncTheme,
     zoomToFit: () => engineRef.current?.zoomToFit(),

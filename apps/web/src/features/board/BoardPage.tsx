@@ -33,6 +33,7 @@ import {
   IconItalic,
   IconLock,
   IconLine,
+  IconPanel,
   IconPencil,
   IconRouteCurved,
   IconRouteElbow,
@@ -58,9 +59,10 @@ import {
   PAPER_EVENT,
   type Paper,
   readPaperPreference,
-  resolvePaper,
+  writePaperPreference,
 } from '../../ui/paper'
 import { LeaDate } from './LeaDate'
+import { LeaPages } from './LeaPages'
 import { LeaPaper } from './LeaPaper'
 import { useCanvas } from './useCanvas'
 
@@ -129,6 +131,32 @@ const CONNECTION_LABEL: Record<ConnectionState, string> = {
   denied: 'No access',
 }
 
+/*
+ * Whether the page list is open, remembered across visits.
+ *
+ * A preference of this browser rather than of the diary: it is about how much room you
+ * have on this screen, which is not something to write into a document everyone else
+ * opens. Same shape as the grid toggle, and the same reason for the try/catch - Safari
+ * in private mode throws on `localStorage`, and a sidebar is not worth a blank screen.
+ */
+const PAGES_KEY = 'meadow.pages'
+
+function readPagesPreference(): boolean {
+  try {
+    return localStorage.getItem(PAGES_KEY) !== 'off'
+  } catch {
+    return true
+  }
+}
+
+function writePagesPreference(open: boolean): void {
+  try {
+    localStorage.setItem(PAGES_KEY, open ? 'on' : 'off')
+  } catch {
+    // It still holds for this session.
+  }
+}
+
 /** One avatar per person, however many tabs they have open. */
 function dedupe(wanderers: readonly Wanderer[]): Wanderer[] {
   const seen = new Set<string>()
@@ -164,6 +192,8 @@ export default function BoardPage({ boardId, onBack }: Props) {
    */
   const [locked, setLocked] = useState(false)
   const [detail, setDetail] = useState('')
+  /** Whether the diary's page list is beside the paper. Only a lea has one. */
+  const [pagesOpen, setPagesOpen] = useState(readPagesPreference)
   /*
    * Whether this client has the document, not merely a socket.
    *
@@ -334,12 +364,17 @@ export default function BoardPage({ boardId, onBack }: Props) {
   const canWrite = roleCanWrite(role) && !locked
 
   /*
-   * The stock this page is on.
+   * The stock this page is on: the reader's own default, and nothing else.
    *
-   * Two sources with one answer: the page's own choice, and the reader's default for
-   * pages that made none. The default is this browser's rather than the document's, so
-   * it is read here and re-read when the profile changes it, the same shape the theme
-   * uses.
+   * It is this browser's setting rather than the document's, so it is read here and
+   * re-read whenever anything moves it - the profile, this lea's own menu, or another
+   * tab - the same shape the theme uses.
+   *
+   * The document's own `pagePaper` is deliberately not consulted. Leas written before
+   * the two controls were merged may still carry a stock in `meta`, and reading it here
+   * is what made the menu and the profile disagree: the profile moved the preference
+   * while the page kept rendering the document's older opinion, which no reader could
+   * see or clear. Nothing reads it now, and a writer picking a paper drains it.
    */
   const [paperPreference, setPaperPreference] = useState<Paper>(readPaperPreference)
   useEffect(() => {
@@ -347,7 +382,18 @@ export default function BoardPage({ boardId, onBack }: Props) {
     window.addEventListener(PAPER_EVENT, onPaper)
     return () => window.removeEventListener(PAPER_EVENT, onPaper)
   }, [])
-  const paper = resolvePaper(canvas.pagePaper, paperPreference)
+  const paper = paperPreference
+
+  // One choice, written to the preference every surface reads, and the document's old
+  // opinion dropped so it cannot outvote it. The clear is a no-op for a viewer, whose
+  // own paper still changes.
+  const setPaper = useCallback(
+    (next: Paper) => {
+      writePaperPreference(next)
+      canvas.setPaper('')
+    },
+    [canvas.setPaper],
+  )
 
   // The stock carries the ink, and WebGL cannot read the cascade. Same call the theme
   // toggle makes, after React has put the attribute on the host.
@@ -547,14 +593,28 @@ export default function BoardPage({ boardId, onBack }: Props) {
           )}
         </div>
 
-        {/* Only where there is paper to choose. A glade's surface is the theme's. */}
+        {/* Both of these belong to a diary and to nothing else: a glade has no pages to
+            list and no stationery to choose. */}
         {spec.column !== null && (
-          <LeaPaper
-            value={canvas.pagePaper}
-            fallback={paperPreference}
-            editable={canWrite}
-            onChange={canvas.setPaper}
-          />
+          <button
+            type="button"
+            className={pagesOpen ? 'icon ghost active' : 'icon ghost'}
+            aria-pressed={pagesOpen}
+            onClick={() =>
+              setPagesOpen((open) => {
+                writePagesPreference(!open)
+                return !open
+              })
+            }
+            title={pagesOpen ? 'Hide the pages' : 'Show the pages'}
+            aria-label={pagesOpen ? 'Hide the pages' : 'Show the pages'}
+          >
+            <IconPanel />
+          </button>
+        )}
+
+        {spec.column !== null && (
+          <LeaPaper value={paperPreference} onChange={setPaper} />
         )}
 
         <button
@@ -585,7 +645,9 @@ export default function BoardPage({ boardId, onBack }: Props) {
 
       </header>
 
-      <div className="board-body">
+      {/* `with-pages` only while the list is actually standing beside the canvas: it is
+          what everything centred on the paper subtracts to stay centred on it. */}
+      <div className={spec.column !== null && pagesOpen ? 'board-body with-pages' : 'board-body'}>
         {/* The rail floats over the canvas rather than taking a column out of it.
             ARCHITECTURE 1: the drawing surface is the product. */}
         <nav className="toolbar" aria-label="Tools">
@@ -692,6 +754,53 @@ export default function BoardPage({ boardId, onBack }: Props) {
             </button>
           )}
         </div>
+
+        {/*
+          The diary's pages, beside the one being written.
+
+          A column of the body rather than something floating over the canvas, so the
+          paper re-centres in what is left instead of being covered by the list: the
+          camera fences a lea to a fixed measure and centres it in the host, and the
+          host is what narrows. Below a narrow window it goes back to floating, because
+          there is no room left to take.
+        */}
+        {/*
+          The way back to a list you have closed.
+          The bar has the same toggle, but a button in a row of eight icons is not what
+          somebody looks at when they wonder where their pages went. This is on the edge
+          the list came off, it carries the count so it says what is behind it, and it
+          exists only while the list is closed.
+        */}
+        {spec.column !== null && !pagesOpen && (
+          <button
+            type="button"
+            className="lea-pages-tab"
+            title="Show the pages"
+            aria-label="Show the pages"
+            onClick={() => {
+              writePagesPreference(true)
+              setPagesOpen(true)
+            }}
+          >
+            <IconPanel size={17} />
+            <span className="lea-pages-tab-count">{canvas.pages.length}</span>
+          </button>
+        )}
+
+        {spec.column !== null && pagesOpen && (
+          <LeaPages
+            pages={canvas.pages}
+            index={canvas.pageIndex}
+            editable={canWrite}
+            onTurn={canvas.turnToPage}
+            onAdd={canvas.addPage}
+            onRemove={canvas.removePage}
+            onCollapse={() => {
+              writePagesPreference(false)
+              setPagesOpen(false)
+            }}
+          />
+        )}
 
         {/*
           The text formatting bar.

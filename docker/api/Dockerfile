@@ -78,7 +78,7 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--worker
 
 # --- development ---------------------------------------------------------------
 #
-# `docker compose -f docker-compose.local.yml --profile app up`. Source is bind-mounted
+# `docker compose -f docker-compose.local.yml up -d`. Source is bind-mounted
 # over /srv/meadow/api/app and uvicorn watches it, so an edit on the host restarts the
 # process in about a second.
 #

@@ -1,14 +1,19 @@
 /**
- * What this page is printed on.
+ * What this lea is printed on.
  *
- * The choice belongs to the page and so it goes in the document, which is why this
- * takes the raw stored string rather than a `Paper`: '' means the page has no opinion
- * and each reader's own default decides. That row is offered first and names the
- * default it would fall back to, so "Default" is never a choice you have to open the
- * profile to understand.
+ * The diary's, not the page's: a notebook is bound with one stock, and turning to the
+ * next page to find a different paper reads as a bug rather than as a choice. So it is
+ * one value for the whole document, even though ruling, length and subject belong to
+ * each page.
  *
- * A viewer sees the same menu with the rows disabled rather than no menu at all: the
- * stock is worth being able to read off the page you are looking at.
+ * One setting, two places to reach it. This menu and the profile's "Diary paper" are
+ * the same value - the reader's own default, in `ui/paper.ts` - so changing it here
+ * moves the profile and changing it there moves the page. It was a document value with
+ * the profile as a fallback under it, and two controls that disagreed after either one
+ * was touched read as a bug however carefully the fallback was labelled.
+ *
+ * Being this browser's preference rather than the document's, it is not a permission:
+ * a viewer chooses what a page they can only read looks like to them.
  */
 
 import { useEffect, useRef, useState } from 'react'
@@ -18,14 +23,10 @@ import { PAPERS, PAPER_LABEL, type Paper } from '../../ui/paper'
 
 export function LeaPaper({
   value,
-  fallback,
-  editable,
   onChange,
 }: {
-  value: string
-  fallback: Paper
-  editable: boolean
-  onChange: (paper: string) => void
+  value: Paper
+  onChange: (paper: Paper) => void
 }) {
   const [open, setOpen] = useState(false)
   const root = useRef<HTMLDivElement>(null)
@@ -46,14 +47,9 @@ export function LeaPaper({
     }
   }, [open])
 
-  const options: readonly { id: string; label: string }[] = [
-    { id: '', label: `Default (${PAPER_LABEL[fallback]})` },
-    ...PAPERS.map((paper) => ({ id: paper as string, label: PAPER_LABEL[paper] })),
-  ]
-
-  const pick = (id: string): void => {
+  const pick = (paper: Paper): void => {
     setOpen(false)
-    if (editable) onChange(id)
+    onChange(paper)
   }
 
   return (
@@ -72,18 +68,17 @@ export function LeaPaper({
 
       {open && (
         <div className="menu menu-compact" role="listbox" aria-label="Paper">
-          {options.map((option) => (
+          {PAPERS.map((option) => (
             <button
-              key={option.id === '' ? 'default' : option.id}
+              key={option}
               type="button"
               role="option"
-              aria-selected={option.id === value}
-              disabled={!editable}
-              className={option.id === value ? 'menu-item selected' : 'menu-item'}
-              onClick={() => pick(option.id)}
+              aria-selected={option === value}
+              className={option === value ? 'menu-item selected' : 'menu-item'}
+              onClick={() => pick(option)}
             >
-              <span className="menu-label">{option.label}</span>
-              {option.id === value && <IconCheck size={15} />}
+              <span className="menu-label">{PAPER_LABEL[option]}</span>
+              {option === value && <IconCheck size={15} />}
             </button>
           ))}
         </div>

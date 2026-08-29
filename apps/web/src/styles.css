@@ -106,14 +106,6 @@
    */
   --lea-desk: light-dark(#f4f1ec, #0e0c09);
 
-  --lea-layer-rule: linear-gradient(
-    to bottom,
-    transparent 0,
-    var(--lea-rule) 0.4px,
-    var(--lea-rule) 1.4px,
-    transparent 1.8px
-  );
-
   --lea-layer-fibre: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.42 0.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23f)' opacity='0.3'/%3E%3C/svg%3E");
   /*
    * The coarse layer tiles at 900px, not 420.
@@ -125,15 +117,6 @@
    * smaller and puts any residue off-screen on most windows.
    */
   --lea-layer-pulp-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='900' height='900'%3E%3Cfilter id='c'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.02' numOctaves='5' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='900' height='900' filter='url(%23c)' opacity='0.3'/%3E%3C/svg%3E");
-
-  /* Tooth, then the pulp under it, then one soft blotch to break the symmetry the two
-     tiled layers would otherwise have, then the age gathered at the edges. */
-  --lea-layer-pulp:
-    var(--lea-layer-fibre),
-    var(--lea-layer-pulp-noise),
-    radial-gradient(ellipse 46% 34% at 24% 26%, var(--lea-mottle) 0, transparent 70%),
-    radial-gradient(ellipse 40% 30% at 78% 72%, var(--lea-mottle-2) 0, transparent 70%),
-    radial-gradient(140% 120% at 50% 42%, transparent 40%, var(--lea-shade) 100%);
 
   /* Ink. */
   --fg: light-dark(#1b1c1f, #e9ecf1);
@@ -809,7 +792,7 @@ label {
 }
 
 .paper-swatch[data-paper='dark'] {
-  background-color: #262119;
+  background-color: #171c23;
   background-image: linear-gradient(
     to bottom,
     transparent 0,
@@ -826,7 +809,7 @@ label {
   background-color: #faf7f1;
   background-image:
     linear-gradient(to bottom, transparent 0, #2b221636 0.4px, #2b221636 1.4px, transparent 1.8px),
-    linear-gradient(to right, transparent 50%, #262119 50%);
+    linear-gradient(to right, transparent 50%, #171c23 50%);
   background-size: 100% 5px, 100% 100%;
   background-position: 0 2px, 0 0;
 }
@@ -1530,12 +1513,6 @@ label {
   font-weight: 700;
 }
 
-/* A lea's composer wears the paper it will make. */
-.composer.kind-lea .composer-kind {
-  background: var(--lea-paper);
-  color: var(--lea-ink);
-}
-
 /*
  * The popup a dropdown opens.
  *
@@ -1765,32 +1742,31 @@ label {
   font-weight: 700;
 }
 
-/* A lea's card carries its own paper, so the grid tells you what a thing is before
-   you have read a word of it. */
 /*
- * A lea's preview well is its own paper.
+ * A lea's preview well is ruled, and that is the whole of it.
  *
- * The ruling is drawn much lighter here than on the page itself, and closer together.
+ * It wore the page's own kraft for a while, along with the badge on the card and the
+ * pill in the composer, so that the grid said what a thing was before you had read a
+ * word of it. Wrong surface for it: this is the app talking about a diary, not the
+ * diary itself, and a swatch of kraft on a dark boards page is the one thing on that
+ * screen that does not follow the theme. The mark and the word Lea say the kind; the
+ * ruling says it is something you write on.
+ *
+ * The rules are drawn much lighter here than on the page itself, and closer together.
  * At card size the real weight reads as a barcode: this is a hint at what the thing is,
  * not a scale model of it.
  */
 .board-card.kind-lea .board-thumb {
-  background-color: var(--lea-paper);
+  background-color: var(--surface-2);
   background-image: linear-gradient(
     to bottom,
     transparent 0,
-    #2b22162e 0.4px,
-    #2b22162e 1.2px,
+    var(--line) 0.4px,
+    var(--line) 1.2px,
     transparent 1.6px
   );
   background-size: 100% 0.62rem;
-  color: var(--lea-ink);
-  border-bottom-color: #00000024;
-}
-
-.board-card.kind-lea .kind-badge {
-  background: var(--lea-paper);
-  color: var(--lea-ink);
+  color: var(--muted);
 }
 
 .board-title {
@@ -1912,7 +1888,13 @@ label {
   border-bottom: 1px solid var(--line);
   background: var(--surface);
   flex: 0 0 auto;
-  z-index: 3;
+  /*
+   * Above everything the body floats, because the bar has menus that open over it.
+   * `z-index` on this flex item makes a stacking context, so a menu's own high
+   * z-index is confined to it: at 3 the bar tied with the page list, later markup
+   * won, and the paper picker opened behind the sidebar.
+   */
+  z-index: 6;
 }
 
 .board-bar h1 {
@@ -2045,6 +2027,23 @@ label {
   display: flex;
   min-height: 0;
   position: relative;
+
+  /*
+   * How wide the page list is, and how much of the body it has taken.
+   *
+   * Two properties rather than one, because the second is nought whenever the list is
+   * floating over the canvas instead of standing beside it. Everything centred on the
+   * drawing surface - the formatting bar, the notices - subtracts half of `--board-aside`
+   * so that "centre" keeps meaning the middle of the paper rather than the middle of the
+   * body. Without it the bar over a lea sits half a sidebar to the right of the page it
+   * is formatting.
+   */
+  --pages-width: 15.5rem;
+  --board-aside: 0px;
+}
+
+.board-body.with-pages {
+  --board-aside: var(--pages-width);
 }
 
 /*
@@ -2216,10 +2215,11 @@ label {
 /*
  * The stocks a lea can be printed on.
  *
- * Five variables and nothing else: the pulp, the mottling, the ruling, the ink and the
- * desk. Every layer above is written against those, so a stock is this block and no
- * change anywhere else - not to the engine, which reads the ink back off the host, and
- * not to the header furniture, which is all `currentColor` and `--lea-rule`.
+ * A handful of variables and nothing else: the pulp, the mottling, the ruling, the ink,
+ * the desk, and whether the sheet carries a texture at all. Every layer above is written
+ * against those, so a stock is this block and no change anywhere else - not to the
+ * engine, which reads the ink back off the host, and not to the header furniture, which
+ * is all `currentColor` and `--lea-rule`.
  *
  * The kraft defaults live at the top of this file and are what `vintage` restores;
  * these override them on the host, which is where `--lea-*` is read from.
@@ -2227,40 +2227,84 @@ label {
  * `system` is the light and dark stocks under `light-dark()` rather than a stock of
  * its own, so it follows the theme toggle with nothing subscribed to it.
  */
+/*
+ * The plain stocks: colour and ruling, and no pulp at all.
+ *
+ * `--lea-layer-pulp: none` is the sixth variable, and only these three set it. The
+ * turbulence and the mottling are what make kraft read as paper rather than as a brown
+ * rectangle; on a white or a near-black sheet the same noise has nothing to be the
+ * grain of, and reads as a wash of damp across the page. So light, dark and the one
+ * that follows the theme are flat, and vintage keeps every layer it had.
+ */
 .canvas-host.surface-ruled[data-paper='light'] {
   --lea-paper: #faf7f1;
-  --lea-mottle: #b7a68e14;
-  --lea-mottle-2: #ffffff18;
-  --lea-shade: #6b573c1a;
+  --lea-layer-pulp: none;
   --lea-rule: #2b221636;
   --lea-ink: #241c11;
   --lea-desk: light-dark(#e7e2d9, #0e0c09);
 }
 
 .canvas-host.surface-ruled[data-paper='dark'] {
-  /* Not the theme's surface colour. A page has to read as a sheet lying on the desk,
-     so it stays a step lighter than whatever is around it, and the ink goes warm
-     rather than white: white text on near-black is a terminal, not a diary. */
-  --lea-paper: #262119;
-  --lea-mottle: #00000020;
-  --lea-mottle-2: #d8bd8d10;
-  --lea-shade: #0000003d;
+  /*
+   * The app's own dark surface, `#171c23`. It was a warm near-black of its own, which
+   * is what a brown kraft page goes to when you turn the lights off; this is a dark
+   * page rather than a dimmed one, so it belongs to the palette every other dark
+   * surface in the app is drawn from.
+   *
+   * The ink stays warm against it. White on near-black is a terminal, not a diary, and
+   * cream on navy is a combination paper has actually been printed in.
+   */
+  --lea-paper: #171c23;
+  --lea-layer-pulp: none;
   --lea-rule: #e8dcc44a;
   --lea-ink: #ece3d2;
-  --lea-desk: light-dark(#3a332a, #0e0c09);
+  /* Darker than the sheet, in both themes, so the page reads as something lying on the
+     desk rather than a hole cut in it. It was a step lighter in the light theme, which
+     the pulp used to paint over and a flat sheet cannot. */
+  --lea-desk: #0b0e13;
 }
 
+/* The light and the dark stock, chosen by the theme. Every value here is one of
+   theirs: this is not a fifth palette, and the moment it holds a colour of its own it
+   becomes one. */
 .canvas-host.surface-ruled[data-paper='system'] {
-  --lea-paper: light-dark(#faf7f1, #262119);
-  --lea-mottle: light-dark(#b7a68e14, #00000020);
-  --lea-mottle-2: light-dark(#ffffff18, #d8bd8d10);
-  --lea-shade: light-dark(#6b573c1a, #0000003d);
+  --lea-paper: light-dark(#faf7f1, #171c23);
+  --lea-layer-pulp: none;
   --lea-rule: light-dark(#2b221636, #e8dcc44a);
   --lea-ink: light-dark(#241c11, #ece3d2);
-  --lea-desk: light-dark(#e7e2d9, #0e0c09);
+  --lea-desk: light-dark(#e7e2d9, #0b0e13);
 }
 
 .canvas-host.surface-ruled {
+  /*
+   * The two composite layers, declared here rather than on `:root`, and that is not a
+   * tidying detail.
+   *
+   * A custom property is substituted on the element that declares it. Both of these
+   * were on `:root`, so their inner `var(--lea-rule)` and `var(--lea-mottle)` resolved
+   * against the kraft defaults there and the value that inherited down was already
+   * final: every stock got kraft's rules and kraft's brown mottling whatever it had
+   * asked for. The light sheet wore a brown wash, and the dark one ruled itself in a
+   * dark brown nobody could see against it. Declared here, next to the `[data-paper]`
+   * blocks that override the colours, each stock's own values are the ones substituted.
+   */
+  --lea-layer-rule: linear-gradient(
+    to bottom,
+    transparent 0,
+    var(--lea-rule) 0.4px,
+    var(--lea-rule) 1.4px,
+    transparent 1.8px
+  );
+
+  /* Tooth, then the pulp under it, then one soft blotch to break the symmetry the two
+     tiled layers would otherwise have, then the age gathered at the edges. */
+  --lea-layer-pulp:
+    var(--lea-layer-fibre),
+    var(--lea-layer-pulp-noise),
+    radial-gradient(ellipse 46% 34% at 24% 26%, var(--lea-mottle) 0, transparent 70%),
+    radial-gradient(ellipse 40% 30% at 78% 72%, var(--lea-mottle-2) 0, transparent 70%),
+    radial-gradient(140% 120% at 50% 42%, transparent 40%, var(--lea-shade) 100%);
+
   color: var(--lea-ink);
   background-color: var(--lea-desk);
   background-image: none;
@@ -2723,7 +2767,7 @@ label {
   position: absolute;
   left: 50%;
   bottom: 1rem;
-  transform: translateX(-50%);
+  transform: translateX(calc(-50% - var(--board-aside) / 2));
   z-index: 3;
   display: flex;
   flex-direction: column;
@@ -2927,7 +2971,7 @@ kbd {
   position: absolute;
   left: 50%;
   top: 0.9rem;
-  transform: translateX(-50%);
+  transform: translateX(calc(-50% - var(--board-aside) / 2));
   z-index: 4;
   display: flex;
   align-items: center;
@@ -3707,5 +3751,303 @@ dialog.modal[open] .modal-card {
 @media (pointer: coarse) {
   .statusbar .hints {
     display: none;
+  }
+}
+
+/*
+ * The page list of a lea.
+ *
+ * A column of the board body rather than something floating over the canvas. The
+ * camera fences a lea to a fixed measure and centres it inside the canvas host, so a
+ * list that takes width out of the host moves the paper over by itself: nothing has to
+ * tell the engine the sidebar opened, and the page is never underneath it.
+ *
+ * App furniture, deliberately. These cards are about the diary rather than printed in
+ * it, so they are the app's surface and the app's type - two kinds of paper on screen
+ * at once would make it unclear which one is being written on.
+ */
+.lea-pages {
+  flex: none;
+  width: var(--pages-width);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--line);
+  background: var(--surface);
+  /* Above the canvas host, which paints the desk and the sheet's shadow. */
+  z-index: 3;
+}
+
+.lea-pages-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.7rem 0.7rem 0.55rem 0.9rem;
+}
+
+/* The count sits with the heading; the collapse button is pushed to the edge. */
+.lea-pages-head .lea-pages-count {
+  margin-right: auto;
+}
+
+.lea-pages-head h2 {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/*
+ * Closing the list from the list.
+ *
+ * The board bar has the same toggle and is where it comes back from, but a panel
+ * whose only dismissal is a button somewhere else reads as furniture you are stuck
+ * with. Quiet until it is wanted: this is a way out, not a thing to press.
+ */
+.lea-pages-collapse {
+  width: 1.6rem;
+  height: 1.6rem;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+}
+
+.lea-pages-collapse:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: transparent;
+  color: var(--fg-strong);
+  transform: none;
+}
+
+.lea-pages-count {
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.lea-pages-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0.1rem 0.6rem 0.6rem;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+/* The card and the button that tears the page out are siblings, because a button
+   inside a button is not a thing a browser will render. */
+.lea-page-slot {
+  position: relative;
+}
+
+/*
+ * One row, one page: number, title, length.
+ *
+ * A grid rather than a flex row, so the three columns line up down the whole list
+ * instead of each row packing to its own content - the number column is the width of
+ * the widest number, and every title starts at the same x. The right gutter is kept
+ * clear for the button that tears the page out, so a long title is cut before it
+ * reaches it rather than sliding under it when the row is hovered.
+ */
+.lea-page {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1.1rem minmax(0, 1fr) auto;
+  /* Baselines, not boxes. The three runs are three sizes, and centring their boxes
+     leaves the numerals sitting a fraction below the words beside them. */
+  align-items: baseline;
+  gap: 0.55rem;
+  padding: 0.42rem 1.95rem 0.42rem 0.5rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  text-align: left;
+}
+
+.lea-page:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: transparent;
+  transform: none;
+}
+
+.lea-page.open,
+.lea-page.open:hover:not(:disabled) {
+  background: var(--accent-soft);
+  border-color: transparent;
+}
+
+/*
+ * The page number, printed the way a book prints one.
+ *
+ * A numeral and nothing else. It was a little ruled sheet with the number inside it,
+ * which is a thumbnail of a thing every row in the list is: three identical boxes
+ * down the side say nothing, and at 30px the ruling in them read as noise. What
+ * tells pages apart is their titles, so the number is a quiet index beside the
+ * title rather than a picture competing with it.
+ */
+.lea-page-number {
+  text-align: right;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.lea-page.open .lea-page-number {
+  color: var(--accent);
+}
+
+.lea-page-title {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--fg-strong);
+}
+
+/* A page nobody has titled says so in the voice the paper uses for a prompt, rather
+   than pretending to a name it does not have. */
+.lea-page-title.untitled {
+  font-weight: 500;
+  font-style: italic;
+  color: var(--muted);
+}
+
+.lea-page.open .lea-page-title {
+  color: var(--accent);
+}
+
+.lea-page-meta {
+  white-space: nowrap;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+/*
+ * Tearing a page out.
+ *
+ * Hidden until the card is under the pointer or holds the focus: it is the one
+ * destructive control in the list, and a row of trash cans down the side of a diary
+ * invites exactly one kind of accident.
+ */
+.lea-page-remove {
+  position: absolute;
+  top: 50%;
+  right: 0.35rem;
+  transform: translateY(-50%);
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  opacity: 0;
+  transition: opacity var(--fast);
+}
+
+.lea-page-slot:hover .lea-page-remove,
+.lea-page-remove:focus-visible {
+  opacity: 1;
+}
+
+.lea-page-remove:hover:not(:disabled) {
+  background: var(--danger-soft);
+  border-color: transparent;
+  color: var(--danger);
+  /* Restated, because the app's button hover lifts by a pixel and this one's transform
+     is what centres it on the row. */
+  transform: translateY(-50%);
+}
+
+.lea-pages-add {
+  margin: 0 0.6rem 0.7rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+/*
+ * The handle a closed list leaves behind.
+ *
+ * Same rail treatment as the tool bar on the other side, because it is the same kind of
+ * thing: a small floating control on the edge of the drawing surface. The count is the
+ * point of it - an icon alone says a panel exists, and a number says what is in it.
+ */
+.lea-pages-tab {
+  position: absolute;
+  right: 0.9rem;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+  padding: 0.5rem 0.45rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  color: var(--muted);
+}
+
+/* The lift every other button gets would fight the centring, which is a transform of
+   its own. Restated rather than inherited. */
+.lea-pages-tab:hover:not(:disabled) {
+  transform: translateY(-50%);
+  border-color: var(--line);
+  color: var(--fg-strong);
+  background: var(--surface);
+}
+
+.lea-pages-tab-count {
+  font-size: 0.7rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * No room to take a column out of: the list floats over the desk instead.
+ *
+ * The paper stays where it was rather than being squeezed into what is left, because
+ * below this width what is left is narrower than the measure the surface exists to
+ * hold, and a diary with the writing running off both edges is worse than one with the
+ * list over the margin.
+ */
+@media (max-width: 900px) {
+  .lea-pages {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 13.5rem;
+    box-shadow: var(--shadow-lg);
+  }
+
+  /* It is over the canvas rather than beside it now, so it has taken nothing and
+     the middle of the body is the middle of the paper again. */
+  .board-body.with-pages {
+    --board-aside: 0px;
   }
 }

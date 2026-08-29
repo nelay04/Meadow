@@ -211,6 +211,35 @@ const PAGE_MAX_ZOOM = 2
 /** Paper either side of the writing column, in world units. The page's margins. */
 const PAGE_MARGIN = 36
 
+/**
+ * The desk between one page of a lea and the next, in world units.
+ *
+ * A diary's pages are laid out side by side in the same world rather than stacked in
+ * the same place, which is what lets a page grow to any length without moving a line
+ * of writing on any other page. The camera is fenced to one page at a time, so this
+ * gap is never on screen; it exists so that a row can be told which page it is on by
+ * where it is, and so that nothing dropped a little outside a column can be mistaken
+ * for writing on the next one.
+ */
+const PAGE_GAP = 2000
+
+/**
+ * Where a page's writing lives, in world x.
+ *
+ * The one function that turns a slot into geometry, exported because the document
+ * layer needs the same answer: removing a page removes the objects inside its span,
+ * and a second copy of this arithmetic there is a second copy that can drift.
+ */
+export function pageSpan(column: WritingColumn, slot: number): { left: number; right: number } {
+  const left = slot * (column.width + PAGE_GAP)
+  return { left, right: left + column.width }
+}
+
+/** The distance from one page's left edge to the next one's. */
+export function pageStride(column: WritingColumn): number {
+  return column.width + PAGE_GAP
+}
+
 /** How far the ruled lines stop short of the page's edge, in world units. */
 const RULE_INSET = 22
 
@@ -485,6 +514,14 @@ export class CanvasEngine {
   private columnBaseline = 0
   /** How many rules this page has. Document state, so it arrives from the host. */
   private pageLines = DEFAULT_PAGE_LINES
+  /**
+   * Which page of the diary is on screen.
+   *
+   * A slot rather than an index into anything: the engine holds no list of pages and
+   * does not know how many there are. It knows which strip of the world it is fenced
+   * to, and the view above it decides which strip that is.
+   */
+  private pageSlot = 0
 
   /** Rolling render cost, exposed for the perf overlay. */
   private lastRenderMs = 0
@@ -545,8 +582,11 @@ export class CanvasEngine {
 
     this.snapToDevicePixels()
     // The host's position changes with the window, and so does the rounding error.
-    this.resizeObserver = new ResizeObserver(() => this.snapToDevicePixels())
+    this.resizeObserver = new ResizeObserver(() => this.onHostResized())
     this.resizeObserver.observe(document.documentElement)
+    // And the host itself, whose size is a different question from its position.
+    // What is done about a size change is in `syncHostSize`, not here.
+    this.resizeObserver.observe(this.element)
 
     // The overlay is positioned against this element, so it cannot be static.
     if (getComputedStyle(this.element).position === 'static') {
@@ -638,6 +678,13 @@ export class CanvasEngine {
    * alignment `pnpm smoke:overlay` guards is untouched. Integer ratios need nothing
    * and get nothing.
    */
+  /** The host moved or changed size: re-snap, re-size the renderer, and redraw. */
+  private onHostResized(): void {
+    if (this.disposed) return
+    this.snapToDevicePixels()
+    this.requestRender()
+  }
+
   private snapToDevicePixels(): void {
     if (this.disposed) return
 
@@ -781,10 +828,11 @@ export class CanvasEngine {
       const rule = this.ruleSpacing * scale
 
       // Where the sheet is on screen. Computed from the same transform as everything
-      // else rather than from the viewport - one source of truth for where world zero
-      // landed - so the paper, the ruling and the header cannot disagree.
+      // else rather than from the viewport - one source of truth for where the page's
+      // own corner landed - so the paper, the ruling and the header cannot disagree.
       const project = (worldY: number): number => worldY * scale + transform.ty
-      const pageLeft = -PAGE_MARGIN * scale + transform.tx
+      const columnLeft = this.pageOrigin * scale + transform.tx
+      const pageLeft = columnLeft - PAGE_MARGIN * scale
       const pageWidth = (column.width + PAGE_MARGIN * 2) * scale
 
       // The rule a row is written on, and so the first and the last of them.
@@ -832,7 +880,7 @@ export class CanvasEngine {
         `${(this.rulePhase + this.ruleSpacing) * scale}px`,
       )
       // The header spans the measure, and the date takes a fixed slice of its right.
-      style.setProperty('--lea-column-left', `${transform.tx}px`)
+      style.setProperty('--lea-column-left', `${columnLeft}px`)
       style.setProperty('--lea-column-width', `${column.width * scale}px`)
       style.setProperty('--lea-subject-width', `${SUBJECT_WIDTH * scale}px`)
       style.setProperty('--lea-date-width', `${DATE_WIDTH * scale}px`)
@@ -894,6 +942,39 @@ export class CanvasEngine {
     this.applyFence()
   }
 
+  /**
+   * Turn to another page of the diary.
+   *
+   * The camera is fenced to one page's strip of the world, so turning a page is a
+   * re-fence and a jump to the top of the new one - not a scroll across the desk
+   * between them. Landing at the top is the point: you turn to a page to read it from
+   * its first line, and keeping the old scroll offset would open page four halfway
+   * down because page three happened to be scrolled there.
+   */
+  setPageSlot(slot: number): void {
+    const next = Math.max(0, Math.round(slot))
+    if (next === this.pageSlot) return
+    // A caret left open on the page being turned away from would keep taking
+    // keystrokes into writing nobody can see any more.
+    this.stopEditing()
+    this.pageSlot = next
+    // Scrolling still owed from the wheel belongs to the page it was asked of. Left
+    // pending, it lands on the new one and drags it away from its first line.
+    this.wheelPending.x = 0
+    this.wheelPending.y = 0
+    // Nothing on the old page is on the new one, and a selection nobody can see is a
+    // delete button that looks armed.
+    this.setSelection([])
+    this.applyFence()
+    this.camera.scrollTo(-COLUMN_TOP_MARGIN)
+    this.requestRender()
+  }
+
+  /** World x of the current page's left edge. Zero on an unfenced canvas. */
+  private get pageOrigin(): number {
+    return this.column === null ? 0 : pageSpan(this.column, this.pageSlot).left
+  }
+
   /** World y of the last rule: where the paper ends. */
   private get pageBottom(): number {
     return this.pageLines * this.ruleSpacing
@@ -901,12 +982,13 @@ export class CanvasEngine {
 
   private applyFence(): void {
     const column = this.column
+    const origin = this.pageOrigin
     this.camera.setFence(
       column === null
         ? null
         : {
-            left: 0,
-            right: column.width,
+            left: origin,
+            right: origin + column.width,
             top: -COLUMN_TOP_MARGIN,
             // Past the last rule by the same air the page opens with, so the end of
             // the paper is something you can see rather than something you hit.
@@ -1387,7 +1469,9 @@ export class CanvasEngine {
 
     const id = this.host.createObject({
       type: 'text',
-      x: 0,
+      // The page's own strip of the world, not world zero: which page a row is on is
+      // where it is, and nothing else records it.
+      x: this.pageOrigin,
       y: top,
       w: column.width,
       // One band tall, so rows tile the page exactly rather than overlapping.
@@ -1407,18 +1491,33 @@ export class CanvasEngine {
     return this.beginTextEdit(id)
   }
 
-  /** The row object covering this world y, or null. */
+  /**
+   * The row object covering this world y on the page being written, or null.
+   *
+   * The page matters as much as the height. Every page of a diary is ruled at the same
+   * heights, so a search by y alone would find page one's third line while the caret
+   * was being put on page four's.
+   */
   private rowObjectAt(worldY: number): string | null {
     const spacing = this.ruleSpacing
+    const origin = this.pageOrigin
     // The middle of the row's line box, so a row whose top edge is a fraction out
     // still answers, and a neighbouring row does not.
     const probe = worldY + spacing / 2
     for (const id of this.host.order()) {
       const object = this.cache.get(id)
       if (object === undefined || object.type !== 'text') continue
+      if (!this.onThisPage(object, origin)) continue
       if (probe >= object.y && probe < object.y + object.h) return id
     }
     return null
+  }
+
+  /** Whether an object's writing belongs to the page whose left edge is `origin`. */
+  private onThisPage(object: ObjectData, origin: number): boolean {
+    if (this.column === null) return true
+    const centre = object.x + object.w / 2
+    return centre >= origin && centre < origin + this.column.width
   }
 
   stopEditing(): void {
@@ -1635,6 +1734,7 @@ export class CanvasEngine {
     this.frame = requestAnimationFrame(this.loop)
 
     this.stepWheel()
+    this.syncHostSize()
 
     // A fenced camera re-centres its column when the window changes width, and this is
     // where it finds out that it did. A no-op at the same size, and on an unfenced
@@ -1683,6 +1783,37 @@ export class CanvasEngine {
     this.pendingHeights.clear()
 
     if (patches.length > 0 && this.host.canWrite) this.host.applyPatches(patches)
+  }
+
+  /**
+   * Keep the drawing buffer the size of the host element.
+   *
+   * Pixi resizes itself from `resizeTo`, and `resizeTo` listens to the window. That
+   * covers every way the canvas used to change size and misses the one a lea's page
+   * list added: a host that gets narrower while the window does not. The
+   * `ResizeObserver` is the obvious answer and is not a reliable one on its own -
+   * it is delivered on a frame the browser chooses to run, and a page whose only
+   * change is a sidebar appearing can go several frames without one.
+   *
+   * So the loop asks. Read at the top of the frame, before anything here writes to
+   * the DOM, so layout is settled from the last paint and two reads cost nothing.
+   * A no-op at the same size, which is every frame but the handful that matter.
+   */
+  private syncHostSize(): void {
+    const app = this.app
+    if (app === undefined) return
+
+    const width = this.element.clientWidth
+    const height = this.element.clientHeight
+    // Zero while the host is display:none, and resizing to nothing throws away the
+    // camera's sense of the viewport for the frame it comes back.
+    if (width === 0 || height === 0) return
+    if (width === Math.round(app.screen.width) && height === Math.round(app.screen.height)) {
+      return
+    }
+
+    app.renderer.resize(width, height)
+    this.dirty = true
   }
 
   private render(): void {

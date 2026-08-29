@@ -1,20 +1,24 @@
-# Local development stack: postgres, redis, pgadmin, and nothing else.
+# The local development stack: the whole app, with hot reload.
 #
-#   docker compose -f docker-compose.local.yml up -d
+#   docker compose -f docker-compose.local.yml up -d        (or: pnpm local)
 #
-# By default the API and the web app run on the host, not in here. M0's gate test
-# restarts the server mid-run, and the e2e scripts spawn their own servers, so both
-# need to own those ports. Ports and credentials come from .env at the repo root,
+# Postgres, redis, pgAdmin, a one-shot migration, the API, the arq worker and the web
+# app. The source is bind-mounted: uvicorn --reload restarts the API on a Python edit,
+# vite hot-reloads the browser on a TypeScript one, watchfiles restarts the worker, and
+# none of them needs a rebuild. Ports and credentials come from .env at the repo root,
 # which compose picks up automatically.
 #
-# To run everything in docker instead, with hot reload on both:
+# `migrate` runs `alembic upgrade head` and exits; the api waits for it to have
+# succeeded. Seeing it in `docker ps -a` as Exited (0) is the healthy state.
 #
-#   docker compose -f docker-compose.local.yml --profile app up
+# The app services used to sit behind a `--profile app` flag so that `api` and `web`
+# did not hold API_PORT and WEB_PORT, which the host-run dev servers want. That was the
+# wrong default: it made the ordinary case - run the app - the one with the flag on it,
+# and the ports it protected are wanted only when you have deliberately chosen to run a
+# server on the host. To do that, start the data services by name and nothing else:
 #
-# That adds `api` and `web` containers with the source bind-mounted. uvicorn --reload
-# restarts on a Python edit, vite hot-reloads on a TypeScript one, and neither needs a
-# rebuild. They sit behind a profile rather than being on by default because they take
-# the same ports the gate and the e2e scripts need.
+#   docker compose -f docker-compose.local.yml up -d postgres redis pgadmin
+#   (or: pnpm local:data)
 #
 # `docker-compose.yml` is production. Reaching for a bare `docker compose up -d` in
 # this directory starts that instead, which is why every command in the README and in
@@ -52,10 +56,10 @@ services:
   redis:
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes"]
-    # The host port exists for one reason: the default dev flow runs the API, pytest,
-    # m0-gate and the e2e scripts on the host, and they need a way in. Under
-    # `--profile app` nothing uses it, because api and worker reach redis at
-    # redis://redis:6379 over this network. The container port never changes.
+    # The host port is for what runs outside this network: pytest, m0-gate and the e2e
+    # scripts on the host, and an API run there rather than in here. The api and worker
+    # containers do not use it - they reach redis at redis://redis:6379 over this
+    # network. The container port never changes.
     #
     # 6382, not 6379 or 6380: a native redis commonly owns 6379, and 6380 is the
     # obvious second choice, so another project's compose stack tends to hold it. This
@@ -89,13 +93,13 @@ services:
       postgres:
         condition: service_healthy
 
-  # --- the `app` profile: everything in docker, with hot reload -------------------
+  # --- the app itself, with hot reload ---------------------------------------------
   #
-  # Not started by a plain `up -d`. `--profile app` opts in.
+  # Started by a plain `up -d`, along with everything above. `up -d postgres redis
+  # pgadmin` is how you get the data services on their own.
 
   # One-shot, so a fresh clone gets a migrated database without a host Python at all.
   migrate:
-    profiles: [app]
     build:
       context: ./services/api
       dockerfile: ../../docker/api/Dockerfile
@@ -112,7 +116,6 @@ services:
         condition: service_healthy
 
   api:
-    profiles: [app]
     build:
       context: ./services/api
       dockerfile: ../../docker/api/Dockerfile
@@ -172,7 +175,6 @@ services:
         condition: service_completed_successfully
 
   worker:
-    profiles: [app]
     build:
       context: ./services/api
       dockerfile: ../../docker/api/Dockerfile
@@ -197,7 +199,6 @@ services:
         condition: service_completed_successfully
 
   web:
-    profiles: [app]
     build:
       context: .
       dockerfile: docker/web/Dockerfile
