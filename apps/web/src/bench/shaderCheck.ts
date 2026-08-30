@@ -1,7 +1,7 @@
 /**
  * Visual and diagnostic check for the ShapeBatch shader.
  *
- * Open /shader-check.html to eyeball the four primitives at several zoom levels, or
+ * Open /shader-check.html to eyeball every primitive at several zoom levels, or
  * run scripts/debug-shader.mjs for the GLSL compile log. A shader that fails to
  * compile still renders "successfully" as an empty canvas, so a page that shows the
  * output is worth more than a passing render call.
@@ -9,13 +9,17 @@
 
 import { Application, Container } from 'pixi.js'
 
-import { parallelogramSlant } from '@meadow/schema'
+import { DEFAULT_POLYGON_SIDES, cylinderCap, parallelogramSlant, trapezoidInset } from '@meadow/schema'
 
 import {
+  SHAPE_CYLINDER,
   SHAPE_DIAMOND,
   SHAPE_ELLIPSE,
   SHAPE_PARALLELOGRAM,
+  SHAPE_POLYGON,
   SHAPE_RECT,
+  SHAPE_TRAPEZOID,
+  SHAPE_TRIANGLE,
   ShapeBatch,
   type ShapeKind,
 } from '../canvas/renderers/shapeBatch'
@@ -25,12 +29,32 @@ const SAMPLES: { kind: ShapeKind; label: string }[] = [
   { kind: SHAPE_ELLIPSE, label: 'ellipse' },
   { kind: SHAPE_DIAMOND, label: 'diamond' },
   { kind: SHAPE_PARALLELOGRAM, label: 'parallelogram' },
+  { kind: SHAPE_TRIANGLE, label: 'triangle' },
+  { kind: SHAPE_TRAPEZOID, label: 'trapezoid' },
+  { kind: SHAPE_POLYGON, label: 'polygon' },
+  { kind: SHAPE_CYLINDER, label: 'cylinder' },
 ]
 
-/** The radius slot means the slant on a parallelogram, and a corner on a rect. */
+/**
+ * The radius slot, per kind. The same decision `canvas/style.ts` makes, written out
+ * here rather than imported because the check is meant to exercise the shader on
+ * numbers it is handed, not to trust the app's own path to them.
+ */
 function radiusFor(kind: ShapeKind, w: number, h: number, corner: number): number {
-  if (kind === SHAPE_PARALLELOGRAM) return parallelogramSlant(w, h)
-  return kind === SHAPE_RECT ? corner : 0
+  switch (kind) {
+    case SHAPE_PARALLELOGRAM:
+      return parallelogramSlant(w, h)
+    case SHAPE_TRAPEZOID:
+      return trapezoidInset(w, h)
+    case SHAPE_POLYGON:
+      return DEFAULT_POLYGON_SIDES
+    case SHAPE_CYLINDER:
+      return cylinderCap(h)
+    case SHAPE_RECT:
+      return corner
+    default:
+      return 0
+  }
 }
 
 // The awkward zoom levels from ARCHITECTURE 5, not just 1 and 2.
@@ -47,7 +71,7 @@ export async function mountShaderCheck(root: HTMLElement): Promise<void> {
 
     const app = new Application()
     await app.init({
-      width: 670,
+      width: 1270,
       height: 150,
       background: 0xf7f7f5,
       antialias: false,

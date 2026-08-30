@@ -183,6 +183,51 @@ describe('hit testing', () => {
     expect(hitsObject(skewed, { x: 5, y: 95 })).toBe(true)
   })
 
+  it('narrows a triangle towards its apex', () => {
+    const triangle = object({ type: 'triangle', w: 100, h: 100 })
+    // The apex is centred on the top edge, so the shape is a point up there and the
+    // full width along the bottom.
+    expect(hitsObject(triangle, { x: 50, y: 5 })).toBe(true)
+    expect(hitsObject(triangle, { x: 5, y: 5 })).toBe(false)
+    expect(hitsObject(triangle, { x: 5, y: 95 })).toBe(true)
+    expect(hitsObject(triangle, { x: 95, y: 95 })).toBe(true)
+  })
+
+  it('cuts the top corners off a trapezoid', () => {
+    // 100x100, so the inset is 20: the top edge runs from x=20 to x=80.
+    const trapezoid = object({ type: 'trapezoid', w: 100, h: 100 })
+    expect(hitsObject(trapezoid, { x: 50, y: 50 })).toBe(true)
+    expect(hitsObject(trapezoid, { x: 5, y: 2 })).toBe(false)
+    expect(hitsObject(trapezoid, { x: 95, y: 2 })).toBe(false)
+    // The bottom edge is the full width.
+    expect(hitsObject(trapezoid, { x: 2, y: 98 })).toBe(true)
+    expect(hitsObject(trapezoid, { x: 98, y: 98 })).toBe(true)
+  })
+
+  it('puts a polygon vertex at the top and a flat edge between two others', () => {
+    const hexagon = object({ type: 'polygon', w: 100, h: 100, props: { polygonSides: 6 } })
+    expect(hitsObject(hexagon, { x: 50, y: 50 })).toBe(true)
+    // The vertex at the top is on the outline; the box's corners are well outside it.
+    expect(hitsObject(hexagon, { x: 50, y: 1 })).toBe(true)
+    expect(hitsObject(hexagon, { x: 2, y: 2 })).toBe(false)
+    // A square asked for as a four-sided polygon is a diamond, not a box.
+    const square = object({ type: 'polygon', w: 100, h: 100, props: { polygonSides: 4 } })
+    expect(hitsObject(square, { x: 50, y: 2 })).toBe(true)
+    expect(hitsObject(square, { x: 2, y: 2 })).toBe(false)
+  })
+
+  it('keeps a cylinder out of the corners its caps curve away from', () => {
+    // 100x200, so each cap is 20 deep and the body runs from y=20 to y=180.
+    const cylinder = object({ type: 'cylinder', w: 100, h: 200 })
+    expect(hitsObject(cylinder, { x: 50, y: 100 })).toBe(true)
+    // The sides of the body are the full width.
+    expect(hitsObject(cylinder, { x: 1, y: 100 })).toBe(true)
+    // The cap is an ellipse, so its corners are empty and its middle is not.
+    expect(hitsObject(cylinder, { x: 50, y: 1 })).toBe(true)
+    expect(hitsObject(cylinder, { x: 2, y: 2 })).toBe(false)
+    expect(hitsObject(cylinder, { x: 98, y: 198 })).toBe(false)
+  })
+
   it('accounts for rotation', () => {
     const rotated = object({ w: 100, h: 20, rotation: Math.PI / 2 })
     // Rotated a quarter turn, the box is now 20 wide and 100 tall about its centre.

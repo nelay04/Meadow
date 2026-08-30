@@ -13,6 +13,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   type ArrowRouting,
   type FreedrawTip,
+  MAX_POLYGON_SIDES,
+  MIN_POLYGON_SIDES,
   type PenAssist,
   TIP_PROFILES,
   tipTakesAssist,
@@ -36,6 +38,7 @@ import {
   IconChevronDown,
   IconCircle,
   IconCursor,
+  IconCylinder,
   IconDiamond,
   IconFit,
   IconEye,
@@ -44,6 +47,7 @@ import {
   IconItalic,
   IconLock,
   IconLine,
+  IconMinus,
   IconNibBrush,
   IconNibChisel,
   IconNibFelt,
@@ -53,6 +57,8 @@ import {
   IconParallelogram,
   IconPen,
   IconPencil,
+  IconPlus,
+  IconPolygon,
   IconRouteCurved,
   IconRouteElbow,
   IconRouteStraight,
@@ -61,6 +67,8 @@ import {
   IconStrike,
   IconSticky,
   IconText,
+  IconTrapezoid,
+  IconTriangle,
   IconUnderline,
   IconTrash,
   IconUnlock,
@@ -120,6 +128,10 @@ const SHAPES: ToolSpec[] = [
   { id: 'ellipse', label: 'Ellipse', hint: 'O', Icon: IconCircle },
   { id: 'diamond', label: 'Diamond', hint: 'D', Icon: IconDiamond },
   { id: 'parallelogram', label: 'Parallelogram', hint: 'G', Icon: IconParallelogram },
+  { id: 'triangle', label: 'Triangle', hint: 'J', Icon: IconTriangle },
+  { id: 'trapezoid', label: 'Trapezoid', hint: 'Z', Icon: IconTrapezoid },
+  { id: 'polygon', label: 'Polygon', hint: 'N', Icon: IconPolygon },
+  { id: 'cylinder', label: 'Cylinder', hint: 'Y', Icon: IconCylinder },
 ]
 
 const SHAPE_TOOLS: ReadonlySet<ToolId> = new Set(SHAPES.map((shape) => shape.id))
@@ -1168,27 +1180,76 @@ export default function BoardPage({ boardId, onBack }: Props) {
               </button>
 
               {railMenu === 'shapes' && canWrite && (
-                <div className="tool-submenu" role="group" aria-label="Shape">
-                  {shapes.map((entry) => (
-                    <button
-                      key={entry.id}
-                      type="button"
-                      aria-label={`${entry.label} (${entry.hint})`}
-                      // The live tool, not the remembered one. A shape stays marked as
-                      // chosen for as long as it is actually in your hand, and stops
-                      // being marked the moment it has been used and put down.
-                      aria-pressed={canvas.tool === entry.id}
-                      className={canvas.tool === entry.id ? 'tool active' : 'tool'}
-                      onClick={() => {
-                        setShape(entry.id)
-                        canvas.setTool(entry.id)
-                        setRailMenu(null)
-                      }}
-                    >
-                      <entry.Icon size={18} />
-                      <Tip label={entry.label} hint={entry.hint} />
-                    </button>
-                  ))}
+                <div className="tool-submenu shape-menu" role="group" aria-label="Shape">
+                  {/*
+                    A grid rather than the single row this was while there were four of
+                    them. Eight buttons in a line beside the rail is wider than the rail
+                    is tall, and a flyout that long stops reading as one decision.
+                  */}
+                  <div className="shape-grid">
+                    {shapes.map((entry) => (
+                      <button
+                        key={entry.id}
+                        type="button"
+                        aria-label={`${entry.label} (${entry.hint})`}
+                        // The live tool, not the remembered one. A shape stays marked as
+                        // chosen for as long as it is actually in your hand, and stops
+                        // being marked the moment it has been used and put down.
+                        aria-pressed={canvas.tool === entry.id}
+                        className={canvas.tool === entry.id ? 'tool active' : 'tool'}
+                        onClick={() => {
+                          setShape(entry.id)
+                          canvas.setTool(entry.id)
+                          // The polygon is the one shape with something left to say
+                          // after it has been picked, so its own row stays open.
+                          if (entry.id !== 'polygon') setRailMenu(null)
+                        }}
+                      >
+                        <entry.Icon size={18} />
+                        <Tip label={entry.label} hint={entry.hint} />
+                      </button>
+                    ))}
+                  </div>
+
+                  {/*
+                    How many sides, under a rule, and only while the polygon is the shape
+                    in hand.
+
+                    A stepper rather than ten buttons: the counts are a range and not a
+                    set of alternatives, and nobody picks nine out of a row - they go one
+                    up from eight. The number itself is the readout, so the row says what
+                    the next polygon will be without a label.
+
+                    It reshapes the selection as well as arming the tool. A count is the
+                    polygon rather than a mode it was drawn in, and a hexagon that can
+                    only become an octagon by being deleted and drawn again is a shape
+                    with a typo in it.
+                  */}
+                  {canvas.tool === 'polygon' && (
+                    <div className="shape-row" role="group" aria-label="Sides">
+                      <button
+                        type="button"
+                        className="tool"
+                        aria-label="Fewer sides"
+                        disabled={canvas.polygonSides <= MIN_POLYGON_SIDES}
+                        onClick={() => canvas.setPolygonSides(canvas.polygonSides - 1)}
+                      >
+                        <IconMinus size={16} />
+                      </button>
+                      <output className="shape-sides" aria-live="polite">
+                        {canvas.polygonSides}
+                      </output>
+                      <button
+                        type="button"
+                        className="tool"
+                        aria-label="More sides"
+                        disabled={canvas.polygonSides >= MAX_POLYGON_SIDES}
+                        onClick={() => canvas.setPolygonSides(canvas.polygonSides + 1)}
+                      >
+                        <IconPlus size={16} />
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

@@ -12,12 +12,15 @@
 import {
   type ObjectData,
   arrowPolyline,
+  cylinderCap,
   hitsInk,
   isArrowLike,
   isFreedraw,
   parallelogramSlant,
+  polygonSidesOf,
   resolveArrowProps,
   resolveFreedrawProps,
+  trapezoidInset,
 } from '@meadow/schema'
 
 import type { Point, WorldRect } from './camera'
@@ -134,6 +137,51 @@ export function hitsObject(object: ObjectData, point: Point, tolerance = 0): boo
       const skew = parallelogramSlant(object.w, object.h) / 2
       const sheared = local.x + (skew / halfH) * local.y
       return Math.abs(sheared) <= halfW - skew && Math.abs(local.y) <= halfH
+    }
+    case 'triangle': {
+      if (halfW <= 0 || halfH <= 0) return false
+      // Apex at (0, -halfH), base corners at (+-halfW, +halfH). The target's half-width
+      // grows linearly from nothing at the apex to the full width at the base, which is
+      // the same line the SDF draws.
+      if (Math.abs(local.y) > halfH) return false
+      const down = (local.y + halfH) / (2 * halfH)
+      return Math.abs(local.x) <= halfW * down
+    }
+    case 'trapezoid': {
+      if (halfW <= 0 || halfH <= 0) return false
+      // The inset comes from the real size rather than the tolerance-grown one, for the
+      // same reason the parallelogram's slant does: the taper of the target has to be
+      // the taper that was drawn, and the tolerance only widens it.
+      const top = halfW - trapezoidInset(object.w, object.h)
+      if (Math.abs(local.y) > halfH) return false
+      const down = (local.y + halfH) / (2 * halfH)
+      return Math.abs(local.x) <= top + (halfW - top) * down
+    }
+    case 'polygon': {
+      if (halfW <= 0 || halfH <= 0) return false
+      // In the box's normalised space the polygon is regular with a circumradius of 1,
+      // so a point is inside when its distance along the nearest edge's normal is
+      // within the apothem. Same fold the shader does, and the same vertex at the top.
+      const nx = local.x / halfW
+      const ny = local.y / halfH
+      const sides = polygonSidesOf(object.props)
+      const sector = (Math.PI * 2) / sides
+      const base = -Math.PI / 2 + sector / 2
+      const angle = Math.atan2(ny, nx) - base
+      const offset = angle - sector * Math.round(angle / sector)
+      return Math.hypot(nx, ny) * Math.cos(offset) <= Math.cos(Math.PI / sides)
+    }
+    case 'cylinder': {
+      if (halfW <= 0 || halfH <= 0) return false
+      // The union the shader draws: a body between the cap centres, and a cap ellipse
+      // at each end. The cap comes from the real height, so the tolerance widens the
+      // target rather than reshaping it.
+      const cap = Math.max(cylinderCap(object.h), 1e-6)
+      const body = Math.max(halfH - cap, 0)
+      if (Math.abs(local.x) <= halfW && Math.abs(local.y) <= body) return true
+      const ny = (Math.abs(local.y) - body) / cap
+      const nx = local.x / halfW
+      return nx * nx + ny * ny <= 1
     }
     default:
       return Math.abs(local.x) <= halfW && Math.abs(local.y) <= halfH

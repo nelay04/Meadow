@@ -120,6 +120,43 @@ export function IconParallelogram(props: IconProps) {
   )
 }
 
+export function IconTriangle(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M12 4 21 20H3z" />
+    </Svg>
+  )
+}
+
+export function IconTrapezoid(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M7.5 5.5h9L20 18.5H4z" />
+    </Svg>
+  )
+}
+
+/**
+ * A hexagon, standing for the polygon family the way the circle stands for the
+ * ellipse. Which face count is in your hand is said by a number, not a different icon.
+ */
+export function IconPolygon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M12 3 20.2 7.5V16.5L12 21 3.8 16.5V7.5z" />
+    </Svg>
+  )
+}
+
+export function IconCylinder(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <ellipse cx="12" cy="7" rx="7.5" ry="3" />
+      <path d="M4.5 7v10c0 1.66 3.36 3 7.5 3s7.5-1.34 7.5-3V7" />
+    </Svg>
+  )
+}
+
 /**
  * The shape family, as one mark.
  *
@@ -161,6 +198,14 @@ export function IconPlus(props: IconProps) {
   return (
     <Svg {...props}>
       <path d="M12 5v14M5 12h14" />
+    </Svg>
+  )
+}
+
+export function IconMinus(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M5 12h14" />
     </Svg>
   )
 }

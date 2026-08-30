@@ -46,7 +46,12 @@
 import { elbowFor, routeOrthogonal } from './arrowBinding'
 import { type ArrowRouting, CURVE_HANDLE_TS, curvatureAt } from './arrows'
 import { FREEDRAW_STRIDE, type FreedrawTip } from './freedraw'
-import { type PrimitiveShape, PRIMITIVE_SHAPES, parallelogramSlant } from './objects'
+import {
+  type RecognisableShape,
+  RECOGNISABLE_SHAPES,
+  parallelogramSlant,
+  trapezoidInset,
+} from './objects'
 
 /**
  * How much the pen is allowed to change what was drawn.
@@ -87,7 +92,7 @@ export function tipTakesAssist(tip: FreedrawTip): boolean {
 /** A stroke that was a predefined shape, at the size it was drawn. */
 export type RecognisedShape = {
   kind: 'shape'
-  type: PrimitiveShape
+  type: RecognisableShape
   x: number
   y: number
   w: number
@@ -376,11 +381,12 @@ const ELLIPSE_SEGMENTS = 48
 /**
  * The outline of a candidate shape at a given size, in world space.
  *
- * The one place a candidate's geometry is written, and it agrees with the renderer by
- * construction for the parallelogram, which is the only one of the four whose shape is
- * not implied by its box.
+ * The one place a candidate's geometry is written. The parallelogram and the trapezoid
+ * are the two whose shape is not implied by their box, and both read the same constant
+ * the renderer's SDF and the hit test do, so the three agree by construction rather
+ * than by having been checked once.
  */
-function shapeOutline(type: PrimitiveShape, box: Box): number[] {
+function shapeOutline(type: RecognisableShape, box: Box): number[] {
   const { x, y, w, h } = box
   switch (type) {
     case 'rect':
@@ -392,6 +398,15 @@ function shapeOutline(type: PrimitiveShape, box: Box): number[] {
       // gives the hit test and the SDF.
       const slant = parallelogramSlant(w, h)
       return [x + slant, y, x + w, y, x + w - slant, y + h, x, y + h]
+    }
+    case 'triangle':
+      // Apex centred on the top edge, base spanning the full width.
+      return [x + w / 2, y, x + w, y + h, x, y + h]
+    case 'trapezoid': {
+      // Wider at the bottom, narrower at the top, each side of the top edge stepped in
+      // by the inset.
+      const inset = trapezoidInset(w, h)
+      return [x + inset, y, x + w - inset, y, x + w, y + h, x, y + h]
     }
     case 'ellipse': {
       const out: number[] = []
@@ -423,7 +438,7 @@ function outlineError(path: Path, outline: readonly number[], diagonal: number):
  * How far from its candidate a stroke may sit and still be that shape.
  *
  * Seven per cent of the diagonal, averaged over the whole path, is a lot of slack, and
- * deliberately: this is the mean and the winner is already the closest of the four, so
+ * deliberately: this is the mean and the winner is already the closest candidate, so
  * the threshold is not deciding between shapes. It is deciding whether a scribble gets
  * turned into a rectangle, and that is the only thing it has to get right.
  */
@@ -457,9 +472,9 @@ function recogniseClosed(path: Path): Recognition | null {
   const diagonal = Math.hypot(box.w, box.h)
   if (diagonal < EPSILON) return null
 
-  let best: PrimitiveShape | null = null
+  let best: RecognisableShape | null = null
   let bestError = Infinity
-  for (const type of PRIMITIVE_SHAPES) {
+  for (const type of RECOGNISABLE_SHAPES) {
     const error = outlineError(path, shapeOutline(type, box), diagonal)
     if (error < bestError) {
       bestError = error

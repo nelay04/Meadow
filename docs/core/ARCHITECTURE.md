@@ -443,6 +443,7 @@ type BaseObject = {
 
 type ObjectType =
   | 'text' | 'sticky' | 'rect' | 'ellipse' | 'diamond' | 'parallelogram' | 'triangle'
+  | 'trapezoid' | 'polygon' | 'cylinder'
   | 'line' | 'arrow' | 'freedraw' | 'image'
   | 'table' | 'chart' | 'frame' | 'embed'
 ```
@@ -1021,12 +1022,19 @@ interface Tool {
 ```
 
 Tools: `select` `hand` `text` `sticky` `rect` `ellipse` `diamond` `parallelogram`
-`arrow` `line` `freedraw` `frame` `table` `image` `laser`
+`triangle` `trapezoid` `polygon` `cylinder` `arrow` `line` `freedraw` `frame` `table`
+`image` `laser`
 
-The four shape tools share one button on the rail, the way the connector's three
-routings share the arrow's. They are still four tools rather than options on one -
-each writes a different type - but they are one decision, and a rail that spends four
-of its slots asking it reads as a longer list than it is.
+The shape tools share one button on the rail, the way the connector's three routings
+share the arrow's. They are still separate tools rather than options on one - each
+writes a different type - but they are one decision, and a rail that spends eight of its
+slots asking it reads as a much longer list than it is. Behind the button they are a
+grid of four by two rather than a row, because a row of eight beside the rail is wider
+than the rail is tall.
+
+The polygon carries one thing the others do not: how many sides it has, in `props` so
+that it syncs. The stepper under the grid arms the next polygon and reshapes the
+selected ones, since a side count is the shape rather than a mode it was drawn in.
 
 **A rail button wears what it is holding.** The shape button shows the armed shape's
 own icon and the arrow shows its armed routing, both reverting to their family's mark

@@ -20,7 +20,13 @@
 
 import type { ArrowRouting } from './arrows'
 import type { BindingData } from './bindings'
-import { type ObjectData, parallelogramSlant } from './objects'
+import {
+  type ObjectData,
+  cylinderCap,
+  parallelogramSlant,
+  polygonSidesOf,
+  trapezoidInset,
+} from './objects'
 
 export type Point = { x: number; y: number }
 
@@ -46,11 +52,11 @@ function rotate(x: number, y: number, angle: number): Point {
  * `(t*dx, t*dy)` sits on the outline. Each branch is the analytic ray-shape
  * intersection for that type, which is exact and far cheaper than marching.
  */
-function outlineScale(type: ObjectData['type'], halfW: number, halfH: number, dx: number, dy: number): number {
+function outlineScale(target: ObjectData, halfW: number, halfH: number, dx: number, dy: number): number {
   if (halfW <= 0 || halfH <= 0) return 0
   if (dx === 0 && dy === 0) return 0
 
-  switch (type) {
+  switch (target.type) {
     case 'ellipse': {
       // (t*dx/halfW)^2 + (t*dy/halfH)^2 = 1
       const nx = dx / halfW
@@ -70,6 +76,65 @@ function outlineScale(type: ObjectData['type'], halfW: number, halfH: number, dx
       const tx = sheared === 0 ? Infinity : (halfW - skew) / Math.abs(sheared)
       const ty = dy === 0 ? Infinity : halfH / Math.abs(dy)
       return Math.min(tx, ty)
+    }
+    case 'triangle': {
+      // Three half-planes: the base, and the two slanted edges. The centre of the box
+      // is inside the triangle, so the ray leaves at whichever it reaches first.
+      const base = dy > 0 ? halfH / dy : Infinity
+      const right = 2 * halfH * dx - halfW * dy
+      const left = 2 * halfH * -dx - halfW * dy
+      return Math.min(
+        base,
+        right > 0 ? (halfW * halfH) / right : Infinity,
+        left > 0 ? (halfW * halfH) / left : Infinity,
+      )
+    }
+    case 'trapezoid': {
+      // Four edges, and only the slanted pair needs working out. Their line runs from
+      // (top, -halfH) to (halfW, +halfH), so its normal is (2*halfH, -inset).
+      const inset = trapezoidInset(halfW * 2, halfH * 2)
+      const top = halfW - inset
+      const flat = dy === 0 ? Infinity : halfH / Math.abs(dy)
+      const edge = 2 * halfH * top + inset * halfH
+      const right = 2 * halfH * dx - inset * dy
+      const left = 2 * halfH * -dx - inset * dy
+      return Math.min(
+        flat,
+        right > 0 ? edge / right : Infinity,
+        left > 0 ? edge / left : Infinity,
+      )
+    }
+    case 'polygon': {
+      // The same fold the renderer and the hit test use: in the box's normalised space
+      // the shape is regular, and the ray leaves where its distance along the nearest
+      // edge's normal reaches the apothem.
+      const sides = polygonSidesOf(target.props)
+      const nx = dx / halfW
+      const ny = dy / halfH
+      const sector = (Math.PI * 2) / sides
+      const angle = Math.atan2(ny, nx) - (-Math.PI / 2 + sector / 2)
+      const offset = angle - sector * Math.round(angle / sector)
+      const reach = Math.hypot(nx, ny) * Math.cos(offset)
+      return reach <= 0 ? 0 : Math.cos(Math.PI / sides) / reach
+    }
+    case 'cylinder': {
+      // A union, so the ray leaves at the far side of whichever part reaches furthest:
+      // the body between the cap centres, or the cap the ray is heading into.
+      const cap = Math.max(cylinderCap(target.h), 1e-6)
+      const body = Math.max(halfH - cap, 0)
+      const tx = dx === 0 ? Infinity : halfW / Math.abs(dx)
+      const ty = dy === 0 ? Infinity : body / Math.abs(dy)
+      const box = Math.min(tx, ty)
+
+      // The cap on the ray's own side, as an ellipse offset along y.
+      const centre = dy >= 0 ? body : -body
+      const a = (dx / halfW) ** 2 + (dy / cap) ** 2
+      const b = (-2 * centre * dy) / cap ** 2
+      const c = (centre / cap) ** 2 - 1
+      const root = Math.sqrt(Math.max(b * b - 4 * a * c, 0))
+      const ellipse = a === 0 ? 0 : (-b + root) / (2 * a)
+
+      return Math.max(box, ellipse)
     }
     default: {
       // The box: whichever axis is hit first bounds the ray.
@@ -115,7 +180,7 @@ export function resolveBoundPoint(
   // Centre anchor. Aim from the target's centre at the arrow's other end, and stop
   // where that ray leaves the outline, plus the standoff.
   const local = rotate(toward.x - centreX, toward.y - centreY, -target.rotation)
-  const scale = outlineScale(target.type, halfW, halfH, local.x, local.y)
+  const scale = outlineScale(target, halfW, halfH, local.x, local.y)
 
   const length = Math.hypot(local.x, local.y)
   if (length === 0 || scale === 0) return { x: centreX, y: centreY }

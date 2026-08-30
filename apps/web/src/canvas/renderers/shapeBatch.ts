@@ -1,8 +1,8 @@
 /**
  * Instanced signed-distance-field renderer for the primitive shapes.
  *
- * One draw call for every rect, ellipse, diamond and parallelogram on screen,
- * regardless of count.
+ * One draw call for every rect, ellipse, diamond, parallelogram, triangle, trapezoid,
+ * polygon and cylinder on screen, regardless of count.
  * ARCHITECTURE 5 calls for "shared geometry + instancing for repeated primitives";
  * this is that, and the benchmark in src/bench is the evidence for choosing it.
  *
@@ -23,12 +23,20 @@ export const SHAPE_RECT = 0
 export const SHAPE_ELLIPSE = 1
 export const SHAPE_DIAMOND = 2
 export const SHAPE_PARALLELOGRAM = 3
+export const SHAPE_TRIANGLE = 4
+export const SHAPE_TRAPEZOID = 5
+export const SHAPE_POLYGON = 6
+export const SHAPE_CYLINDER = 7
 
 export type ShapeKind =
   | typeof SHAPE_RECT
   | typeof SHAPE_ELLIPSE
   | typeof SHAPE_DIAMOND
   | typeof SHAPE_PARALLELOGRAM
+  | typeof SHAPE_TRIANGLE
+  | typeof SHAPE_TRAPEZOID
+  | typeof SHAPE_POLYGON
+  | typeof SHAPE_CYLINDER
 
 /** Floats per instance. Keep in sync with the attribute offsets below. */
 const STRIDE = 16
@@ -46,12 +54,14 @@ export type ShapeInstance = {
   strokeAlpha: number
   strokeWidth: number
   /**
-   * Corner radius, and for a parallelogram the slant instead.
+   * Corner radius, or the one number the shape's own geometry needs instead.
    *
-   * One slot for two meanings rather than a seventeenth float on every instance in
-   * the buffer: a rounded corner means nothing on a sheared box, and a shape whose
-   * geometry needs a parameter has nowhere else to put it. `canvas/style.ts` decides
-   * which of the two it is writing; the shader reads it per branch.
+   * A parallelogram puts its slant here, a trapezoid its top inset, a polygon its side
+   * count and a cylinder the half-height of its cap. One slot for all of them rather
+   * than a seventeenth float on every instance in the buffer: a rounded corner means
+   * nothing on a sheared box, and a shape whose geometry needs a parameter has nowhere
+   * else to put it. `canvas/style.ts` decides which meaning it is writing; the shader
+   * reads it per branch.
    */
   radius: number
 }
@@ -195,25 +205,135 @@ float sdRhombus(vec2 p, vec2 b) {
   return d * sign(p.x * b.y + p.y * b.x - b.x * b.y);
 }
 
+float dot2(vec2 v) { return dot(v, v); }
+
+// Exact isosceles triangle, after iq. q is (half the base width, the height), with
+// the apex at the origin and the base at +q.y - so callers pass the point measured
+// from the apex. The triangle fills the same box a rect would: apex centred on the
+// top edge, base spanning the full width.
+float sdTriangle(vec2 p, vec2 q) {
+  p.x = abs(p.x);
+  vec2 a = p - q * clamp(dot(p, q) / dot2(q), 0.0, 1.0);
+  vec2 b = p - q * vec2(clamp(p.x / q.x, 0.0, 1.0), 1.0);
+  float s = -sign(q.y);
+  vec2 d = min(vec2(dot2(a), s * (p.x * q.y - p.y * q.x)),
+               vec2(dot2(b), s * (p.y - q.y)));
+  return -sqrt(d.x) * sign(d.y);
+}
+
+// Exact trapezoid, after iq. r1 is the half-width at -y and r2 the half-width at +y,
+// and he is the half-height. +y is downwards on this canvas, so the narrow edge is r1.
+float sdTrapezoid(vec2 p, float r1, float r2, float he) {
+  vec2 k1 = vec2(r2, he);
+  vec2 k2 = vec2(r2 - r1, 2.0 * he);
+  p.x = abs(p.x);
+  vec2 ca = vec2(p.x - min(p.x, (p.y < 0.0) ? r1 : r2), abs(p.y) - he);
+  vec2 cb = p - k1 + k2 * clamp(dot(k1 - p, k2) / dot2(k2), 0.0, 1.0);
+  float s = (cb.x < 0.0 && ca.y < 0.0) ? -1.0 : 1.0;
+  return s * sqrt(min(dot2(ca), dot2(cb)));
+}
+
+// Regular polygon with sides sides, one vertex at the top.
+//
+// Evaluated in the box's own normalised space, so the vertices sit on the bounding
+// ellipse and a wide box gives a wide polygon rather than a circle floating in it.
+// That space is anisotropic, so the distance it returns is not a world distance: the
+// fold's own gradient converts it back, which is what keeps the stroke the same
+// weight along a long side as along a short one.
+float sdPolygon(vec2 p, vec2 b, float sides) {
+  b = max(b, vec2(1e-4));
+  float n = max(sides, 3.0);
+  vec2 q = p / b;
+
+  float an = 6.2831853 / n;
+  // The inradius that puts the vertices on the unit circle, and half an edge with it.
+  // Measuring from the edge rather than the vertex is what makes the fold below one
+  // line, and getting these two the wrong way round draws a polygon around the box
+  // instead of inside it.
+  float ir = cos(0.5 * an);
+  float he = ir * tan(0.5 * an);
+
+  // The direction of the first edge's midpoint, which is half a sector round from the
+  // vertex the shape is drawn with at the top. -pi/2 is up, since +y is downwards.
+  float base = -1.5707963 + 0.5 * an;
+  float bn = an * floor((atan(q.y, q.x) - base) / an + 0.5) + base;
+  vec2 cs = vec2(cos(bn), sin(bn));
+
+  // Fold into that one sector: rotating by -bn puts the nearest edge at x = ir.
+  vec2 f = vec2(cs.x * q.x + cs.y * q.y, -cs.y * q.x + cs.x * q.y);
+  vec2 e = f - vec2(ir, clamp(f.y, -he, he));
+  float len = length(e);
+
+  // Unfold the gradient and divide the axes back out. Along the normal the two spaces
+  // differ by exactly this factor, which is all the conversion an edge one pixel wide
+  // needs.
+  vec2 g = len > 1e-6 ? e / len : vec2(1.0, 0.0);
+  vec2 gq = vec2(cs.x * g.x - cs.y * g.y, cs.y * g.x + cs.x * g.y);
+  float scale = 1.0 / max(length(vec2(gq.x / b.x, gq.y / b.y)), 1e-6);
+
+  return len * sign(f.x - ir) * scale;
+}
+
 void main() {
   float kind = vStyle.x;
   float strokeWidth = vStyle.y;
   float radius = vStyle.z;
 
   float d;
+  // An inner line drawn in the stroke colour, for the shapes that have one. Far away
+  // unless a branch below moves it, so it costs the others nothing.
+  float seam = 1e6;
+
   if (kind < 0.5) {
     d = sdRoundBox(vLocal, vHalf, radius);
   } else if (kind < 1.5) {
     d = sdEllipse(vLocal, vHalf);
   } else if (kind < 2.5) {
     d = sdRhombus(vLocal, vHalf);
-  } else {
+  } else if (kind < 3.5) {
     // radius carries the slant here, not a corner. The y flip is what leans the
     // shape the way a flowchart's does - top edge to the right - since the function
     // above pushes the +y edge and +y is downwards on the canvas.
     float he = max(vHalf.y, 1e-4);
     float skew = radius * 0.5;
     d = sdParallelogram(vec2(vLocal.x, -vLocal.y), max(vHalf.x - skew, 1e-4), he, skew);
+  } else if (kind < 4.5) {
+    // Measured from the apex, which sits centred on the top edge.
+    d = sdTriangle(vec2(vLocal.x, vLocal.y + vHalf.y), vec2(vHalf.x, 2.0 * vHalf.y));
+  } else if (kind < 5.5) {
+    // radius carries the trapezoid's inset here, same pattern as the parallelogram:
+    // how far each side of the narrow top edge steps in from the box.
+    float topHalf = max(vHalf.x - radius, 1e-4);
+    d = sdTrapezoid(vLocal, topHalf, vHalf.x, vHalf.y);
+  } else if (kind < 6.5) {
+    // radius carries the side count here.
+    d = sdPolygon(vLocal, vHalf, radius);
+  } else {
+    // A body between two cap ellipses. The caps are exactly as wide as the body, so the
+    // three stack rather than overlap and the shape is whichever one the point's own
+    // band belongs to. A min of the three would be the union, and unions of signed
+    // distance fields stroke their hidden internal edges: the body's flat top would
+    // draw a line across the middle of the cap sitting on it. The bands agree at the
+    // seam - a cap's own field there is the body's - so the branch has no edge of its
+    // own.
+    //
+    // radius carries the cap's half-height, in world units.
+    float cap = clamp(radius, 1e-4, vHalf.y);
+    float body = vHalf.y - cap;
+    float topArc = sdEllipse(vec2(vLocal.x, vLocal.y + body), vec2(vHalf.x, cap));
+    float botArc = sdEllipse(vec2(vLocal.x, vLocal.y - body), vec2(vHalf.x, cap));
+
+    if (vLocal.y < -body) d = topArc;
+    else if (vLocal.y > body) d = botArc;
+    else d = abs(vLocal.x) - vHalf.x;
+
+    // What actually says "cylinder" is the front of the top cap, which is inside the
+    // silhouette rather than on it, so it is stroked separately. Only within the cap's
+    // own band, though: the ellipse field is an approximation that reads far too small
+    // a long way from a flat ellipse, and left unbounded it paints ghost arcs down the
+    // body.
+    float front = -body + cap + strokeWidth;
+    seam = (vLocal.y > -body && vLocal.y < front) ? topArc : 1e6;
   }
 
   // Screen-space derivative, so the edge stays one pixel soft at any zoom.
@@ -221,8 +341,9 @@ void main() {
 
   float fillAlpha = (1.0 - smoothstep(-aa, aa, d)) * vFill.a;
   float halfStroke = strokeWidth * 0.5;
+  float edge = min(abs(d), abs(seam));
   float strokeAlpha = strokeWidth > 0.0
-    ? (1.0 - smoothstep(-aa, aa, abs(d) - halfStroke)) * vStroke.a
+    ? (1.0 - smoothstep(-aa, aa, edge - halfStroke)) * vStroke.a
     : 0.0;
 
   vec3 rgb = mix(vFill.rgb, vStroke.rgb, strokeAlpha);

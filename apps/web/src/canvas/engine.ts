@@ -17,6 +17,9 @@ import {
   type ArrowRoutingPatch,
   type BindingData,
   type ObjectData,
+  DEFAULT_POLYGON_SIDES,
+  MAX_POLYGON_SIDES,
+  MIN_POLYGON_SIDES,
   TIP_PROFILES,
   absolutePoints,
   arrowPolyline,
@@ -455,6 +458,8 @@ export class CanvasEngine {
    * choosing what you are about to make and correcting what you already made.
    */
   private arrowRouting: ArrowRouting = 'straight'
+  /** How many sides the polygon tool draws with. See `setPolygonSides`. */
+  private polygonSides: number = DEFAULT_POLYGON_SIDES
 
   /**
    * How the pen is set. Engine state rather than document state: it describes the next
@@ -1268,6 +1273,38 @@ export class CanvasEngine {
     this.arrowRouting = routing
   }
 
+  /** The side count the polygon tool will draw with. */
+  get polygonSidesChoice(): number {
+    return this.polygonSides
+  }
+
+  /**
+   * Choose how many sides a polygon has.
+   *
+   * Both the setting for the next one and an edit of the selected ones, which is the
+   * one place this parts company with the arrow's routing. A routing chosen in the rail
+   * is a mode; a side count is the polygon, and a hexagon that can never be made into
+   * an octagon without being deleted and drawn again is a shape with a typo in it.
+   */
+  setPolygonSides(sides: number): void {
+    const clamped = Math.max(MIN_POLYGON_SIDES, Math.min(MAX_POLYGON_SIDES, Math.round(sides)))
+    this.polygonSides = clamped
+
+    const patches = [...this.selected]
+      .map((id) => this.cache.get(id))
+      .filter((object): object is ObjectData => object !== undefined && object.type === 'polygon')
+      .map((object) => ({
+        id: object.id,
+        patch: { props: { ...object.props, polygonSides: clamped } },
+      }))
+
+    if (patches.length > 0) {
+      this.host.applyPatches(patches)
+      this.host.commit()
+    }
+    this.requestRender()
+  }
+
   /** How the pen is set, for the rail to show. */
   get penSettings(): PenSettings {
     return this.pen
@@ -1686,6 +1723,10 @@ export class CanvasEngine {
       case 'ellipse':
       case 'diamond':
       case 'parallelogram':
+      case 'triangle':
+      case 'trapezoid':
+      case 'polygon':
+      case 'cylinder':
         return createShapeTool(this.context, id)
       case 'text':
       case 'sticky':
@@ -1744,6 +1785,9 @@ export class CanvasEngine {
       setArrowPoints: (id, absolute) => this.host.setArrowPoints(id, absolute),
       bindArrow: (input) => this.host.bindArrow(input),
       setArrowRouting: (id, patch) => this.host.setArrowRouting(id, patch),
+      get polygonSides(): number {
+        return engine.polygonSides
+      },
       get arrowRouting(): ArrowRouting {
         return engine.arrowRouting
       },
@@ -2883,6 +2927,27 @@ export class CanvasEngine {
       case 'g':
       case 'G':
         this.setTool('parallelogram')
+        return
+      // The four that came with the second batch of shapes take whatever letter of
+      // their own name was still free: J from the end of triangle, Z from trapezoid,
+      // N from polygon, Y from cylinder. None of them is a first letter, because T, S,
+      // P and C are all taken by tools that were here first and moving one of those to
+      // make room would break a shortcut people already use.
+      case 'j':
+      case 'J':
+        this.setTool('triangle')
+        return
+      case 'z':
+      case 'Z':
+        this.setTool('trapezoid')
+        return
+      case 'n':
+      case 'N':
+        this.setTool('polygon')
+        return
+      case 'y':
+      case 'Y':
+        this.setTool('cylinder')
         return
       case 't':
       case 'T':

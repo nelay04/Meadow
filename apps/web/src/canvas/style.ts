@@ -6,12 +6,23 @@
  * the render loop.
  */
 
-import { type ObjectData, type ObjectType, parallelogramSlant } from '@meadow/schema'
 import {
+  type ObjectData,
+  type ObjectType,
+  cylinderCap,
+  parallelogramSlant,
+  polygonSidesOf,
+  trapezoidInset,
+} from '@meadow/schema'
+import {
+  SHAPE_CYLINDER,
   SHAPE_DIAMOND,
   SHAPE_ELLIPSE,
   SHAPE_PARALLELOGRAM,
+  SHAPE_POLYGON,
   SHAPE_RECT,
+  SHAPE_TRAPEZOID,
+  SHAPE_TRIANGLE,
   type ShapeKind,
 } from './renderers/shapeBatch'
 
@@ -83,6 +94,10 @@ const KINDS: Partial<Record<ObjectType, ShapeKind>> = {
   ellipse: SHAPE_ELLIPSE,
   diamond: SHAPE_DIAMOND,
   parallelogram: SHAPE_PARALLELOGRAM,
+  triangle: SHAPE_TRIANGLE,
+  trapezoid: SHAPE_TRAPEZOID,
+  polygon: SHAPE_POLYGON,
+  cylinder: SHAPE_CYLINDER,
   sticky: SHAPE_RECT,
   frame: SHAPE_RECT,
   text: SHAPE_RECT,
@@ -94,12 +109,38 @@ const KINDS: Partial<Record<ObjectType, ShapeKind>> = {
 
 /**
  * Types the batch cannot draw. Irregular paths are not signed distance fields, so
- * arrows and lines go through the arrow pass and freehand ink through the ink pass;
- * triangle needs another SDF branch and has not been given one. Returning null skips
- * them rather than drawing a misleading rectangle in their place.
+ * arrows and lines go through the arrow pass and freehand ink through the ink pass.
+ * Returning null skips them rather than drawing a misleading rectangle in their place.
  */
 export function shapeKindFor(type: ObjectType): ShapeKind | null {
   return KINDS[type] ?? null
+}
+
+/**
+ * The one number a shape's own geometry needs, for the instance's radius slot.
+ *
+ * Four of the eight primitives have something to put there that is not a corner: the
+ * parallelogram's slant, the trapezoid's inset, the polygon's side count and the
+ * cylinder's cap. The shader reads the slot per branch, so this is the only place that
+ * decides which of the meanings is being written.
+ */
+function geometryOf(object: ObjectData, props: Record<string, unknown>): number {
+  switch (object.type) {
+    case 'parallelogram':
+      return parallelogramSlant(object.w, object.h)
+    case 'trapezoid':
+      return trapezoidInset(object.w, object.h)
+    case 'polygon':
+      return polygonSidesOf(props)
+    case 'cylinder':
+      return cylinderCap(object.h)
+    default:
+      // Softly rounded by default. A hard 90-degree corner is half of why an unstyled
+      // shape reads as a wireframe rather than as a finished object. A sticky is the
+      // exception and gets a tighter one: a note is a cut square of paper, and the more
+      // its corners are rounded the more it reads as a button.
+      return numberProp(props, 'cornerRadius', object.type === 'sticky' ? 2 : 4)
+  }
 }
 
 function numberProp(props: Record<string, unknown>, key: string, fallback: number): number {
@@ -135,18 +176,10 @@ export function resolveStyle(object: ObjectData, kind: ShapeKind, dark = false):
     stroke: numberProp(props, 'stroke', surface.stroke),
     strokeAlpha: numberProp(props, 'strokeAlpha', bare ? 0 : 1) * object.opacity,
     strokeWidth: numberProp(props, 'strokeWidth', bare ? 0 : 2),
-    // Softly rounded by default. A hard 90-degree corner is the other half of why an
-    // unstyled shape reads as a wireframe rather than as a finished object. A sticky
-    // is the exception and gets a tighter one: a note is a cut square of paper, and
-    // the more its corners are rounded the more it reads as a button.
-    //
-    // A parallelogram spends the slot on its slant instead, which is geometry rather
-    // than styling and so is not the author's to set: `cornerRadius` on a sheared box
-    // would round nothing, and the shader needs the lean from somewhere.
-    radius:
-      object.type === 'parallelogram'
-        ? parallelogramSlant(object.w, object.h)
-        : numberProp(props, 'cornerRadius', object.type === 'sticky' ? 2 : 4),
+    // A corner radius, or the shape's own geometry where the shape has some. That is
+    // not the author's to set: `cornerRadius` on a sheared box would round nothing, and
+    // the shader needs the lean from somewhere. See `geometryOf`.
+    radius: geometryOf(object, props),
   }
 }
 

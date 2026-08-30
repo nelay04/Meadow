@@ -14,6 +14,35 @@ away getting there.
 The infrastructure to run the thing. Not deployed yet.
 
 ### Added
+- **Four more shapes: a triangle, a trapezoid, a polygon and a cylinder.** `J`, `Z`,
+  `N` and `Y` draw them, or pick one out of the shape button on the rail, which is now a
+  grid of eight rather than a row of four. All four are real primitives on the same
+  terms the first four are: another branch in the instanced SDF shader each, so a board
+  of five thousand of them still costs the one draw call, and every one of them carries
+  a label, binds arrows and hit-tests against its own outline rather than its box.
+
+  Neither the polygon nor the cylinder is the exception it looks like. A polygon with a
+  variable number of sides is one distance function with the plane folded into one
+  sector, so nine sides costs exactly what six does. A cylinder is a body between two
+  cap ellipses, chosen by band rather than unioned - a union of distance fields strokes
+  its own hidden internal edges, which would have drawn a line across the middle of the
+  cap - and the front of the top cap is stroked separately, because that arc is what
+  says cylinder and it is inside the silhouette rather than on it.
+
+  **How many sides is the polygon, not a mode it was drawn in.** The count lives in the
+  document, so two people looking at the same octagon see the same octagon, and the
+  stepper in the shape flyout both arms the next one and reshapes the ones currently
+  selected. A hexagon that could only become an octagon by being deleted and drawn again
+  would be a shape with a typo in it. Three to twelve: below three is not a shape, and
+  above twelve every polygon is the ellipse tool with extra steps.
+
+  The trapezoid's taper is geometry rather than styling and is defined in exactly one
+  place, the way the parallelogram's slant is, and read by the shader, the hit test, the
+  arrow's stopping point and the label's box. The cylinder's cap is the same. The pen's
+  shape recogniser gained the triangle and the trapezoid as candidates and deliberately
+  did not gain the other two: a freehand hexagon and a freehand ellipse are the same
+  stroke, and nobody draws a cylinder in one pass.
+
 - **A parallelogram, the fourth primitive.** `G` draws one, or pick it out of the shape
   button on the rail. It is a real primitive rather than a sheared rectangle: another
   branch in the instanced SDF shader, so five thousand of them still cost the one draw

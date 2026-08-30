@@ -57,7 +57,16 @@ const withText = params.has('text')
 const arrowCount = Number(params.get('arrows') ?? '0')
 const arrowDrag = params.has('arrowdrag')
 
-const TYPES = ['rect', 'ellipse', 'diamond', 'parallelogram'] as const
+const TYPES = [
+  'rect',
+  'ellipse',
+  'diamond',
+  'parallelogram',
+  'triangle',
+  'trapezoid',
+  'polygon',
+  'cylinder',
+] as const
 const PALETTE = [0x9ec9b0, 0x6fcf97, 0x2f7d4f, 0xe8c468, 0xd88c5a, 0x7b8fd4, 0xc47ba0, 0x5aa7c4]
 
 function seeded(seed: number): () => number {

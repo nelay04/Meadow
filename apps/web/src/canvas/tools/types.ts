@@ -25,6 +25,10 @@ export type ToolId =
   | 'ellipse'
   | 'diamond'
   | 'parallelogram'
+  | 'triangle'
+  | 'trapezoid'
+  | 'polygon'
+  | 'cylinder'
   | 'text'
   | 'sticky'
   | 'arrow'
@@ -150,6 +154,14 @@ export type ToolContext = {
    * the previous one until the user switched tools and back.
    */
   readonly arrowRouting: ArrowRouting
+  /**
+   * How many sides a newly drawn polygon should have, chosen in the shape flyout.
+   *
+   * A getter for the same reason `arrowRouting` is one: it changes while the tool is
+   * mounted, and a value captured when the tool was picked would draw the previous
+   * count until the user switched tools and back.
+   */
+  readonly polygonSides: number
   /**
    * The nib the next stroke will be drawn with. A getter for the same reason
    * `arrowRouting` is one: it changes while the tool is mounted.

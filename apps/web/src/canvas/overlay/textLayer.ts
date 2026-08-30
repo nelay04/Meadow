@@ -20,11 +20,14 @@ import {
   type ObjectData,
   type TextProps,
   arrowPolyline,
+  cylinderCap,
   isArrowLike,
   parallelogramSlant,
   pointAlongPath,
+  polygonSidesOf,
   resolveArrowProps,
   resolveTextProps,
+  trapezoidInset,
 } from '@meadow/schema'
 
 import type { ViewTransform } from '../camera'
@@ -68,15 +71,36 @@ type Box = { x: number; y: number; w: number; h: number }
  */
 type Fit = { x: number; y: number }
 
-const INSCRIBED: Partial<Record<ObjectData['type'], (w: number, h: number) => Fit>> = {
+type Inscribe = (w: number, h: number, props?: Record<string, unknown>) => Fit
+
+const INSCRIBED: Partial<Record<ObjectData['type'], Inscribe>> = {
   diamond: () => ({ x: 0.5, y: 0.5 }),
   ellipse: () => ({ x: 0.70710678, y: 0.70710678 }),
   parallelogram: (w, h) => ({ x: w === 0 ? 1 : (w - 2 * parallelogramSlant(w, h)) / w, y: 1 }),
+  // The largest centred box in an isosceles triangle sits in its lower half, and a
+  // label centred on the shape cannot use it. Half the width across the middle is what
+  // is left once the label has to stay centred, which is the same bargain the diamond
+  // makes.
+  triangle: () => ({ x: 0.5, y: 0.5 }),
+  // As wide as the top edge, so a label never runs out over the taper.
+  trapezoid: (w, h) => ({ x: w === 0 ? 1 : (w - 2 * trapezoidInset(w, h)) / w, y: 1 }),
+  // The apothem, which is the inradius of a regular polygon with a circumradius of 1.
+  // A triangle gets half its box and a twelve-sided one almost all of it, which is
+  // right: the more sides it has the closer it is to the ellipse it is inscribed in.
+  polygon: (_w, _h, props) => {
+    const sides = polygonSidesOf(props ?? {})
+    const inradius = Math.cos(Math.PI / sides)
+    return { x: inradius, y: inradius }
+  },
+  // Clear of both caps, so a label sits on the body rather than across the curve of
+  // the top one. Narrower than the box as well, because the body's sides are where the
+  // cap ellipses are widest and a full-width label would touch them.
+  cylinder: (_w, h) => ({ x: 0.9, y: h === 0 ? 1 : Math.max((h - 4 * cylinderCap(h)) / h, 0.3) }),
 }
 
 function layoutBox(object: ObjectData): Box {
   if (!isArrowLike(object.type)) {
-    const fit = INSCRIBED[object.type]?.(object.w, object.h)
+    const fit = INSCRIBED[object.type]?.(object.w, object.h, object.props)
     if (fit === undefined) return { x: object.x, y: object.y, w: object.w, h: object.h }
 
     // Centred on the shape, so growing the type keeps the label in the middle on both

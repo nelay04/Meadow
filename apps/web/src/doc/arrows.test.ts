@@ -159,6 +159,67 @@ describe('resolveBoundPoint', () => {
     expect(down.y).toBeCloseTo(100, 6)
   })
 
+  it('stops on a triangle, which is a point at the top and full width at the base', () => {
+    const target = object({ type: 'triangle', x: 0, y: 0, w: 100, h: 100 })
+
+    // Straight down from the centre leaves through the base.
+    const down = resolveBoundPoint(target, { anchor: CENTRE, gap: 0 }, { x: 50, y: 500 })
+    expect(down.y).toBeCloseTo(100, 6)
+
+    // Straight up leaves at the apex itself, centred on the top edge.
+    const up = resolveBoundPoint(target, { anchor: CENTRE, gap: 0 }, { x: 50, y: -500 })
+    expect(up.x).toBeCloseTo(50, 6)
+    expect(up.y).toBeCloseTo(0, 6)
+
+    // Straight out to the right, at the height of the centre: the slanted edge is
+    // halfway across there, so the arrow stops well short of the box.
+    const across = resolveBoundPoint(target, { anchor: CENTRE, gap: 0 }, { x: 500, y: 50 })
+    expect(across.x).toBeCloseTo(75, 6)
+  })
+
+  it('stops on a trapezoid, on the taper as well as the flat edges', () => {
+    const target = object({ type: 'trapezoid', x: 0, y: 0, w: 100, h: 100 })
+
+    // The inset is 20, so the side crosses the middle 10 short of the box.
+    const across = resolveBoundPoint(target, { anchor: CENTRE, gap: 0 }, { x: 500, y: 50 })
+    expect(across.x).toBeCloseTo(90, 6)
+
+    const down = resolveBoundPoint(target, { anchor: CENTRE, gap: 0 }, { x: 50, y: 500 })
+    expect(down.y).toBeCloseTo(100, 6)
+  })
+
+  it('stops on a polygon at the same outline the hit test uses', () => {
+    const target = object({
+      type: 'polygon',
+      x: 0,
+      y: 0,
+      w: 100,
+      h: 100,
+      props: { polygonSides: 4 },
+    })
+
+    // Four sides with a vertex at the top is a diamond, so the exits are the vertices
+    // on the axes and the edges on the diagonals.
+    const up = resolveBoundPoint(target, { anchor: CENTRE, gap: 0 }, { x: 50, y: -500 })
+    expect(up.y).toBeCloseTo(0, 6)
+
+    const corner = resolveBoundPoint(target, { anchor: CENTRE, gap: 0 }, { x: 500, y: 500 })
+    expect(corner.x).toBeCloseTo(75, 6)
+    expect(corner.y).toBeCloseTo(75, 6)
+  })
+
+  it('stops on the far side of a cylinder cap rather than on the body', () => {
+    // 100x200: each cap is 20 deep, so the body ends at y=180 and the shape at y=200.
+    const target = object({ type: 'cylinder', x: 0, y: 0, w: 100, h: 200 })
+
+    const down = resolveBoundPoint(target, { anchor: CENTRE, gap: 0 }, { x: 50, y: 900 })
+    expect(down.y).toBeCloseTo(200, 6)
+
+    // Across the body, where the sides are the box.
+    const across = resolveBoundPoint(target, { anchor: CENTRE, gap: 0 }, { x: 900, y: 100 })
+    expect(across.x).toBeCloseTo(100, 6)
+  })
+
   it('follows the direction of approach', () => {
     const target = object({ x: 0, y: 0, w: 100, h: 100 })
     const fromLeft = resolveBoundPoint(target, { anchor: CENTRE, gap: 0 }, { x: -500, y: 50 })

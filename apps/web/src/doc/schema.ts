@@ -6,6 +6,8 @@
  * imports read as document concerns rather than package plumbing.
  */
 
+import { PRIMITIVE_SHAPES } from '@meadow/schema'
+
 export {
   OBJECT_TYPES,
   PRIMITIVE_SHAPES,
@@ -29,5 +31,11 @@ export {
 /** Legacy alias. `ObjectData` is the name to use in new code. */
 export type { ObjectData as CanvasObject } from '@meadow/schema'
 
-/** The subset of types the M2 toolbar can create. */
-export const CREATABLE_TYPES = ['rect', 'ellipse', 'diamond', 'parallelogram'] as const
+/**
+ * The subset of types the shape rail can create.
+ *
+ * The primitives, which is the same list by definition rather than by coincidence: a
+ * shape the batch can draw is a shape the rail can offer, and keeping a second hand
+ * written copy here is how one of them ends up missing a shape.
+ */
+export const CREATABLE_TYPES = PRIMITIVE_SHAPES

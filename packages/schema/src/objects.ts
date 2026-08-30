@@ -27,6 +27,9 @@ export const OBJECT_TYPES = [
   'diamond',
   'parallelogram',
   'triangle',
+  'trapezoid',
+  'polygon',
+  'cylinder',
   'line',
   'arrow',
   'freedraw',
@@ -39,9 +42,45 @@ export const OBJECT_TYPES = [
 
 export type ObjectType = (typeof OBJECT_TYPES)[number]
 
-/** Types the instanced shape renderer can draw. Everything else needs its own path. */
-export const PRIMITIVE_SHAPES = ['rect', 'ellipse', 'diamond', 'parallelogram'] as const
+/**
+ * Types the instanced shape renderer can draw. Everything else needs its own path.
+ *
+ * All eight are one SDF branch each, which is the rule the renderer is built on: a
+ * shape added as a Graphics costs a draw call per instance and gives up the
+ * zoom-independent edge the batch gets for free. The two that look like exceptions are
+ * not - a polygon folds its sector count into one distance function, and a cylinder is
+ * the union of a box and two ellipses, which is a min of three.
+ */
+export const PRIMITIVE_SHAPES = [
+  'rect',
+  'ellipse',
+  'diamond',
+  'parallelogram',
+  'triangle',
+  'trapezoid',
+  'polygon',
+  'cylinder',
+] as const
 export type PrimitiveShape = (typeof PRIMITIVE_SHAPES)[number]
+
+/**
+ * The shapes a pen stroke may be snapped to, in the order they are tried.
+ *
+ * A subset of the primitives rather than all of them, because being drawable and being
+ * recognisable are different questions. A hexagon and an ellipse drawn freehand are the
+ * same stroke to within the tolerance, and nobody draws a cylinder in one pass, so
+ * offering either as a candidate would only take strokes away from the shapes people do
+ * mean.
+ */
+export const RECOGNISABLE_SHAPES = [
+  'rect',
+  'ellipse',
+  'diamond',
+  'parallelogram',
+  'triangle',
+  'trapezoid',
+] as const
+export type RecognisableShape = (typeof RECOGNISABLE_SHAPES)[number]
 
 /**
  * Types that carry a `Y.XmlFragment`. Only these ever get one.
@@ -70,6 +109,10 @@ export const TEXT_BEARING = [
   'ellipse',
   'diamond',
   'parallelogram',
+  'triangle',
+  'trapezoid',
+  'polygon',
+  'cylinder',
   'arrow',
   'line',
 ] as const
@@ -107,6 +150,64 @@ export const PARALLELOGRAM_SLANT = 0.3
 
 export function parallelogramSlant(w: number, h: number): number {
   return Math.min(Math.abs(w), Math.abs(h)) * PARALLELOGRAM_SLANT
+}
+
+/**
+ * How far a trapezoid's top edge is inset from each side, in world units.
+ *
+ * Same reasoning as the parallelogram's slant, and the same single definition read by
+ * the SDF, the hit test, the arrow's stopping point and the label's box. Proportional
+ * to the shorter side so the taper is an angle rather than a fraction of the box. 0.2
+ * reads as deliberate without pinching the top edge so far in that a label has nowhere
+ * to sit.
+ */
+export const TRAPEZOID_INSET = 0.2
+
+export function trapezoidInset(w: number, h: number): number {
+  return Math.min(Math.abs(w), Math.abs(h)) * TRAPEZOID_INSET
+}
+
+/**
+ * The number of sides a polygon is drawn with, read from `props.polygonSides`.
+ *
+ * A number the author chose rather than a geometry constant, so unlike the slant and
+ * the inset it lives in `props` and syncs: two people looking at the same polygon see
+ * the same one. The default is 6 because a hexagon is what people reach for when they
+ * want neither a rectangle nor a circle. Three is the floor because two sides is not a
+ * shape, and twelve the ceiling because past it every polygon is the ellipse tool with
+ * extra steps.
+ */
+export const DEFAULT_POLYGON_SIDES = 6
+export const MIN_POLYGON_SIDES = 3
+export const MAX_POLYGON_SIDES = 12
+
+/**
+ * The side count on an object's props, clamped and rounded.
+ *
+ * Reads raw props rather than a parsed snapshot: it is called per visible polygon per
+ * frame by the renderer, and it has to survive whatever a peer wrote into the Y.Map.
+ */
+export function polygonSidesOf(props: Record<string, unknown>): number {
+  const raw = props.polygonSides
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    return Math.max(MIN_POLYGON_SIDES, Math.min(MAX_POLYGON_SIDES, Math.round(raw)))
+  }
+  return DEFAULT_POLYGON_SIDES
+}
+
+/**
+ * The half-height of a cylinder's cap ellipse, as a fraction of the whole height.
+ *
+ * A cylinder is a box between two ellipses, and this is the only number that decides
+ * how it looks. 0.1 of the height per cap leaves eight tenths of body, which reads as a
+ * drum at card size and as a database at diagram size. Unlike the slant and the inset
+ * it is a fraction of the height alone: the cap is an ellipse as wide as the box, and
+ * tying its depth to the width would make a wide cylinder a pair of saucers.
+ */
+export const CYLINDER_CAP_RATIO = 0.1
+
+export function cylinderCap(h: number): number {
+  return Math.min(Math.abs(h) * CYLINDER_CAP_RATIO, Math.abs(h) / 2)
 }
 
 export const shapeProps = z.object({

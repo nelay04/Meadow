@@ -1,11 +1,11 @@
 /**
- * Draw a rect, ellipse, or diamond by dragging.
+ * Draw one of the primitive shapes by dragging.
  *
  * A click without a drag creates a default-sized shape centred on the pointer, which
  * is what people expect after picking a shape from a toolbar.
  */
 
-import type { ObjectType } from '@meadow/schema'
+import type { ObjectData, ObjectType } from '@meadow/schema'
 
 import type { Point } from '../camera'
 import type { CanvasPointerEvent, Tool, ToolContext, ToolId } from './types'
@@ -18,6 +18,15 @@ const DRAG_THRESHOLD = 4
 export function createShapeTool(context: ToolContext, type: ObjectType & ToolId): Tool {
   let origin: Point | null = null
   let preview: string | null = null
+
+  /*
+   * The side count is written at creation, the way the arrow writes its routing: it is
+   * the polygon's own geometry from its first frame rather than a default that the rail
+   * corrects afterwards. Read per shape rather than once, so a count changed between
+   * two drags applies to the second one.
+   */
+  const propsFor = (): Partial<ObjectData> =>
+    type === 'polygon' ? { props: { polygonSides: context.polygonSides } } : {}
 
   const rectFrom = (start: Point, current: Point, square: boolean, fromCenter: boolean) => {
     let width = current.x - start.x
@@ -66,7 +75,7 @@ export function createShapeTool(context: ToolContext, type: ObjectType & ToolId)
         // Create on the first real movement rather than on pointerdown, so a click
         // that turns out to be a drag does not leave a stray default-sized shape in
         // the undo history behind the one actually drawn.
-        preview = context.createObject({ type, ...box })
+        preview = context.createObject({ type, ...box, ...propsFor() })
         if (preview !== null) context.setSelection([preview])
       } else {
         context.applyPatches([{ id: preview, patch: box }])
@@ -84,6 +93,7 @@ export function createShapeTool(context: ToolContext, type: ObjectType & ToolId)
           y: event.world.y - DEFAULT_HEIGHT / 2,
           w: DEFAULT_WIDTH,
           h: DEFAULT_HEIGHT,
+          ...propsFor(),
         })
         if (id !== null) context.setSelection([id])
       }

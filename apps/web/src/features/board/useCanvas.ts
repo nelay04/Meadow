@@ -12,8 +12,11 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import {
   type ArrowRouting,
+  DEFAULT_POLYGON_SIDES,
   FREEDRAW_TIPS,
   type FreedrawTip,
+  MAX_POLYGON_SIDES,
+  MIN_POLYGON_SIDES,
   PEN_ASSIST,
   type PenAssist,
 } from '@meadow/schema'
@@ -185,6 +188,16 @@ export type CanvasHandle = {
   setArrowRouting(routing: ArrowRouting): void
 
   /**
+   * How many sides the polygon tool draws with.
+   *
+   * Unlike the arrow's routing this is not only a setting for the next one: applying it
+   * also reshapes any selected polygons, because a side count is the shape rather than
+   * a mode it was drawn in. The engine does both; this is the number the rail shows.
+   */
+  polygonSides: number
+  setPolygonSides(sides: number): void
+
+  /**
    * The nib the next stroke will be drawn with, and how to change it.
    *
    * Partial, because the flyout changes one thing at a time. Remembered across
@@ -284,6 +297,7 @@ export function useCanvas(
   const [editingId, setEditingId] = useState<string | null>(null)
   const [gridVisible, setGridVisible] = useState(readGridPreference)
   const [arrowRouting, setArrowRoutingState] = useState<ArrowRouting>('straight')
+  const [polygonSides, setPolygonSidesState] = useState(DEFAULT_POLYGON_SIDES)
   const [pen, setPenState] = useState<PenSettings>(readPenPreference)
   const [activeMarks, setActiveMarks] = useState<readonly TextMark[]>([])
   // A counter, not the value: the engine is the source of truth for both of these and
@@ -611,6 +625,12 @@ export function useCanvas(
     setArrowRoutingState(routing)
   }, [])
 
+  const setPolygonSides = useCallback((sides: number) => {
+    const clamped = Math.max(MIN_POLYGON_SIDES, Math.min(MAX_POLYGON_SIDES, Math.round(sides)))
+    engineRef.current?.setPolygonSides(clamped)
+    setPolygonSidesState(clamped)
+  }, [])
+
   const setPen = useCallback((patch: Partial<PenSettings>) => {
     setPenState((current) => {
       const next = { ...current, ...patch }
@@ -675,6 +695,8 @@ export function useCanvas(
     toggleGrid,
     arrowRouting,
     setArrowRouting,
+    polygonSides,
+    setPolygonSides,
     pen,
     setPen,
     canFormatText: engineRef.current?.canFormatText ?? false,

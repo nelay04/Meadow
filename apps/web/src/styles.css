@@ -2919,6 +2919,47 @@ kbd {
 }
 
 /*
+ * The shape flyout, which grew out of being a row.
+ *
+ * Eight shapes in a line would reach further across the canvas than the rail is tall,
+ * so they wrap into a grid of four and the flyout stays roughly square. The polygon's
+ * side count sits under a hairline beneath them, on the same terms as the pen's rows:
+ * a group you can see is a group you do not have to read.
+ */
+.shape-menu {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.25rem;
+}
+
+.shape-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 2rem);
+  gap: 0.15rem;
+}
+
+.shape-row {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  padding-top: 0.25rem;
+  border-top: 1px solid var(--line);
+}
+
+/*
+ * The count, between the two steppers. It is the readout and the label at once, so it
+ * is set in the rail's own type rather than styled as a field: a box around it would
+ * say it can be typed into, and it cannot.
+ */
+.shape-sides {
+  flex: 1;
+  text-align: center;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+}
+
+/*
  * The pen's flyout, which is the one that is a panel rather than a row.
  *
  * Four things are being chosen and they are not alternatives to each other, so they
