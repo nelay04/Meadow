@@ -15,7 +15,7 @@
 
 import { z } from 'zod'
 
-import type { ObjectData, ObjectType } from './objects'
+import { type ObjectData, type ObjectType, PRIMITIVE_SHAPES } from './objects'
 
 /**
  * The three faces from ARCHITECTURE 1, referred to by slug rather than by CSS family
@@ -96,12 +96,18 @@ const TYPE_DEFAULTS: Partial<Record<ObjectType, Partial<TextProps>>> = {
     padding: 14,
     autoHeight: false,
   },
-  // A label inside a shape is centred on both axes, and the shape does not grow to
-  // fit it. Growing is right for a standalone caption, whose height is its content;
-  // it is wrong for a box in a diagram, whose size the author chose.
-  rect: SHAPE_LABEL,
-  ellipse: SHAPE_LABEL,
-  diamond: SHAPE_LABEL,
+  /*
+   * A label inside a shape is centred on both axes, and the shape does not grow to
+   * fit it. Growing is right for a standalone caption, whose height is its content;
+   * it is wrong for a box in a diagram, whose size the author chose.
+   *
+   * Spread from the list of primitives rather than written out, because a shape left
+   * off this list does not fail loudly: it silently falls back to the standalone
+   * caption's defaults, and the first thing the author sees is the box they just drew
+   * collapsing to the height of one line of text as soon as they label it. That is
+   * what the parallelogram did for exactly as long as it was missing here.
+   */
+  ...Object.fromEntries(PRIMITIVE_SHAPES.map((type) => [type, SHAPE_LABEL])),
   // A caption on a connector. Smaller than a shape's, because it sits on top of the
   // board rather than inside a box, and `autoHeight` off for a much harder reason
   // than style: an arrow's `h` is its bounding box, and letting the overlay write a

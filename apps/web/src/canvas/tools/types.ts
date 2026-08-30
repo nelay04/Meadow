@@ -23,6 +23,7 @@ export type ToolId =
   | 'rect'
   | 'ellipse'
   | 'diamond'
+  | 'parallelogram'
   | 'text'
   | 'sticky'
   | 'arrow'

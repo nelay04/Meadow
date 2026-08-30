@@ -442,7 +442,7 @@ type BaseObject = {
 }
 
 type ObjectType =
-  | 'text' | 'sticky' | 'rect' | 'ellipse' | 'diamond' | 'triangle'
+  | 'text' | 'sticky' | 'rect' | 'ellipse' | 'diamond' | 'parallelogram' | 'triangle'
   | 'line' | 'arrow' | 'freedraw' | 'image'
   | 'table' | 'chart' | 'frame' | 'embed'
 ```
@@ -892,7 +892,9 @@ outside the diamond, so a caption laid out in the box runs over the slanted edge
 appearing to have room. Labels in a diamond and an ellipse use the largest centred
 axis-aligned rectangle that fits inside the shape - half the box, and 1/sqrt(2) of it,
 both of which fall out of those shapes' own equations. The cost is that a diamond holds
-less text than its box suggests, which is true of a real diamond.
+less text than its box suggests, which is true of a real diamond. The fit is per axis,
+not one ratio: a parallelogram's top and bottom edges are horizontal, so it keeps the
+full height and loses only the slant off each end of every line.
 
 There is one function that styles a text box, taking a variant, and it assigns every
 property it cares about every time. The earlier arrangement had a second function
@@ -945,8 +947,14 @@ interface Tool {
 }
 ```
 
-Tools: `select` `hand` `text` `sticky` `rect` `ellipse` `diamond` `arrow` `line`
-`freedraw` `frame` `table` `image` `laser`
+Tools: `select` `hand` `text` `sticky` `rect` `ellipse` `diamond` `parallelogram`
+`arrow` `line` `freedraw` `frame` `table` `image` `laser`
+
+The four shape tools share one button on the rail, the way the connector's three
+routings share the arrow's. They are still four tools rather than options on one -
+each writes a different type - but they are one decision, and a rail that spends four
+of its slots asking it reads as a longer list than it is. The button wears the armed
+shape's own icon while a shape is in hand and the family's mark when none is.
 
 ### Selection & transform
 

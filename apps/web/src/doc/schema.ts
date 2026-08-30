@@ -30,4 +30,4 @@ export {
 export type { ObjectData as CanvasObject } from '@meadow/schema'
 
 /** The subset of types the M2 toolbar can create. */
-export const CREATABLE_TYPES = ['rect', 'ellipse', 'diamond'] as const
+export const CREATABLE_TYPES = ['rect', 'ellipse', 'diamond', 'parallelogram'] as const

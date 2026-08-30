@@ -2103,6 +2103,25 @@ label {
 }
 
 /*
+ * A button with a family behind it, marked the way a toolbox has always marked one:
+ * a folded corner. Without it the shape button is a shape button, and the other three
+ * shapes are somewhere nobody has a reason to look for them. Drawn in `currentColor`
+ * so it follows the button through hover, active and disabled rather than needing a
+ * colour of its own in each.
+ */
+.tool.has-more::after {
+  content: '';
+  position: absolute;
+  right: 0.28rem;
+  bottom: 0.28rem;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-bottom: 4px solid currentColor;
+  opacity: 0.5;
+}
+
+/*
  * Tooltip on the rail.
  *
  * A real element rather than `content: attr(data-tip)` on a pseudo-element, because

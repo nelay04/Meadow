@@ -145,6 +145,20 @@ describe('resolveBoundPoint', () => {
     expect(point.y).toBeCloseTo(75, 6)
   })
 
+  it('stops on a parallelogram, on the slanted side as well as the flat one', () => {
+    const target = object({ type: 'parallelogram', x: 0, y: 0, w: 100, h: 100 })
+
+    // Straight out to the right, at the height of the centre. The slant is 30, so the
+    // right edge crosses the middle 15 short of the box.
+    const across = resolveBoundPoint(target, { anchor: CENTRE, gap: 0 }, { x: 500, y: 50 })
+    expect(across.x).toBeCloseTo(85, 6)
+    expect(across.y).toBeCloseTo(50, 6)
+
+    // Straight down. Top and bottom are flat, so that one is the box.
+    const down = resolveBoundPoint(target, { anchor: CENTRE, gap: 0 }, { x: 50, y: 500 })
+    expect(down.y).toBeCloseTo(100, 6)
+  })
+
   it('follows the direction of approach', () => {
     const target = object({ x: 0, y: 0, w: 100, h: 100 })
     const fromLeft = resolveBoundPoint(target, { anchor: CENTRE, gap: 0 }, { x: -500, y: 50 })

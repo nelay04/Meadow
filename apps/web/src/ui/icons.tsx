@@ -112,6 +112,31 @@ export function IconDiamond(props: IconProps) {
   )
 }
 
+export function IconParallelogram(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M8.6 5.5H20l-4.6 13H4z" />
+    </Svg>
+  )
+}
+
+/**
+ * The shape family, as one mark.
+ *
+ * Two shapes overlapping rather than three side by side: at 19px a row of three is a
+ * grey smear, and what this button has to say is "shapes live in here", not which
+ * ones. Which one is in your hand is said by the button wearing that shape's own icon
+ * while it is armed.
+ */
+export function IconShapes(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="9.2" cy="9.2" r="4.7" />
+      <rect x="10.5" y="10.5" width="9" height="9" rx="1.8" />
+    </Svg>
+  )
+}
+
 export function IconTrash(props: IconProps) {
   return (
     <Svg {...props}>

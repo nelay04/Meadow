@@ -212,6 +212,8 @@ check('the second peer still has a live canvas after presence traffic', bobSeesC
 
 // --- live convergence -------------------------------------------------------------
 
+// The shape rail is one button with the family behind it; open it, then pick.
+await a.page.click('button[aria-label^="Shapes"]')
 await a.page.click('button[aria-label^="Rectangle"]')
 await a.page.mouse.move(aliceCanvas.x + 200, aliceCanvas.y + 180)
 await a.page.mouse.down()

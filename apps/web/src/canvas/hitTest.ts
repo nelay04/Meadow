@@ -15,6 +15,7 @@ import {
   hitsInk,
   isArrowLike,
   isFreedraw,
+  parallelogramSlant,
   resolveArrowProps,
   resolveFreedrawProps,
 } from '@meadow/schema'
@@ -124,6 +125,15 @@ export function hitsObject(object: ObjectData, point: Point, tolerance = 0): boo
     case 'diamond': {
       if (halfW <= 0 || halfH <= 0) return false
       return Math.abs(local.x) / halfW + Math.abs(local.y) / halfH <= 1
+    }
+    case 'parallelogram': {
+      if (halfW <= 0 || halfH <= 0) return false
+      // Undo the shear and the shape is a box again. The slant comes from the real
+      // size rather than the tolerance-grown one, so the lean of the target matches
+      // the lean that was drawn and the tolerance only widens it.
+      const skew = parallelogramSlant(object.w, object.h) / 2
+      const sheared = local.x + (skew / halfH) * local.y
+      return Math.abs(sheared) <= halfW - skew && Math.abs(local.y) <= halfH
     }
     default:
       return Math.abs(local.x) <= halfW && Math.abs(local.y) <= halfH

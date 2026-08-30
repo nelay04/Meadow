@@ -1,7 +1,8 @@
 /**
  * Instanced signed-distance-field renderer for the primitive shapes.
  *
- * One draw call for every rect, ellipse and diamond on screen, regardless of count.
+ * One draw call for every rect, ellipse, diamond and parallelogram on screen,
+ * regardless of count.
  * ARCHITECTURE 5 calls for "shared geometry + instancing for repeated primitives";
  * this is that, and the benchmark in src/bench is the evidence for choosing it.
  *
@@ -21,8 +22,13 @@ import { Buffer, BufferUsage, Container, Geometry, Mesh, Rectangle, Shader } fro
 export const SHAPE_RECT = 0
 export const SHAPE_ELLIPSE = 1
 export const SHAPE_DIAMOND = 2
+export const SHAPE_PARALLELOGRAM = 3
 
-export type ShapeKind = typeof SHAPE_RECT | typeof SHAPE_ELLIPSE | typeof SHAPE_DIAMOND
+export type ShapeKind =
+  | typeof SHAPE_RECT
+  | typeof SHAPE_ELLIPSE
+  | typeof SHAPE_DIAMOND
+  | typeof SHAPE_PARALLELOGRAM
 
 /** Floats per instance. Keep in sync with the attribute offsets below. */
 const STRIDE = 16
@@ -39,6 +45,14 @@ export type ShapeInstance = {
   stroke: number
   strokeAlpha: number
   strokeWidth: number
+  /**
+   * Corner radius, and for a parallelogram the slant instead.
+   *
+   * One slot for two meanings rather than a seventeenth float on every instance in
+   * the buffer: a rounded corner means nothing on a sheared box, and a shape whose
+   * geometry needs a parameter has nowhere else to put it. `canvas/style.ts` decides
+   * which of the two it is writing; the shader reads it per branch.
+   */
   radius: number
 }
 
@@ -52,7 +66,7 @@ in vec2 aOffset;
 in vec2 aSize;
 in vec4 aFill;
 in vec4 aStroke;
-in vec4 aStyle;   // kind, strokeWidth, cornerRadius, rotation
+in vec4 aStyle;   // kind, strokeWidth, cornerRadius or slant, rotation
 
 // Pixi supplies these as individual uniforms, not interface blocks - neither its
 // global nor its mesh-local UniformGroup sets ubo:true. Declaring them as blocks
@@ -73,7 +87,7 @@ out vec2 vLocal;
 out vec2 vHalf;
 out vec4 vFill;
 out vec4 vStroke;
-out vec3 vStyle;  // kind, strokeWidth, cornerRadius
+out vec3 vStyle;  // kind, strokeWidth, cornerRadius or slant
 out vec4 vTint;
 
 vec4 roundPixels(vec4 position, vec2 targetSize) {
@@ -152,6 +166,28 @@ float sdEllipse(vec2 p, vec2 ab) {
 
 float ndot(vec2 a, vec2 b) { return a.x * b.x - a.y * b.y; }
 
+// Exact parallelogram, after iq. wi is half the length of the flat top and bottom
+// edges, he half the height, and sk how far the top edge is pushed sideways - half
+// the shape's full slant, since the top goes one way and the bottom the other.
+float sdParallelogram(vec2 p, float wi, float he, float sk) {
+  vec2 e = vec2(sk, he);
+  p = (p.y < 0.0) ? -p : p;
+
+  // The flat edge.
+  vec2 w = p - e;
+  w.x -= clamp(w.x, -wi, wi);
+  vec2 d = vec2(dot(w, w), -w.y);
+
+  // The slanted edge, in the half-plane the point actually falls in.
+  float s = p.x * e.y - p.y * e.x;
+  p = (s < 0.0) ? -p : p;
+  vec2 v = p - vec2(wi, 0.0);
+  v -= e * clamp(dot(v, e) / dot(e, e), -1.0, 1.0);
+  d = min(d, vec2(dot(v, v), wi * he - abs(s)));
+
+  return sqrt(d.x) * sign(-d.y);
+}
+
 float sdRhombus(vec2 p, vec2 b) {
   p = abs(p);
   float h = clamp(ndot(b - 2.0 * p, b) / dot(b, b), -1.0, 1.0);
@@ -169,8 +205,15 @@ void main() {
     d = sdRoundBox(vLocal, vHalf, radius);
   } else if (kind < 1.5) {
     d = sdEllipse(vLocal, vHalf);
-  } else {
+  } else if (kind < 2.5) {
     d = sdRhombus(vLocal, vHalf);
+  } else {
+    // radius carries the slant here, not a corner. The y flip is what leans the
+    // shape the way a flowchart's does - top edge to the right - since the function
+    // above pushes the +y edge and +y is downwards on the canvas.
+    float he = max(vHalf.y, 1e-4);
+    float skew = radius * 0.5;
+    d = sdParallelogram(vec2(vLocal.x, -vLocal.y), max(vHalf.x - skew, 1e-4), he, skew);
   }
 
   // Screen-space derivative, so the edge stays one pixel soft at any zoom.

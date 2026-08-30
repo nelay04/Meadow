@@ -190,6 +190,9 @@ await page.waitForFunction(
 )
 check('the handshake resolves the owner role', true)
 
+// The shapes sit behind one rail button now. The first click arms the last shape
+// and opens the family; the second says which one.
+await page.click('button[aria-label^="Shapes"]')
 await page.click('button[aria-label^="Rectangle"]')
 const box = await page.locator('.canvas-host canvas').boundingBox()
 await page.mouse.move(box.x + 200, box.y + 180)

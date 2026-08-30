@@ -25,6 +25,7 @@ export const OBJECT_TYPES = [
   'rect',
   'ellipse',
   'diamond',
+  'parallelogram',
   'triangle',
   'line',
   'arrow',
@@ -39,7 +40,7 @@ export const OBJECT_TYPES = [
 export type ObjectType = (typeof OBJECT_TYPES)[number]
 
 /** Types the instanced shape renderer can draw. Everything else needs its own path. */
-export const PRIMITIVE_SHAPES = ['rect', 'ellipse', 'diamond'] as const
+export const PRIMITIVE_SHAPES = ['rect', 'ellipse', 'diamond', 'parallelogram'] as const
 export type PrimitiveShape = (typeof PRIMITIVE_SHAPES)[number]
 
 /**
@@ -68,6 +69,7 @@ export const TEXT_BEARING = [
   'rect',
   'ellipse',
   'diamond',
+  'parallelogram',
   'arrow',
   'line',
 ] as const
@@ -84,6 +86,27 @@ export function isPrimitiveShape(type: ObjectType): type is PrimitiveShape {
 
 export function isTextBearing(type: ObjectType): boolean {
   return TEXT_BEARING_SET.has(type)
+}
+
+/**
+ * How far a parallelogram's top edge is pushed right of its box, in world units.
+ *
+ * The one definition of the shape's geometry. The renderer's SDF, hit-testing, the
+ * arrow's stopping point and the label's box all read it from here, because four
+ * places disagreeing by a few units is four bugs: a click that misses the shape it
+ * landed on, an arrow that stops in the air beside it, a caption that runs out over
+ * the slant.
+ *
+ * Proportional to the shorter side rather than to the width, so the lean is an angle
+ * rather than a fraction of the box. Scaled off the width, a wide flowchart box would
+ * be a sheared ribbon and a narrow one barely leaning at all; off the shorter side,
+ * both keep the same slope. 0.3 is steep enough to read as deliberate at card size
+ * and shallow enough to leave a usable line of text between the two edges.
+ */
+export const PARALLELOGRAM_SLANT = 0.3
+
+export function parallelogramSlant(w: number, h: number): number {
+  return Math.min(Math.abs(w), Math.abs(h)) * PARALLELOGRAM_SLANT
 }
 
 export const shapeProps = z.object({

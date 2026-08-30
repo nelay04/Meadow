@@ -1,7 +1,7 @@
 /**
  * Visual and diagnostic check for the ShapeBatch shader.
  *
- * Open /shader-check.html to eyeball the three primitives at several zoom levels, or
+ * Open /shader-check.html to eyeball the four primitives at several zoom levels, or
  * run scripts/debug-shader.mjs for the GLSL compile log. A shader that fails to
  * compile still renders "successfully" as an empty canvas, so a page that shows the
  * output is worth more than a passing render call.
@@ -9,9 +9,12 @@
 
 import { Application, Container } from 'pixi.js'
 
+import { parallelogramSlant } from '@meadow/schema'
+
 import {
   SHAPE_DIAMOND,
   SHAPE_ELLIPSE,
+  SHAPE_PARALLELOGRAM,
   SHAPE_RECT,
   ShapeBatch,
   type ShapeKind,
@@ -21,7 +24,14 @@ const SAMPLES: { kind: ShapeKind; label: string }[] = [
   { kind: SHAPE_RECT, label: 'rect' },
   { kind: SHAPE_ELLIPSE, label: 'ellipse' },
   { kind: SHAPE_DIAMOND, label: 'diamond' },
+  { kind: SHAPE_PARALLELOGRAM, label: 'parallelogram' },
 ]
+
+/** The radius slot means the slant on a parallelogram, and a corner on a rect. */
+function radiusFor(kind: ShapeKind, w: number, h: number, corner: number): number {
+  if (kind === SHAPE_PARALLELOGRAM) return parallelogramSlant(w, h)
+  return kind === SHAPE_RECT ? corner : 0
+}
 
 // The awkward zoom levels from ARCHITECTURE 5, not just 1 and 2.
 const ZOOMS = [0.33, 0.67, 1, 1.37, 2.5]
@@ -37,7 +47,7 @@ export async function mountShaderCheck(root: HTMLElement): Promise<void> {
 
     const app = new Application()
     await app.init({
-      width: 520,
+      width: 670,
       height: 150,
       background: 0xf7f7f5,
       antialias: false,
@@ -63,7 +73,7 @@ export async function mountShaderCheck(root: HTMLElement): Promise<void> {
         stroke: 0x1f2a24,
         strokeAlpha: 1,
         strokeWidth: 2,
-        radius: sample.kind === SHAPE_RECT ? 10 : 0,
+        radius: radiusFor(sample.kind, 110, 70, 10),
       })
       // A rotated copy, to check the vertex-side rotation.
       batch.push({
@@ -78,7 +88,7 @@ export async function mountShaderCheck(root: HTMLElement): Promise<void> {
         stroke: 0x1f2a24,
         strokeAlpha: 1,
         strokeWidth: 1,
-        radius: 4,
+        radius: radiusFor(sample.kind, 60, 34, 4),
       })
     })
 

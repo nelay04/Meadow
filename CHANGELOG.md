@@ -14,6 +14,26 @@ away getting there.
 The infrastructure to run the thing. Not deployed yet.
 
 ### Added
+- **A parallelogram, the fourth primitive.** `G` draws one, or pick it out of the shape
+  button on the rail. It is a real primitive rather than a sheared rectangle: another
+  branch in the instanced SDF shader, so five thousand of them still cost the one draw
+  call every other shape costs, and it carries a label like every other shape.
+
+  The slant is geometry, not styling, and it is defined in exactly one place. Four
+  things have to agree about where the edges of this shape are - the shader that paints
+  it, the click that selects it, the arrow that stops on it, and the caption laid out
+  inside it - and four copies of the same number is four bugs: a click that misses the
+  shape it landed on, an arrow that stops in mid-air beside it, a caption that runs out
+  over the slanted edge. So `parallelogramSlant` is the one definition and all four read
+  it. The lean is a proportion of the shorter side rather than of the width, so a wide
+  flowchart box and a narrow one lean at the same angle instead of one of them being a
+  sheared ribbon.
+
+  A label keeps the full height and loses only the slant off each end of every line.
+  The fit inside a shape used to be a single ratio applied to both axes, which is right
+  for a diamond and an ellipse and wrong here, because a parallelogram's top and bottom
+  edges are horizontal and there is nothing to lose vertically.
+
 - **A pen, with five nibs and a nib is a shape rather than a setting.** Pick it up with
   `P` and draw. What comes out is one object on the canvas like everything else: it
   drags, it selects, it deletes, it undoes, and it is one undo step per stroke rather
@@ -650,6 +670,19 @@ The infrastructure to run the thing. Not deployed yet.
   misses can use it to find live addresses.
 
 ### Changed
+- **The four shapes share one button on the rail.** The rail had ten buttons and four
+  of them were the same decision asked four times, which is what made a column of tools
+  read as a list of things to consider. They collapse the way the connector's three
+  routings already do: one button, and the family behind it, with a folded corner
+  saying there is more in there.
+
+  The button says which shape it is holding. While a shape is armed it wears that
+  shape's own icon and the rail's active colour, so what the next drag will draw is
+  readable without opening anything; once the shape has been used the tool hands back
+  to select and the button goes back to the family's mark, because a button still lit
+  for a tool that is no longer in your hand is a button that is lying. The keyboard
+  moves it too - `R`, `O`, `D` and `G` still arm a shape directly, and the rail follows.
+
 - **The board list stopped wearing the diary's paper.** A lea's card preview and its
   kind badge were printed in kraft, and the composer's pill with them, so that the grid
   said what a thing was before you had read a word of it. Wrong surface for it: the

@@ -6,8 +6,14 @@
  * the render loop.
  */
 
-import type { ObjectData, ObjectType } from '@meadow/schema'
-import { SHAPE_DIAMOND, SHAPE_ELLIPSE, SHAPE_RECT, type ShapeKind } from './renderers/shapeBatch'
+import { type ObjectData, type ObjectType, parallelogramSlant } from '@meadow/schema'
+import {
+  SHAPE_DIAMOND,
+  SHAPE_ELLIPSE,
+  SHAPE_PARALLELOGRAM,
+  SHAPE_RECT,
+  type ShapeKind,
+} from './renderers/shapeBatch'
 
 export type ResolvedStyle = {
   kind: ShapeKind
@@ -76,6 +82,7 @@ const KINDS: Partial<Record<ObjectType, ShapeKind>> = {
   rect: SHAPE_RECT,
   ellipse: SHAPE_ELLIPSE,
   diamond: SHAPE_DIAMOND,
+  parallelogram: SHAPE_PARALLELOGRAM,
   sticky: SHAPE_RECT,
   frame: SHAPE_RECT,
   text: SHAPE_RECT,
@@ -132,7 +139,14 @@ export function resolveStyle(object: ObjectData, kind: ShapeKind, dark = false):
     // unstyled shape reads as a wireframe rather than as a finished object. A sticky
     // is the exception and gets a tighter one: a note is a cut square of paper, and
     // the more its corners are rounded the more it reads as a button.
-    radius: numberProp(props, 'cornerRadius', object.type === 'sticky' ? 2 : 4),
+    //
+    // A parallelogram spends the slot on its slant instead, which is geometry rather
+    // than styling and so is not the author's to set: `cornerRadius` on a sheared box
+    // would round nothing, and the shader needs the lean from somewhere.
+    radius:
+      object.type === 'parallelogram'
+        ? parallelogramSlant(object.w, object.h)
+        : numberProp(props, 'cornerRadius', object.type === 'sticky' ? 2 : 4),
   }
 }
 

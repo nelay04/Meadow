@@ -98,6 +98,7 @@ export const BOARD_KINDS: readonly BoardKindSpec[] = [
       'rect',
       'ellipse',
       'diamond',
+      'parallelogram',
     ],
     column: null,
   },

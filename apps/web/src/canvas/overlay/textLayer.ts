@@ -21,6 +21,7 @@ import {
   type TextProps,
   arrowPolyline,
   isArrowLike,
+  parallelogramSlant,
   pointAlongPath,
   resolveArrowProps,
   resolveTextProps,
@@ -50,7 +51,7 @@ const ARROW_LABEL_SIZE = { w: 180, h: 44 }
 type Box = { x: number; y: number; w: number; h: number }
 
 /**
- * How much of a shape's bounding box its text may use.
+ * How much of a shape's bounding box its text may use, per axis.
  *
  * A rectangle can use all of it. A diamond and an ellipse cannot, and using the box
  * anyway is why a label that visibly fits still ran out over the slanted edge: the
@@ -58,23 +59,30 @@ type Box = { x: number; y: number; w: number; h: number }
  * rectangles that fit inside each - half the box for a diamond, and 1/sqrt(2) of it for
  * an ellipse, both of which fall straight out of the shapes' own equations.
  *
+ * Per axis rather than one ratio, because a parallelogram is only pinched on one of
+ * them: its top and bottom edges are horizontal, so the full height is available and
+ * only the width loses the slant, twice over - once at each end of every line.
+ *
  * The cost is that a diamond holds less text than its box suggests, which is true of a
  * real diamond and is the honest answer.
  */
-const INSCRIBED: Partial<Record<ObjectData['type'], number>> = {
-  diamond: 0.5,
-  ellipse: 0.70710678,
+type Fit = { x: number; y: number }
+
+const INSCRIBED: Partial<Record<ObjectData['type'], (w: number, h: number) => Fit>> = {
+  diamond: () => ({ x: 0.5, y: 0.5 }),
+  ellipse: () => ({ x: 0.70710678, y: 0.70710678 }),
+  parallelogram: (w, h) => ({ x: w === 0 ? 1 : (w - 2 * parallelogramSlant(w, h)) / w, y: 1 }),
 }
 
 function layoutBox(object: ObjectData): Box {
   if (!isArrowLike(object.type)) {
-    const fit = INSCRIBED[object.type]
+    const fit = INSCRIBED[object.type]?.(object.w, object.h)
     if (fit === undefined) return { x: object.x, y: object.y, w: object.w, h: object.h }
 
     // Centred on the shape, so growing the type keeps the label in the middle on both
     // axes rather than pushing it towards one corner.
-    const w = object.w * fit
-    const h = object.h * fit
+    const w = object.w * fit.x
+    const h = object.h * fit.y
     return {
       x: object.x + (object.w - w) / 2,
       y: object.y + (object.h - h) / 2,

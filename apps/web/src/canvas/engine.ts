@@ -1679,6 +1679,7 @@ export class CanvasEngine {
       case 'rect':
       case 'ellipse':
       case 'diamond':
+      case 'parallelogram':
         return createShapeTool(this.context, id)
       case 'text':
       case 'sticky':
@@ -2870,6 +2871,12 @@ export class CanvasEngine {
       case 'd':
       case 'D':
         this.setTool('diamond')
+        return
+      // G for the last letter of it, since P is the pen and every other letter in the
+      // word is already a tool. Nothing groups objects yet, so G is free.
+      case 'g':
+      case 'G':
+        this.setTool('parallelogram')
         return
       case 't':
       case 'T':

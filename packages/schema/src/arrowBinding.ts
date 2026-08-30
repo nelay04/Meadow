@@ -20,7 +20,7 @@
 
 import type { ArrowRouting } from './arrows'
 import type { BindingData } from './bindings'
-import type { ObjectData } from './objects'
+import { type ObjectData, parallelogramSlant } from './objects'
 
 export type Point = { x: number; y: number }
 
@@ -60,6 +60,16 @@ function outlineScale(type: ObjectData['type'], halfW: number, halfH: number, dx
     case 'diamond': {
       // |t*dx|/halfW + |t*dy|/halfH = 1
       return 1 / (Math.abs(dx) / halfW + Math.abs(dy) / halfH)
+    }
+    case 'parallelogram': {
+      // Two slabs rather than four edges: the flat top and bottom, and the pair of
+      // slanted sides. Shearing x by the slant turns the slanted pair into a vertical
+      // one, and the ray leaves at whichever slab it reaches first.
+      const skew = parallelogramSlant(halfW * 2, halfH * 2) / 2
+      const sheared = dx + (skew / halfH) * dy
+      const tx = sheared === 0 ? Infinity : (halfW - skew) / Math.abs(sheared)
+      const ty = dy === 0 ? Infinity : halfH / Math.abs(dy)
+      return Math.min(tx, ty)
     }
     default: {
       // The box: whichever axis is hit first bounds the ray.

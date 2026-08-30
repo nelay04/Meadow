@@ -39,11 +39,13 @@ import {
   IconNibHighlighter,
   IconNibRound,
   IconPanel,
+  IconParallelogram,
   IconPen,
   IconPencil,
   IconRouteCurved,
   IconRouteElbow,
   IconRouteStraight,
+  IconShapes,
   IconSquare,
   IconStrike,
   IconSticky,
@@ -77,7 +79,9 @@ type Props = {
   onBack: () => void
 }
 
-const TOOLS: { id: ToolId; label: string; hint: string; Icon: typeof IconCursor }[] = [
+type ToolSpec = { id: ToolId; label: string; hint: string; Icon: typeof IconCursor }
+
+const TOOLS: ToolSpec[] = [
   { id: 'select', label: 'Select', hint: 'V', Icon: IconCursor },
   { id: 'hand', label: 'Pan', hint: 'H', Icon: IconHand },
   { id: 'text', label: 'Text', hint: 'T', Icon: IconText },
@@ -85,10 +89,33 @@ const TOOLS: { id: ToolId; label: string; hint: string; Icon: typeof IconCursor 
   { id: 'arrow', label: 'Arrow', hint: 'A', Icon: IconArrow },
   { id: 'line', label: 'Line', hint: 'L', Icon: IconLine },
   { id: 'pen', label: 'Pen', hint: 'P', Icon: IconPen },
+]
+
+/**
+ * The shapes, behind one button on the rail.
+ *
+ * They are four tools, not four options on a tool - each draws a different object -
+ * but they are one decision, and a rail that spends four of its ten slots asking it
+ * reads as a longer list of things to consider than it is. So they collapse the way
+ * the connectors do: one button, and the family behind it. The difference from the
+ * arrow's flyout is only that picking here changes the tool rather than a setting on
+ * one, which is why the button wears the chosen shape's face while it is armed.
+ *
+ * Still `ToolId`s and still filtered by the kind's own list, so a surface that offers
+ * no shapes simply has no button here rather than one that opens onto nothing.
+ */
+const SHAPES: ToolSpec[] = [
   { id: 'rect', label: 'Rectangle', hint: 'R', Icon: IconSquare },
   { id: 'ellipse', label: 'Ellipse', hint: 'O', Icon: IconCircle },
   { id: 'diamond', label: 'Diamond', hint: 'D', Icon: IconDiamond },
+  { id: 'parallelogram', label: 'Parallelogram', hint: 'G', Icon: IconParallelogram },
 ]
+
+const SHAPE_TOOLS: ReadonlySet<ToolId> = new Set(SHAPES.map((shape) => shape.id))
+
+function isShapeTool(id: ToolId): boolean {
+  return SHAPE_TOOLS.has(id)
+}
 
 /**
  * The arrow shapes the picker offers.
@@ -160,6 +187,20 @@ const PEN_COLORS: { value: number | null; label: string; css: string }[] = [
  * open/close logic does not know about.
  */
 const TOOLS_WITH_MENU: ReadonlySet<ToolId> = new Set<ToolId>(['arrow', 'pen'])
+
+/**
+ * Which flyout a tool belongs to, or none.
+ *
+ * The shapes share one, which is the whole point of collapsing them: switching from
+ * the rectangle to the diamond is a move inside the menu rather than out of it, so
+ * the menu must not be told it has changed subject.
+ */
+type RailMenu = ToolId | 'shapes'
+
+function menuFor(tool: ToolId): RailMenu | null {
+  if (isShapeTool(tool)) return 'shapes'
+  return TOOLS_WITH_MENU.has(tool) ? tool : null
+}
 
 /** A quarter of a right angle, the step the nib angle is offered in. */
 const ANGLE_STEP = Math.PI / 7
@@ -343,14 +384,29 @@ export default function BoardPage({ boardId, onBack }: Props) {
    * being asked, and it should go away once it has been answered or once you have
    * moved on to the thing it was asking about.
    */
-  const [railMenu, setRailMenu] = useState<ToolId | null>(null)
+  const [railMenu, setRailMenu] = useState<RailMenu | null>(null)
+
+  /*
+   * Which shape the rail's shape button is holding.
+   *
+   * Remembered rather than derived from the active tool, because the shape tools hand
+   * back to select the moment they have drawn something: derived, the button would
+   * forget you had chosen the diamond every single time you used it. Seeded with the
+   * first of the four; `armedShape` below is what corrects that on a kind that does
+   * not offer it, so this never has to know which kinds exist.
+   */
+  const [shape, setShape] = useState<ToolId>(SHAPES[0].id)
 
   const spec = boardKind(kind)
   const noun = spec.label.toLowerCase()
-  // The rail, cut to what this kind offers. `TOOLS` stays the single ordered list of
-  // every tool; a kind never adds one, so a tool can never appear here without a
-  // label, a shortcut and an icon.
+  // The rail, cut to what this kind offers. `TOOLS` and `SHAPES` between them stay the
+  // single ordered list of every tool; a kind never adds one, so a tool can never
+  // appear here without a label, a shortcut and an icon.
   const tools = TOOLS.filter((tool) => spec.tools.includes(tool.id))
+  const shapes = SHAPES.filter((entry) => spec.tools.includes(entry.id))
+  // What the shape button draws and what it looks like. Falls back to the first shape
+  // this kind offers if the remembered one is not among them.
+  const armedShape = shapes.find((entry) => entry.id === shape) ?? shapes[0]
 
   const canvas = useCanvas(session, presenceBridge, {
     authorName: user?.display_name ?? '',
@@ -373,8 +429,21 @@ export default function BoardPage({ boardId, onBack }: Props) {
    * what lets the dismissals below stick.
    */
   const activeTool = canvas.tool
+  const openMenu = useRef<RailMenu | null>(null)
   useEffect(() => {
-    setRailMenu(TOOLS_WITH_MENU.has(activeTool) ? activeTool : null)
+    const next = menuFor(activeTool)
+    // Only when the flyout being asked for is a different one. Picking the ellipse out
+    // of the shape menu is still the shape menu, and reopening it on top of the choice
+    // that just closed it would make the menu impossible to answer.
+    if (next === openMenu.current) return
+    openMenu.current = next
+    setRailMenu(next)
+  }, [activeTool])
+
+  // The rail's shape button follows the keyboard too: pressing D is choosing the
+  // diamond, and a button still showing a rectangle after it would be lying.
+  useEffect(() => {
+    if (isShapeTool(activeTool)) setShape(activeTool)
   }, [activeTool])
 
   /**
@@ -922,6 +991,73 @@ export default function BoardPage({ boardId, onBack }: Props) {
               )}
             </div>
           ))}
+
+          {/*
+            The shape family, as one slot.
+
+            The button is the shape it is holding: while a shape tool is armed it wears
+            that shape's icon and the rail's active colour, so what the next drag will
+            draw is readable without opening anything. Once the shape has been used the
+            tool hands back to select and the button goes back to the family mark,
+            which is the honest state - nothing is armed, and a button still lit would
+            be pointing at a tool that is no longer in your hand.
+          */}
+          {shapes.length > 0 && (
+            <div className="tool-slot">
+              <button
+                type="button"
+                // Named for the family first and the armed shape second, so the name
+                // a screen reader reads out is the same button every time and the
+                // flyout's own "Rectangle" is the only thing called that.
+                aria-label={isShapeTool(canvas.tool) ? `Shapes: ${armedShape.label}` : 'Shapes'}
+                aria-pressed={isShapeTool(canvas.tool)}
+                aria-expanded={railMenu === 'shapes'}
+                className={isShapeTool(canvas.tool) ? 'tool has-more active' : 'tool has-more'}
+                disabled={!canWrite}
+                onClick={() => {
+                  // Same bargain as the tools above: pressing the button of the thing
+                  // already in your hand opens or puts away its menu, and pressing it
+                  // otherwise arms the shape you last chose.
+                  if (isShapeTool(canvas.tool)) {
+                    setRailMenu((open) => (open === 'shapes' ? null : 'shapes'))
+                    return
+                  }
+                  canvas.setTool(armedShape.id)
+                }}
+              >
+                {isShapeTool(canvas.tool) ? <armedShape.Icon size={19} /> : <IconShapes size={19} />}
+                <Tip
+                  label={isShapeTool(canvas.tool) ? armedShape.label : 'Shapes'}
+                  hint={isShapeTool(canvas.tool) ? armedShape.hint : undefined}
+                />
+              </button>
+
+              {railMenu === 'shapes' && canWrite && (
+                <div className="tool-submenu" role="group" aria-label="Shape">
+                  {shapes.map((entry) => (
+                    <button
+                      key={entry.id}
+                      type="button"
+                      aria-label={`${entry.label} (${entry.hint})`}
+                      // The live tool, not the remembered one. A shape stays marked as
+                      // chosen for as long as it is actually in your hand, and stops
+                      // being marked the moment it has been used and put down.
+                      aria-pressed={canvas.tool === entry.id}
+                      className={canvas.tool === entry.id ? 'tool active' : 'tool'}
+                      onClick={() => {
+                        setShape(entry.id)
+                        canvas.setTool(entry.id)
+                        setRailMenu(null)
+                      }}
+                    >
+                      <entry.Icon size={18} />
+                      <Tip label={entry.label} hint={entry.hint} />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           <hr />
 

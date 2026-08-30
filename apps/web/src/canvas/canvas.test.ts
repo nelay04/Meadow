@@ -170,6 +170,19 @@ describe('hit testing', () => {
     expect(hitsObject(diamond, { x: 50, y: 2 })).toBe(true)
   })
 
+  it('excludes the corners a parallelogram leans away from', () => {
+    // 100x100, so the slant is 30: the top edge runs from x=30 to x=100 and the
+    // bottom from x=0 to x=70.
+    const skewed = object({ type: 'parallelogram', w: 100, h: 100 })
+    expect(hitsObject(skewed, { x: 50, y: 50 })).toBe(true)
+    // Under the top edge's overhang, and over the bottom edge's.
+    expect(hitsObject(skewed, { x: 5, y: 5 })).toBe(false)
+    expect(hitsObject(skewed, { x: 95, y: 95 })).toBe(false)
+    // The two corners the shape does reach.
+    expect(hitsObject(skewed, { x: 95, y: 5 })).toBe(true)
+    expect(hitsObject(skewed, { x: 5, y: 95 })).toBe(true)
+  })
+
   it('accounts for rotation', () => {
     const rotated = object({ w: 100, h: 20, rotation: Math.PI / 2 })
     // Rotated a quarter turn, the box is now 20 wide and 100 tall about its centre.
