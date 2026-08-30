@@ -829,11 +829,20 @@ export class CanvasEngine {
    * shimmers against the shapes sitting on it.
    */
   private syncGrid(transform: ViewTransform): void {
-    if (!this.gridVisible) return
+    /*
+     * The lea is not governed by this toggle, and must not be. Its custom properties
+     * are the page's geometry - where the sheet is, where the header row is, how wide
+     * the measure is - and the board view positions the subject and date fields from
+     * them. Skipping the sync while the ruling is hidden froze those numbers at
+     * whatever the camera was doing when it was hidden, and the header stayed behind
+     * while the page moved under it. Hiding the ruling is one line of stylesheet,
+     * `.surface-ruled.no-grid::after`, and it is the stylesheet's business alone.
+     */
     if (this.surface === 'ruled') {
       this.syncRuling(transform)
       return
     }
+    if (!this.gridVisible) return
 
     let world = GRID_BASE_WORLD
     let minor = world * transform.scale
