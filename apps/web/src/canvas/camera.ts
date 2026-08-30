@@ -177,6 +177,30 @@ export class Camera {
     this.constrain()
   }
 
+  /**
+   * Bring a band of world y into view, moving as little as it takes.
+   *
+   * What a caret needs, and the reason it exists: writing runs down a page, and the
+   * line being written has to stay on screen without the page jumping every time a
+   * word is typed. So this is a nudge rather than a scroll-to - a band already inside
+   * the window moves nothing at all.
+   *
+   * The bottom wins when the band is taller than the window, because the only caller
+   * that hands over a band that tall is a row whose writing has wrapped past the
+   * bottom of the screen, and the end of that writing is where the caret is.
+   *
+   * Fenced like every other move: the page still stops where the paper does.
+   */
+  reveal(top: number, bottom: number, margin = 0): void {
+    if (this.viewH <= 0) return
+
+    const height = this.viewH / this.zoom
+    let next = this.y
+    if (top < next + margin) next = top - margin
+    if (bottom > next + height - margin) next = bottom - height + margin
+    this.scrollTo(next)
+  }
+
   screenToWorld(screenX: number, screenY: number): Point {
     return { x: screenX / this.zoom + this.x, y: screenY / this.zoom + this.y }
   }

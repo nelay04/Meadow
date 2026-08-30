@@ -1521,6 +1521,10 @@ export class CanvasEngine {
     // select means Escape leaves the user somewhere sensible.
     this.setTool('select')
 
+    // Before the render, because the mount below only exists for an object the render
+    // decided was on screen.
+    this.revealRow(id)
+
     this.render()
     const element = this.textLayer.beginEdit(id)
     if (element === null) return false
@@ -1539,6 +1543,29 @@ export class CanvasEngine {
     this.events.onEditingChange?.(id)
     this.requestRender()
     return true
+  }
+
+  /**
+   * Scroll the page so the row being written on is on screen.
+   *
+   * Only on a writing surface. A canvas has no reading order and no reason to move
+   * itself under a click, but a page does: writing runs down it, and the line you are
+   * on has to be a line you can see.
+   *
+   * This used to happen by accident and was none of the better for it. ProseMirror
+   * scrolls a focused caret into view through the nearest scrollable ancestor, and
+   * `.canvas-host` was one, so the browser scrolled the host - canvas, overlay and
+   * all - while the camera's own y stayed put. It looked like the page following the
+   * caret until you clicked, at which point the click resolved against a camera that
+   * was several lines out. Both ancestors are `overflow: clip` now, so nothing but
+   * this moves the view.
+   */
+  private revealRow(id: string): void {
+    if (this.column === null) return
+    const object = this.cache.get(id)
+    if (object === undefined) return
+    // A rule of leading either side, so the caret is never hard against an edge.
+    this.camera.reveal(object.y, object.y + object.h, this.ruleSpacing)
   }
 
   /**
@@ -1933,16 +1960,90 @@ export class CanvasEngine {
   private flushHeights(): void {
     if (this.pendingHeights.size === 0) return
 
+    const editing = this.editing?.id
+    // Where the caret ended up, when the row it is in is the row that grew. Read here
+    // rather than from the cache afterwards, because the patch below has not landed
+    // yet and the cached height is the one from before the line was typed.
+    let grew: { id: string; top: number; bottom: number } | null = null
+
     const patches: { id: string; patch: Partial<ObjectData> }[] = []
     for (const [id, height] of this.pendingHeights) {
       const object = this.cache.get(id)
       if (object !== undefined && Math.abs(object.h - height) > 1) {
         patches.push({ id, patch: { h: height } })
+        if (id === editing) grew = { id, top: object.y, bottom: object.y + height }
       }
     }
     this.pendingHeights.clear()
 
     if (patches.length > 0 && this.host.canWrite) this.host.applyPatches(patches)
+
+    /*
+     * Writing that has wrapped past the bottom of the window pulls the page up.
+     *
+     * A row grows one rule at a time as it is written, so this is the moment the caret
+     * leaves the screen and the moment to follow it. Only on a writing surface, and
+     * only for the row being typed in: a peer's note growing on a glade must not drag
+     * anybody's view anywhere.
+     */
+    if (grew !== null && this.column !== null) {
+      this.camera.reveal(grew.top, grew.bottom, this.ruleSpacing)
+      this.requestRender()
+
+      // And the rows underneath it get out of the way, before the next frame draws
+      // one line of writing on top of another.
+      const displaced = this.reflowBelow(grew.id, grew.top, grew.bottom)
+      if (displaced.length > 0 && this.host.canWrite) this.host.applyPatches(displaced)
+    }
+  }
+
+  /**
+   * Push the rows under a grown one out from under it.
+   *
+   * A row is one rule tall when it is made and grows as its writing wraps, and nothing
+   * used to stop it growing straight over whatever was already written below. It is
+   * easy to do by accident and it is not recoverable by eye: two rows land on the same
+   * rules, both are painted, and the result is a smear of half-glyphs that reads as a
+   * rendering fault rather than as two pieces of writing. The document was fine the
+   * whole time, which is the worst kind of wrong.
+   *
+   * Whole bands, and cascading: a row shoved down can land on the next one, so the run
+   * is walked in order and each row is put on the first rule clear of the one above it.
+   * Rows that are already clear are left exactly where they are - this must not tidy a
+   * page somebody deliberately left gaps in.
+   */
+  private reflowBelow(
+    grownId: string,
+    top: number,
+    bottom: number,
+  ): { id: string; patch: Partial<ObjectData> }[] {
+    if (this.column === null) return []
+
+    const spacing = this.ruleSpacing
+    const origin = this.pageOrigin
+    const below = [...this.cache.values()]
+      .filter(
+        (object) =>
+          object.type === 'text' &&
+          object.id !== grownId &&
+          // Below the row that grew, by more than the rounding in a measured height.
+          object.y > top + 0.05 &&
+          this.onThisPage(object, origin),
+      )
+      .sort((a, b) => a.y - b.y)
+
+    const patches: { id: string; patch: Partial<ObjectData> }[] = []
+    let floor = bottom
+    for (const row of below) {
+      if (row.y >= floor - 0.05) {
+        floor = row.y + row.h
+        continue
+      }
+      const y = Math.ceil((floor - 0.05) / spacing) * spacing
+      patches.push({ id: row.id, patch: { y } })
+      floor = y + row.h
+    }
+    return patches
   }
 
   /**
@@ -2744,7 +2845,25 @@ export class CanvasEngine {
      * written over.
      */
     if (this.column !== null && this.toolId === 'select' && this.host.canWrite) {
-      this.beginWritingRow(this.rowAt(this.toPointerEvent(event).world.y))
+      const row = this.rowAt(this.toPointerEvent(event).world.y)
+      /*
+       * Clicking the line you are already writing on leaves you writing on it.
+       *
+       * This looks like a no-op and is the opposite of one. Without the
+       * `preventDefault` the pointer's own default moves focus to the canvas, which
+       * blurs the editor, which exits it, which throws the row away again if nothing
+       * has been typed on it yet - so on a page that opens with the caret on its first
+       * line, the first click anywhere near that line left the page with no caret at
+       * all and nothing to type into. It read as a page refusing to be written on, and
+       * it was worst on a page just started, because that is the one whose first line
+       * is empty and has the caret. Suppressing the default keeps the caret where it
+       * already is, which is what the click was asking for.
+       */
+      if (this.editing !== null && this.rowObjectAt(this.rowTop(row)) === this.editing.id) {
+        event.preventDefault()
+        return
+      }
+      this.beginWritingRow(row)
       return
     }
 

@@ -86,6 +86,66 @@ describe('Camera', () => {
     const rect = camera.visibleWorld(800, 400)
     expect(rect).toEqual({ minX: 10, minY: 20, maxX: 410, maxY: 220 })
   })
+
+  /*
+   * `reveal` is what follows a caret down a page, and the thing it must not do is
+   * move when it does not have to. A page that re-centred itself on every line would
+   * be unwritable.
+   */
+  describe('reveal', () => {
+    const written = (): Camera => {
+      const camera = new Camera()
+      camera.setViewport(800, 400)
+      return camera
+    }
+
+    it('leaves a band already on screen exactly where it is', () => {
+      const camera = written()
+      camera.y = 100
+      camera.reveal(150, 180, 10)
+      expect(camera.y).toBe(100)
+    })
+
+    it('scrolls down by the least that brings a band below the fold into view', () => {
+      const camera = written()
+      camera.y = 100
+      // The window covers 100..500. A band ending at 520 needs 20 more, plus the
+      // margin, and no more than that.
+      camera.reveal(490, 520, 10)
+      expect(camera.y).toBeCloseTo(130, 6)
+    })
+
+    it('scrolls up for a band above the fold', () => {
+      const camera = written()
+      camera.y = 100
+      camera.reveal(60, 90, 10)
+      expect(camera.y).toBeCloseTo(50, 6)
+    })
+
+    it('shows the end of a band taller than the window, because that is where the caret is', () => {
+      const camera = written()
+      camera.y = 0
+      // A row whose writing has wrapped over more rules than fit on screen.
+      camera.reveal(0, 900, 10)
+      expect(camera.y).toBeCloseTo(510, 6)
+    })
+
+    it('measures the window in world units, so a zoomed page still lands', () => {
+      const camera = written()
+      camera.zoom = 2
+      camera.y = 0
+      // At 2x the window is 200 world units tall, not 400.
+      camera.reveal(190, 240, 0)
+      expect(camera.y).toBeCloseTo(40, 6)
+    })
+
+    it('does nothing before the viewport is known', () => {
+      const camera = new Camera()
+      camera.y = 0
+      camera.reveal(1000, 1030, 10)
+      expect(camera.y).toBe(0)
+    })
+  })
 })
 
 /**

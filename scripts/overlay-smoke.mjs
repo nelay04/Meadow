@@ -346,6 +346,57 @@ await settle(page)
 const stillSettled = await page.evaluate((id) => window.__doc.read(id).h, textId)
 check('the measured height settles instead of oscillating', settled === stillSettled, `${settled} then ${stillSettled}`)
 
+/*
+ * Nothing above the canvas may be a scroll container.
+ *
+ * The overlay positions its children in world units, so on a page taller than the
+ * window the content overflows every box it sits in. `overflow: hidden` clips that and
+ * also makes the box scrollable, and a scroll container gets scrolled by things that
+ * are not scrollbars: ProseMirror reveals a caret through the nearest scrollable
+ * ancestor. On the overlay root that moved the text off the WebGL layer, which had not
+ * moved. Fixing only the root pushed the same scroll one level up onto `.canvas-host`,
+ * where it was worse rather than better - the canvas moved with the overlay, so the
+ * page appeared to follow the caret, and then the offset stayed behind: clicks landed
+ * several rules from the one clicked and a new page opened already scrolled. So this
+ * walks the whole chain rather than checking one element, and `overflow: clip` is the
+ * answer at every level: it clips identically and creates no scrollport.
+ */
+const scrollable = await page.evaluate(() => {
+  const name = (node) =>
+    node.id !== '' ? `#${node.id}` : node.className !== '' ? `.${node.className}` : node.tagName
+  const found = []
+  /*
+   * The root itself must be `visible`, which is stricter than the rest of the chain.
+   * It is the only transformed element here, and an overflow clip travels with the
+   * transform: clipping on the root does not mean "clip to the window", it means
+   * "clip to a window-sized rectangle of the world". That cut a lea off at whatever
+   * world y matched the host's height, around rule 21 on a small window, and hid
+   * every row below. The host clips instead, in screen space, where it is correct.
+   */
+  const overlay = document.querySelector('.meadow-overlay')
+  if (getComputedStyle(overlay).overflow !== 'visible') {
+    found.push(`the overlay root clips (${getComputedStyle(overlay).overflow}) and must not`)
+  }
+  for (
+    let node = overlay;
+    node !== null && node !== document.documentElement;
+    node = node.parentElement
+  ) {
+    const overflow = getComputedStyle(node).overflowY
+    // `visible` and `clip` are the two that make no scrollport.
+    if (overflow !== 'visible' && overflow !== 'clip') {
+      found.push(`${name(node)} is ${overflow}`)
+    }
+    if (node.scrollTop !== 0) found.push(`${name(node)} scrollTop ${node.scrollTop}`)
+  }
+  return found
+})
+check(
+  'nothing between the overlay and the page can be scrolled out from under the canvas',
+  scrollable.length === 0,
+  scrollable.join('; '),
+)
+
 check('no uncaught page errors', pageErrors.length === 0, pageErrors.join('; '))
 
 await browser.close()

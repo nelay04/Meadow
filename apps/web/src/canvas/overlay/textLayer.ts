@@ -235,7 +235,35 @@ export class TextLayer {
       // sharp. Without the hint the layer re-rasterises at the new scale and the type
       // is crisp at any zoom. Transforms are composited either way; the hint only
       // bought the right to skip the re-raster that is the entire point here.
-      'overflow:hidden',
+      /*
+       * This root clips nothing. `.canvas-host` does the clipping, and it is the only
+       * element that can do it correctly.
+       *
+       * The reason is the transform. This element is `inset: 0`, so its box is the
+       * host's size, but its children are placed at *world* coordinates inside it and
+       * the whole thing is then translated and scaled by the camera. An overflow clip
+       * is applied in the element's own coordinate space and carried along by that
+       * transform, so clipping here does not mean "clip to the window", it means "clip
+       * to a window-sized rectangle of the world that slides about as the camera
+       * moves". On a lea that cut the page off at whatever world y happened to equal
+       * the host's height in pixels: about rule 21 on a 650px window. The row on that
+       * rule was sliced through the middle of its first line and every row below it
+       * vanished, which reads as writing that will not appear and a page that will not
+       * take a caret. A glade had the same fault the moment you panned far enough.
+       *
+       * `hidden` was worse than wrong in a second way: it also made this a scroll
+       * container, and a scroll container gets scrolled by things that are not
+       * scrollbars. Focusing an editor mounted below the fold had the browser scroll
+       * this root to reveal it, which is what dragged that world-space clip window
+       * down far enough to hide the fault most of the time. Nothing else moved with
+       * it, so the writing then sat a page-length off the rule it was typed on.
+       *
+       * `visible` has neither failure: no scrollport for anything to scroll, and no
+       * clip in a coordinate space that has nothing to do with the viewport. What is
+       * on screen is decided by the cull, which mounts only what the camera can see,
+       * and what is painted is bounded by the host, which clips in screen space.
+       */
+      'overflow:visible',
     ].join(';')
     container.appendChild(root)
     this.root = root

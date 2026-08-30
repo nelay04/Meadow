@@ -2178,7 +2178,20 @@ label {
   min-width: 0;
   min-height: 0;
   position: relative;
-  overflow: hidden;
+  /*
+   * `clip`, not `hidden`, and the difference is the whole of a bug worth naming.
+   *
+   * The DOM text overlay lives in here and positions its children in world units, so
+   * on any page taller than the window the content overflows this box by hundreds of
+   * pixels. `overflow: hidden` clips that and *also* makes this a scroll container,
+   * which meant ProseMirror could scroll it to reveal a caret below the fold. It
+   * scrolled the canvas element with it, so the page appeared to follow, and then the
+   * offset stayed: the camera knew nothing about it, so every later click resolved to
+   * a rule several lines from the one clicked, and turning to a new page opened it
+   * scrolled. `clip` clips identically and creates no scrollport, so there is nothing
+   * for anything but the camera to move. Same reason the overlay root is `clip`.
+   */
+  overflow: clip;
   /* `color` is read back by `readCanvasInk`. WebGL cannot see the cascade, so this is
      how the engine learns the theme's ink for connectors. */
   color: var(--canvas-ink);

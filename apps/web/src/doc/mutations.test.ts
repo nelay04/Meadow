@@ -491,6 +491,34 @@ describe('pages', () => {
     expect(readObjectById(doc, second)?.y).toBeCloseTo(0, 5)
   })
 
+  it('moves a row out from under one whose writing has wrapped over it', () => {
+    const doc = session()
+    // A three-rule row starting on rule 21, and a row that was written on rule 23
+    // before it grew. They overlap, which paints one line of writing over another.
+    const tall = addObject(doc, { type: 'text', x: 0, y: 639.45, w: 860, h: 91.35 })
+    const buried = addObject(doc, { type: 'text', x: 0, y: 700.35, w: 860, h: 30.45 })
+
+    reseatWritingRows(doc, 30.45, 2760, 860)
+
+    expect(readObjectById(doc, tall)?.y).toBeCloseTo(639.45, 4)
+    // The first rule clear of the tall row, which is rule 24.
+    expect(readObjectById(doc, buried)?.y).toBeCloseTo(730.8, 4)
+  })
+
+  it('leaves rows that already clear each other exactly where they are', () => {
+    const doc = session()
+    // A page written with deliberate gaps. Nothing here overlaps, so nothing moves.
+    const first = addObject(doc, { type: 'text', x: 0, y: 0, w: 860, h: 30.45 })
+    const second = addObject(doc, { type: 'text', x: 0, y: 304.5, w: 860, h: 30.45 })
+    const third = addObject(doc, { type: 'text', x: 0, y: 1735.65, w: 860, h: 30.45 })
+
+    reseatWritingRows(doc, 30.45, 2760, 860)
+
+    expect(readObjectById(doc, first)?.y).toBeCloseTo(0, 4)
+    expect(readObjectById(doc, second)?.y).toBeCloseTo(304.5, 4)
+    expect(readObjectById(doc, third)?.y).toBeCloseTo(1735.65, 4)
+  })
+
   it('widens rows written at a narrower measure without moving them off their page', () => {
     const doc = session()
     const first = addObject(doc, { type: 'text', x: 0, y: 0, w: 760, h: 28 })

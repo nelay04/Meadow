@@ -528,7 +528,33 @@ export function useCanvas(
     setWantedIndex(0)
   }, [boardDoc])
 
+  /*
+   * A page you have just lengthened opens the caret on the first line you asked for.
+   *
+   * Same shape as the new-page caret above, and for the same reason: you press this
+   * button because you have run out of paper mid-thought, and the lines it adds are
+   * below the fold on any page long enough to need them. Without this the ruling grew
+   * somewhere off screen and the caret stayed where it was, which reads as the button
+   * doing nothing. Putting the caret there scrolls the page to it, because the engine
+   * reveals the row it is about to write on.
+   *
+   * Recorded and acted on in an effect rather than straight after the write, because
+   * the engine learns the new length from `setPageLines` and would otherwise clamp the
+   * row back onto the old last line.
+   */
+  const caretOnLine = useRef<number | null>(null)
+  useEffect(() => {
+    const row = caretOnLine.current
+    if (row === null || row >= pageLines) return
+    caretOnLine.current = null
+    const frame = requestAnimationFrame(() => {
+      engineRef.current?.beginWritingRow(row)
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [pageLines])
+
   const addLines = useCallback(() => {
+    caretOnLine.current = openPageRef.current?.lines ?? DEFAULT_PAGE_LINES
     addPageLines(sessionRef.current, pageIndexRef.current, PAGE_LINES_STEP, DEFAULT_PAGE_LINES)
   }, [])
 

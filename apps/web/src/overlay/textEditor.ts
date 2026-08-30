@@ -150,16 +150,27 @@ export function createTextEditor(options: TextEditorOptions): TextEditorHandle {
     publish()
   }
 
-  editor.commands.focus('end')
+  /*
+   * Focus, but do not let ProseMirror scroll anything to reveal the caret.
+   *
+   * On this surface the caret is already where the user clicked - the engine put the
+   * row there - and the only thing entitled to move the view is the camera. A DOM
+   * scroll moves the text layer and not the canvas under it, which is drift rather
+   * than navigation. The overlay root is `overflow: clip` for the same reason; this is
+   * the other half, and it also covers the ancestors above it.
+   */
+  const FOCUS = { scrollIntoView: false }
+
+  editor.commands.focus('end', FOCUS)
 
   return {
-    focus: () => editor.commands.focus('end'),
+    focus: () => editor.commands.focus('end', FOCUS),
     destroy: () => editor.destroy(),
     toggleMark: (mark) => {
       // `focus()` first, and it is not decoration. The bar lives outside the editor,
       // so by the time a click lands the selection is only remembered, not live;
       // running the command without restoring focus applies it to nothing.
-      editor.chain().focus().toggleMark(mark).run()
+      editor.chain().focus(null, FOCUS).toggleMark(mark).run()
     },
     activeMarks,
   }

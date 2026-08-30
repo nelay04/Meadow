@@ -38,7 +38,10 @@
         font-size: 0.75rem;
         opacity: 0.75;
       }
-      #canvas { flex: 1; min-height: 0; position: relative; overflow: hidden; }
+      /* `clip`, matching `.canvas-host` in the app: `hidden` would make this a scroll
+         container, and the overlay's world-positioned children overflow it, so the
+         browser could scroll the canvas out from under the camera. */
+      #canvas { flex: 1; min-height: 0; position: relative; overflow: clip; }
     </style>
   </head>
   <body>

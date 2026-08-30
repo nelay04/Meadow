@@ -943,8 +943,12 @@ export function reseatWritingRows(
   for (const { id, object } of rows) {
     const slot = Math.round(object.x / stride)
     const floor = lastBand.get(slot) ?? Number.NEGATIVE_INFINITY
-    const band = Math.max(Math.round(object.y / spacing), floor + 1)
-    lastBand.set(slot, band)
+    const band = Math.max(Math.round(object.y / spacing), floor)
+    // How many rules this row's writing actually covers, so the next one clears it.
+    // Counting one per row instead was the bug this repair could not see: a row whose
+    // writing had wrapped over three rules only reserved the first, and the row below
+    // was left sitting inside it with both painted on top of each other.
+    lastBand.set(slot, band + Math.max(1, Math.round(object.h / spacing)))
 
     const y = band * spacing
     const x = slot * stride
