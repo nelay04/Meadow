@@ -19,10 +19,21 @@ import type { FontFamily, TextProps, VerticalAlign } from '@meadow/schema'
  * before `document.fonts.ready` resolves, and for the headless browsers the smoke
  * tests run in.
  */
+/*
+ * The Bengali face, in every stack.
+ *
+ * Second in each, never first: fallback is per character and the latin faces have no
+ * Bengali glyphs, so this picks up the Bengali and nothing else. It has to be in the
+ * stack the canvas measures with as well as the one it paints with - `engine.ts` builds
+ * its `context.font` from exactly these strings, and a width measured against a
+ * different font than the one drawn is a caret in the wrong place.
+ */
+const BENGALI = "'Noto Sans Bengali'"
+
 export const FONT_STACKS: Record<FontFamily, string> = {
-  inter: "Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif",
-  comic: "'Comic Neue', 'Comic Sans MS', ui-rounded, cursive",
-  mono: "'JetBrains Mono', ui-monospace, 'SFMono-Regular', Consolas, monospace",
+  inter: `Inter, ${BENGALI}, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif`,
+  comic: `'Comic Neue', ${BENGALI}, 'Comic Sans MS', ui-rounded, cursive`,
+  mono: `'JetBrains Mono', ${BENGALI}, ui-monospace, 'SFMono-Regular', Consolas, monospace`,
 }
 
 const FLEX_ALIGN: Record<VerticalAlign, string> = {

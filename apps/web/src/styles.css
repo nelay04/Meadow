@@ -172,7 +172,7 @@ body {
 body {
   /* Comic Neue throughout the chrome. It is the app's voice, and a whiteboard that
      writes in a grotesque and draws in a handwriting face reads as two products. */
-  font-family: 'Comic Neue', 'Comic Sans MS', ui-rounded, system-ui, sans-serif;
+  font-family: 'Comic Neue', 'Noto Sans Bengali', 'Comic Sans MS', ui-rounded, system-ui, sans-serif;
   font-size: 15px;
   margin: 0;
   padding: 0;
@@ -259,7 +259,7 @@ p {
 }
 
 code {
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-family: 'JetBrains Mono', 'Noto Sans Bengali', ui-monospace, monospace;
   font-size: 0.8rem;
 }
 
@@ -2431,7 +2431,7 @@ label {
   align-items: stretch;
   justify-content: space-between;
   gap: 1.75rem;
-  font-family: 'Comic Neue', 'Comic Sans MS', ui-rounded, cursive;
+  font-family: 'Comic Neue', 'Noto Sans Bengali', 'Comic Sans MS', ui-rounded, cursive;
   /* A shade under the writing. The header is printed furniture, not a line of the
      diary, and matching the hand exactly made it read as the first entry. */
   font-size: calc(var(--lea-type-size) * 0.86);

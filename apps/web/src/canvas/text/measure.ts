@@ -150,6 +150,17 @@ export async function whenFontsReady(): Promise<void> {
   await Promise.all(faces.map((face) => document.fonts.load(face).catch(() => undefined)))
   await document.fonts.ready.catch(() => undefined)
 
+  /*
+   * The Bengali face is deliberately not in that list.
+   *
+   * It is restricted by `unicode-range`, so the browser fetches it the first time a
+   * Bengali character is on screen and never for anyone who does not type one; asking
+   * for it up front would spend a hundred kilobytes on every visit to buy nothing. The
+   * cost of that is a face landing after the first measure, so the cache is dropped
+   * whenever any later load finishes rather than only at startup.
+   */
+  document.fonts.addEventListener('loadingdone', () => clearMeasureCache())
+
   // Metrics taken before the faces landed are stale by definition.
   clearMeasureCache()
 }
