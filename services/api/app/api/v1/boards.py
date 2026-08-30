@@ -203,6 +203,22 @@ async def put_thumbnail(
     await session.commit()
 
 
+@router.delete("/{board_id}/thumbnail", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_thumbnail(
+    board_id: uuid.UUID,
+    session: Session,
+    role: Annotated[BoardRole, Depends(board_editor)],
+) -> None:
+    """Drop the preview image.
+
+    The client calls this when the board has been emptied. Without it, deleting every
+    object leaves the last picture standing and the list keeps advertising content the
+    board no longer has. Absent row, no error: the end state is the same either way.
+    """
+    await session.execute(delete(BoardThumbnail).where(BoardThumbnail.board_id == board_id))
+    await session.commit()
+
+
 @router.get("/{board_id}/thumbnail")
 async def get_thumbnail(
     board_id: uuid.UUID,

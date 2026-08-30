@@ -353,6 +353,16 @@ export function putThumbnail(boardId: string, image: Blob): Promise<void> {
 }
 
 /**
+ * Drop a board preview.
+ *
+ * Called when the board has been emptied: a stale picture of objects that are gone is
+ * worse than no picture at all.
+ */
+export function deleteThumbnail(boardId: string): Promise<void> {
+  return call<void>(`/boards/${boardId}/thumbnail`, { method: 'DELETE' })
+}
+
+/**
  * Fetch a board preview as an object URL, or null if it has none yet.
  *
  * Not a plain `<img src>`: every endpoint is behind a Bearer token and an `img` tag

@@ -632,6 +632,12 @@ export default function BoardPage({ boardId, onBack }: Props) {
    */
   const openIntoWriting = canvas.beginWritingRow
   const empty = canvas.objectCount === 0
+  // Read inside the capture timer, which must not restart every time an object is
+  // added or removed.
+  const emptyRef = useRef(empty)
+  emptyRef.current = empty
+  const docReadyRef = useRef(docReady)
+  docReadyRef.current = docReady
   useEffect(() => {
     if (spec.column === null || !docReady || !canWrite || !empty) return
 
@@ -665,6 +671,13 @@ export default function BoardPage({ boardId, onBack }: Props) {
       const engine = canvas.engine
       if (engine === null || disposed) return
       try {
+        // An emptied board has nothing to render, and leaving the last capture in
+        // place would keep the list advertising objects the board no longer has. Only
+        // once the document has actually synced: "empty" before that is just unloaded.
+        if (emptyRef.current && docReadyRef.current) {
+          await api.deleteThumbnail(boardId)
+          return
+        }
         const image = await engine.captureThumbnail()
         if (image !== null && !disposed) await api.putThumbnail(boardId, image)
       } catch {
@@ -687,6 +700,20 @@ export default function BoardPage({ boardId, onBack }: Props) {
       document.removeEventListener('visibilitychange', onHidden)
     }
   }, [boardId, canWrite, canvas.engine])
+
+  /*
+   * Clearing the board clears its preview, straight away.
+   *
+   * The capture timer below would get there eventually, but "eventually" is up to two
+   * minutes, and going back to the list right after deleting everything is exactly
+   * when a stale picture is most obviously wrong.
+   */
+  useEffect(() => {
+    if (!canWrite || !docReady || !empty) return
+    void api.deleteThumbnail(boardId).catch(() => {
+      // Cosmetic, like the capture itself.
+    })
+  }, [boardId, canWrite, docReady, empty])
 
   return (
     <main className={`board board-${spec.id}`}>
