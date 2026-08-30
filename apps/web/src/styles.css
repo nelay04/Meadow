@@ -3238,6 +3238,24 @@ dialog.modal::backdrop {
   user-select: text;
 }
 
+/* The prompt dialog's single field. The label is above it rather than beside it: the
+   dialog is narrow and the question is already in the heading. */
+.modal-field {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 1rem;
+}
+
+.modal-field > span {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.modal-field input {
+  width: 100%;
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;

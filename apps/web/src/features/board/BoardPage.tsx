@@ -1361,7 +1361,10 @@ export default function BoardPage({ boardId, onBack }: Props) {
               type="button"
               className="lea-add-lines"
               disabled={!canWrite}
-              onClick={canvas.addLines}
+              onClick={() => {
+                const added = canvas.addLines()
+                if (added > 0) toast.success(`Added ${added} more line${added === 1 ? '' : 's'}.`)
+              }}
             >
               <span>Add {PAGE_LINES_STEP} lines</span>
             </button>
@@ -1406,8 +1409,15 @@ export default function BoardPage({ boardId, onBack }: Props) {
             index={canvas.pageIndex}
             editable={canWrite}
             onTurn={canvas.turnToPage}
-            onAdd={canvas.addPage}
-            onRemove={canvas.removePage}
+            onAdd={() => {
+              const created = canvas.addPage()
+              if (created >= 0) toast.success(`Started page ${created + 1}.`)
+            }}
+            onRemove={(index) => {
+              // Torn out, not achieved: the news is that writing is gone, so it reads
+              // in the same colour a failure would. Same choice as the boards list.
+              if (canvas.removePage(index)) toast.error(`Tore out page ${index + 1}.`)
+            }}
             onCollapse={() => {
               writePagesPreference(false)
               setPagesOpen(false)

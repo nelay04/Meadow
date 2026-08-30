@@ -304,6 +304,18 @@ export function listBoards(archived = false): Promise<Board[]> {
   return call<Board[]>(`/boards?archived=${archived}`)
 }
 
+/**
+ * The name the create dialog opens with.
+ *
+ * Asked for rather than made up here, because the generator has to check the names
+ * already in the workspace and the client does not have that list in a form it could
+ * trust. A failure is not fatal: the caller falls back to an empty field and the
+ * server names the board on create as it always did.
+ */
+export function suggestBoardTitle(workspaceId: string): Promise<{ title: string }> {
+  return call<{ title: string }>(`/boards/suggested-title?workspace_id=${workspaceId}`)
+}
+
 export function createBoard(
   workspaceId: string,
   title: string,

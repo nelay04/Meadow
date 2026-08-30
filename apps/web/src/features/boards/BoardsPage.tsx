@@ -13,6 +13,7 @@ import {
   IconTrash,
 } from '../../ui/icons'
 import { useConfirm } from '../../ui/ConfirmDialog'
+import { usePrompt } from '../../ui/PromptDialog'
 import { useToast } from '../../ui/Toaster'
 import * as api from '../../lib/api'
 import type { Board, BoardKind } from '../../lib/api'
@@ -274,6 +275,7 @@ function Dropdown<T extends string>({
 export default function BoardsPage({ onOpen }: Props) {
   const { user, logout } = useAuth()
   const confirm = useConfirm()
+  const prompt = usePrompt()
   const toast = useToast()
   const [boards, setBoards] = useState<Board[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -320,16 +322,48 @@ export default function BoardsPage({ onOpen }: Props) {
     return () => window.removeEventListener('keydown', onKey)
   }, [navOpen])
 
+  /*
+   * Naming happens before the board exists, in a dialog with a name already in it.
+   *
+   * The field in the composer is still where you start, and anything typed into it is
+   * what the dialog opens with; leave it blank and the dialog asks the server for the
+   * same generated name `create_board` would have applied anyway. Either way the name
+   * is on screen and editable at the moment it is chosen, rather than being discovered
+   * afterwards in the board's own title bar.
+   */
   const create = async (kind: BoardKind, name = '') => {
     if (user?.default_workspace_id == null) return
+    const workspaceId = user.default_workspace_id
+    const label = boardKind(kind).label.toLowerCase()
+
+    let initial = name.trim()
+    if (initial === '') {
+      try {
+        initial = (await api.suggestBoardTitle(workspaceId)).title
+      } catch {
+        // Not worth refusing to create over. An empty field means the person types a
+        // name, which is what the dialog is for.
+        initial = ''
+      }
+    }
+
+    const chosen = await prompt({
+      title: `Name your new ${label}`,
+      body: `You can keep the suggested name or write your own. It is editable later, on the ${label} itself.`,
+      label: 'Name',
+      initial,
+      placeholder: `A name for this ${label}`,
+      confirmLabel: `Create ${label}`,
+    })
+    if (chosen === null) return
+
     try {
-      // An unnamed board is fine and is what the header's New menu makes: the title is
-      // editable on the board itself, so a name is never a toll on getting started.
-      const board = await api.createBoard(user.default_workspace_id, name.trim() || 'Untitled', kind)
+      const board = await api.createBoard(workspaceId, chosen, kind)
       setTitle('')
+      toast.success(`Created the ${label} "${board.title}".`)
       onOpen(board.id, board.kind)
     } catch {
-      toast.error(`Could not create that ${boardKind(kind).label.toLowerCase()}.`)
+      toast.error(`Could not create that ${label}.`)
     }
   }
 
@@ -346,7 +380,9 @@ export default function BoardsPage({ onOpen }: Props) {
     try {
       await api.deleteBoard(board.id)
       await reload()
-      toast.success(`Deleted "${board.title}".`)
+      // Deliberately not a success toast. Nothing green happened: something is gone,
+      // and the card should read the way the news does.
+      toast.error(`Deleted the ${kind} "${board.title}".`)
     } catch {
       toast.error(`Could not delete that ${kind}.`)
     }

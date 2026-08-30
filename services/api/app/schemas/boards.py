@@ -32,6 +32,12 @@ class MemberOut(BaseModel):
     role: str
 
 
+class TitleSuggestion(BaseModel):
+    """A default name offered to the create dialog before the board exists."""
+
+    title: str
+
+
 class BoardCreate(BaseModel):
     workspace_id: uuid.UUID
     title: str = Field(default="Untitled", max_length=200)

@@ -157,14 +157,17 @@ export type CanvasHandle = {
   pages: readonly PageMeta[]
   pageIndex: number
   turnToPage(index: number): void
-  /** Add a page at the end and turn to it. No-op when the role cannot write. */
-  addPage(): void
-  /** Tear a page out, and the writing on it. Refuses the last page. */
-  removePage(index: number): void
+  /**
+   * Add a page at the end and turn to it. Returns its position, or -1 when nothing was
+   * added - the role cannot write, or the diary is at its limit.
+   */
+  addPage(): number
+  /** Tear a page out, and the writing on it. Refuses the last page; false if it did. */
+  removePage(index: number): boolean
   /** How many rules the open page has, on a writing surface. Zero on a free canvas. */
   pageLines: number
-  /** Lengthen the open page by one step. No-op when the role cannot write. */
-  addLines(): void
+  /** Lengthen the open page by one step. Returns how many rules were added, 0 if none. */
+  addLines(): number
   /** The date printed at the top of the open page, `YYYY-MM-DD` or '' for none. */
   pageDate: string
   setDate(iso: string): void
@@ -554,8 +557,16 @@ export function useCanvas(
   }, [pageLines])
 
   const addLines = useCallback(() => {
-    caretOnLine.current = openPageRef.current?.lines ?? DEFAULT_PAGE_LINES
+    const before = openPageRef.current?.lines ?? DEFAULT_PAGE_LINES
+    caretOnLine.current = before
     addPageLines(sessionRef.current, pageIndexRef.current, PAGE_LINES_STEP, DEFAULT_PAGE_LINES)
+    // Counted off the document rather than assumed: the write is refused outright on a
+    // read-only session, and a page near the limit takes fewer rules than it asked for.
+    // A caret waiting on a rule that was never added would sit there forever.
+    const after = readPages(sessionRef.current, DEFAULT_PAGE_LINES)[pageIndexRef.current]
+    const added = Math.max(0, (after?.lines ?? before) - before)
+    if (added === 0) caretOnLine.current = null
+    return added
   }, [])
 
   const setDate = useCallback((iso: string) => {
@@ -583,26 +594,28 @@ export function useCanvas(
    */
   const startPage = useCallback(() => {
     const created = addPage(sessionRef.current, DEFAULT_PAGE_LINES)
-    if (created < 0) return
+    if (created < 0) return -1
     // The new page is empty by construction, so there is exactly one line the caret
     // could mean. Recorded as a slot rather than as an index, because it is the engine
     // catching up with the slot that this is waiting for.
     const pagesNow = readPages(sessionRef.current, DEFAULT_PAGE_LINES)
     caretOnSlot.current = pagesNow[created]?.slot ?? null
     setWantedIndex(created)
+    return created
   }, [])
 
   const tearOutPage = useCallback(
     (index: number) => {
-      if (width === null) return
+      if (width === null) return false
       const target = readPages(sessionRef.current, DEFAULT_PAGE_LINES)[index]
-      if (target === undefined) return
+      if (target === undefined) return false
 
       const span = pageSpan({ width, fontSize, lineHeight }, target.slot)
-      if (!removePage(sessionRef.current, index, span)) return
+      if (!removePage(sessionRef.current, index, span)) return false
       // Stay where you were in the diary rather than jumping to the end: removing page
       // three should leave you looking at what is now page three.
       setWantedIndex((current) => (current > index ? current - 1 : current))
+      return true
     },
     [width, fontSize, lineHeight],
   )

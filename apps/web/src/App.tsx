@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 
 import BoardPage from './features/board/BoardPage'
 import { ConfirmProvider } from './ui/ConfirmDialog'
+import { PromptProvider } from './ui/PromptDialog'
 import { ToastProvider } from './ui/Toaster'
 import { AuthProvider, useAuth } from './features/auth/AuthContext'
 import LoginPage from './features/auth/LoginPage'
@@ -136,9 +137,11 @@ export default function App() {
   return (
     <ToastProvider>
       <ConfirmProvider>
-        <AuthProvider>
-          <Shell />
-        </AuthProvider>
+        <PromptProvider>
+          <AuthProvider>
+            <Shell />
+          </AuthProvider>
+        </PromptProvider>
       </ConfirmProvider>
     </ToastProvider>
   )

@@ -12,7 +12,14 @@ from sqlalchemy import delete, or_, select
 
 from app.auth.deps import CurrentUser, Session, board_editor, board_owner, board_viewer
 from app.models import Board, BoardMember, BoardThumbnail, User, WorkspaceMember
-from app.schemas.boards import BoardCreate, BoardMemberAdd, BoardOut, BoardPatch, MemberOut
+from app.schemas.boards import (
+    BoardCreate,
+    BoardMemberAdd,
+    BoardOut,
+    BoardPatch,
+    MemberOut,
+    TitleSuggestion,
+)
 from app.services.board_kinds import BoardKind
 from app.services.naming import DEFAULT_TITLE, generate_unique_board_title
 from app.services.permissions import BoardRole, at_least, resolve_role
@@ -76,6 +83,27 @@ async def list_boards(
         if role is not None:
             out.append(_out(board, role))
     return out
+
+
+# Before `/{board_id}`, which would otherwise claim this path and reject it as a
+# malformed uuid.
+@router.get("/suggested-title", response_model=TitleSuggestion)
+async def suggested_title(
+    user: CurrentUser,
+    session: Session,
+    workspace_id: Annotated[uuid.UUID, Query()],
+) -> TitleSuggestion:
+    """The name the create dialog starts with.
+
+    The same generator `create_board` falls back to, offered up front so the person can
+    keep it or type over it before anything exists. Uniqueness is checked against the
+    workspace as it is now; the create itself is still the authority, and two dialogs
+    open at once may agree on a name. That is a duplicate title, not a duplicate board.
+    """
+    member = await session.get(WorkspaceMember, (workspace_id, user.id))
+    if member is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="no access")
+    return TitleSuggestion(title=await generate_unique_board_title(session, workspace_id))
 
 
 @router.post("", response_model=BoardOut, status_code=status.HTTP_201_CREATED)
