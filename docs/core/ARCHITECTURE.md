@@ -572,6 +572,178 @@ connector tucked behind a box.
 > pass per frame rather than one globally, which is a change in how many `Graphics`
 > exist and nothing else.
 
+### Ink is a third pass, and it is invalidated rather than cleared
+
+Added in M6 with the pen. It is the third rendering strategy in the engine, and it
+disagrees with both of the others on purpose.
+
+The instanced batch exists because 5,000 rectangles at one draw call each is 5,000
+draw calls, and it can only draw what a signed distance field can express. A stroke is
+a polygon of a few hundred points shaped by somebody's wrist. There is no SDF for that.
+
+The arrow pass rebuilds its geometry every frame because arrow geometry is genuinely
+dynamic: move a box and every arrow bound to it moves with it. Ink is the opposite. A
+stroke is finished the moment the pointer lifts and never changes again unless it is
+dragged or resized, so rebuilding it on a pan is work with a guaranteed identical
+result. So `InkPass` is **invalidated**, not cleared: the engine holds an `inkDirty`
+flag, set by a change to a `freedraw` object and by a theme change, and the layer is
+rebuilt only when it is set. Geometry is in world coordinates inside the world
+container, so panning and zooming over a page of handwriting costs nothing.
+
+Two consequences follow and are worth stating rather than discovering.
+
+**Ink is not culled.** The pass holds every stroke on the board, on screen or not,
+because a rebuild is triggered by editing and not by looking. Culling would turn every
+pan back into a rebuild, which is the cost the design exists to avoid. What it costs
+instead is vertices held on the GPU for ink nobody is looking at, which is the cheap
+side of that trade.
+
+**Outlines are cached per stroke**, keyed on the identity of the stored points array.
+Yjs hands back the same array until somebody writes a new one, so adding the five
+hundredth stroke to a board re-tessellates one stroke rather than five hundred.
+
+Layer order is fixed, as it is for arrows, and for the same kind of reason: shapes,
+then arrows, then dry ink, then the stroke currently under the pointer. Ink over the
+rest because annotation that goes under the thing it annotates is not annotation. It
+sits under the DOM overlay like everything else in WebGL, which is what makes the
+highlighter highlight text rather than obliterate it.
+
+### A nib is a swept shape, not a special case per pen
+
+`freedraw` was in the object type union from M2 and unimplemented until M6. It stores
+`points` as a **stride-3** flat array, `[x, y, pressure, ...]`, relative to the
+object's own x,y with w/h holding the painted extent. The stride is the only thing that
+differs from how an arrow stores its path, and it differs because pressure belongs with
+the point it was sampled at: a parallel array would be a second thing to keep the same
+length as the first. §4 is otherwise untouched, and a client that has never heard of
+the pen renders a document containing strokes as a document containing nothing where
+they are, rather than incorrectly.
+
+Five tips ship: `round`, `felt`, `chisel`, `brush`, `highlighter`. They are not five
+branches in the outline builder. Every one is the region swept by a shape dragged along
+the path, and two shapes cover all five:
+
+- A **disc** sweeps an outline offset along the path's own normal by the radius at that
+  sample. Pressure changes the radius, which is where the swell in a ballpoint line
+  comes from.
+- A **blade** held at a fixed angle sweeps an outline offset by that segment and
+  nothing else. Broad across the nib, hairline along it. Calligraphy falls out of the
+  construction rather than being faked with a direction test.
+
+Everything else about a tip is numbers in `TIP_PROFILES`: how much of the width
+pressure may take, whether the ends are cut flat or rounded, the multiplier that makes
+one size control mean the same thing on every nib, the resting opacity, the taper, and
+the angle the nib is naturally held at. Traits compose and names do not, which is what
+the first version got wrong: a highlighter is a chisel that does not taper and a felt
+tip that is not round, and it needed no branch of its own once the profile carried
+those three facts.
+
+The nib's natural angle is part of the profile rather than of the person, because
+getting it wrong does not read as a preference. A highlighter held at a calligraphy
+pen's angle lays its blade along the sweep and leaves nothing behind it, which reads as
+a broken tool.
+
+**Both nibs are one nib, and it is an ellipse.** The obvious way to draw a chisel is to
+offset the path along the nib's own direction, which is what a segment-shaped nib does.
+It is also broken, and it took a rendered sheet of samples to see it: the offset no
+longer follows the path's normal, so the two edges swap sides wherever the stroke turns
+through the nib's angle, the closed polygon through them crosses itself, and
+triangulating that fills the loop the crossing encloses. A chisel drawing a circle came
+out with a solid black wedge across a quarter of it.
+
+Taking the ellipse's **support point** in the direction of the path's normal fixes it at
+the root, because that offset always has a positive component along the normal: the left
+edge stays left and the right edge stays right whatever the stroke does. Broad across the
+nib and hairline along it still falls out of the shape rather than out of a direction
+test, since that is what a flat ellipse is, and a disc is the same formula with equal
+axes. One code path, and the nib's short axis is where the hairline comes from: a nib
+with no thickness sweeps no area when the stroke runs along it, and a chisel dragged in
+its own direction vanished for that stretch of the line.
+
+One intermediate design was thrown away on the way, and its failure is worth keeping
+because it looks like the shipped one. Growing each segment's quad outwards to give the
+nib its thickness made neighbouring quads overlap by a whole nib rectangle, and at the
+highlighter's opacity that drew a dark stripe at every segment boundary. Doing it along
+the segment's normal instead shrank them, because the sign of that offset depends on
+the winding rather than on the nib. The ellipse removed the need for either: the offset
+it produces already carries the thickness.
+
+**A stroke is filled as convex pieces, not as one closed outline, and self-crossing
+strokes are why.** This was found in the running app rather than by a test, from a
+screenshot of a scribble that had come out as a solid slab. The outline of a stroke
+that crosses itself crosses itself too, and a triangulator handed a polygon that is not
+simple may do anything; earcut emits triangles spanning distant vertices. So the mark
+you make to cross something out covered it up instead, and a loop filled itself in.
+
+The web has not had to think about this, which is why it is easy to walk into: an SVG
+or canvas path fills by winding rule and takes self-intersection in its stride. A WebGL
+triangulator does not, and ARCHITECTURE 5's whole premise is that this canvas is WebGL.
+
+The fix is to hand the filler only shapes it can be trusted with. The body of a stroke
+is one quad per segment, from the two offsets at one end to the two at the other, and
+each cap is a piece of its own. Neighbouring quads share an edge exactly, both vertices
+being the same two offsets, so there is no seam, no gap on the outside of a turn, and
+nothing drawn twice. Where a stroke really does cross itself the pieces from the two
+passes overlap, which is invisible for opaque ink and is what a highlighter does on
+paper.
+
+What remains is the ordinary limit of offset-curve rendering: a turn tighter than the
+nib itself folds one quad over, for a disc exactly as for a blade. It costs a single
+segment rather than the stroke. `apps/web/src/canvas/ink.test.ts` asserts the property
+that actually failed, and asserts it on a figure that crosses itself repeatedly: no
+piece of a stroke may be larger than one step of that stroke plus the nib drawing it.
+A triangle spanning a scribble fails that by an order of magnitude.
+
+### Pressure is often a lie, so width comes from speed instead
+
+A stylus reports what it is being leant on. A mouse reports a constant, and browsers do
+not agree on which constant. A constant run through a pressure curve is a line of
+uniform width, which is the flattest a stroke can look, so when `pointerType` is not
+`pen` the width is driven by speed: fast is thin, slow is thick, which is what a real
+nib does because a hand moving fast has less time to press. This is the difference
+between mouse-drawn ink that reads as handwriting and mouse-drawn ink that reads as a
+graph.
+
+Two more things stand between a pointer and a line that looks drawn by a person.
+
+**The pointer is noisy.** The nib does not follow the cursor, it chases it, closing a
+fraction of the gap per sample. The lag that buys is why the line feels like ink. It is
+also why the pen runs the chase on to completion when the pointer lifts and ends the
+stroke on the pointer's own position: without that, every stroke stops short of where
+the hand stopped, which is invisible on a sweep and glaring on a tick or a full stop.
+
+**Frames are slower than hands.** A quick flick between two frames is one straight line
+if you only read the event that woke you, so `Tool.usesCoalesced` tells the engine to
+deliver `getCoalescedEvents()` instead. It is opt-in: for a marquee the extra samples
+are the same answer computed more often, and for ink they are the stroke.
+
+### A stroke reaches the document once, when the pointer lifts
+
+Ink under the pointer is **wet**: transient engine state beside the marquee rect, drawn
+by its own `Graphics` and not in the Y.Doc. Streaming it in would mean a Yjs update per
+pointer sample, each rewriting the whole points array, for a shape that is not final
+until the pointer lifts.
+
+What that costs is that a peer sees a stroke when it is finished rather than as it is
+drawn. Excalidraw makes the same trade; tldraw does not. It is worth accepting here
+because presence still shows the hand moving, so nobody is watching a frozen board, and
+because the alternative buys smoother spectating at the price of the two things that
+matter more: one object per stroke and one undo step per stroke. A sketch should undo a
+stroke at a time.
+
+On commit the samples are simplified with Ramer-Douglas-Peucker at well under a pixel
+at the drawing zoom, so it removes redundancy and never smooths. Sixty samples a second
+for four seconds is a thousand points, most of them on the line between their
+neighbours, and keeping them costs document size, sync bandwidth and tessellation
+forever for a shape nobody can tell apart.
+
+Two smaller departures, both deliberate. The pen does **not** hand back to `select`
+after drawing, unlike every other creation tool: nobody draws one stroke, and a pen
+that had to be picked up again after each one would be unusable. And a resize scales a
+stroke's samples and its nib, in `applyRectToObject`, because ink is the one object
+whose drawing is not implied by its box: writing bounds and stopping would leave the
+original scribble inside a box that no longer fits it.
+
 ### Antialiasing: MSAA on, and why it is not redundant
 
 **Changed in M6.** The renderer ran with `antialias: false`, on the reasoning that the
@@ -1405,6 +1577,24 @@ re-aimed and bent after it exists, and the alignment help learned to distribute 
 as to align. The reasoning for each lives in §5 rather than here; what belongs in the
 record is that none of it was a schema change beyond two additive props on arrows.
 
+**The pen was pulled forward out of v2, and this is the argument for it.** `freedraw`
+was on the v2 list beside tables and charts, and the working agreement in CLAUDE.md
+says not to jump ahead. It is listed here rather than quietly done because that rule
+was knowingly broken.
+
+The case for moving it: a canvas app you cannot draw on freehand is missing the thing
+people reach for first, and it is not in the same class as the rest of that list.
+Tables and charts are new object models with their own editors; a chart needs data
+binding and a table needs a layout engine. A stroke is a run of points in the `objects`
+map the schema has had a type for since M2, drawn by a pass that behaves like the arrow
+pass with one flag changed. It touched no migration, no API, no permission path and no
+part of §4, and it shipped with its own unit tests and eleven checks in
+`pnpm smoke:canvas`. The cost of doing it now is a week's work that was already
+budgeted for later; the cost of not doing it was shipping v1 without a pen.
+
+What did *not* come with it, and stays in v2: an eraser, per-stroke restyling after the
+fact, and pressure-aware smoothing tuned per input device.
+
 **Glades have kinds, and a kind is paper rather than a mode.** `boards.kind` is a
 plain string with a check constraint, `'glade'` or `'lea'`, backfilled to `'glade'`
 because that is what every board already was. A **lea** is a diary: kraft stock, ruled
@@ -1551,9 +1741,11 @@ than the process, because a backup job's failure mode is running happily and pro
 nothing.
 
 ### v2 — after v1 is live
-Tables · charts · freedraw · frames/groups · images · export to PDF/PNG · full-text
+Tables · charts · frames/groups · images · export to PDF/PNG · full-text
 search · comments · LLM features (board summarisation, text→flowchart generation,
 pgvector semantic search)
+
+*(`freedraw` was on this list and was pulled forward into M6. See the note there.)*
 
 ---
 

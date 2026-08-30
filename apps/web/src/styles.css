@@ -2900,6 +2900,59 @@ kbd {
 }
 
 /*
+ * The pen's flyout, which is the one that is a panel rather than a row.
+ *
+ * Four things are being chosen and they are not alternatives to each other, so they
+ * are four rows with a hairline between them rather than nineteen buttons in a line.
+ * The rule is the same one the rail follows: a group you can see is a group you do
+ * not have to read.
+ */
+.pen-menu {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.25rem;
+}
+
+.pen-row {
+  display: flex;
+  gap: 0.15rem;
+}
+
+.pen-row + .pen-row {
+  padding-top: 0.25rem;
+  border-top: 1px solid var(--line);
+}
+
+/*
+ * The width buttons show the width instead of naming it, and the angle button shows
+ * the angle. Both are the sample the choice produces, which is the only honest label
+ * for a thing whose whole content is how it looks.
+ */
+.pen-dot {
+  display: block;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.pen-nib {
+  display: block;
+  width: 15px;
+  height: 3px;
+  border-radius: 1.5px;
+  background: currentColor;
+}
+
+.pen-swatch {
+  display: block;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  /* An outline, or the pale swatches vanish into a light rail and the theme ink
+     swatch vanishes into whichever theme it is currently matching. */
+  border: 1px solid color-mix(in srgb, var(--fg) 22%, transparent);
+}
+
+/*
  * A destructive control says so on hover rather than in its resting state. Permanent
  * red is an alarm nobody is currently causing; red on hover is the answer to "what
  * happens if I press this".

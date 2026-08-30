@@ -46,6 +46,14 @@ export API_PORT WEB_PORT
 # phases below are about it.
 export MEADOW_RATE_LIMIT_ENABLED=false
 
+# Blank SMTP is the documented off switch for activation mail. Set here because the
+# .env sourced above usually configures a relay, and with mail on the accounts the
+# gate registers stay unactivated and every endpoint refuses them. See
+# `_start_activation` in app/api/v1/auth.py: with no relay the account is opened
+# immediately instead of waiting on a link nobody is going to click.
+export MEADOW_SMTP_HOST=""
+export MEADOW_SMTP_FROM=""
+
 API_DIR="services/api"
 LOG="$(mktemp -t meadow-m0-api.XXXXXX.log)"
 SERVER_PID=""

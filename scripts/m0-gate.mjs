@@ -56,16 +56,27 @@ async function call(path, { method = 'GET', body } = {}) {
   return response.status === 204 ? null : response.json()
 }
 
-/** Register a throwaway account. M1 made every board endpoint require identity. */
+/**
+ * Register a throwaway account and sign it in. M1 made every board endpoint require
+ * identity.
+ *
+ * Two calls rather than one, because registering does not sign anybody in. `POST
+ * /register` answers 202 with `RegistrationPending`: until the address answers, every
+ * other endpoint refuses the account, so a session handed out there would be one that
+ * does not work. This read `access_token` off the registration response until
+ * activation shipped in M6, and it has been `undefined` since. `m0-gate.sh` runs the
+ * API with mail off, so the account is opened rather than left waiting on a link.
+ */
 async function registerActor() {
   const credentials = {
     email: `gate-${Date.now().toString(36)}@meadow-gate.dev`,
     password: 'gate-harness-password',
   }
-  const body = await call('/api/v1/auth/register', {
+  await call('/api/v1/auth/register', {
     method: 'POST',
     body: { ...credentials, display_name: 'Gate Harness' },
   })
+  const body = await call('/api/v1/auth/login', { method: 'POST', body: credentials })
   accessToken = body.access_token
   return { credentials, workspaceId: body.user.default_workspace_id }
 }

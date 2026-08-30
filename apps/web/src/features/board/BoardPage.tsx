@@ -10,7 +10,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ArrowRouting } from '@meadow/schema'
+import { type ArrowRouting, type FreedrawTip, TIP_PROFILES } from '@meadow/schema'
 import { IndexeddbPersistence } from 'y-indexeddb'
 import * as Y from 'yjs'
 
@@ -33,7 +33,13 @@ import {
   IconItalic,
   IconLock,
   IconLine,
+  IconNibBrush,
+  IconNibChisel,
+  IconNibFelt,
+  IconNibHighlighter,
+  IconNibRound,
   IconPanel,
+  IconPen,
   IconPencil,
   IconRouteCurved,
   IconRouteElbow,
@@ -78,6 +84,7 @@ const TOOLS: { id: ToolId; label: string; hint: string; Icon: typeof IconCursor 
   { id: 'sticky', label: 'Sticky', hint: 'S', Icon: IconSticky },
   { id: 'arrow', label: 'Arrow', hint: 'A', Icon: IconArrow },
   { id: 'line', label: 'Line', hint: 'L', Icon: IconLine },
+  { id: 'pen', label: 'Pen', hint: 'P', Icon: IconPen },
   { id: 'rect', label: 'Rectangle', hint: 'R', Icon: IconSquare },
   { id: 'ellipse', label: 'Ellipse', hint: 'O', Icon: IconCircle },
   { id: 'diamond', label: 'Diamond', hint: 'D', Icon: IconDiamond },
@@ -94,6 +101,81 @@ const ROUTINGS: { id: ArrowRouting; label: string; Icon: typeof IconCursor }[] =
   { id: 'straight', label: 'Straight', Icon: IconRouteStraight },
   { id: 'curved', label: 'Curved', Icon: IconRouteCurved },
   { id: 'orthogonal', label: 'Elbow', Icon: IconRouteElbow },
+]
+
+/**
+ * The nibs, in the order they sit in the flyout.
+ *
+ * Ordered by how much the nib does to the line rather than alphabetically: an even
+ * ballpoint, then a fineliner, then a cut nib, then a brush, then the marker that is
+ * not for writing with at all. Somebody scanning the row is looking for "more
+ * expressive than the last one", and that is the axis.
+ */
+const TIPS: { id: FreedrawTip; label: string; Icon: typeof IconCursor }[] = [
+  { id: 'round', label: 'Ballpoint', Icon: IconNibRound },
+  { id: 'felt', label: 'Fineliner', Icon: IconNibFelt },
+  { id: 'chisel', label: 'Calligraphy', Icon: IconNibChisel },
+  { id: 'brush', label: 'Brush', Icon: IconNibBrush },
+  { id: 'highlighter', label: 'Highlighter', Icon: IconNibHighlighter },
+]
+
+/**
+ * Nib widths, in world units before the tip applies its own scale.
+ *
+ * Four, and named rather than a slider. A slider over a continuous range sounds more
+ * capable and is worse here: nobody wants 3.4 rather than 3, everybody wants to get
+ * back to the width they were using a minute ago, and four fixed stops make that a
+ * click instead of an aim.
+ */
+const PEN_SIZES: { value: number; label: string }[] = [
+  { value: 1.5, label: 'Fine' },
+  { value: 3, label: 'Medium' },
+  { value: 5.5, label: 'Broad' },
+  { value: 9, label: 'Heavy' },
+]
+
+/**
+ * The ink colours, with the theme's own first.
+ *
+ * `null` is not a missing colour, it is a real choice and the default one: a stroke
+ * with no colour of its own is painted in the surface's ink, so it is dark on a light
+ * board and light on a dark one. Every other swatch is a colour the author meant, and
+ * it stays that colour in both themes. The six are picked to stay legible against both
+ * grounds, which rules out anything very dark or very pale.
+ */
+const PEN_COLORS: { value: number | null; label: string; css: string }[] = [
+  { value: null, label: 'Ink', css: 'var(--canvas-ink)' },
+  { value: 0xe0524f, label: 'Red', css: '#e0524f' },
+  { value: 0xe0913a, label: 'Amber', css: '#e0913a' },
+  { value: 0xf2c94c, label: 'Yellow', css: '#f2c94c' },
+  { value: 0x3f9f6a, label: 'Green', css: '#3f9f6a' },
+  { value: 0x3f86f0, label: 'Blue', css: '#3f86f0' },
+  { value: 0x8b5cf0, label: 'Violet', css: '#8b5cf0' },
+]
+
+/**
+ * The tools whose rail button carries a flyout.
+ *
+ * A set rather than a check per call site, so a tool cannot end up with a menu the
+ * open/close logic does not know about.
+ */
+const TOOLS_WITH_MENU: ReadonlySet<ToolId> = new Set<ToolId>(['arrow', 'pen'])
+
+/** A quarter of a right angle, the step the nib angle is offered in. */
+const ANGLE_STEP = Math.PI / 7
+
+/**
+ * How a cut nib is held, offered only when the nib is actually cut.
+ *
+ * Relative to the tip's own natural angle rather than absolute, because "flat" means
+ * something different for a calligraphy pen and a highlighter: one is held for
+ * writing and the other for sweeping across a line of it. The stored value is the
+ * absolute angle either way, so nothing downstream has to know this row exists.
+ */
+const NIB_ANGLES: { offset: number; label: string }[] = [
+  { offset: -ANGLE_STEP, label: 'Steep' },
+  { offset: 0, label: 'Standard' },
+  { offset: ANGLE_STEP, label: 'Flat' },
 ]
 
 /**
@@ -252,6 +334,17 @@ export default function BoardPage({ boardId, onBack }: Props) {
     }
   }, [boardId, title, toast])
 
+  /*
+   * Which tool's flyout is open, or null.
+   *
+   * It used to be derived from the active tool, which meant it could never close: the
+   * pen stays in your hand across strokes by design, so a menu tied to "the pen is
+   * active" sat over the canvas for the rest of the session. A flyout is a question
+   * being asked, and it should go away once it has been answered or once you have
+   * moved on to the thing it was asking about.
+   */
+  const [railMenu, setRailMenu] = useState<ToolId | null>(null)
+
   const spec = boardKind(kind)
   const noun = spec.label.toLowerCase()
   // The rail, cut to what this kind offers. `TOOLS` stays the single ordered list of
@@ -270,6 +363,27 @@ export default function BoardPage({ boardId, onBack }: Props) {
     // otherwise produce a hundred identical cards.
     onRefused: toast.error,
   })
+
+  /*
+   * The flyout opens when its tool becomes the active one, however that happened.
+   *
+   * Keyed on the tool rather than on the click, so the keyboard shortcut and the rail
+   * button behave the same: pressing P should put the nibs in front of you exactly as
+   * pressing the button does. It does not re-run while the tool stays put, which is
+   * what lets the dismissals below stick.
+   */
+  const activeTool = canvas.tool
+  useEffect(() => {
+    setRailMenu(TOOLS_WITH_MENU.has(activeTool) ? activeTool : null)
+  }, [activeTool])
+
+  /**
+   * Put the flyout away.
+   *
+   * Called from the canvas, because starting to draw is the clearest possible signal
+   * that you are done choosing what to draw with.
+   */
+  const dismissRailMenu = useCallback(() => setRailMenu(null), [])
 
   // Depends on the callback, not on `canvas`. `useCanvas` returns a fresh object every
   // render, so closing over the whole handle would give this a new identity each time,
@@ -660,7 +774,19 @@ export default function BoardPage({ boardId, onBack }: Props) {
                 className={canvas.tool === tool.id ? 'tool active' : 'tool'}
                 // Pan stays available to a viewer. Only the creation tools are gated.
                 disabled={!canWrite && tool.id !== 'select' && tool.id !== 'hand'}
-                onClick={() => canvas.setTool(tool.id)}
+                onClick={() => {
+                  // Pressing the button of the tool already in your hand is how you get
+                  // its flyout back after it has been dismissed, and how you put it
+                  // away without drawing. Anything else is an ordinary tool switch, and
+                  // the effect above opens the new tool's menu if it has one.
+                  if (canvas.tool === tool.id) {
+                    setRailMenu((open) =>
+                      open === tool.id || !TOOLS_WITH_MENU.has(tool.id) ? null : tool.id,
+                    )
+                    return
+                  }
+                  canvas.setTool(tool.id)
+                }}
               >
                 <tool.Icon size={19} />
                 <Tip label={tool.label} hint={tool.hint} />
@@ -672,7 +798,7 @@ export default function BoardPage({ boardId, onBack }: Props) {
                 tool rather than a second row of tools: it says what the next arrow
                 will look like, and it never touches an arrow that already exists.
               */}
-              {tool.id === 'arrow' && canvas.tool === 'arrow' && canWrite && (
+              {tool.id === 'arrow' && railMenu === 'arrow' && canWrite && (
                 <div className="tool-submenu" role="group" aria-label="Arrow shape">
                   {ROUTINGS.map((routing) => (
                     <button
@@ -681,12 +807,117 @@ export default function BoardPage({ boardId, onBack }: Props) {
                       aria-label={routing.label}
                       aria-pressed={canvas.arrowRouting === routing.id}
                       className={canvas.arrowRouting === routing.id ? 'tool active' : 'tool'}
-                      onClick={() => canvas.setArrowRouting(routing.id)}
+                      // Closed on the choice, not on the next click elsewhere. There
+                      // is exactly one thing to pick here and picking it is the whole
+                      // errand, so leaving the menu up afterwards is just something
+                      // else standing over the canvas.
+                      onClick={() => {
+                        canvas.setArrowRouting(routing.id)
+                        setRailMenu(null)
+                      }}
                     >
                       <routing.Icon size={18} />
                       <Tip label={routing.label} />
                     </button>
                   ))}
+                </div>
+              )}
+
+              {/*
+                The nib, on the same terms as the connector shapes above: an option on
+                the tool, chosen before the stroke and never applied to one already
+                drawn. It is a column rather than a row because there are four things
+                to choose and a row of nineteen buttons beside the rail is not a
+                flyout, it is a second toolbar.
+              */}
+              {tool.id === 'pen' && railMenu === 'pen' && canWrite && (
+                <div className="tool-submenu pen-menu" role="group" aria-label="Pen">
+                  <div className="pen-row" role="group" aria-label="Nib">
+                    {TIPS.map((nib) => (
+                      <button
+                        key={nib.id}
+                        type="button"
+                        aria-label={nib.label}
+                        aria-pressed={canvas.pen.tip === nib.id}
+                        className={canvas.pen.tip === nib.id ? 'tool active' : 'tool'}
+                        // The angle goes with the nib. A highlighter held at a
+                        // calligraphy pen's angle lays its blade along the sweep and
+                        // leaves nothing behind it, which reads as a broken tool
+                        // rather than as a setting.
+                        onClick={() =>
+                          canvas.setPen({ tip: nib.id, angle: TIP_PROFILES[nib.id].angle })
+                        }
+                      >
+                        <nib.Icon size={18} />
+                        <Tip label={nib.label} />
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="pen-row" role="group" aria-label="Nib width">
+                    {PEN_SIZES.map((size) => (
+                      <button
+                        key={size.label}
+                        type="button"
+                        aria-label={size.label}
+                        aria-pressed={canvas.pen.size === size.value}
+                        className={canvas.pen.size === size.value ? 'tool active' : 'tool'}
+                        onClick={() => canvas.setPen({ size: size.value })}
+                      >
+                        {/* The button shows the width rather than naming it. A row of
+                            growing dots is read without being read. */}
+                        <span
+                          className="pen-dot"
+                          style={{
+                            width: `${Math.round(4 + size.value)}px`,
+                            height: `${Math.round(4 + size.value)}px`,
+                          }}
+                        />
+                        <Tip label={size.label} />
+                      </button>
+                    ))}
+                  </div>
+
+                  {TIP_PROFILES[canvas.pen.tip].bladed && (
+                    <div className="pen-row" role="group" aria-label="Nib angle">
+                      {NIB_ANGLES.map((choice) => {
+                        const value = TIP_PROFILES[canvas.pen.tip].angle + choice.offset
+                        const held = Math.abs(canvas.pen.angle - value) < 0.01
+                        return (
+                          <button
+                            key={choice.label}
+                            type="button"
+                            aria-label={`${choice.label} nib angle`}
+                            aria-pressed={held}
+                            className={held ? 'tool active' : 'tool'}
+                            onClick={() => canvas.setPen({ angle: value })}
+                          >
+                            <span
+                              className="pen-nib"
+                              style={{ transform: `rotate(${value}rad)` }}
+                            />
+                            <Tip label={choice.label} />
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+
+                  <div className="pen-row" role="group" aria-label="Ink colour">
+                    {PEN_COLORS.map((swatch) => (
+                      <button
+                        key={swatch.label}
+                        type="button"
+                        aria-label={swatch.label}
+                        aria-pressed={canvas.pen.color === swatch.value}
+                        className={canvas.pen.color === swatch.value ? 'tool active' : 'tool'}
+                        onClick={() => canvas.setPen({ color: swatch.value })}
+                      >
+                        <span className="pen-swatch" style={{ background: swatch.css }} />
+                        <Tip label={swatch.label} />
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -714,7 +945,20 @@ export default function BoardPage({ boardId, onBack }: Props) {
           placed entirely by the custom properties the engine writes on this element,
           so they ride the camera without React being told the camera moved.
         */}
-        <div className="canvas-host" ref={canvas.containerRef} data-paper={paper}>
+        {/*
+          Touching the canvas puts the rail's flyout away.
+
+          On capture, so it lands before the engine's own pointer handling and works
+          whether the press starts a stroke, a shape or a marquee. The pen keeps a menu
+          open across a whole session otherwise, since the pen stays in your hand after
+          a stroke and nothing else was ever going to close it.
+        */}
+        <div
+          className="canvas-host"
+          ref={canvas.containerRef}
+          data-paper={paper}
+          onPointerDownCapture={dismissRailMenu}
+        >
           {spec.column !== null && (
             <div className="lea-header">
               {/* No printed caption: the placeholder already says what the line is

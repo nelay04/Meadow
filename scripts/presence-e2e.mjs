@@ -46,7 +46,16 @@ const api = spawn(
     stdio: ['ignore', 'pipe', 'pipe'],
     // Registration is capped at 3/hour/IP, and this script registers two users per
     // run. Covered by tests/test_auth.py; nothing here is about it.
-    env: { ...process.env, MEADOW_RATE_LIMIT_ENABLED: 'false' },
+    //
+    // Blank SMTP is the documented off switch for activation mail, and it is set here
+    // because the repo's own .env usually configures a relay. With mail on, the
+    // accounts this script opens stay unactivated and every endpoint refuses them.
+    env: {
+      ...process.env,
+      MEADOW_RATE_LIMIT_ENABLED: 'false',
+      MEADOW_SMTP_HOST: '',
+      MEADOW_SMTP_FROM: '',
+    },
   },
 )
 procs.push(api)
@@ -93,7 +102,25 @@ async function register(name) {
     stop()
     process.exit(1)
   }
-  const body = await response.json()
+  /*
+   * Registering does not sign anybody in, so both the token and the user come from a
+   * login. `POST /register` answers 202 with `RegistrationPending`: until the address
+   * answers, every other endpoint refuses the account, so a session handed out there
+   * would be one that does not work. The API above runs with mail off, so the account
+   * is already open and this is an ordinary login.
+   */
+  const session = await fetch(`${apiBase}/api/v1/auth/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  })
+  const body = session.ok ? await session.json() : {}
+  if (typeof body.access_token !== 'string') {
+    console.error(`FAIL  login ${name} returned ${session.status}: ${JSON.stringify(body).slice(0, 200)}`)
+    console.error('An unactivated account means the API picked up an SMTP host from the environment.')
+    stop()
+    process.exit(1)
+  }
   return { email, password, token: body.access_token, user: body.user }
 }
 

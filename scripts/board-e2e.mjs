@@ -48,7 +48,18 @@ const api = spawn(
     // tests/test_auth.py::test_login_is_rate_limited; nothing here is about it, and
     // every request comes from 127.0.0.1 so the cap is hit by the check suite rather
     // than by anything under test.
-    env: { ...process.env, MEADOW_RATE_LIMIT_ENABLED: 'false' },
+    env: {
+      ...process.env,
+      MEADOW_RATE_LIMIT_ENABLED: 'false',
+      // Blank SMTP is the documented off switch for activation mail, and it has to be
+      // set explicitly because the repo's own .env usually configures a relay. With
+      // mail enabled the account this script registers stays unactivated, every
+      // endpoint refuses it, and the run dies at the board list with a timeout that
+      // says nothing about why. See `_start_activation` in app/api/v1/auth.py: with no
+      // relay the account is opened immediately instead.
+      MEADOW_SMTP_HOST: '',
+      MEADOW_SMTP_FROM: '',
+    },
   },
 )
 procs.push(api)
@@ -102,9 +113,38 @@ if (!register.ok) {
   stop()
   process.exit(1)
 }
-check('register returns a session', true)
-const auth = await register.json()
+check('register opens an account', register.status === 202, `status ${register.status}`)
+
+/*
+ * Registering does not sign anybody in, so the token comes from a login.
+ *
+ * `POST /register` answers 202 with `RegistrationPending` and no session on purpose:
+ * until the address answers, every other endpoint refuses the account, so a session
+ * handed out here would be one that does not work. This script used to read
+ * `access_token` off that response, which was correct until activation shipped in M6
+ * and has been `undefined` since: the workspace call then 401'd, no board was ever
+ * created, and the failure surfaced 20 seconds later as the board list not containing
+ * a board, which points at the browser rather than at the setup.
+ *
+ * The API above runs with mail off, so the account is already activated and this is an
+ * ordinary login.
+ */
+const login = await fetch(`${apiBase}/api/v1/auth/login`, {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ email, password }),
+})
+const auth = login.ok ? await login.json() : {}
 const accessToken = auth.access_token ?? auth.accessToken
+if (typeof accessToken !== 'string') {
+  console.error(
+    `FAIL  login returned ${login.status}: ${JSON.stringify(auth).slice(0, 200)}\n` +
+      'An unactivated account means the API picked up an SMTP host from the environment.',
+  )
+  stop()
+  process.exit(1)
+}
+check('logging in returns a session', true)
 
 const workspaces = await (
   await fetch(`${apiBase}/api/v1/workspaces`, {

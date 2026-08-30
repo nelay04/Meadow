@@ -10,7 +10,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import type { ArrowRouting } from '@meadow/schema'
+import { type ArrowRouting, FREEDRAW_TIPS, type FreedrawTip } from '@meadow/schema'
 import type { TextMark } from '../../doc/richText'
 import {
   CanvasEngine,
@@ -22,7 +22,7 @@ import {
 } from '../../canvas/engine'
 import { type CanvasSurface, DEFAULT_SURFACE } from '../../canvas/surface'
 import type { Wanderer } from '../../canvas/overlay/wandererLayer'
-import type { ToolId } from '../../canvas/tools/types'
+import type { PenSettings, ToolId } from '../../canvas/tools/types'
 import { DocEngineHost, observeDocument } from '../../doc/engineHost'
 import {
   type DocSession,
@@ -44,6 +44,49 @@ import { createTextEditor } from '../../overlay/textEditor'
 import { THEME_EVENT } from '../../ui/theme'
 
 const GRID_KEY = 'meadow.grid'
+const PEN_KEY = 'meadow.pen'
+
+/**
+ * The nib, as this person last left it.
+ *
+ * Remembered for the same reason the grid is, and with more reason: a pen is a tool
+ * somebody chooses once and then uses for weeks, and handing them a default ballpoint
+ * every time they open a board is asking them to set it up again each session. It is
+ * a preference, not document state: two people on one board draw with their own pens.
+ */
+const DEFAULT_PEN: PenSettings = { tip: 'round', size: 3, angle: -Math.PI / 7, color: null }
+
+function readPenPreference(): PenSettings {
+  try {
+    const raw = localStorage.getItem(PEN_KEY)
+    if (raw === null) return DEFAULT_PEN
+    const stored: unknown = JSON.parse(raw)
+    if (typeof stored !== 'object' || stored === null) return DEFAULT_PEN
+    // Field by field against the default, because this string was last written by a
+    // different version of the app and may be missing anything or carrying nonsense.
+    const value = stored as Partial<Record<keyof PenSettings, unknown>>
+    return {
+      // Checked against the list rather than cast, because an unknown tip indexes
+      // `TIP_PROFILES` as undefined and takes the rail down on the next render.
+      tip: FREEDRAW_TIPS.includes(value.tip as FreedrawTip)
+        ? (value.tip as FreedrawTip)
+        : DEFAULT_PEN.tip,
+      size: typeof value.size === 'number' ? value.size : DEFAULT_PEN.size,
+      angle: typeof value.angle === 'number' ? value.angle : DEFAULT_PEN.angle,
+      color: typeof value.color === 'number' ? value.color : null,
+    }
+  } catch {
+    return DEFAULT_PEN
+  }
+}
+
+function writePenPreference(pen: PenSettings): void {
+  try {
+    localStorage.setItem(PEN_KEY, JSON.stringify(pen))
+  } catch {
+    // As with the grid: it still applies for this session.
+  }
+}
 
 function readGridPreference(): boolean {
   try {
@@ -120,6 +163,15 @@ export type CanvasHandle = {
    */
   arrowRouting: ArrowRouting
   setArrowRouting(routing: ArrowRouting): void
+
+  /**
+   * The nib the next stroke will be drawn with, and how to change it.
+   *
+   * Partial, because the flyout changes one thing at a time. Remembered across
+   * sessions in this browser, never in the document.
+   */
+  pen: PenSettings
+  setPen(patch: Partial<PenSettings>): void
 
   /**
    * Text formatting, for the object being edited or for a text-bearing selection.
@@ -212,6 +264,7 @@ export function useCanvas(
   const [editingId, setEditingId] = useState<string | null>(null)
   const [gridVisible, setGridVisible] = useState(readGridPreference)
   const [arrowRouting, setArrowRoutingState] = useState<ArrowRouting>('straight')
+  const [pen, setPenState] = useState<PenSettings>(readPenPreference)
   const [activeMarks, setActiveMarks] = useState<readonly TextMark[]>([])
   // A counter, not the value: the engine is the source of truth for both of these and
   // they change on selection, on editing, and on a peer's edit. Bumping this on the
@@ -234,6 +287,12 @@ export function useCanvas(
   // down the canvas and drop the camera - so the initial value is read through a ref.
   const gridRef = useRef(gridVisible)
   gridRef.current = gridVisible
+
+  // And the same for the nib, so a remembered pen is applied when the engine is built
+  // rather than making the engine's effect depend on it and rebuild the canvas every
+  // time somebody picked a colour.
+  const penRef = useRef(pen)
+  penRef.current = pen
 
   // Same reason as the session: the name arrives after the engine is built, so the
   // host reads it through a ref rather than capturing whatever it was at mount. The
@@ -291,6 +350,7 @@ export function useCanvas(
     void engine.init().then(() => {
       if (cancelled) return
       engine.setGridVisible(gridRef.current)
+      engine.setPen(penRef.current)
       engine.setSurface(optionsRef.current.surface ?? DEFAULT_SURFACE)
       engine.setAvailableTools(optionsRef.current.tools ?? null)
       engine.setColumn(optionsRef.current.column ?? null)
@@ -531,6 +591,15 @@ export function useCanvas(
     setArrowRoutingState(routing)
   }, [])
 
+  const setPen = useCallback((patch: Partial<PenSettings>) => {
+    setPenState((current) => {
+      const next = { ...current, ...patch }
+      engineRef.current?.setPen(next)
+      writePenPreference(next)
+      return next
+    })
+  }, [])
+
   const setWanderers = useCallback((wanderers: readonly Wanderer[]) => {
     engineRef.current?.setWanderers(wanderers)
   }, [])
@@ -586,6 +655,8 @@ export function useCanvas(
     toggleGrid,
     arrowRouting,
     setArrowRouting,
+    pen,
+    setPen,
     canFormatText: engineRef.current?.canFormatText ?? false,
     activeMarks,
     toggleMark: (mark: TextMark) => engineRef.current?.toggleTextMark(mark),

@@ -6,7 +6,13 @@
  * to each member proportionally.
  */
 
-import type { ObjectData } from '@meadow/schema'
+import {
+  type ObjectData,
+  isFreedraw,
+  resolveFreedrawProps,
+  scaleInk,
+  scaleNib,
+} from '@meadow/schema'
 
 import type { Point, WorldRect } from './camera'
 
@@ -267,12 +273,31 @@ export function applyRectToObject(
   const scaleX = (after.maxX - after.minX) / beforeWidth
   const scaleY = (after.maxY - after.minY) / beforeHeight
 
-  return {
+  const patch: Partial<ObjectData> = {
     x: after.minX + (object.x - before.minX) * scaleX,
     y: after.minY + (object.y - before.minY) * scaleY,
     w: Math.max(MIN_SIZE, object.w * scaleX),
     h: Math.max(MIN_SIZE, object.h * scaleY),
   }
+
+  /*
+   * Ink is the one object whose drawing is not implied by its box.
+   *
+   * A rectangle's `w` *is* the rectangle. A stroke's `w` is only the box its samples
+   * happen to span, so a resize that writes bounds and stops leaves the original
+   * scribble sitting inside a box that no longer fits it, unchanged and now wrong.
+   * The samples and the nib are scaled here, in the one function every resize path
+   * already goes through, rather than in a freedraw-shaped branch in the select tool.
+   */
+  if (isFreedraw(object.type)) {
+    const props = resolveFreedrawProps(object)
+    patch.props = {
+      points: scaleInk(props.points, scaleX, scaleY),
+      size: scaleNib(props.size, scaleX, scaleY),
+    }
+  }
+
+  return patch
 }
 
 /** Rotation in radians from the selection centre to the pointer, zero pointing up. */

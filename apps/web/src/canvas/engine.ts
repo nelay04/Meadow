@@ -17,13 +17,17 @@ import {
   type ArrowRoutingPatch,
   type BindingData,
   type ObjectData,
+  TIP_PROFILES,
   absolutePoints,
   arrowPolyline,
   isArrowLike,
+  isFreedraw,
   isTextBearing,
   objectBounds,
   resolveArrowProps,
+  resolveFreedrawProps,
   resolveTextProps,
+  strokeOutline,
   type TextProps,
   textProps,
 } from '@meadow/schema'
@@ -47,6 +51,7 @@ import {
   surfaceClass,
 } from './surface'
 import { type ArrowDraw, ArrowPass } from './renderers/arrowPass'
+import { type InkDraw, InkPass } from './renderers/inkPass'
 import { ShapeBatch } from './renderers/shapeBatch'
 import type { SnapGuide } from './snapping'
 import { measureBaselineOffset, whenFontsReady } from './text/measure'
@@ -75,9 +80,17 @@ import { createHandTool } from './tools/handTool'
 import { createSelectTool } from './tools/selectTool'
 import { createShapeTool } from './tools/shapeTool'
 import { createArrowTool } from './tools/arrowTool'
+import { createPenTool } from './tools/penTool'
 import { createTextTool } from './tools/textTool'
 import type { TextMark } from '../doc/richText'
-import type { CanvasPointerEvent, Tool, ToolContext, ToolId } from './tools/types'
+import type {
+  CanvasPointerEvent,
+  PenSettings,
+  Tool,
+  ToolContext,
+  ToolId,
+  WetInk,
+} from './tools/types'
 
 /**
  * Greedy word wrap for thumbnail text.
@@ -387,6 +400,9 @@ export class CanvasEngine {
   private overlay!: Graphics
   private batch!: ShapeBatch
   private arrows!: ArrowPass
+  private ink!: InkPass
+  /** The stroke under the pointer, drawn every frame until the pen commits it. */
+  private wet!: Graphics
   private textLayer!: TextLayer
   private wanderers!: WandererLayer
 
@@ -439,6 +455,27 @@ export class CanvasEngine {
    * choosing what you are about to make and correcting what you already made.
    */
   private arrowRouting: ArrowRouting = 'straight'
+
+  /**
+   * How the pen is set. Engine state rather than document state: it describes the next
+   * stroke, so it belongs with the active tool and not with anything already drawn.
+   */
+  private pen: PenSettings = { tip: 'round', size: 3, angle: -Math.PI / 7, color: null }
+
+  private wetInk: WetInk | null = null
+
+  /** Whether the wet layer currently holds anything, so a still frame does not clear it. */
+  private wetDrawn = false
+
+  /**
+   * Whether the ink layer's geometry still matches the document.
+   *
+   * The one piece of bookkeeping the ink pass costs, and the reason it is cheap: the
+   * layer is rebuilt when this says so and never merely because a frame was asked for.
+   * Set by a change to a `freedraw` object, and by the theme, since a stroke with no
+   * colour of its own is painted in the surface's ink.
+   */
+  private inkDirty = true
 
   /*
    * Wheel scrolling, eased.
@@ -609,10 +646,16 @@ export class CanvasEngine {
     this.world = new Container()
     this.batch = new ShapeBatch(MIN_BATCH_CAPACITY)
     this.arrows = new ArrowPass()
-    // Order is the z-order between the two passes, and it is fixed: connectors always
-    // draw over shapes.
+    this.ink = new InkPass()
+    this.wet = new Graphics()
+    // Order is the z-order between the passes, and it is fixed: connectors draw over
+    // shapes, and ink draws over both. Ink is annotation, and annotation that goes
+    // under the thing it annotates is not annotation. Wet ink sits above dry so the
+    // stroke being drawn is never hidden behind one already finished.
     this.world.addChild(this.batch.view)
     this.world.addChild(this.arrows.view)
+    this.world.addChild(this.ink.view)
+    this.world.addChild(this.wet)
 
     this.overlay = new Graphics()
 
@@ -642,6 +685,7 @@ export class CanvasEngine {
     if (this.textLayer !== undefined) this.textLayer.destroy()
     if (this.wanderers !== undefined) this.wanderers.destroy()
     if (this.arrows !== undefined) this.arrows.destroy()
+    if (this.ink !== undefined) this.ink.destroy()
     if (this.app !== undefined) this.app.destroy(true, { children: true })
   }
 
@@ -715,6 +759,10 @@ export class CanvasEngine {
     this.canvasInk = readCanvasInk(this.element)
     this.darkSurface = isDarkSurface(this.element)
     this.textLayer.ink = this.canvasInk
+    // A stroke that never chose a colour is painted in the surface's ink, so the
+    // theme changing is a geometry-preserving but colour-changing edit to every one
+    // of them, and the only way to repaint a retained layer is to rebuild it.
+    this.inkDirty = true
     this.requestRender()
   }
 
@@ -1214,6 +1262,24 @@ export class CanvasEngine {
     this.arrowRouting = routing
   }
 
+  /** How the pen is set, for the rail to show. */
+  get penSettings(): PenSettings {
+    return this.pen
+  }
+
+  /**
+   * Change the nib.
+   *
+   * Partial, because the rail changes one thing at a time and the rest of the nib has
+   * to survive it: picking a colour must not reset the width somebody just chose.
+   * Never touches ink that already exists. A stroke records the nib that drew it, and
+   * restyling old marks when you pick up a different pen is not a thing pens do.
+   */
+  setPen(patch: Partial<PenSettings>): void {
+    this.pen = { ...this.pen, ...patch }
+    this.requestRender()
+  }
+
   /**
    * Re-route an existing arrow.
    *
@@ -1282,6 +1348,7 @@ export class CanvasEngine {
    * every event would cost more than a straight rebuild.
    */
   resync(): void {
+    this.inkDirty = true
     this.cache.clear()
     if (this.textLayer !== undefined) this.textLayer.invalidateAll()
     const entries: { id: string; bounds: WorldRect }[] = []
@@ -1298,6 +1365,7 @@ export class CanvasEngine {
   /** Apply a targeted change. Cheaper than resync during a drag. */
   applyChanges(changed: Iterable<string>, removed: Iterable<string>): void {
     for (const id of removed) {
+      if (this.cache.get(id)?.type === 'freedraw') this.inkDirty = true
       this.cache.delete(id)
       this.index.remove(id)
       this.selected.delete(id)
@@ -1310,6 +1378,12 @@ export class CanvasEngine {
     if (this.textLayer !== undefined) this.textLayer.invalidate(changed)
     for (const id of changed) {
       const object = this.host.object(id)
+      // Either side of the change can be ink: a stroke that was just drawn, one that
+      // has just gone, and one whose type changed out from under a peer's edit. All
+      // three have to rebuild, so this is asked before the object is dropped.
+      if (this.cache.get(id)?.type === 'freedraw') this.inkDirty = true
+      if (object !== undefined && isFreedraw(object.type)) this.inkDirty = true
+
       if (object === undefined) {
         this.cache.delete(id)
         this.index.remove(id)
@@ -1612,6 +1686,8 @@ export class CanvasEngine {
       case 'arrow':
       case 'line':
         return createArrowTool(this.context, id)
+      case 'pen':
+        return createPenTool(this.context)
       default:
         return createSelectTool(this.context)
     }
@@ -1641,6 +1717,9 @@ export class CanvasEngine {
       setGuides: (guides) => {
         this.guides = guides
       },
+      setWetInk: (ink) => {
+        this.wetInk = ink
+      },
       setHoverTarget: (id) => {
         this.hoverTarget = id
       },
@@ -1660,6 +1739,9 @@ export class CanvasEngine {
       setArrowRouting: (id, patch) => this.host.setArrowRouting(id, patch),
       get arrowRouting(): ArrowRouting {
         return engine.arrowRouting
+      },
+      get pen(): PenSettings {
+        return engine.pen
       },
       commit: () => this.host.commit(),
       beginTextEdit: (id) => this.beginTextEdit(id),
@@ -1836,7 +1918,11 @@ export class CanvasEngine {
       this.index.search(this.camera.visibleWorld(this.viewportWidth, this.viewportHeight, 64)),
     )
 
-    this.lastVisible = this.paintScene(visible)
+    // Ink first: the count below is "what is on screen", and the ink layer knows how
+    // many strokes it holds only once it has been brought up to date.
+    this.syncInk()
+    this.lastVisible = this.paintScene(visible) + this.ink.drawn
+    this.drawWetInk()
 
     this.syncGrid(transform)
     this.textLayer.sync(transform, this.overlayObjects)
@@ -1877,8 +1963,15 @@ export class CanvasEngine {
     // Chrome and presence are this client's own state, not the board's.
     const overlayVisible = this.overlay.visible
     const wanderersVisible = this.wanderers.view.visible
+    const wetVisible = this.wet.visible
     this.overlay.visible = false
     this.wanderers.view.visible = false
+    // A stroke still under this client's pointer is not on the board yet, and a
+    // thumbnail is served to everyone.
+    this.wet.visible = false
+    // The ink layer is invalidated rather than repainted per frame, so a capture that
+    // runs before the next frame would otherwise catch it a rebuild behind.
+    this.syncInk()
 
     let source: HTMLCanvasElement
     try {
@@ -1895,6 +1988,7 @@ export class CanvasEngine {
     } finally {
       this.overlay.visible = overlayVisible
       this.wanderers.view.visible = wanderersVisible
+      this.wet.visible = wetVisible
       // The scene is now painted for the thumbnail rather than for the viewport, so
       // the next frame has to rebuild it.
       this.requestRender()
@@ -2052,6 +2146,84 @@ export class CanvasEngine {
     this.batch.end()
     this.arrows.end()
     return drawn
+  }
+
+  /**
+   * Bring the ink layer up to date, if the document has moved under it.
+   *
+   * The whole of the ink pass's cost is here, and it is paid on an edit rather than on
+   * a frame. Panning across a page of handwriting rebuilds nothing.
+   */
+  private syncInk(): void {
+    if (!this.inkDirty) return
+    this.inkDirty = false
+    this.ink.rebuild(this.inkStrokes())
+  }
+
+  /**
+   * Every stroke in the document, in z-order.
+   *
+   * Not culled, unlike the scene walk above. See renderers/inkPass.ts: the layer is
+   * retained, and culling would make looking around invalidate it.
+   */
+  private *inkStrokes(): Iterable<InkDraw> {
+    for (const id of this.host.order()) {
+      const object = this.cache.get(id)
+      if (object === undefined || !isFreedraw(object.type)) continue
+
+      const props = resolveFreedrawProps(object)
+      yield {
+        id,
+        points: props.points,
+        x: object.x,
+        y: object.y,
+        rotation: object.rotation,
+        halfW: object.w / 2,
+        halfH: object.h / 2,
+        props,
+        // The board's own ink, not the connector's: a pen stroke is writing on the
+        // surface and should read at the weight the surface's text does. A stroke
+        // whose document names a colour keeps it in both themes.
+        color: typeof object.props.stroke === 'number' ? props.stroke : this.canvasInk,
+        alpha: props.strokeAlpha * object.opacity,
+      }
+    }
+  }
+
+  /**
+   * The stroke under the pointer.
+   *
+   * Rebuilt every frame, which is the opposite of how dry ink is drawn and right for
+   * the same reason: this one is changing, and there is at most one of it.
+   */
+  private drawWetInk(): void {
+    const ink = this.wetInk
+
+    if (ink === null || ink.points.length < 3) {
+      // Guarded, because this runs on every frame of every pan on every board and
+      // `clear()` on a Graphics resets its context whether or not it held anything.
+      if (!this.wetDrawn) return
+      this.wet.clear()
+      this.wetDrawn = false
+      return
+    }
+
+    const pieces = strokeOutline(ink.points, ink)
+    this.wet.clear()
+    this.wetDrawn = true
+
+    let drawn = false
+    for (const piece of pieces) {
+      if (piece.length < 6) continue
+      this.wet.poly(piece)
+      drawn = true
+    }
+    if (!drawn) return
+
+    this.wet.fill({
+      color: ink.color ?? this.canvasInk,
+      alpha: TIP_PROFILES[ink.tip].alpha,
+    })
   }
 
   /** The gap for this arrow, recording what was used so `catchUpGaps` can compare. */
@@ -2365,13 +2537,21 @@ export class CanvasEngine {
 
   // --- input ------------------------------------------------------------------
 
-  private toCanvasPoint(event: PointerEvent | WheelEvent): Point {
-    const rect = this.app.canvas.getBoundingClientRect()
+  /**
+   * `bounds` is passed in when a whole batch of samples is being converted at once.
+   *
+   * `getBoundingClientRect` is a layout read, and a fast stroke can arrive as a dozen
+   * coalesced samples in one event. Reading the same rectangle a dozen times for one
+   * frame is the kind of thing that only shows up as jank on the machines least able
+   * to afford it.
+   */
+  private toCanvasPoint(event: PointerEvent | WheelEvent, bounds?: DOMRect): Point {
+    const rect = bounds ?? this.app.canvas.getBoundingClientRect()
     return { x: event.clientX - rect.left, y: event.clientY - rect.top }
   }
 
-  private toPointerEvent(event: PointerEvent): CanvasPointerEvent {
-    const screen = this.toCanvasPoint(event)
+  private toPointerEvent(event: PointerEvent, bounds?: DOMRect): CanvasPointerEvent {
+    const screen = this.toCanvasPoint(event, bounds)
     return {
       screen,
       world: this.camera.screenToWorld(screen.x, screen.y),
@@ -2381,6 +2561,8 @@ export class CanvasEngine {
       metaKey: event.metaKey,
       button: event.button,
       pointerId: event.pointerId,
+      pressure: event.pressure,
+      pointerType: event.pointerType,
     }
   }
 
@@ -2504,7 +2686,19 @@ export class CanvasEngine {
     }
 
     const canvasEvent = this.toPointerEvent(event)
+    // Presence is told once, about where the hand actually is. The samples below are
+    // the shape of how it got there, which is the pen's business and nobody else's.
     this.events.onPointerWorld?.(canvasEvent.world)
+
+    if (this.tool.usesCoalesced === true && typeof event.getCoalescedEvents === 'function') {
+      const batch = event.getCoalescedEvents()
+      if (batch.length > 1) {
+        const bounds = this.app.canvas.getBoundingClientRect()
+        for (const sample of batch) this.tool.onPointerMove(this.toPointerEvent(sample, bounds))
+        return
+      }
+    }
+
     this.tool.onPointerMove(canvasEvent)
   }
 
@@ -2692,6 +2886,10 @@ export class CanvasEngine {
       case 'l':
       case 'L':
         this.setTool('line')
+        return
+      case 'p':
+      case 'P':
+        this.setTool('pen')
         return
       case 'Enter':
         // Enter edits the selected text object, the keyboard equivalent of a

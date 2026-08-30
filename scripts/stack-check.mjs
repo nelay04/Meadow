@@ -11,6 +11,11 @@
  *   node scripts/stack-check.mjs
  *
  * Reads WEB_PUBLIC_PORT (default 8080) to find the stack.
+ *
+ * On a deployment that sends activation mail, the account this script registers cannot
+ * log in until somebody opens its link, so point it at one that is already activated:
+ *
+ *   STACK_CHECK_EMAIL=you@example.com STACK_CHECK_PASSWORD=... node scripts/stack-check.mjs
  */
 
 import WebSocket from 'ws'
@@ -126,11 +131,52 @@ async function phaseApi() {
     )
   }
   if (!attempt.ok) throw new Error(`POST /api/v1/auth/register -> ${attempt.status}`)
-  const registered = await attempt.json()
-  accessToken = registered.access_token
-  log(typeof accessToken === 'string', 'POST /api/v1/auth/register through nginx')
+  log(attempt.status === 202, 'POST /api/v1/auth/register through nginx', `status ${attempt.status}`)
 
-  return registered.user.default_workspace_id
+  /*
+   * The session comes from a login, and on a deployment that sends mail it comes from
+   * an account somebody has already activated.
+   *
+   * `POST /register` answers 202 and deliberately signs nobody in: until the address
+   * answers, every other endpoint refuses the account. This read `access_token` off
+   * the registration response until activation shipped in M6, and it has been
+   * `undefined` since, so every authenticated check below was running without a token.
+   *
+   * Which of the two paths applies is a property of the deployment, which is what this
+   * script is for. With no relay configured the account just registered is opened
+   * immediately and logs straight in. With a relay it is waiting on a link nobody here
+   * can read, so the operator supplies an account that is already through the door.
+   * There is deliberately no back door into the database from here: reaching around
+   * the stack to activate a row would make this check pass against a deployment whose
+   * activation is broken, which is the opposite of its job.
+   */
+  const supplied = process.env.STACK_CHECK_EMAIL
+  const identity =
+    supplied === undefined
+      ? credentials
+      : { email: supplied, password: process.env.STACK_CHECK_PASSWORD ?? '' }
+
+  const session = await call('/api/v1/auth/login', { method: 'POST', body: identity })
+  if (!session.ok) {
+    const detail = (await session.text()).slice(0, 160)
+    throw new Error(
+      supplied === undefined
+        ? `POST /api/v1/auth/login -> ${session.status}: ${detail}\n` +
+          'The account this check just registered cannot log in, which on a deployment ' +
+          'that sends mail means it is waiting for its activation link. Point the check ' +
+          'at an account that is already activated:\n' +
+          '  STACK_CHECK_EMAIL=you@example.com STACK_CHECK_PASSWORD=... pnpm check:stack'
+        : `POST /api/v1/auth/login -> ${session.status}: ${detail}\n` +
+          `STACK_CHECK_EMAIL is set to ${supplied}; check the password and that the ` +
+          'account is activated on this deployment.',
+    )
+  }
+
+  const authenticated = await session.json()
+  accessToken = authenticated.access_token
+  log(typeof accessToken === 'string', 'POST /api/v1/auth/login through nginx')
+
+  return authenticated.user.default_workspace_id
 }
 
 async function connect(boardId, label) {

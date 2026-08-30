@@ -6,7 +6,13 @@
  * the transaction wrapping and the read-only check stay in one place.
  */
 
-import type { ArrowRouting, ArrowRoutingPatch, BindingData, ObjectData } from '@meadow/schema'
+import type {
+  ArrowRouting,
+  ArrowRoutingPatch,
+  BindingData,
+  FreedrawTip,
+  ObjectData,
+} from '@meadow/schema'
 
 import type { Camera, Point, WorldRect } from '../camera'
 import type { SnapGuide } from '../snapping'
@@ -21,6 +27,7 @@ export type ToolId =
   | 'sticky'
   | 'arrow'
   | 'line'
+  | 'pen'
 
 export type CanvasPointerEvent = {
   /** Position in world coordinates. */
@@ -33,6 +40,56 @@ export type CanvasPointerEvent = {
   metaKey: boolean
   button: number
   pointerId: number
+  /**
+   * 0..1, straight from the pointer event.
+   *
+   * A stylus reports what it is being leant on. A mouse reports a constant, and
+   * browsers do not agree on which constant, so nothing may read this as "how hard"
+   * without first checking `pointerType`. The pen tool is the only caller and it does
+   * exactly that.
+   */
+  pressure: number
+  /** 'mouse', 'pen' or 'touch'. Which of those it is decides what `pressure` means. */
+  pointerType: string
+}
+
+/**
+ * How the pen is currently set, chosen in the rail before a stroke rather than after.
+ *
+ * A nib is not a style you apply to a finished mark. It is the thing that made the
+ * mark, and changing it afterwards would be asking to have written it again, so this
+ * lives on the tool and never touches ink that already exists.
+ */
+export type PenSettings = {
+  tip: FreedrawTip
+  /** The nib's width in world units, before the tip's own scale. */
+  size: number
+  /** The angle a bladed nib is held at, in radians. */
+  angle: number
+  /** An explicit colour, or null to take the surface's own ink. */
+  color: number | null
+}
+
+/**
+ * A stroke still under the pointer.
+ *
+ * Wet ink is not in the document yet, deliberately. A stroke is one object and one
+ * undo step, and streaming it in would mean a Yjs update per pointer sample, each
+ * rewriting the whole points array, for a shape that is not final until the pointer
+ * lifts. The cost is that a peer sees the stroke when it is finished rather than as it
+ * is drawn, which is the trade Excalidraw makes too. Presence still shows the hand
+ * moving, so nobody is looking at a frozen board.
+ *
+ * It lives beside the marquee rect as transient engine state: gesture state, not
+ * document state, so ARCHITECTURE 2 has nothing to say about it.
+ */
+export type WetInk = {
+  /** World-space samples, flat [x, y, pressure]. */
+  points: readonly number[]
+  tip: FreedrawTip
+  size: number
+  angle: number
+  color: number | null
 }
 
 export type ToolContext = {
@@ -53,6 +110,8 @@ export type ToolContext = {
   /** Transient overlay state, cleared when a gesture ends. */
   setMarquee(rect: WorldRect | null): void
   setGuides(guides: readonly SnapGuide[]): void
+  /** The stroke currently under the pointer, drawn by the engine until it is committed. */
+  setWetInk(ink: WetInk | null): void
   /** The object an arrow end would attach to, highlighted while drawing. */
   setHoverTarget(id: string | null): void
   /**
@@ -80,6 +139,11 @@ export type ToolContext = {
    * the previous one until the user switched tools and back.
    */
   readonly arrowRouting: ArrowRouting
+  /**
+   * The nib the next stroke will be drawn with. A getter for the same reason
+   * `arrowRouting` is one: it changes while the tool is mounted.
+   */
+  readonly pen: PenSettings
   /** The local person's display name, for the byline on a new sticky. */
   readonly authorName: string
   /** Close the current undo step. Call when a gesture completes. */
@@ -110,6 +174,16 @@ export interface Tool {
   onPointerDown(event: CanvasPointerEvent): void
   onPointerMove(event: CanvasPointerEvent): void
   onPointerUp(event: CanvasPointerEvent): void
+  /**
+   * Deliver every sample the browser buffered, not just the latest one.
+   *
+   * A pointer emits far faster than a frame, and the browser coalesces the surplus.
+   * For a marquee or a drag the extra samples are the same answer computed more often,
+   * so the default is to ignore them. For ink they are the stroke: dropping them is
+   * what turns a curve drawn quickly into a run of straight lines between the frames
+   * that happened to fire.
+   */
+  readonly usesCoalesced?: boolean
   onKeyDown?(event: KeyboardEvent): void
   /** Called when the tool is swapped out mid-gesture, so it can drop its state. */
   cancel?(): void

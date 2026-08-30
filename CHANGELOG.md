@@ -14,6 +14,45 @@ away getting there.
 The infrastructure to run the thing. Not deployed yet.
 
 ### Added
+- **A pen, with five nibs and a nib is a shape rather than a setting.** Pick it up with
+  `P` and draw. What comes out is one object on the canvas like everything else: it
+  drags, it selects, it deletes, it undoes, and it is one undo step per stroke rather
+  than per twitch of the hand.
+
+  The five are a ballpoint, a fineliner, a calligraphy nib, a brush and a highlighter,
+  and they are not five presets on one line. Each is the region swept by a shape pulled
+  along the path: a disc whose radius answers to pressure, or a blade held at a fixed
+  angle. That is why the calligraphy nib is broad on a downstroke and a hairline on a
+  cross-stroke without anything measuring the direction, and why the highlighter is
+  simply that blade turned a quarter and made translucent. Width, colour and the angle
+  a cut nib is held at are chosen in a flyout beside the pen, before the stroke rather
+  than after it, and the pen you left it set to is the pen you get back next time.
+
+  **Width comes from speed when it cannot come from pressure.** A stylus reports how
+  hard it is being leant on; a mouse reports a constant, and a constant is a line of
+  uniform width, which is the flattest a stroke can look. So on a mouse or a finger the
+  nib takes its width from how fast the hand is moving, which is what a real nib does,
+  because a hand moving fast has less time to press. It is the difference between
+  mouse-drawn ink that reads as handwriting and mouse-drawn ink that reads as a graph.
+
+  **The pen stays in your hand.** Every other creation tool hands back to select once it
+  has made something, because you usually want to adjust what you just drew. Nobody
+  draws one stroke, so this one does not. `V` or `Escape` puts it down.
+
+  A stroke lands in the document when the pointer lifts, not while it is moving, so
+  somebody else on the board sees a finished stroke rather than a growing one. Their
+  cursor still moves, so the board is not frozen; what this buys is one object and one
+  undo step per stroke instead of a document write per sample.
+
+- **The rail's flyouts put themselves away.** Both of them used to be tied to which
+  tool was in your hand, which meant neither could ever close: the pen stays in your
+  hand across strokes on purpose, so its nibs sat over the board for the rest of the
+  session. Touching the canvas now dismisses whichever one is open, because starting to
+  draw is the clearest possible sign that you are done choosing what to draw with. The
+  arrow's goes one better and closes on the choice itself, since picking a shape is the
+  whole errand there. Pressing the button of the tool already in your hand is how you
+  get a flyout back, or put it away without drawing.
+
 - **A lea has pages now, and the diary lists them beside the paper.** A notebook that
   could only ever be one page is a diary to look at rather than one to keep: the only
   answer to a full page was another ten rules on the end of the same one. *New page*
@@ -911,7 +950,44 @@ The infrastructure to run the thing. Not deployed yet.
   one function, and a curved arrow's bounds are measured over that path rather than over
   its two endpoints - otherwise it is culled while the bulge is still on screen.
 
+### Fixed
+- **Every check script runs again.** All four read a session off the registration
+  response, which was right until activation shipped earlier in this milestone and has
+  been `undefined` since: `POST /register` answers 202 and deliberately signs nobody in,
+  because until the address answers every other endpoint refuses the account. So
+  `e2e:board` died twenty seconds later at a board list with no board in it, pointing
+  the finger at the browser rather than at four lines of setup, and `check:stack` ran
+  its whole websocket phase unauthenticated.
+
+  They now log in for the token. The three that start their own API also start it with
+  blank SMTP, the documented off switch, so their throwaway accounts are opened rather
+  than left waiting on a link nobody is going to click; that has to be explicit because
+  the repo's own `.env` usually configures a relay.
+
+  `check:stack` is the exception and stays honest about it. It drives a real deployment
+  through nginx, where the relay is real, so it takes `STACK_CHECK_EMAIL` and
+  `STACK_CHECK_PASSWORD` for an account that is already activated and says so plainly
+  when a fresh registration cannot log in. It deliberately has no path into the
+  database to activate a row itself: reaching around the stack would make the check
+  pass against a deployment whose activation is broken.
+- **A scribble is a scribble again, not a solid block.** Ink that crossed itself was
+  filling in: a loop came out as a filled disc, a crossing-out covered the thing it was
+  meant to cross out, and a fast scribble landed as a grey slab with straight edges
+  across the drawing. The mark was being handed to the triangulator as one closed
+  outline, and the outline of a stroke that crosses itself crosses itself too, which is
+  a shape a triangulator is entitled to make nonsense of. It now goes over as convex
+  pieces that meet edge to edge, which is a shape it cannot get wrong. Where a stroke
+  really does cross itself the ink overlaps, which for the highlighter means it darkens,
+  the way it does on paper.
+
 ### Known limitations
+- **A stroke is only visible to other people once it is finished.** Ink is committed on
+  pointer up rather than streamed, so a peer watching sees the cursor move and then the
+  whole stroke appear. Deliberate, and the reasoning is in `docs/core/ARCHITECTURE.md`
+  section 5.
+- **A drawn stroke cannot be restyled afterwards.** The nib is chosen before the stroke
+  and recorded on it. Changing a finished stroke's colour or width means drawing it
+  again, and there is no eraser: removing ink is selecting it and pressing Delete.
 - **An update can be lost permanently when the last client disconnects.** `YRoom`
   persists with `task_group.start_soon(ystore.write, update)` and `stop()` cancels that
   group without waiting; with `auto_clean_rooms` on, the last client leaving stops the

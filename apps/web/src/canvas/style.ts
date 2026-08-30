@@ -86,9 +86,10 @@ const KINDS: Partial<Record<ObjectType, ShapeKind>> = {
 }
 
 /**
- * Types the batch cannot draw yet. Arrows, lines and freedraw are irregular paths and
- * get their own Graphics pass in M4; triangle needs another SDF branch. Returning null
- * skips them rather than drawing a misleading rectangle in their place.
+ * Types the batch cannot draw. Irregular paths are not signed distance fields, so
+ * arrows and lines go through the arrow pass and freehand ink through the ink pass;
+ * triangle needs another SDF branch and has not been given one. Returning null skips
+ * them rather than drawing a misleading rectangle in their place.
  */
 export function shapeKindFor(type: ObjectType): ShapeKind | null {
   return KINDS[type] ?? null

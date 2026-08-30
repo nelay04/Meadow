@@ -656,6 +656,123 @@ check(
   `before=${countBefore} after=${countTyped}`,
 )
 
+// --- freehand ink -------------------------------------------------------------
+//
+// The unit tests cover the nib maths against plain arrays. This covers what they
+// cannot: that a real drag produces a stroke at all, that it lands in the document as
+// one object and one undo step, and that what was drawn is what can be clicked.
+
+await page.evaluate(() => {
+  window.__doc.clear()
+  window.__canvas.setCamera({ x: 0, y: 0, zoom: 1 })
+})
+await delay(150)
+
+/** Drag through a run of points, which is what a stroke is and a two-point drag is not. */
+const stroke = async (points, steps = 6) => {
+  await page.mouse.move(points[0].x, points[0].y)
+  await page.mouse.down()
+  for (const point of points.slice(1)) await page.mouse.move(point.x, point.y, { steps })
+  await page.mouse.up()
+  await delay(150)
+}
+
+await page.click('[data-tool="pen"]')
+// An L, so there is a large area inside the stroke's own box with no ink in it.
+await stroke([at(200, 200), at(200, 400), at(400, 400)])
+
+let inkId = await page.evaluate(() => window.__doc.findByType('freedraw'))
+let inked = await page.evaluate((id) => window.__doc.ink(id), inkId)
+check(
+  'a drag with the pen writes one stroke to the document',
+  (await page.evaluate(() => window.__doc.objectCount())) === 1 && inked !== null,
+  `id=${inkId}`,
+)
+check(
+  'the stroke keeps the shape of the drag rather than its two ends',
+  inked !== null && inked.samples > 4,
+  `samples=${inked === null ? 'none' : inked.samples}`,
+)
+check(
+  'the box holds the ink, nib included',
+  inked !== null &&
+    inked.box.x < 200 &&
+    inked.box.y < 200 &&
+    inked.box.x + inked.box.w > 400 &&
+    inked.box.y + inked.box.h > 400,
+  inked === null ? 'no stroke' : JSON.stringify(inked.box),
+)
+
+const toolAfterStroke = await page.evaluate(() => window.__canvas.engine.activeTool)
+check(
+  'the pen stays in hand after a stroke, unlike every other creation tool',
+  toolAfterStroke === 'pen',
+  String(toolAfterStroke),
+)
+
+await stroke([at(600, 200), at(700, 300), at(800, 200)])
+check(
+  'a second drag is a second stroke, not an extension of the first',
+  (await page.evaluate(() => window.__doc.objectCount())) === 2,
+)
+
+// One stroke, one undo step. Undoing a sketch a sample at a time is the failure this
+// guards, and it is what streaming the stroke into the document would have produced.
+await page.keyboard.press('Control+z')
+await delay(200)
+check(
+  'ctrl+z takes back one whole stroke',
+  (await page.evaluate(() => window.__doc.objectCount())) === 1,
+)
+
+// --- ink is clickable where it is drawn ---------------------------------------
+
+await page.click('[data-tool="select"]')
+await page.mouse.click(at(1000, 650).x, at(1000, 650).y)
+await delay(150)
+await page.mouse.click(at(200, 300).x, at(200, 300).y)
+await delay(150)
+check(
+  'clicking on the stroke selects it',
+  (await state()).selection.length === 1,
+)
+
+await page.mouse.click(at(1000, 650).x, at(1000, 650).y)
+await delay(150)
+// Inside the L's bounding box, nowhere near either leg. A box test would select here,
+// and on a page of handwriting that is every stroke claiming the whole page.
+await page.mouse.click(at(380, 230).x, at(380, 230).y)
+await delay(150)
+check(
+  'clicking the empty space inside its box does not',
+  (await state()).selection.length === 0,
+)
+
+// --- the nibs -----------------------------------------------------------------
+
+for (const nib of ['round', 'felt', 'chisel', 'brush', 'highlighter']) {
+  await page.evaluate(() => window.__doc.clear())
+  await delay(120)
+  await page.click(`[data-nib="${nib}"]`)
+  await page.click('[data-tool="pen"]')
+  await stroke([at(250, 300), at(400, 340), at(550, 300)])
+
+  inkId = await page.evaluate(() => window.__doc.findByType('freedraw'))
+  inked = await page.evaluate((id) => window.__doc.ink(id), inkId)
+  check(
+    `the ${nib} nib draws, and records itself on the stroke`,
+    inked !== null && inked.tip === nib,
+    inked === null ? 'no stroke' : inked.tip,
+  )
+  check(
+    // The bug this catches is specific and silent: a bladed nib whose angle lies along
+    // the stroke sweeps no area, so a highlighter drawn left to right is invisible.
+    `the ${nib} nib leaves a mark with area`,
+    inked !== null && inked.box.w > 10 && inked.box.h > 2,
+    inked === null ? 'no stroke' : JSON.stringify(inked.box),
+  )
+}
+
 await browser.close()
 stop()
 

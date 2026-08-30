@@ -9,7 +9,15 @@
  * on top is the object selected.
  */
 
-import { type ObjectData, arrowPolyline, isArrowLike, resolveArrowProps } from '@meadow/schema'
+import {
+  type ObjectData,
+  arrowPolyline,
+  hitsInk,
+  isArrowLike,
+  isFreedraw,
+  resolveArrowProps,
+  resolveFreedrawProps,
+} from '@meadow/schema'
 
 import type { Point, WorldRect } from './camera'
 
@@ -59,6 +67,23 @@ export function distanceToSegment(
  * stay clickable when zoomed out.
  */
 export function hitsObject(object: ObjectData, point: Point, tolerance = 0): boolean {
+  // A stroke is a path too, and a far worse fit for its box than an arrow is: the box
+  // of a scribble is mostly the paper it was drawn around. Testing it would make a
+  // circle drawn with a pen select from the empty space in the middle of it.
+  if (isFreedraw(object.type)) {
+    const props = resolveFreedrawProps(object)
+    // `toLocal` puts the origin at the centre and undoes rotation; the stored samples
+    // are measured from the box's corner, so shift back by the half-extent.
+    const local = toLocal(object, point)
+    return hitsInk(
+      props.points,
+      props,
+      local.x + object.w / 2,
+      local.y + object.h / 2,
+      tolerance,
+    )
+  }
+
   // An arrow is a path, not a box. Testing its bounding box would make a long diagonal
   // arrow select from anywhere in the large empty rectangle it spans.
   if (isArrowLike(object.type)) {

@@ -434,6 +434,81 @@ export function IconPencil(props: IconProps) {
 }
 
 /*
+ * The pen, and the nibs it can be fitted with.
+ *
+ * The tip icons are not five drawings of a pen. Each one is the *mark* that nib
+ * leaves, because that is the thing being chosen: a row of five near-identical pen
+ * silhouettes is a row you have to read the tooltips of, and a row of five different
+ * strokes can be read at a glance and without language.
+ */
+
+export function IconPen(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M4 20.2 4.9 16 15.9 5a2.1 2.1 0 0 1 3 0l.1.1a2.1 2.1 0 0 1 0 3l-11 11z" />
+      <path d="M14.4 6.5 17.5 9.6" />
+      <path d="M4.9 16 8 19.1" />
+    </Svg>
+  )
+}
+
+/** A ballpoint: an even line with a little swell in the middle. */
+export function IconNibRound(props: IconProps) {
+  return (
+    <Svg {...props} strokeWidth={2.6}>
+      <path d="M4 17.5c3.4-4 5.6-9 8-11 2.6-2.2 6 1.4 8 5" />
+    </Svg>
+  )
+}
+
+/** A fineliner: the same line, thinner, and the same the whole way. */
+export function IconNibFelt(props: IconProps) {
+  return (
+    <Svg {...props} strokeWidth={1.5}>
+      <path d="M4 17.5c3.4-4 5.6-9 8-11 2.6-2.2 6 1.4 8 5" />
+    </Svg>
+  )
+}
+
+/** A chisel: a filled ribbon, broad across the nib and hairline along it. */
+export function IconNibChisel(props: IconProps) {
+  return (
+    <Svg {...props} strokeWidth={1.1}>
+      <path
+        d="M4.6 18.2 8.4 5.4l2.6-.6-3.2 13z"
+        fill="currentColor"
+      />
+      <path
+        d="M13.2 18.6 17 5.8l2.6-.6-3.2 13z"
+        fill="currentColor"
+      />
+    </Svg>
+  )
+}
+
+/** A brush: a stroke that comes to a point at both ends. */
+export function IconNibBrush(props: IconProps) {
+  return (
+    <Svg {...props} strokeWidth={1.1}>
+      <path
+        d="M3.6 17.8c4-1.6 6.6-6.4 9.4-9.6 2.4-2.8 5.6-3.6 7.4-2.6-1.8.6-3.6 2.2-5.6 4.6-3 3.6-5.6 8-11 9.2z"
+        fill="currentColor"
+      />
+    </Svg>
+  )
+}
+
+/** A highlighter: a broad translucent band laid over a line of writing. */
+export function IconNibHighlighter(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M3.5 13.5h17" stroke="currentColor" strokeWidth={6} strokeOpacity={0.32} />
+      <path d="M6 13.5h12" strokeWidth={1.5} />
+    </Svg>
+  )
+}
+
+/*
  * Status and dismissal, for toasts and the confirmation dialog.
  *
  * Each status glyph is distinguishable by shape alone at 16px, not only by colour.

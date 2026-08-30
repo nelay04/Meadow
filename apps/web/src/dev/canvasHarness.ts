@@ -12,6 +12,9 @@
  */
 
 import {
+  type FreedrawTip,
+  TIP_PROFILES,
+  absoluteInk,
   absolutePoints,
   arrowGeometry,
   readBinding,
@@ -19,6 +22,7 @@ import {
   pointAlongPath,
   pointOnCurve,
   resolveArrowProps,
+  resolveFreedrawProps,
 } from '@meadow/schema'
 import * as Y from 'yjs'
 
@@ -170,6 +174,19 @@ for (const button of document.querySelectorAll('[data-tool]')) {
   })
 }
 
+// The nib picker, which the rail in the real app also drives through `setPen`. The
+// angle comes with the tip for the reason BoardPage gives: a highlighter held at a
+// calligraphy pen's angle draws nothing.
+for (const button of document.querySelectorAll('[data-nib]')) {
+  button.addEventListener('click', () => {
+    const tip = button.getAttribute('data-nib') as FreedrawTip
+    engine.setPen({ tip, angle: TIP_PROFILES[tip].angle })
+    for (const other of document.querySelectorAll('[data-nib]')) {
+      other.classList.toggle('active', other === button)
+    }
+  })
+}
+
 void engine.init().then(() => {
   observeDocument(session, engine)
   seed()
@@ -283,6 +300,24 @@ window.__doc = {
     const arrow = readObjectById(session, id)
     return arrow === undefined ? null : absolutePoints(arrow, resolveArrowProps(arrow))
   },
+  ink: (id: string) => {
+    const object = readObjectById(session, id)
+    if (object === undefined || object.type !== 'freedraw') return null
+    const props = resolveFreedrawProps(object)
+    return {
+      tip: props.tip,
+      size: props.size,
+      angle: props.angle,
+      // Samples rather than array length: a stride of three is an implementation
+      // detail and a test asserting on it would break when it changed.
+      samples: props.points.length / 3,
+      // Whether the document names a colour, which is not the same as what it is
+      // painted in: a stroke without one follows the surface's ink.
+      colored: typeof object.props.stroke === 'number',
+      box: { x: object.x, y: object.y, w: object.w, h: object.h },
+      points: absoluteInk(object, props.points),
+    }
+  },
   // How an arrow is routed, for the checks about bending and the type picker.
   routing: (id: string) => {
     const arrow = readObjectById(session, id)
@@ -355,6 +390,15 @@ declare global {
       setText(id: string, value: string): void
       clear(): void
       points(id: string): number[] | null
+      ink(id: string): {
+        tip: string
+        size: number
+        angle: number
+        samples: number
+        colored: boolean
+        box: { x: number; y: number; w: number; h: number }
+        points: number[]
+      } | null
       routing(id: string): {
         routing: string
         curvature: number
