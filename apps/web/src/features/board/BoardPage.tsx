@@ -23,6 +23,8 @@ import {
   IconArrow,
   IconBack,
   IconBold,
+  IconCheck,
+  IconChevronDown,
   IconCircle,
   IconCursor,
   IconDiamond,
@@ -317,6 +319,9 @@ export default function BoardPage({ boardId, onBack }: Props) {
   const [detail, setDetail] = useState('')
   /** Whether the diary's page list is beside the paper. Only a lea has one. */
   const [pagesOpen, setPagesOpen] = useState(readPagesPreference)
+  /** The text-size menu, the same `.menu` popup as the paper picker rather than a native `<select>`. */
+  const [sizeMenuOpen, setSizeMenuOpen] = useState(false)
+  const sizeMenuRoot = useRef<HTMLDivElement>(null)
   /*
    * Whether this client has the document, not merely a socket.
    *
@@ -451,6 +456,22 @@ export default function BoardPage({ boardId, onBack }: Props) {
   useEffect(() => {
     if (isShapeTool(activeTool)) setShape(activeTool)
   }, [activeTool])
+
+  useEffect(() => {
+    if (!sizeMenuOpen) return
+    const onDown = (event: PointerEvent) => {
+      if (!sizeMenuRoot.current?.contains(event.target as Node)) setSizeMenuOpen(false)
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setSizeMenuOpen(false)
+    }
+    document.addEventListener('pointerdown', onDown, true)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', onDown, true)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [sizeMenuOpen])
 
   /**
    * Put the flyout away.
@@ -1235,21 +1256,42 @@ export default function BoardPage({ boardId, onBack }: Props) {
             */}
             {spec.column === null && (
               <>
-                <label className="text-size">
-                  <span className="sr-only">Text size</span>
-                  <select
-                    value={canvas.textSize ?? ''}
-                    onMouseDown={(event) => event.stopPropagation()}
-                    onChange={(event) => canvas.setTextSize(Number(event.target.value))}
+                <div className="dropdown text-size" ref={sizeMenuRoot}>
+                  <button
+                    type="button"
+                    className="dropdown-button"
+                    aria-label="Text size"
+                    aria-haspopup="listbox"
+                    aria-expanded={sizeMenuOpen}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => setSizeMenuOpen((shown) => !shown)}
                   >
-                    {canvas.textSize === null && <option value="">Mixed</option>}
-                    {TEXT_SIZES.map((size) => (
-                      <option key={size} value={size}>
-                        {size}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                    {canvas.textSize ?? 'Mixed'}
+                    <IconChevronDown size={14} />
+                  </button>
+
+                  {sizeMenuOpen && (
+                    <div className="menu menu-compact" role="listbox" aria-label="Text size">
+                      {TEXT_SIZES.map((size) => (
+                        <button
+                          key={size}
+                          type="button"
+                          role="option"
+                          aria-selected={size === canvas.textSize}
+                          className={size === canvas.textSize ? 'menu-item selected' : 'menu-item'}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => {
+                            setSizeMenuOpen(false)
+                            canvas.setTextSize(size)
+                          }}
+                        >
+                          <span className="menu-label">{size}</span>
+                          {size === canvas.textSize && <IconCheck size={15} />}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
 
                 <hr />
               </>
