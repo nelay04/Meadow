@@ -23,6 +23,7 @@
     "fonts": "node scripts/fetch-fonts.mjs",
     "e2e:board": "node scripts/board-e2e.mjs",
     "e2e:presence": "node scripts/presence-e2e.mjs",
+    "e2e:bengali": "node scripts/bengali-e2e.mjs",
     "check:stack": "node scripts/stack-check.mjs"
   },
   "devDependencies": {

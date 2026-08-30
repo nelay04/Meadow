@@ -28,6 +28,7 @@ import type * as Y from 'yjs'
 
 import { applyContentStyle } from '../canvas/text/textStyle'
 import { TEXT_MARKS, type TextMark } from '../doc/richText'
+import { PhoneticComposing, attachPhoneticIme } from './phoneticIme'
 
 export type TextEditorHandle = {
   focus(): void
@@ -91,10 +92,16 @@ function extensions(fragment: Y.XmlFragment) {
       heading: { levels: [1, 2, 3] },
     }),
     Collaboration.configure({ fragment }),
+    // Draws nothing unless phonetic input is on and a roman word is under the caret.
+    PhoneticComposing,
   ]
 }
 
 export function createTextEditor(options: TextEditorOptions): TextEditorHandle {
+  // Assigned below, after the editor exists, and read from inside its own key handler.
+  // The handler cannot run before construction returns, so the hole is never observed.
+  let ime: ReturnType<typeof attachPhoneticIme> | null = null
+
   const editor = new Editor({
     element: options.element,
     extensions: extensions(options.fragment),
@@ -104,6 +111,17 @@ export function createTextEditor(options: TextEditorOptions): TextEditorHandle {
     injectCSS: false,
     editorProps: {
       handleKeyDown: (view, event) => {
+        /*
+         * The input method looks at every key first, and that ordering is the whole of
+         * it: Enter, Space, Escape and the arrows all mean something to a candidate
+         * list that is open and something else entirely to the page underneath. It
+         * answers false whenever no list is open, which is nearly always.
+         */
+        if (ime?.handleKeyDown(event) === true) {
+          event.preventDefault()
+          return true
+        }
+
         if (event.key === 'Escape') {
           event.preventDefault()
           options.onExit()
@@ -141,6 +159,10 @@ export function createTextEditor(options: TextEditorOptions): TextEditorHandle {
   // text does not shift by a pixel at the moment the user double-clicks.
   applyContentStyle(editor.view.dom as HTMLElement, options.props)
 
+  // Only where typing happens. A viewer has a caret for selecting text and nothing to
+  // transliterate into.
+  if (options.editable) ime = attachPhoneticIme(editor)
+
   const activeMarks = (): TextMark[] => TEXT_MARKS.filter((mark) => editor.isActive(mark))
 
   if (options.onMarks !== undefined) {
@@ -165,7 +187,10 @@ export function createTextEditor(options: TextEditorOptions): TextEditorHandle {
 
   return {
     focus: () => editor.commands.focus('end', FOCUS),
-    destroy: () => editor.destroy(),
+    destroy: () => {
+      ime?.destroy()
+      editor.destroy()
+    },
     toggleMark: (mark) => {
       // `focus()` first, and it is not decoration. The bar lives outside the editor,
       // so by the time a click lands the selection is only remembered, not live;

@@ -1,5 +1,5 @@
 /**
- * Download the three project fonts as woff2 into apps/web/public/fonts.
+ * Download the project fonts as woff2 into apps/web/public/fonts.
  *
  * ARCHITECTURE 1: fonts are self-hosted, no CDN. Two reasons, and the second is the
  * one that matters here. Privacy and offline are the obvious ones. The real one is
@@ -28,16 +28,51 @@ const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 
 /**
- * Latin only. The other subsets Google emits (cyrillic, greek, vietnamese) are a
- * further ~120KB per family for glyphs v1 does not promise. Adding one later is a
- * matter of listing it here.
+ * Latin by default. The other subsets Google emits (cyrillic, greek, vietnamese) are a
+ * further ~120KB per family for glyphs v1 does not promise. A family that needs a
+ * different one says so.
  */
 const SUBSETS = ['latin', 'latin-ext']
 
+/*
+ * `instances` is how a family asks for the weights it is served at rather than the
+ * weights it was authored at. A collapsed range - "330 330" - pins a variable font to
+ * one instance, so a request for regular renders there; two such faces give a regular
+ * and a bold that are both lighter than the numbers on the file would suggest. Only
+ * Bengali needs it, and the reason is in the note that ships in the generated CSS.
+ */
 const FAMILIES = [
   { query: 'Inter:wght@100..900', slug: 'inter' },
   { query: 'JetBrains+Mono:wght@100..800', slug: 'jetbrains-mono' },
   { query: 'Comic+Neue:wght@400;700', slug: 'comic-neue' },
+  {
+    query: 'Noto+Sans+Bengali:wght@300..700',
+    slug: 'noto-sans-bengali',
+    subsets: ['bengali'],
+    instances: ['330 330', '560 560'],
+    sizeAdjust: '104%',
+    note: [
+      '/*',
+      ' * Bengali, appended to every stack in styles.css and canvas/text/textStyle.ts.',
+      ' *',
+      ' * Restricted to the Bengali block by unicode-range, so it is downloaded only by',
+      ' * someone who actually types Bengali and never touches a latin glyph: fallback is',
+      ' * per character, so one line of mixed script keeps Comic Neue on the English and',
+      ' * this on the Bengali with no markup deciding which is which.',
+      ' *',
+      ' * Self-hosted for the same reason as the rest, and one more: without it a Windows',
+      ' * machine fell back to Nirmala UI and a Linux one to whatever fontconfig chose, so',
+      ' * the same lea was a different shape per person - and the metrics that set the CRDT',
+      ' * bounds were measured from a font nobody else had.',
+      ' *',
+      ' * The two faces are pinned to 330 and 560 rather than 400 and 700. Noto at 400 is',
+      ' * markedly darker on the page than Comic Neue at 400 beside it, because the matra',
+      ' * puts a continuous horizontal stroke on every word that latin has no equivalent',
+      ' * of. size-adjust goes the other way, up: the eye matches a Bengali word against',
+      ' * the height of a capital next to it, and Noto sits a shade under Comic Neue caps.',
+      ' */',
+    ].join('\n'),
+  },
 ]
 
 /**
@@ -45,13 +80,13 @@ const FAMILIES = [
  * comment names a subset we want. The comment is the only place the subset appears;
  * the unicode-range would work too but is far more brittle to match on.
  */
-function parseFaces(css) {
+function parseFaces(css, wanted) {
   const faces = []
   const blocks = css.split('/*').slice(1)
 
   for (const block of blocks) {
     const subset = block.slice(0, block.indexOf('*/')).trim()
-    if (!SUBSETS.includes(subset)) continue
+    if (!wanted.includes(subset)) continue
 
     const url = /src:\s*url\((https:[^)]+\.woff2)\)/.exec(block)?.[1]
     const weight = /font-weight:\s*([^;]+);/.exec(block)?.[1].trim()
@@ -71,13 +106,13 @@ await mkdir(outDir, { recursive: true })
 const rules = []
 let downloaded = 0
 
-for (const { query, slug } of FAMILIES) {
+for (const { query, slug, subsets, instances, sizeAdjust, note } of FAMILIES) {
   const response = await fetch(`https://fonts.googleapis.com/css2?family=${query}&display=block`, {
     headers: { 'user-agent': UA },
   })
   if (!response.ok) throw new Error(`${query}: css request returned ${response.status}`)
 
-  const faces = parseFaces(await response.text())
+  const faces = parseFaces(await response.text(), subsets ?? SUBSETS)
   if (faces.length === 0) throw new Error(`${query}: no matching subsets in the response`)
 
   for (const face of faces) {
@@ -93,21 +128,28 @@ for (const { query, slug } of FAMILIES) {
     downloaded += 1
     console.log(`${name}  ${(bytes.length / 1024).toFixed(1)}KB`)
 
-    rules.push(
-      [
-        '@font-face {',
-        `  font-family: '${face.family}';`,
-        `  font-style: ${face.style};`,
-        `  font-weight: ${face.weight};`,
-        // `block` rather than `swap`. A swap would paint fallback glyphs first and
-        // measure them, so the height written to the CRDT would be wrong until the
-        // real font landed. A short invisible period is the cheaper failure.
-        '  font-display: block;',
-        `  src: url('/fonts/${name}') format('woff2');`,
-        ...(face.range === undefined ? [] : [`  unicode-range: ${face.range};`]),
-        '}',
-      ].join('\n'),
-    )
+    // One face per pinned instance, or one at the weight the file declares.
+    const weights = instances ?? [face.weight]
+    weights.forEach((weight, position) => {
+      rules.push(
+        [
+          // The note explains the whole family, so it goes above the first face only.
+          ...(note !== undefined && position === 0 ? [note] : []),
+          '@font-face {',
+          `  font-family: '${face.family}';`,
+          `  font-style: ${face.style};`,
+          `  font-weight: ${weight};`,
+          // `block` rather than `swap`. A swap would paint fallback glyphs first and
+          // measure them, so the height written to the CRDT would be wrong until the
+          // real font landed. A short invisible period is the cheaper failure.
+          '  font-display: block;',
+          ...(sizeAdjust === undefined ? [] : [`  size-adjust: ${sizeAdjust};`]),
+          `  src: url('/fonts/${name}') format('woff2');`,
+          ...(face.range === undefined ? [] : [`  unicode-range: ${face.range};`]),
+          '}',
+        ].join('\n'),
+      )
+    })
   }
 }
 

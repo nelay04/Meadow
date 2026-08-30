@@ -4175,3 +4175,127 @@ dialog.modal[open] .modal-card {
     --board-aside: 0px;
   }
 }
+
+/* --- phonetic input ----------------------------------------------------------
+ *
+ * The candidate list for phonetic Bengali, and the underline under the roman word
+ * that is waiting on it. Chrome, so it takes the app's surface and the app's shadow
+ * rather than the paper's: it is a menu about the text, not part of the text.
+ *
+ * On the body at a fixed position, deliberately outside the camera transform - a list
+ * of words scaled to 320% with the zoom would not be a menu any more.
+ */
+.ime-composing {
+  /* Dotted, not solid: it says "this is not finished" without looking like a spelling
+     error, which a red squiggle would. */
+  border-bottom: 1px dotted currentColor;
+  opacity: 0.75;
+}
+
+.ime-popup {
+  position: fixed;
+  z-index: 60;
+  min-width: 9rem;
+  max-width: min(22rem, 90vw);
+  /* A wrapped list of six long words is taller than a screen. Scroll the list rather
+     than the page: the caret must not move because a suggestion was long. */
+  max-height: min(50vh, 22rem);
+  overflow-y: auto;
+  padding: 0.25rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  font-family: 'Inter', 'Noto Sans Bengali', ui-sans-serif, system-ui, sans-serif;
+  /* The list is a menu, and a menu does not inherit the paper's line height. */
+  line-height: 1.4;
+}
+
+.ime-popup-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.3rem 0.5rem 0.35rem;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 0.2rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+  /* What you actually typed, so the list can be checked against it at a glance. */
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.ime-popup-offline {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--warning);
+  opacity: 0.85;
+}
+
+.ime-option {
+  display: flex;
+  align-items: baseline;
+  /* Both against the global `button` rule, which centres its content and sets 600.
+     Neither is right for a list: a candidate list is read down its left edge, and a
+     word offered in semibold is a word already heavier than the one it will become on
+     the page. Bengali makes the second obvious - 600 reaches the darker of the two
+     faces, so the suggestion looked nothing like the writing it was suggesting. */
+  justify-content: flex-start;
+  font-weight: 400;
+  /* And a third thing the global rule is wrong about here: it never wraps. A button's
+     label is a couple of words the designer chose, but a candidate is whatever was
+     typed, and a run-on word ran straight out of the popup and across the page. */
+  white-space: normal;
+  gap: 0.55rem;
+  width: 100%;
+  padding: 0.28rem 0.5rem;
+  border: 0;
+  border-radius: calc(var(--radius) - 3px);
+  background: none;
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ime-option:hover {
+  background: var(--surface-2);
+}
+
+.ime-option.selected {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.ime-option-index {
+  /* Fixed: the numerals line up in a column, and a long word takes its room from the
+     word beside it rather than from the number in front of it. */
+  flex: 0 0 auto;
+  min-width: 1.1rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.ime-option.selected .ime-option-index {
+  color: inherit;
+}
+
+.ime-option-text {
+  font-size: 1.05rem;
+  /* `anywhere` rather than `break-word`: Bengali writes a whole clause with no space in
+     it, and there is no break opportunity to find. Better a word split across two lines
+     than a list wider than the screen. */
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* The bar's own switch. A letter rather than an icon, because the letter is the
+   clearest possible statement of which script the keys are about to produce. It is set
+   at the weight the page is written at, so the button shows the letter you are about to
+   get rather than a bolder relative of it. */
+.bengali-toggle span {
+  font-size: 1.05rem;
+  font-weight: 400;
+  line-height: 1;
+}
