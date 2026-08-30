@@ -27,9 +27,22 @@
  * for why, and for what it costs.
  */
 
-import { freedrawGeometry, TIP_PROFILES } from '@meadow/schema'
+import {
+  type FreedrawTip,
+  type PenAssist,
+  type RecognisedConnector,
+  type RecognisedShape,
+  TIP_PROFILES,
+  arrowGeometry,
+  connectorPoints,
+  freedrawGeometry,
+  nibRadius,
+  recogniseStroke,
+  tipTakesAssist,
+} from '@meadow/schema'
 
 import type { Point } from '../camera'
+import { attachArrowEnd } from './binding'
 import type { CanvasPointerEvent, Tool, ToolContext, WetInk } from './types'
 
 /**
@@ -67,6 +80,28 @@ const SETTLE_STEPS = 16
 
 /** What a pointer with nothing useful to say is worth. */
 const NEUTRAL_PRESSURE = 0.5
+
+/**
+ * The shortest stroke the assist will touch, in screen pixels at the drawing zoom.
+ *
+ * Screen rather than world, because it is a fact about the hand and not about the
+ * document: the dot over an i is the same flick of the wrist at any camera. Below this
+ * nothing is corrected and nothing is recognised, which is what keeps punctuation from
+ * being promoted into lines.
+ */
+const MIN_ASSIST_PX = 36
+
+/**
+ * The stroke width a recognised object inherits from the nib that drew it.
+ *
+ * The nib's full painted width, so the shape comes out the weight of the line it
+ * replaces rather than the schema's default. Clamped because a broad highlighter is
+ * six times its nominal size, and a rectangle outlined at fifty units is a filled
+ * rectangle with a hole in it.
+ */
+function inheritedWeight(size: number, tip: FreedrawTip): number {
+  return Math.max(1, Math.min(24, nibRadius({ tip, size }) * 2))
+}
 
 function simulatedPressure(speed: number): number {
   const from = 1 - Math.min(1, speed / FAST_PX_PER_MS)
@@ -254,6 +289,137 @@ export function createPenTool(context: ToolContext): Tool {
     samples.push(event.world.x, event.world.y, pressure)
   }
 
+  /** How much of what was drawn the assist is allowed to read, in world units. */
+  const assistFloor = (): number => context.camera.toWorldDistance(MIN_ASSIST_PX)
+
+  /**
+   * What the assist is actually set to for the nib in hand.
+   *
+   * The rail hides the choice on the three nibs that do not take it, and this is the
+   * other half of that: the setting outlives the session and the nib can change under
+   * it, so a pen remembered on `shapes` and then switched to a highlighter has to draw
+   * a highlighter sweep rather than quietly go on making rectangles.
+   */
+  const assistMode = (): PenAssist =>
+    tipTakesAssist(context.pen.tip) ? context.pen.assist : 'off'
+
+  /**
+   * The style a recognised object takes from the pen that drew it.
+   *
+   * `tidy` only. Weight and colour follow the nib, because in that mode the object is
+   * standing in for a mark that was made with it: what the person asked for was their
+   * own drawing with the crookedness taken out, and a rectangle arriving in the
+   * schema's default grey is not that. Colour is written only when they chose one, the
+   * same rule the ink itself follows, so a shape drawn with the default pen still
+   * answers to the theme.
+   */
+  const inheritedStyle = (): Record<string, unknown> => {
+    const props: Record<string, unknown> = {
+      strokeWidth: inheritedWeight(context.pen.size, context.pen.tip),
+      // Unfilled, because what was drawn was an outline. A shape that arrived with the
+      // default card fill would hide whatever it was drawn around, which on a
+      // hand-annotated board is usually the reason a ring was drawn round it.
+      fillAlpha: 0,
+    }
+    if (context.pen.color !== null) props.stroke = context.pen.color
+    return props
+  }
+
+  /**
+   * What `shapes` writes instead: nothing.
+   *
+   * A shape drawn with the rail carries no style of its own either, which is what lets
+   * `resolveStyle` give it the surface's own fill and outline in both themes. Writing
+   * the pen's colour here would produce something that merely resembled a shape from
+   * the rail and then diverged from it the moment somebody switched theme, so the mode
+   * that promises the board's own shape has to promise it exactly.
+   */
+  const templateStyle = (): Record<string, unknown> => ({})
+
+  const createShape = (shape: RecognisedShape, style: Record<string, unknown>): boolean => {
+    const id = context.createObject({
+      type: shape.type,
+      x: shape.x,
+      y: shape.y,
+      w: shape.w,
+      h: shape.h,
+      props: style,
+    })
+    if (id === null) return false
+    context.setSelection([id])
+    return true
+  }
+
+  const createConnector = (
+    connector: RecognisedConnector,
+    style: Record<string, unknown>,
+  ): boolean => {
+    const absolute = connectorPoints(connector)
+    const geometry = arrowGeometry(absolute, connector)
+    // A head at either end makes it an arrow. Nothing at either end is a line, which
+    // is a real distinction in the schema rather than a default: a line has no heads
+    // to lose when it is restyled.
+    const headed = connector.startHead || connector.endHead
+
+    const id = context.createObject({
+      type: headed ? 'arrow' : 'line',
+      x: geometry.x,
+      y: geometry.y,
+      w: geometry.w,
+      h: geometry.h,
+      props: {
+        ...style,
+        points: geometry.points,
+        routing: connector.routing,
+        curvature: connector.curvature,
+        curvatureEnd: connector.curvatureEnd,
+        elbow: connector.elbow,
+        // Which ends have heads is not styling, it is what was drawn, so both modes
+        // write it. An arrow with its head at the start would otherwise come out of
+        // `shapes` with the default head at the wrong end.
+        startHead: connector.startHead ? 'open' : 'none',
+        endHead: connector.endHead ? 'open' : 'none',
+      },
+    })
+    if (id === null) return false
+
+    // Attached to whatever the two ends landed on, on exactly the terms the arrow tool
+    // uses. An arrow drawn between two boxes with the pen has to behave like an arrow
+    // drawn between them with the arrow tool, or the recognition is a trick rather
+    // than a feature: the boxes move and the connector stays put.
+    attachArrowEnd(context, id, 'start', connector.start)
+    attachArrowEnd(context, id, 'end', connector.end)
+    // Re-solved once the ends are bound, because an elbow's waypoints are stored and
+    // binding has just moved the points they were generated from.
+    context.setArrowRouting(id, {
+      routing: connector.routing,
+      curvature: connector.curvature,
+      curvatureEnd: connector.curvatureEnd,
+      elbow: connector.elbow,
+    })
+
+    context.setSelection([id])
+    return true
+  }
+
+  /**
+   * Replace the stroke with the object it was, or leave it alone.
+   *
+   * False is the ordinary answer for anybody writing rather than drawing, and the
+   * caller keeps the ink when it comes. Nothing here refuses quietly and then creates
+   * something approximate: an object that is not what was drawn is worse than the
+   * stroke it replaced, because the stroke was at least honest.
+   */
+  const commitRecognised = (drawn: readonly number[], mode: PenAssist): boolean => {
+    const recognition = recogniseStroke(drawn, { minLength: assistFloor() })
+    if (recognition === null) return false
+
+    const style = mode === 'shapes' ? templateStyle() : inheritedStyle()
+    return recognition.kind === 'shape'
+      ? createShape(recognition, style)
+      : createConnector(recognition, style)
+  }
+
   return {
     id: 'pen',
     // A crosshair, not a pointer. The nib is at the centre of the cross, and on a
@@ -286,13 +452,26 @@ export function createPenTool(context: ToolContext): Tool {
       extend(event)
       settle(event)
 
-      const points = simplify(samples, context.camera.toWorldDistance(SIMPLIFY_PX))
+      const drawn = samples
+      const assist = assistMode()
       reset()
 
-      if (points.length < 3) {
+      if (drawn.length < 3) {
         context.requestRender()
         return
       }
+
+      // Refusing is the common answer and the important one. When the stroke was not
+      // any of the objects the board has, it stays exactly the ink that was drawn:
+      // there is no half measure that smooths it on the way past, because a stroke
+      // nobody asked to have redrawn is one that should come out as it went in.
+      if (assist !== 'off' && commitRecognised(drawn, assist)) {
+        context.commit()
+        context.requestRender()
+        return
+      }
+
+      const points = simplify(drawn, context.camera.toWorldDistance(SIMPLIFY_PX))
 
       const geometry = freedrawGeometry(points, context.pen)
       const props: Record<string, unknown> = {

@@ -773,6 +773,180 @@ for (const nib of ['round', 'felt', 'chisel', 'brush', 'highlighter']) {
   )
 }
 
+// --- the pen assist -----------------------------------------------------------
+//
+// The unit tests fit shapes to arrays of numbers. What they cannot reach is the part
+// that matters here: that a real drag, through the streamlining and the sampling and
+// the tool state machine, still arrives at the recogniser as the shape somebody drew,
+// that what comes out is a real object in the document rather than ink, and that the
+// two modes differ by exactly one thing, which is what the object looks like.
+
+await page.evaluate(() => window.__doc.clear())
+await page.click('[data-nib="round"]')
+await page.click('[data-assist="shapes"]')
+await page.click('[data-tool="pen"]')
+await delay(120)
+
+// Densely sampled, because a hand is. Six moves along a two hundred pixel edge is a
+// stroke made of six points, which is not what any pen produces.
+const sketch = (points) => stroke(points, 20)
+
+await sketch([at(200, 200), at(460, 200), at(460, 380), at(200, 380), at(202, 202)])
+let assisted = await page.evaluate(() => window.__doc.findByType('rect'))
+let shape = await page.evaluate((id) => (id === null ? null : window.__doc.read(id)), assisted)
+check(
+  'a box drawn with the pen becomes a rectangle',
+  shape !== null && shape.type === 'rect',
+  shape === null ? 'still ink' : shape.type,
+)
+check(
+  'and it is the size it was drawn, not a default',
+  shape !== null && Math.abs(shape.w - 260) < 30 && Math.abs(shape.h - 180) < 30,
+  shape === null ? 'no shape' : `${Math.round(shape.w)}x${Math.round(shape.h)}`,
+)
+check(
+  'the ink it replaced is not left behind under it',
+  (await page.evaluate(() => window.__doc.objectCount())) === 1,
+)
+
+// Snapping to shapes promises the board's own shape, and the board's own shape carries
+// no style of its own: that is what lets it follow the surface in both themes. A
+// rectangle from here with a colour written on it would merely resemble one from the
+// rail, and would stop resembling it the moment somebody switched theme.
+let styled = await page.evaluate((id) => window.__doc.styleOf(id), assisted)
+check(
+  'a snapped shape is styled like one drawn with the shape tool, which is to say not at all',
+  styled !== null &&
+    styled.fillAlpha === null &&
+    styled.stroke === null &&
+    styled.strokeWidth === null,
+  JSON.stringify(styled),
+)
+
+// --- the same stroke, tidied instead ------------------------------------------
+
+await page.evaluate(() => window.__doc.clear())
+await page.click('[data-assist="tidy"]')
+await page.click('[data-tool="pen"]')
+await delay(120)
+await sketch([at(200, 200), at(460, 200), at(460, 380), at(200, 380), at(202, 202)])
+
+assisted = await page.evaluate(() => window.__doc.findByType('rect'))
+check(
+  'tidying up makes the same rectangle, because it asks the same question',
+  assisted !== null,
+  assisted === null ? 'still ink' : 'rect',
+)
+styled = await page.evaluate((id) => (id === null ? null : window.__doc.styleOf(id)), assisted)
+check(
+  'but it keeps the pen: an outline at the nib width rather than a filled card',
+  styled !== null && styled.fillAlpha === 0 && styled.strokeWidth > 0,
+  JSON.stringify(styled),
+)
+
+// --- connectors ----------------------------------------------------------------
+
+await page.evaluate(() => window.__doc.clear())
+await page.click('[data-assist="shapes"]')
+await page.click('[data-tool="pen"]')
+await delay(120)
+await sketch([at(200, 300), at(340, 302), at(480, 298), at(620, 300)])
+assisted = await page.evaluate(() => window.__doc.findByType('line'))
+check(
+  'a straight stroke with no head becomes a line rather than an arrow',
+  assisted !== null,
+  assisted === null ? String(await page.evaluate(() => window.__doc.objectCount())) : 'line',
+)
+
+await page.evaluate(() => window.__doc.clear())
+await delay(120)
+// Along, up, over: an elbow, and each leg long enough that the corner is a corner
+// rather than the end of the stroke.
+await sketch([at(200, 200), at(440, 200), at(440, 420)])
+assisted = await page.evaluate(() => window.__doc.findByType('line'))
+let routed = await page.evaluate((id) => (id === null ? null : window.__doc.routing(id)), assisted)
+check(
+  'a right-angled stroke becomes an elbow rather than a diagonal',
+  routed !== null && routed.routing === 'orthogonal',
+  routed === null ? 'not a connector' : routed.routing,
+)
+
+// --- a recognised connector attaches, like any other -------------------------
+
+await page.evaluate(() => window.__doc.clear())
+await delay(120)
+await page.click('[data-tool="rect"]')
+await stroke([at(160, 200), at(300, 300)])
+await page.click('[data-tool="rect"]')
+await stroke([at(560, 200), at(700, 300)])
+await page.click('[data-assist="shapes"]')
+await page.click('[data-tool="pen"]')
+await delay(120)
+// From inside the left box to inside the right one, with a head drawn on the end.
+await sketch([
+  at(280, 250),
+  at(400, 250),
+  at(580, 250),
+  at(548, 232),
+  at(580, 250),
+  at(548, 268),
+])
+
+// By arrow id, because `clear` empties the objects and leaves earlier bindings behind
+// it: this is asking what the arrow just drawn is attached to, not what the document
+// has ever held.
+const penArrowId = await page.evaluate(() => window.__doc.findByType('arrow'))
+const attached = await page.evaluate(
+  (id) => window.__doc.bindings().filter((binding) => binding.arrowId === id),
+  penArrowId,
+)
+check(
+  'an arrow drawn with the pen between two shapes binds to both of them',
+  attached.length === 2 && attached.every((binding) => binding.targetId !== null),
+  JSON.stringify(attached.map((binding) => binding.end)),
+)
+check(
+  'and it is an arrow, because a head was drawn on it',
+  penArrowId !== null,
+)
+
+// --- what it refuses ----------------------------------------------------------
+
+await page.evaluate(() => window.__doc.clear())
+await delay(120)
+await page.click('[data-tool="pen"]')
+await sketch([
+  at(200, 300),
+  at(260, 240),
+  at(320, 360),
+  at(380, 240),
+  at(440, 360),
+  at(500, 240),
+  at(560, 300),
+])
+check(
+  'a scribble is left as ink rather than forced into a shape',
+  (await page.evaluate(() => window.__doc.findByType('freedraw'))) !== null,
+)
+
+// A calligraphy nib is broad one way and a hairline the other, and nobody picks one up
+// to draw a rectangle with. The setting outlives the session, so the tool has to
+// withhold the assist on those nibs rather than trusting the rail to hide the row.
+await page.evaluate(() => window.__doc.clear())
+await page.click('[data-nib="chisel"]')
+await page.click('[data-tool="pen"]')
+await delay(120)
+await sketch([at(200, 200), at(460, 200), at(460, 380), at(200, 380), at(202, 202)])
+check(
+  'a nib that does not take the assist draws ink, whatever the setting says',
+  (await page.evaluate(() => window.__doc.findByType('freedraw'))) !== null &&
+    (await page.evaluate(() => window.__doc.findByType('rect'))) === null,
+)
+
+// Put it back, so anything added after this runs against the default pen.
+await page.click('[data-nib="round"]')
+await page.click('[data-assist="off"]')
+
 await browser.close()
 stop()
 

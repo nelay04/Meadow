@@ -13,6 +13,7 @@
 
 import {
   type FreedrawTip,
+  type PenAssist,
   TIP_PROFILES,
   absoluteInk,
   absolutePoints,
@@ -187,6 +188,17 @@ for (const button of document.querySelectorAll('[data-nib]')) {
   })
 }
 
+// The assist picker, driven the same way. `setPen` is one call for the whole pen, so
+// there is nothing here the rail does not also do.
+for (const button of document.querySelectorAll('[data-assist]')) {
+  button.addEventListener('click', () => {
+    engine.setPen({ assist: button.getAttribute('data-assist') as PenAssist })
+    for (const other of document.querySelectorAll('[data-assist]')) {
+      other.classList.toggle('active', other === button)
+    }
+  })
+}
+
 void engine.init().then(() => {
   observeDocument(session, engine)
   seed()
@@ -318,6 +330,20 @@ window.__doc = {
       points: absoluteInk(object, props.points),
     }
   },
+  // What style was actually written to an object, rather than what it resolves to.
+  // The two assist modes differ by which props they write at all, and a resolved
+  // colour would hide exactly the difference this is here to show.
+  styleOf: (id: string) => {
+    const object = readObjectById(session, id)
+    if (object === undefined) return null
+    const number = (key: string): number | null =>
+      typeof object.props[key] === 'number' ? (object.props[key] as number) : null
+    return {
+      fillAlpha: number('fillAlpha'),
+      stroke: number('stroke'),
+      strokeWidth: number('strokeWidth'),
+    }
+  },
   // How an arrow is routed, for the checks about bending and the type picker.
   routing: (id: string) => {
     const arrow = readObjectById(session, id)
@@ -398,6 +424,11 @@ declare global {
         colored: boolean
         box: { x: number; y: number; w: number; h: number }
         points: number[]
+      } | null
+      styleOf(id: string): {
+        fillAlpha: number | null
+        stroke: number | null
+        strokeWidth: number | null
       } | null
       routing(id: string): {
         routing: string

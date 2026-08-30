@@ -460,7 +460,13 @@ export class CanvasEngine {
    * How the pen is set. Engine state rather than document state: it describes the next
    * stroke, so it belongs with the active tool and not with anything already drawn.
    */
-  private pen: PenSettings = { tip: 'round', size: 3, angle: -Math.PI / 7, color: null }
+  private pen: PenSettings = {
+    tip: 'round',
+    size: 3,
+    angle: -Math.PI / 7,
+    color: null,
+    assist: 'off',
+  }
 
   private wetInk: WetInk | null = null
 

@@ -12,6 +12,7 @@ import type {
   BindingData,
   FreedrawTip,
   ObjectData,
+  PenAssist,
 } from '@meadow/schema'
 
 import type { Camera, Point, WorldRect } from '../camera'
@@ -69,6 +70,15 @@ export type PenSettings = {
   angle: number
   /** An explicit colour, or null to take the surface's own ink. */
   color: number | null
+  /**
+   * How much the pen is allowed to correct what was drawn.
+   *
+   * It belongs here rather than beside the nib in the schema because it is not part of
+   * the mark: it decides what object the gesture makes, which is the tool's business.
+   * A stroke that became a rectangle carries no memory of having been drawn freehand,
+   * and should not: it is a rectangle now.
+   */
+  assist: PenAssist
 }
 
 /**

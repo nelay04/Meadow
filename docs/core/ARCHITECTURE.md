@@ -744,6 +744,79 @@ stroke's samples and its nib, in `applyRectToObject`, because ink is the one obj
 whose drawing is not implied by its box: writing bounds and stopping would leave the
 original scribble inside a box that no longer fits it.
 
+### The pen can be asked to correct what was drawn, in two degrees
+
+**Added in M6.** A pen puts down exactly what the hand did, and most of the time that
+is what a pen is for. The rest of the time somebody is drawing a box, and a hand-drawn
+box on a diagram is a box that cannot be resized, cannot carry a label and does not
+line up with the one above it. So `PenSettings.assist` has three values and `off` is
+the default: a pen that silently rewrote the first thing somebody drew is a pen they
+stop trusting.
+
+**Both assisted modes ask the same question and differ only in the answer's clothes.**
+`tidy` replaces the stroke with the object it was and leaves that object looking like
+the mark it replaced, in the pen's own colour and weight and unfilled. `shapes`
+replaces it with the same object carrying no style at all, which is what a shape drawn
+from the rail carries, so it takes the surface's own fill and outline in both themes
+and is not distinguishable from one drawn with the shape tool. Writing the pen's colour
+in that second mode would produce something that merely resembled a shape from the rail
+and then diverged from it the moment somebody switched theme.
+
+There was a third thing here first, a smoother that kept the ink and merely took the
+tremor out of it, and it was cut: what it produced was a slightly neater version of a
+wobbly line, which is not worth a mode. The recognition is the feature.
+
+The recogniser lives in `packages/schema/src/recognise.ts`, because the candidate
+shapes are built from the same geometry the renderer draws, `parallelogramSlant`
+included, and a recogniser that disagreed with the renderer about where a shape's edges
+are would place shapes that do not match what was drawn. There is one of it, not one
+per mode: two would be two sets of thresholds to keep in step, and the first stroke
+they disagreed about would be a bug nobody could describe.
+
+**A closed stroke is classified by fitting, not by counting features.** The obvious
+classifier counts corners: four is a rectangle, none is an ellipse. It is also the one
+that fails on real strokes, because a corner count is a threshold on a threshold. A
+rounded rectangle has four soft corners, a hurried circle has two sharp ones where the
+hand changed direction, and a diamond and a square have the same four corners in
+different places. Instead every primitive is built at the size the stroke actually has
+and the one whose outline the stroke sits closest to wins, which is the question being
+asked, asked directly. It degrades honestly, since a scribble is far from all four and
+is refused, and adding a fifth primitive means adding its outline and nothing else.
+
+**An open stroke is classified by structure, because there is no area to fit.** What
+separates a line from an elbow from a curve is where along the path the direction
+changes, and the barbs of a hand-drawn arrowhead are the same signal read at the ends.
+A head is cut at the earliest junction that doubles back, once rather than repeatedly:
+trimming until nothing matched was the first version and it is how a recogniser talks
+itself into an answer, eating one hump of a wave per pass until a scribble came out as
+a confident arrow. The arrow still ends at the far point of the head rather than at the
+cut, because that is where it was aimed.
+
+Corners are measured on a smoothed copy and applied to the original. Direction is a
+derivative and the derivative of a noisy signal is noise: a wobble of a few units over
+a window of twenty reads as a thirty degree turn, so a scan run on the raw samples
+reports corners all along a line somebody drew straight.
+
+**The assist is offered on the ballpoint and the fineliner only.** The other three nibs
+exist because of what they do to a line: a calligraphy nib is broad one way and a
+hairline the other, a brush tapers, a highlighter is a translucent sweep. Nobody
+reaches for one of those to draw a rectangle with, and a highlighter sweep turned into
+a rectangle has thrown away the only reason it was drawn with a highlighter. The rail
+hides the row on those nibs and `penTool` withholds the mode independently, because the
+setting is remembered across sessions and the nib can change under it.
+
+Three refusals matter more than any of the acceptances, and they are what the tests are
+mostly about: handwriting is not a connector, a scribble is not a rectangle, and a
+stroke shorter than 36 screen pixels is not anything at all. That last one is a screen
+distance rather than a world distance because it is a fact about the hand: the dot over
+an i is the same flick of the wrist at any zoom. A refused stroke is kept exactly as it
+was drawn, with nothing smoothed on the way past.
+
+A recognised connector binds to whatever its ends landed on, through the same
+`bindTarget` and `attachArrowEnd` the arrow tool uses. An arrow drawn between two boxes
+with the pen has to behave like one drawn between them with the arrow tool, or the
+recognition is a trick rather than a feature.
+
 ### Antialiasing: MSAA on, and why it is not redundant
 
 **Changed in M6.** The renderer ran with `antialias: false`, on the reasoning that the

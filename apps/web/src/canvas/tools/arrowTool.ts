@@ -11,82 +11,18 @@
  * moves. Near an edge pins to that spot. `anchorFor` owns that threshold.
  */
 
-import {
-  type ObjectData,
-  type ObjectType,
-  anchorFor,
-  arrowGeometry,
-  routeOrthogonal,
-  isArrowLike,
-} from '@meadow/schema'
+import { type ObjectType, arrowGeometry, routeOrthogonal } from '@meadow/schema'
 
 import type { Point } from '../camera'
-import { HIT_TOLERANCE_PX, hitsObject } from '../hitTest'
+import { attachArrowEnd, bindTarget } from './binding'
 import type { CanvasPointerEvent, Tool, ToolContext, ToolId } from './types'
 
 /** Below this drag distance in world units, the gesture is a click and creates nothing. */
 const DRAG_THRESHOLD = 6
 
-/**
- * A shape an arrow end can attach to.
- *
- * Arrows are excluded. Arrow-to-arrow bindings are expressible in the schema and are a
- * rabbit hole: the target has no interior to aim at, so the anchor maths degenerates,
- * and a chain of them can cycle. Not worth it for v1.
- */
-function bindable(object: ObjectData | undefined): boolean {
-  return object !== undefined && !object.locked && !isArrowLike(object.type)
-}
-
 export function createArrowTool(context: ToolContext, type: ObjectType & ToolId): Tool {
   let origin: Point | null = null
   let arrowId: string | null = null
-
-  const pickTarget = (point: Point, exclude: string | null): string | null => {
-    const tolerance = context.camera.toWorldDistance(HIT_TOLERANCE_PX)
-    const candidates = new Set(
-      context.query({
-        minX: point.x - tolerance,
-        minY: point.y - tolerance,
-        maxX: point.x + tolerance,
-        maxY: point.y + tolerance,
-      }),
-    )
-
-    // Reverse z-order, so the shape drawn on top is the one attached to.
-    const order = context.order()
-    for (let index = order.length - 1; index >= 0; index -= 1) {
-      const id = order[index]
-      if (id === exclude || !candidates.has(id)) continue
-      const object = context.object(id)
-      if (!bindable(object)) continue
-      // No tolerance here: an arrow should attach when dropped *on* a shape, not when
-      // dropped a few pixels off it.
-      if (hitsObject(object as ObjectData, point)) return id
-    }
-    return null
-  }
-
-  /**
-   * `id` is passed in rather than read from the closure. The gesture state is cleared
-   * before binding, so reading `arrowId` here would always see null and silently bind
-   * nothing at all.
-   */
-  const attach = (id: string, end: 'start' | 'end', point: Point): void => {
-    const targetId = pickTarget(point, id)
-    if (targetId === null) return
-
-    const target = context.object(targetId)
-    if (target === undefined) return
-
-    context.bindArrow({
-      arrowId: id,
-      end,
-      targetId,
-      anchor: anchorFor(target, point),
-      gap: 4,
-    })
-  }
 
   const cancel = (): void => {
     origin = null
@@ -108,7 +44,7 @@ export function createArrowTool(context: ToolContext, type: ObjectType & ToolId)
       if (origin === null) {
         // Idle: still show what the pointer would attach to, so the binding is not a
         // surprise that only becomes visible after the drag.
-        context.setHoverTarget(pickTarget(event.world, null))
+        context.setHoverTarget(bindTarget(context, event.world, null))
         context.requestRender()
         return
       }
@@ -146,7 +82,7 @@ export function createArrowTool(context: ToolContext, type: ObjectType & ToolId)
         context.setArrowPoints(arrowId, absolute)
       }
 
-      context.setHoverTarget(pickTarget(event.world, arrowId))
+      context.setHoverTarget(bindTarget(context, event.world, arrowId))
       context.requestRender()
     },
 
@@ -167,8 +103,8 @@ export function createArrowTool(context: ToolContext, type: ObjectType & ToolId)
 
       // Bind after the geometry is final. Binding first would solve the endpoint
       // against a half-drawn arrow and then immediately overwrite it.
-      attach(id, 'start', start)
-      attach(id, 'end', event.world)
+      attachArrowEnd(context, id, 'start', start)
+      attachArrowEnd(context, id, 'end', event.world)
 
       // An elbow's waypoints are stored rather than derived, so a route has to be
       // generated once the two ends are settled. Harmless for the other two, which

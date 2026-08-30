@@ -10,7 +10,13 @@
  */
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { type ArrowRouting, FREEDRAW_TIPS, type FreedrawTip } from '@meadow/schema'
+import {
+  type ArrowRouting,
+  FREEDRAW_TIPS,
+  type FreedrawTip,
+  PEN_ASSIST,
+  type PenAssist,
+} from '@meadow/schema'
 import type { TextMark } from '../../doc/richText'
 import {
   CanvasEngine,
@@ -54,7 +60,16 @@ const PEN_KEY = 'meadow.pen'
  * every time they open a board is asking them to set it up again each session. It is
  * a preference, not document state: two people on one board draw with their own pens.
  */
-const DEFAULT_PEN: PenSettings = { tip: 'round', size: 3, angle: -Math.PI / 7, color: null }
+const DEFAULT_PEN: PenSettings = {
+  tip: 'round',
+  size: 3,
+  angle: -Math.PI / 7,
+  color: null,
+  // Off, and it has to be off. A pen that turned the first thing somebody drew into a
+  // rectangle they did not ask for would be a pen they stopped trusting, and the two
+  // assisted modes are only worth having if they were chosen.
+  assist: 'off',
+}
 
 function readPenPreference(): PenSettings {
   try {
@@ -74,6 +89,11 @@ function readPenPreference(): PenSettings {
       size: typeof value.size === 'number' ? value.size : DEFAULT_PEN.size,
       angle: typeof value.angle === 'number' ? value.angle : DEFAULT_PEN.angle,
       color: typeof value.color === 'number' ? value.color : null,
+      // Checked against the list for the same reason the tip is: an unknown mode read
+      // back from an older or newer build must not decide what a stroke becomes.
+      assist: PEN_ASSIST.includes(value.assist as PenAssist)
+        ? (value.assist as PenAssist)
+        : DEFAULT_PEN.assist,
     }
   } catch {
     return DEFAULT_PEN

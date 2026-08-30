@@ -542,6 +542,44 @@ export function IconNibHighlighter(props: IconProps) {
  * toast carries an icon rather than just a coloured edge.
  */
 
+/*
+ * The three degrees of pen assist.
+ *
+ * They are read against each other rather than on their own, so they say their piece
+ * with one difference each. Freehand is the wobble as drawn. Tidy is that wobble made
+ * into the shape it was, still an outline in your own ink. Shapes is the same shape
+ * again with the board's own fill, which is exactly what the two modes differ by. The
+ * spark says a correction happened, and it is the same spark in both that correct.
+ */
+
+export function IconAssistNone(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M3.5 16.4c1.7.5 2-3.5 3.7-3.5 1.5 0 1.2 3.7 2.8 3.7 1.8 0 1.5-5.3 3.2-5.3 1.4 0 1.3 3.5 2.8 3.5 1.3 0 1.7-2.2 4.3-6.3" />
+    </Svg>
+  )
+}
+
+export function IconAssistTidy(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="3.4" y="8.6" width="12" height="12" rx="1.8" />
+      <path d="M18.6 2.6v4.2M16.5 4.7h4.2" />
+    </Svg>
+  )
+}
+
+export function IconAssistShapes(props: IconProps) {
+  return (
+    <Svg {...props}>
+      {/* The same box, filled. A shape from the rail carries the surface's own fill,
+          and that is the whole difference between this mode and tidying. */}
+      <rect x="3.4" y="8.6" width="12" height="12" rx="1.8" fill="currentColor" fillOpacity={0.28} />
+      <path d="M18.6 2.6v4.2M16.5 4.7h4.2" />
+    </Svg>
+  )
+}
+
 export function IconCheck(props: IconProps) {
   return (
     <Svg {...props} strokeWidth={2.25}>

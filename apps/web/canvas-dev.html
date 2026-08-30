@@ -61,6 +61,11 @@
       <button data-nib="chisel">Chisel</button>
       <button data-nib="brush">Brush</button>
       <button data-nib="highlighter">Highlighter</button>
+      <!-- And the assist, for the same reason: what a stroke becomes is decided here
+           and nowhere the unit tests can reach. -->
+      <button data-assist="off" class="active">Freehand</button>
+      <button data-assist="tidy">Tidy</button>
+      <button data-assist="shapes">Shapes</button>
       <span id="readout">starting...</span>
     </header>
     <div id="canvas"></div>

@@ -10,7 +10,13 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { type ArrowRouting, type FreedrawTip, TIP_PROFILES } from '@meadow/schema'
+import {
+  type ArrowRouting,
+  type FreedrawTip,
+  type PenAssist,
+  TIP_PROFILES,
+  tipTakesAssist,
+} from '@meadow/schema'
 import { IndexeddbPersistence } from 'y-indexeddb'
 import * as Y from 'yjs'
 
@@ -21,6 +27,9 @@ import type { ToolId } from '../../canvas/tools/types'
 import { TEXT_MARKS, type TextMark } from '../../doc/richText'
 import {
   IconArrow,
+  IconAssistNone,
+  IconAssistShapes,
+  IconAssistTidy,
   IconBack,
   IconBold,
   IconCheck,
@@ -146,6 +155,26 @@ const TIPS: { id: FreedrawTip; label: string; Icon: typeof IconCursor }[] = [
   { id: 'chisel', label: 'Calligraphy', Icon: IconNibChisel },
   { id: 'brush', label: 'Brush', Icon: IconNibBrush },
   { id: 'highlighter', label: 'Highlighter', Icon: IconNibHighlighter },
+]
+
+/**
+ * What the pen is allowed to do to a stroke once it is finished.
+ *
+ * Three settings and not a checkbox, because the two that do something are different
+ * promises rather than two strengths of one. Both replace the stroke with the object it
+ * was: *Tidy up* leaves that object looking like the mark it replaced, in the pen's own
+ * colour and weight, so a sketch stops being crooked and stays a sketch. *Snap to
+ * shapes* gives it the styling the rail gives, so what comes out is the board's own
+ * rectangle and is not distinguishable from one drawn with the shape tool. A single
+ * toggle would have to pick one of those and call it "smart".
+ *
+ * Offered only on the nibs that take it, which is why this row can be absent. The order
+ * is how much is at stake: nothing, then the mark, then the object.
+ */
+const ASSISTS: { id: PenAssist; label: string; Icon: typeof IconCursor }[] = [
+  { id: 'off', label: 'Freehand', Icon: IconAssistNone },
+  { id: 'tidy', label: 'Tidy up', Icon: IconAssistTidy },
+  { id: 'shapes', label: 'Snap to shapes', Icon: IconAssistShapes },
 ]
 
 /**
@@ -1064,6 +1093,34 @@ export default function BoardPage({ boardId, onBack }: Props) {
                       </button>
                     ))}
                   </div>
+
+                  {/*
+                    Last in the flyout, under a rule, because it is the only row here
+                    that is not about the mark. The four above choose what the ink looks
+                    like; this one chooses whether the stroke survives as ink at all,
+                    and grouping it with the nibs would hide that.
+
+                    Absent on the three nibs that do not take it, the way the angle row
+                    is absent on a nib that is not cut. A row of controls that are
+                    present and inert is a row of questions about why they are inert.
+                  */}
+                  {tipTakesAssist(canvas.pen.tip) && (
+                    <div className="pen-row" role="group" aria-label="Pen assist">
+                      {ASSISTS.map((assist) => (
+                        <button
+                          key={assist.id}
+                          type="button"
+                          aria-label={assist.label}
+                          aria-pressed={canvas.pen.assist === assist.id}
+                          className={canvas.pen.assist === assist.id ? 'tool active' : 'tool'}
+                          onClick={() => canvas.setPen({ assist: assist.id })}
+                        >
+                          <assist.Icon size={18} />
+                          <Tip label={assist.label} />
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

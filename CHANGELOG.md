@@ -64,6 +64,47 @@ The infrastructure to run the thing. Not deployed yet.
   cursor still moves, so the board is not frozen; what this buys is one object and one
   undo step per stroke instead of a document write per sample.
 
+- **The pen can be asked to correct what it just drew, in two degrees.** A third row in
+  the pen's flyout, and *Freehand* stays the default: a pen that silently rewrote the
+  first thing you drew is a pen you stop trusting.
+
+  Both of the other two replace the stroke with the object it actually was, at the size
+  it was drawn. They differ in what that object looks like. *Tidy up* keeps your pen:
+  the shape comes out as an outline in the nib's own colour and weight, so a sketch
+  stops being crooked and stays a sketch, and nothing gets a fill it would hide things
+  under. *Snap to shapes* hands back the board's own shape instead, styled exactly as
+  one drawn with the shape tool, which means it answers to the theme in both directions
+  and is not distinguishable from the shapes already on the board.
+
+  A rectangle, ellipse, diamond or parallelogram comes out as that primitive, which
+  means it resizes, carries a label and lines up with the others. Something drawn within
+  a tenth of square comes out square, since nobody draws a square square. A stroke that
+  was a connector comes out as one, with the kind read off the drawing rather than off a
+  setting: a straight line stays straight and snaps onto the axis if it was within a few
+  degrees of one, a right-angled route comes out as an elbow with its dogleg where it was
+  drawn, and a bowed one comes out as a curve passing through the bow. Barbs on the end
+  make it an arrow rather than a line, at whichever end they were drawn, and the arrow
+  ends where it was aimed rather than where the pen stopped. It attaches to whatever the
+  two ends landed on, on exactly the terms the arrow tool attaches: an arrow drawn
+  between two boxes with the pen has to behave like one drawn with the arrow tool, or
+  the recognition is a trick rather than a feature.
+
+  **Only on the ballpoint and the fineliner.** The other three nibs are what they are
+  because of what they do to a line, and nobody picks up a calligraphy nib or a brush to
+  draw a rectangle with. A highlighter sweep turned into a rectangle has thrown away the
+  only reason it was drawn with a highlighter. The row is simply absent on those nibs,
+  the way the angle row is absent on a nib that is not cut.
+
+  What it refuses matters more than what it accepts. Handwriting is not a connector, a
+  scribble is not a rectangle, and a stroke under 36 screen pixels is not anything at
+  all, which is what keeps the dot over an i from being promoted into a line. A refused
+  stroke is kept exactly as drawn.
+
+  The shape half is a fit rather than a feature count: every primitive is built at the
+  size the stroke has and the closest one wins. Counting corners was the alternative and
+  it is the version that fails on real strokes, because a rounded rectangle has four
+  soft corners and a hurried circle has two sharp ones.
+
 - **The rail's flyouts put themselves away.** Both of them used to be tied to which
   tool was in your hand, which meant neither could ever close: the pen stays in your
   hand across strokes on purpose, so its nibs sat over the board for the rest of the
@@ -622,6 +663,14 @@ The infrastructure to run the thing. Not deployed yet.
   screen, since the person was never logged out.
 
 ### Reversed
+- **A tidy mode that kept the ink and only smoothed it.** *Tidy up* first meant a
+  low-pass over the stroke: straight runs pulled onto their chords, curved ones
+  smoothed, a nearly-closed loop closed, and the result still freehand ink. It worked,
+  and it was not worth a mode. What it gave back was a slightly neater wobbly line, and
+  nobody turning on an assist wants a slightly neater wobbly line: they want the box
+  they were trying to draw. The recognition is the feature, so tidying now means that
+  same recognition with the pen's own colour and weight kept, and the smoother is gone
+  rather than kept as a third setting nobody would pick.
 - **The stock a lea is printed on is the diary's, not the page's.** It was a page value,
   decided in the same unreleased block above: stationery travels with the page, so
   everyone who opens it sees the same paper. That was right while a lea was one page.
