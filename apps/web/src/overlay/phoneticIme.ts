@@ -1,11 +1,13 @@
 /**
- * Phonetic Bengali input, over whichever text editor is open.
+ * Phonetic input, over whichever text editor is open, in any script the service knows.
  *
  * You type `amar`, a list of Bengali words appears under the caret, and Space, Enter, a
- * digit or a click puts one of them on the page. The behaviour is Google Input Tools',
- * because that is the one every Bengali typist on the web already has in their hands,
- * and the candidates come from the same service so the ordering matches too - see
- * `text/inputTools.ts`, which also covers what is sent and what happens offline.
+ * digit or a click puts one of them on the page. `namaste` does the same in Hindi and
+ * `privet` in Russian; the language is a per-person setting, in `text/imeStore.ts`. The
+ * behaviour is Google Input Tools', because that is the one a typist on the web already
+ * has in their hands, and the candidates come from the same service so the ordering
+ * matches too - see `text/inputTools.ts`, which also covers what is sent and what
+ * happens offline.
  *
  * The roman word stays in the document while it is being typed, rather than being held
  * in some parallel buffer. That is the decision the rest of this file follows from: the
@@ -22,11 +24,12 @@ import { Extension, type Editor } from '@tiptap/core'
 import { Plugin } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 
-import { bengaliInputEnabled, subscribeBengaliInput } from '../text/imeStore'
+import { inputLanguageId, subscribeInputLanguage } from '../text/imeStore'
+import { inputLanguage } from '../text/inputLanguages'
 import { cachedCandidates, fetchCandidates, isOnline } from '../text/inputTools'
 
 /** What the popup can be asked about: a roman word, at a place in the document. */
-type Composing = { roman: string; from: number; to: number }
+type Composing = { roman: string; from: number; to: number; language: string }
 
 /** Bengali numerals, as the input tools page numbers its list. */
 const NUMERALS = '০১২৩৪৫৬৭৮৯'
@@ -59,7 +62,7 @@ export const PhoneticComposing = Extension.create({
       new Plugin({
         props: {
           decorations: (state) => {
-            if (!bengaliInputEnabled()) return null
+            if (inputLanguageId() === null) return null
             const { selection } = state
             if (!selection.empty) return null
 
@@ -128,18 +131,33 @@ export function attachPhoneticIme(editor: Editor): PhoneticImeHandle {
       popup = document.createElement('div')
       popup.className = 'ime-popup'
       popup.setAttribute('role', 'listbox')
-      popup.setAttribute('aria-label', 'Bengali suggestions')
       // The editor must keep focus. A mousedown that moves it would blur the editor,
       // which closes it, which unmounts the thing being clicked.
       popup.addEventListener('mousedown', (event) => event.preventDefault())
       document.body.appendChild(popup)
     }
 
+    const language = inputLanguage(composing.language)
+    popup.setAttribute('aria-label', `${language?.label ?? 'Phonetic'} suggestions`)
     popup.replaceChildren()
 
     const head = document.createElement('div')
     head.className = 'ime-popup-head'
-    head.textContent = composing.roman
+
+    const typed = document.createElement('span')
+    typed.className = 'ime-popup-typed'
+    typed.textContent = composing.roman
+    head.appendChild(typed)
+
+    if (language !== null) {
+      // Which keyboard this is. Four scripts in this list share a language name in
+      // English and none of them share one in their own, so the native name is the one
+      // that answers "am I typing Hindi or Marathi" at a glance.
+      const name = document.createElement('span')
+      name.className = 'ime-popup-language'
+      name.textContent = language.native
+      head.appendChild(name)
+    }
     if (!isOnline()) {
       const note = document.createElement('span')
       note.className = 'ime-popup-offline'
@@ -195,15 +213,16 @@ export function attachPhoneticIme(editor: Editor): PhoneticImeHandle {
     editor.view.focus()
   }
 
-  const ask = (roman: string): void => {
+  const ask = (language: string, roman: string): void => {
     request?.abort()
     const controller = new AbortController()
     request = controller
 
-    void fetchCandidates(roman, controller.signal)
+    void fetchCandidates(language, roman, controller.signal)
       .then((answer) => {
         // The word has moved on while this was in flight.
-        if (controller.signal.aborted || composing?.roman !== roman) return
+        if (controller.signal.aborted) return
+        if (composing?.roman !== roman || composing.language !== language) return
         candidates = answer.candidates
         index = 0
         render()
@@ -214,7 +233,8 @@ export function attachPhoneticIme(editor: Editor): PhoneticImeHandle {
   }
 
   const update = (): void => {
-    if (!bengaliInputEnabled() || !editor.isEditable) return close()
+    const language = inputLanguageId()
+    if (language === null || !editor.isEditable) return close()
     // An OS-level input method is mid-composition. Two of them over one caret is one
     // too many, and the browser's own is the one that was asked for.
     if (editor.view.composing) return close()
@@ -233,17 +253,17 @@ export function attachPhoneticIme(editor: Editor): PhoneticImeHandle {
     dismissed = null
 
     const from = head.pos - roman.length
-    composing = { roman, from, to: head.pos }
+    composing = { roman, from, to: head.pos, language }
 
     // A word already asked about paints immediately; the rest waits on the service but
     // shows the previous list until it answers, so the popup never blinks out mid-word.
-    const known = cachedCandidates(roman)
+    const known = cachedCandidates(language, roman)
     if (known !== null) {
       candidates = known
       index = 0
     }
     render()
-    if (known === null) ask(roman)
+    if (known === null) ask(language, roman)
   }
 
   const handleKeyDown = (event: KeyboardEvent): boolean => {
@@ -299,7 +319,7 @@ export function attachPhoneticIme(editor: Editor): PhoneticImeHandle {
   editor.on('transaction', onTransaction)
   editor.on('selectionUpdate', onTransaction)
   // Turning the option off with a word half typed has to take the list away with it.
-  const unsubscribe = subscribeBengaliInput(() => {
+  const unsubscribe = subscribeInputLanguage(() => {
     dismissed = null
     update()
   })

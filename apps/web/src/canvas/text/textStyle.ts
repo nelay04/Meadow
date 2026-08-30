@@ -20,20 +20,36 @@ import type { FontFamily, TextProps, VerticalAlign } from '@meadow/schema'
  * tests run in.
  */
 /*
- * The Bengali face, in every stack.
+ * Every script the phonetic input can write, in every stack.
  *
- * Second in each, never first: fallback is per character and the latin faces have no
- * Bengali glyphs, so this picks up the Bengali and nothing else. It has to be in the
- * stack the canvas measures with as well as the one it paints with - `engine.ts` builds
- * its `context.font` from exactly these strings, and a width measured against a
- * different font than the one drawn is a caret in the wrong place.
+ * After the primary face, never before it: fallback is per character, and each of these
+ * is restricted by unicode-range to its own block, so a line of mixed script keeps the
+ * primary face on the latin and picks one of these up for the rest. Nothing is
+ * downloaded until a character in that block is actually on screen.
+ *
+ * It has to be in the stack the canvas measures with as well as the one it paints with -
+ * `engine.ts` builds its `context.font` from exactly these strings, and a width measured
+ * against a different font than the one drawn is a caret in the wrong place.
+ *
+ * Nine faces for thirteen languages: Devanagari carries Hindi, Marathi, Nepali and
+ * Sanskrit, and Bengali carries Assamese as well as its own.
  */
-const BENGALI = "'Noto Sans Bengali'"
+const SCRIPTS = [
+  'Noto Sans Bengali',
+  'Noto Sans Devanagari',
+  'Noto Sans Gujarati',
+  'Noto Sans Gurmukhi',
+  'Noto Sans Kannada',
+  'Noto Sans Malayalam',
+  'Noto Sans Oriya',
+  'Noto Sans Tamil',
+  'Noto Sans Telugu',
+].join(', ')
 
 export const FONT_STACKS: Record<FontFamily, string> = {
-  inter: `Inter, ${BENGALI}, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif`,
-  comic: `'Comic Neue', ${BENGALI}, 'Comic Sans MS', ui-rounded, cursive`,
-  mono: `'JetBrains Mono', ${BENGALI}, ui-monospace, 'SFMono-Regular', Consolas, monospace`,
+  inter: `Inter, ${SCRIPTS}, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif`,
+  comic: `'Comic Neue', ${SCRIPTS}, 'Comic Sans MS', ui-rounded, cursive`,
+  mono: `'JetBrains Mono', ${SCRIPTS}, ui-monospace, 'SFMono-Regular', Consolas, monospace`,
 }
 
 const FLEX_ALIGN: Record<VerticalAlign, string> = {

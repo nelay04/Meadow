@@ -9,7 +9,7 @@
  * component once.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   type ArrowRouting,
   type FreedrawTip,
@@ -90,11 +90,9 @@ import {
 } from '../../ui/paper'
 import { LeaDate } from './LeaDate'
 import { LeaPages } from './LeaPages'
-import {
-  bengaliInputEnabled,
-  subscribeBengaliInput,
-  toggleBengaliInput,
-} from '../../text/imeStore'
+import { toggleInputLanguage } from '../../text/imeStore'
+import { inputLanguage } from '../../text/inputLanguages'
+import { InputLanguage } from './InputLanguage'
 import { LeaPaper } from './LeaPaper'
 import { useCanvas } from './useCanvas'
 
@@ -376,14 +374,7 @@ export default function BoardPage({ boardId, onBack }: Props) {
    * every reload of a lea would add another blank paragraph to it.
    */
   const [docReady, setDocReady] = useState(false)
-  /*
-   * Phonetic Bengali input, on or off.
-   *
-   * Read from the store rather than held here, because the editor is not a React tree:
-   * a TipTap instance the canvas mounts reads the same value, and the button below is
-   * only a view of it. Same reason the Y.Doc is subscribed to rather than copied.
-   */
-  const bengali = useSyncExternalStore(subscribeBengaliInput, bengaliInputEnabled, () => false)
+
   const connection = useRef<BoardConnection | null>(null)
 
   const { user } = useAuth()
@@ -691,8 +682,12 @@ export default function BoardPage({ boardId, onBack }: Props) {
       if (!event.ctrlKey && !event.metaKey) return
       if (event.altKey || event.shiftKey || event.key.toLowerCase() !== 'g') return
       event.preventDefault()
-      const on = toggleBengaliInput()
-      toast.info(on ? 'Phonetic Bengali on. Type amar, choose আমার.' : 'Phonetic Bengali off.')
+      const on = inputLanguage(toggleInputLanguage())
+      toast.info(
+        on === null
+          ? 'Phonetic typing off.'
+          : `Phonetic ${on.label} on. Type ${on.sample[0]}, choose ${on.sample[1]}.`,
+      )
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -970,29 +965,12 @@ export default function BoardPage({ boardId, onBack }: Props) {
           The keyboard, not the document.
 
           Offered on every kind rather than only on a diary: a glade's stickies and text
-          objects take the same editor, and somebody who writes in Bengali does not stop
-          at the edge of the paper. It is the person's own setting - see `imeStore` - so
-          it follows them from board to board and nobody else on this lea sees it change.
+          objects take the same editor, and somebody who writes in another script does
+          not stop at the edge of the paper. It is the person's own setting - see
+          `text/imeStore.ts` - so it follows them from board to board and nobody else on
+          this lea sees it change.
         */}
-        <button
-          type="button"
-          className={bengali ? 'icon ghost active bengali-toggle' : 'icon ghost bengali-toggle'}
-          aria-pressed={bengali}
-          // Keeps the caret where it is. Every other button in this bar can afford to
-          // take focus; this one cannot, because taking it blurs the editor, which ends
-          // the edit - so switching scripts mid-sentence would close the line you were
-          // switching it for.
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => toggleBengaliInput()}
-          title={
-            bengali
-              ? 'Phonetic Bengali is on (Ctrl+G). Type amar, choose আমার.'
-              : 'Type Bengali phonetically (Ctrl+G)'
-          }
-          aria-label={bengali ? 'Turn off phonetic Bengali' : 'Type Bengali phonetically'}
-        >
-          <span aria-hidden="true">{bengali ? 'অ' : 'A'}</span>
-        </button>
+        <InputLanguage />
 
         <button
           type="button"

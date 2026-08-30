@@ -71,28 +71,178 @@
  * the same lea was a different shape per person - and the metrics that set the CRDT
  * bounds were measured from a font nobody else had.
  *
- * The two faces are pinned to 330 and 560 rather than 400 and 700. Noto at 400 is
+ * The two faces are pinned to 260 and 400 rather than 400 and 700. Noto at 400 is
  * markedly darker on the page than Comic Neue at 400 beside it, because the matra
  * puts a continuous horizontal stroke on every word that latin has no equivalent
- * of. size-adjust goes the other way, up: the eye matches a Bengali word against
- * the height of a capital next to it, and Noto sits a shade under Comic Neue caps.
+ * of, and the bold half of that matters more than it looks: the app sets 600 on a
+ * lot of small chrome - a page title in the list, a menu row - and at 600 an
+ * unpinned Noto is a black slab beside the same string in latin. size-adjust goes
+ * the other way, up: the eye matches a word against the height of a capital next to
+ * it, and Noto sits a shade under Comic Neue caps. styles.css turns weight
+ * synthesis off, which is the other half of this: without it a request for 700
+ * picks the 480 face and then Chrome smears it bolder itself, which is what made
+ * a Bengali page title in the list read as a black slab.
  */
 @font-face {
   font-family: 'Noto Sans Bengali';
   font-style: normal;
-  font-weight: 330 330;
+  font-weight: 260 260;
   font-display: block;
-  size-adjust: 104%;
-  src: url('/fonts/noto-sans-bengali-300-700-bengali.woff2') format('woff2');
+  size-adjust: 108%;
+  src: url('/fonts/noto-sans-bengali-100-900-bengali.woff2') format('woff2');
   unicode-range: U+0951-0952, U+0964-0965, U+0980-09FE, U+1CD0, U+1CD2, U+1CD5-1CD6, U+1CD8, U+1CE1, U+1CEA, U+1CED, U+1CF2, U+1CF5-1CF7, U+200C-200D, U+20B9, U+25CC, U+A8F1;
 }
 
 @font-face {
   font-family: 'Noto Sans Bengali';
   font-style: normal;
-  font-weight: 560 560;
+  font-weight: 400 400;
   font-display: block;
-  size-adjust: 104%;
-  src: url('/fonts/noto-sans-bengali-300-700-bengali.woff2') format('woff2');
+  size-adjust: 108%;
+  src: url('/fonts/noto-sans-bengali-100-900-bengali.woff2') format('woff2');
   unicode-range: U+0951-0952, U+0964-0965, U+0980-09FE, U+1CD0, U+1CD2, U+1CD5-1CD6, U+1CD8, U+1CE1, U+1CEA, U+1CED, U+1CF2, U+1CF5-1CF7, U+200C-200D, U+20B9, U+25CC, U+A8F1;
+}
+
+@font-face {
+  font-family: 'Noto Sans Devanagari';
+  font-style: normal;
+  font-weight: 260 260;
+  font-display: block;
+  src: url('/fonts/noto-sans-devanagari-100-900-devanagari.woff2') format('woff2');
+  unicode-range: U+0900-097F, U+1CD0-1CF9, U+200C-200D, U+20A8, U+20B9, U+20F0, U+25CC, U+A830-A839, U+A8E0-A8FF, U+11B00-11B09;
+}
+
+@font-face {
+  font-family: 'Noto Sans Devanagari';
+  font-style: normal;
+  font-weight: 400 400;
+  font-display: block;
+  src: url('/fonts/noto-sans-devanagari-100-900-devanagari.woff2') format('woff2');
+  unicode-range: U+0900-097F, U+1CD0-1CF9, U+200C-200D, U+20A8, U+20B9, U+20F0, U+25CC, U+A830-A839, U+A8E0-A8FF, U+11B00-11B09;
+}
+
+@font-face {
+  font-family: 'Noto Sans Gujarati';
+  font-style: normal;
+  font-weight: 260 260;
+  font-display: block;
+  src: url('/fonts/noto-sans-gujarati-100-900-gujarati.woff2') format('woff2');
+  unicode-range: U+0951-0952, U+0964-0965, U+0A80-0AFF, U+200C-200D, U+20B9, U+25CC, U+A830-A839;
+}
+
+@font-face {
+  font-family: 'Noto Sans Gujarati';
+  font-style: normal;
+  font-weight: 400 400;
+  font-display: block;
+  src: url('/fonts/noto-sans-gujarati-100-900-gujarati.woff2') format('woff2');
+  unicode-range: U+0951-0952, U+0964-0965, U+0A80-0AFF, U+200C-200D, U+20B9, U+25CC, U+A830-A839;
+}
+
+@font-face {
+  font-family: 'Noto Sans Gurmukhi';
+  font-style: normal;
+  font-weight: 260 260;
+  font-display: block;
+  src: url('/fonts/noto-sans-gurmukhi-100-900-gurmukhi.woff2') format('woff2');
+  unicode-range: U+0951-0952, U+0964-0965, U+0A01-0A76, U+200C-200D, U+20B9, U+25CC, U+262C, U+A830-A839;
+}
+
+@font-face {
+  font-family: 'Noto Sans Gurmukhi';
+  font-style: normal;
+  font-weight: 400 400;
+  font-display: block;
+  src: url('/fonts/noto-sans-gurmukhi-100-900-gurmukhi.woff2') format('woff2');
+  unicode-range: U+0951-0952, U+0964-0965, U+0A01-0A76, U+200C-200D, U+20B9, U+25CC, U+262C, U+A830-A839;
+}
+
+@font-face {
+  font-family: 'Noto Sans Kannada';
+  font-style: normal;
+  font-weight: 260 260;
+  font-display: block;
+  src: url('/fonts/noto-sans-kannada-100-900-kannada.woff2') format('woff2');
+  unicode-range: U+0951-0952, U+0964-0965, U+0C80-0CF3, U+1CD0, U+1CD2-1CD3, U+1CDA, U+1CF2, U+1CF4, U+200C-200D, U+20B9, U+25CC, U+A830-A835;
+}
+
+@font-face {
+  font-family: 'Noto Sans Kannada';
+  font-style: normal;
+  font-weight: 400 400;
+  font-display: block;
+  src: url('/fonts/noto-sans-kannada-100-900-kannada.woff2') format('woff2');
+  unicode-range: U+0951-0952, U+0964-0965, U+0C80-0CF3, U+1CD0, U+1CD2-1CD3, U+1CDA, U+1CF2, U+1CF4, U+200C-200D, U+20B9, U+25CC, U+A830-A835;
+}
+
+@font-face {
+  font-family: 'Noto Sans Malayalam';
+  font-style: normal;
+  font-weight: 260 260;
+  font-display: block;
+  src: url('/fonts/noto-sans-malayalam-100-900-malayalam.woff2') format('woff2');
+  unicode-range: U+0307, U+0323, U+0951-0952, U+0964-0965, U+0D00-0D7F, U+1CDA, U+1CF2, U+200C-200D, U+20B9, U+25CC, U+A830-A832;
+}
+
+@font-face {
+  font-family: 'Noto Sans Malayalam';
+  font-style: normal;
+  font-weight: 400 400;
+  font-display: block;
+  src: url('/fonts/noto-sans-malayalam-100-900-malayalam.woff2') format('woff2');
+  unicode-range: U+0307, U+0323, U+0951-0952, U+0964-0965, U+0D00-0D7F, U+1CDA, U+1CF2, U+200C-200D, U+20B9, U+25CC, U+A830-A832;
+}
+
+@font-face {
+  font-family: 'Noto Sans Oriya';
+  font-style: normal;
+  font-weight: 260 260;
+  font-display: block;
+  src: url('/fonts/noto-sans-oriya-100-900-oriya.woff2') format('woff2');
+  unicode-range: U+0951-0952, U+0964-0965, U+0B01-0B77, U+1CDA, U+1CF2, U+200C-200D, U+20B9, U+25CC;
+}
+
+@font-face {
+  font-family: 'Noto Sans Oriya';
+  font-style: normal;
+  font-weight: 400 400;
+  font-display: block;
+  src: url('/fonts/noto-sans-oriya-100-900-oriya.woff2') format('woff2');
+  unicode-range: U+0951-0952, U+0964-0965, U+0B01-0B77, U+1CDA, U+1CF2, U+200C-200D, U+20B9, U+25CC;
+}
+
+@font-face {
+  font-family: 'Noto Sans Tamil';
+  font-style: normal;
+  font-weight: 260 260;
+  font-display: block;
+  src: url('/fonts/noto-sans-tamil-100-900-tamil.woff2') format('woff2');
+  unicode-range: U+0964-0965, U+0B82-0BFA, U+200C-200D, U+20B9, U+25CC;
+}
+
+@font-face {
+  font-family: 'Noto Sans Tamil';
+  font-style: normal;
+  font-weight: 400 400;
+  font-display: block;
+  src: url('/fonts/noto-sans-tamil-100-900-tamil.woff2') format('woff2');
+  unicode-range: U+0964-0965, U+0B82-0BFA, U+200C-200D, U+20B9, U+25CC;
+}
+
+@font-face {
+  font-family: 'Noto Sans Telugu';
+  font-style: normal;
+  font-weight: 260 260;
+  font-display: block;
+  src: url('/fonts/noto-sans-telugu-100-900-telugu.woff2') format('woff2');
+  unicode-range: U+0951-0952, U+0964-0965, U+0C00-0C7F, U+1CDA, U+1CF2, U+200C-200D, U+25CC;
+}
+
+@font-face {
+  font-family: 'Noto Sans Telugu';
+  font-style: normal;
+  font-weight: 400 400;
+  font-display: block;
+  src: url('/fonts/noto-sans-telugu-100-900-telugu.woff2') format('woff2');
+  unicode-range: U+0951-0952, U+0964-0965, U+0C00-0C7F, U+1CDA, U+1CF2, U+200C-200D, U+25CC;
 }

@@ -2,10 +2,15 @@
  * Candidates for a roman word, from Google's input service.
  *
  * This is the same endpoint the page at google.co.in/inputtools/try uses, and asking it
- * is the only way the suggestions here can be the ones a Bengali typist already knows:
- * ranking "amar" as আমার before অমর takes a dictionary and a frequency model, and no
- * transliteration rule can do it. `bengaliPhonetic.ts` answers when this cannot be
- * reached, correctly but unranked.
+ * is the only way the suggestions here can be the ones a typist already knows: ranking
+ * "amar" as আমার before অমর takes a dictionary and a frequency model, and no
+ * transliteration rule can do it. It is also what makes twenty-nine scripts possible
+ * from one integration - see `inputLanguages.ts` for which, and how the list was
+ * arrived at.
+ *
+ * `bengaliPhonetic.ts` answers for Bengali when this cannot be reached, correctly but
+ * unranked. There is no offline answer for the other twenty-eight, and inventing one
+ * per script is not a thing to do badly: the popup says so rather than guessing.
  *
  * What leaves this machine, and it is worth being plain about it in a private notebook:
  * the roman letters of the word being typed, and nothing else. Not the page, not the
@@ -20,9 +25,13 @@
 import { localCandidates } from './bengaliPhonetic'
 
 const ENDPOINT = 'https://inputtools.google.com/request'
-/** Google's own code for Bengali phonetic transliteration. */
-const LANGUAGE = 'bn-t-i0-und'
 const WANTED = 6
+/*
+ * The scripts the local rules cover. Bengali and Assamese share an alphabet, and the
+ * handful of letters they do not share are ones the transliterator has no rule for
+ * either way, so it is honest for both.
+ */
+const OFFLINE_LANGUAGES = new Set(['bn', 'as'])
 /** Long enough to cross a slow connection, short enough that the popup is never late. */
 const TIMEOUT_MS = 2_500
 
@@ -32,7 +41,7 @@ const CACHE_LIMIT = 500
 
 let online = true
 
-type Answer = { candidates: string[]; source: 'google' | 'local' }
+type Answer = { candidates: string[]; source: 'google' | 'local' | 'none' }
 
 /*
  * The response is a positional array, not an object:
@@ -50,12 +59,12 @@ function parse(payload: unknown): string[] | null {
   return out.length === 0 ? null : out
 }
 
-function remember(roman: string, candidates: string[]): void {
+function remember(key: string, candidates: string[]): void {
   if (cache.size >= CACHE_LIMIT) {
     const oldest = cache.keys().next().value
     if (oldest !== undefined) cache.delete(oldest)
   }
-  cache.set(roman, candidates)
+  cache.set(key, candidates)
 }
 
 /**
@@ -71,8 +80,8 @@ function withRoman(roman: string, candidates: string[]): string[] {
   return out
 }
 
-export function cachedCandidates(roman: string): string[] | null {
-  return cache.get(roman) ?? null
+export function cachedCandidates(language: string, roman: string): string[] | null {
+  return cache.get(`${language}:${roman}`) ?? null
 }
 
 /** Whether the last request reached the service. Drives the offline note in the popup. */
@@ -80,13 +89,20 @@ export function isOnline(): boolean {
   return online
 }
 
-export async function fetchCandidates(roman: string, signal?: AbortSignal): Promise<Answer> {
-  const hit = cache.get(roman)
+export async function fetchCandidates(
+  language: string,
+  roman: string,
+  signal?: AbortSignal,
+): Promise<Answer> {
+  // Keyed by language as well as by word: `salam` is a different answer in Arabic, in
+  // Persian and in Urdu, and one cache serving all three would be wrong twice.
+  const key = `${language}:${roman}`
+  const hit = cache.get(key)
   if (hit !== undefined) return { candidates: hit, source: online ? 'google' : 'local' }
 
   const query = new URLSearchParams({
     text: roman,
-    itc: LANGUAGE,
+    itc: `${language}-t-i0-und`,
     num: String(WANTED),
     cp: '0',
     cs: '1',
@@ -116,14 +132,19 @@ export async function fetchCandidates(roman: string, signal?: AbortSignal): Prom
 
     online = true
     const candidates = withRoman(roman, parsed)
-    remember(roman, candidates)
+    remember(key, candidates)
     return { candidates, source: 'google' }
   } catch (error) {
     // An abort is the caller changing its mind, not the service being down, so it must
     // not flip the offline flag or poison the cache with a local answer.
     if (signal?.aborted === true) throw error
     online = false
-    return { candidates: localCandidates(roman, WANTED), source: 'local' }
+    if (OFFLINE_LANGUAGES.has(language)) {
+      return { candidates: localCandidates(roman, WANTED), source: 'local' }
+    }
+    // Nothing to offer, and the caller shows no list at all rather than a list of one
+    // roman word pretending to be a suggestion.
+    return { candidates: [], source: 'none' }
   } finally {
     window.clearTimeout(stop)
     signal?.removeEventListener('abort', onAbort)

@@ -46,11 +46,11 @@ const FAMILIES = [
   { query: 'JetBrains+Mono:wght@100..800', slug: 'jetbrains-mono' },
   { query: 'Comic+Neue:wght@400;700', slug: 'comic-neue' },
   {
-    query: 'Noto+Sans+Bengali:wght@300..700',
+    query: 'Noto+Sans+Bengali:wght@100..900',
     slug: 'noto-sans-bengali',
     subsets: ['bengali'],
-    instances: ['330 330', '560 560'],
-    sizeAdjust: '104%',
+    instances: ['260 260', '400 400'],
+    sizeAdjust: '108%',
     note: [
       '/*',
       ' * Bengali, appended to every stack in styles.css and canvas/text/textStyle.ts.',
@@ -65,14 +65,41 @@ const FAMILIES = [
       ' * the same lea was a different shape per person - and the metrics that set the CRDT',
       ' * bounds were measured from a font nobody else had.',
       ' *',
-      ' * The two faces are pinned to 330 and 560 rather than 400 and 700. Noto at 400 is',
+      ' * The two faces are pinned to 260 and 400 rather than 400 and 700. Noto at 400 is',
       ' * markedly darker on the page than Comic Neue at 400 beside it, because the matra',
       ' * puts a continuous horizontal stroke on every word that latin has no equivalent',
-      ' * of. size-adjust goes the other way, up: the eye matches a Bengali word against',
-      ' * the height of a capital next to it, and Noto sits a shade under Comic Neue caps.',
+      ' * of, and the bold half of that matters more than it looks: the app sets 600 on a',
+      ' * lot of small chrome - a page title in the list, a menu row - and at 600 an',
+      ' * unpinned Noto is a black slab beside the same string in latin. size-adjust goes',
+      ' * the other way, up: the eye matches a word against the height of a capital next to',
+      ' * it, and Noto sits a shade under Comic Neue caps. styles.css turns weight',
+      ' * synthesis off, which is the other half of this: without it a request for 700',
+      ' * picks the 480 face and then Chrome smears it bolder itself, which is what made',
+      ' * a Bengali page title in the list read as a black slab.',
       ' */',
     ].join('\n'),
   },
+
+  // One face per script the input can write, each restricted to its own block by
+  // unicode-range so nothing is downloaded until somebody types it. Devanagari covers
+  // four of the thirteen languages; Bengali covers two. All pinned to the same pair of
+  // instances as Bengali above, for the same reason: the app sets 600 on a lot of small
+  // chrome, and at 600 an unpinned Noto is a slab beside the same string in latin.
+  ...[
+    ['Noto+Sans+Devanagari', 'devanagari'],
+    ['Noto+Sans+Gujarati', 'gujarati'],
+    ['Noto+Sans+Gurmukhi', 'gurmukhi'],
+    ['Noto+Sans+Kannada', 'kannada'],
+    ['Noto+Sans+Malayalam', 'malayalam'],
+    ['Noto+Sans+Oriya', 'oriya'],
+    ['Noto+Sans+Tamil', 'tamil'],
+    ['Noto+Sans+Telugu', 'telugu'],
+  ].map(([family, subset]) => ({
+    query: `${family}:wght@100..900`,
+    slug: family.toLowerCase().replaceAll('+', '-'),
+    subsets: [subset],
+    instances: ['260 260', '400 400'],
+  })),
 ]
 
 /**

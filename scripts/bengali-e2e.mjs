@@ -1,5 +1,10 @@
 /**
- * End-to-end check of phonetic Bengali input, in a real browser, on a real lea.
+ * End-to-end check of phonetic input, in a real browser, on a real lea.
+ *
+ * Bengali carries most of it because it is the one with an offline engine behind it and
+ * the one the feature was built for; Hindi is checked too, through the script menu,
+ * because the language being a setting rather than a constant is the part most likely
+ * to be wired up wrong.
  *
  * The unit tests cover the offline transliterator and nothing else. Everything that can
  * actually go wrong with an input method is in the wiring: whether the candidate list
@@ -283,6 +288,40 @@ if (process.env.E2E_SHOT) {
   await page.screenshot({ path: process.env.E2E_SHOT.replace(/(\.png)?$/, '-long.png') })
 }
 await page.keyboard.press('Escape')
+
+/*
+ * A second script, chosen from the menu.
+ *
+ * Devanagari rather than another Bengali case: what is being checked is that the choice
+ * reaches the editor, the request and the cache, and only a different alphabet on the
+ * page can show that.
+ */
+await page.click('.input-language .caret')
+await page.click('.menu-language [role="option"]:has-text("Hindi")')
+await page.keyboard.type('namaste')
+await popup.waitFor({ timeout: 10000 })
+const hindi = await page.locator('.ime-option-text').allTextContents()
+check(
+  'choosing Hindi from the menu writes Devanagari',
+  hindi.some((word) => /[\u0900-\u097F]/.test(word)),
+  `list was ${JSON.stringify(hindi)}`,
+)
+check(
+  'the popup names the script being typed',
+  (await page.locator('.ime-popup-language').textContent()) === 'हिन्दी',
+  `header read "${await page.locator('.ime-popup-language').textContent()}"`,
+)
+await page.keyboard.press('Enter')
+await popup.waitFor({ state: 'detached', timeout: 5000 })
+check(
+  'Enter commits the Devanagari',
+  (await line()).includes(hindi[0]),
+  `line read "${await line()}"`,
+)
+
+// Back to Bengali, so the reload check below is about the word it committed earlier.
+await page.click('.input-language .caret')
+await page.click('.menu-language [role="option"]:has-text("Bengali")')
 
 // And with the option off, roman is just roman.
 await toggle.click()

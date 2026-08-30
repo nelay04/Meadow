@@ -153,6 +153,11 @@
   --shadow-lg: 0 4px 12px light-dark(#1b1c1f14, #0000006b), 0 24px 48px light-dark(#1b1c1f14, #00000059);
 
   --ring: 0 0 0 3px var(--accent-soft);
+  /* The scrollbar thumb. Ink at low alpha rather than a grey of its own, so it sits on
+     whatever surface it happens to be over and follows the theme without a second
+     definition. */
+  --scroll-thumb: light-dark(#1b1c1f2e, #ffffff26);
+  --scroll-thumb-strong: light-dark(#1b1c1f4d, #ffffff40);
 
   /* One duration for everything that moves, so the whole app feels like one app. */
   --fast: 120ms cubic-bezier(0.2, 0, 0.2, 1);
@@ -169,10 +174,72 @@ body {
   height: 100%;
 }
 
+/*
+ * Scrollbars, everywhere, in the app's own colours.
+ *
+ * The platform's default is a wide light-grey trough that belongs to the browser rather
+ * than to this: on a dark page it is the brightest thing on screen, and inside a small
+ * surface - the script menu, the candidate list, the pages panel - it takes a sixth of
+ * the width and draws the eye to the edge of a list rather than to the list.
+ *
+ * `scrollbar-width: thin` is the standard property and does most of it; the WebKit
+ * pseudo-elements are the same decision again for the browsers that have not caught up.
+ * Both keep a visible thumb rather than hiding it until you scroll: a list that gives no
+ * sign it continues is worse than a line of colour at its edge.
+ */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border-radius: var(--pill);
+  background: var(--scroll-thumb);
+  /* Inset off the edge, so the thumb reads as a mark on the surface rather than as a
+     bar bolted to the side of it. */
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scroll-thumb-strong);
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 body {
+  /*
+   * No faked bold, anywhere.
+   *
+   * Every latin face here is either variable across the whole range or ships a real
+   * 700, so nothing in English ever needed synthesis. The scripts do: their two faces
+   * are pinned to lighter instances on purpose, and Chrome answers a request for 600 by
+   * taking the nearest face and smearing it bolder itself. That is what made a Bengali
+   * page title in the pages list read as a black slab beside the same row in English.
+   */
+  font-synthesis-weight: none;
+
   /* Comic Neue throughout the chrome. It is the app's voice, and a whiteboard that
      writes in a grotesque and draws in a handwriting face reads as two products. */
-  font-family: 'Comic Neue', 'Noto Sans Bengali', 'Comic Sans MS', ui-rounded, system-ui, sans-serif;
+  font-family:
+    'Comic Neue',
+    'Noto Sans Bengali', 'Noto Sans Devanagari', 'Noto Sans Gujarati', 'Noto Sans Gurmukhi', 'Noto Sans Kannada', 'Noto Sans Malayalam', 'Noto Sans Oriya', 'Noto Sans Tamil', 'Noto Sans Telugu',
+    'Comic Sans MS',
+    ui-rounded,
+    system-ui,
+    sans-serif;
   font-size: 15px;
   margin: 0;
   padding: 0;
@@ -259,7 +326,7 @@ p {
 }
 
 code {
-  font-family: 'JetBrains Mono', 'Noto Sans Bengali', ui-monospace, monospace;
+  font-family: 'JetBrains Mono', 'Noto Sans Bengali', 'Noto Sans Devanagari', 'Noto Sans Gujarati', 'Noto Sans Gurmukhi', 'Noto Sans Kannada', 'Noto Sans Malayalam', 'Noto Sans Oriya', 'Noto Sans Tamil', 'Noto Sans Telugu', ui-monospace, monospace;
   font-size: 0.8rem;
 }
 
@@ -2431,7 +2498,7 @@ label {
   align-items: stretch;
   justify-content: space-between;
   gap: 1.75rem;
-  font-family: 'Comic Neue', 'Noto Sans Bengali', 'Comic Sans MS', ui-rounded, cursive;
+  font-family: 'Comic Neue', 'Noto Sans Bengali', 'Noto Sans Devanagari', 'Noto Sans Gujarati', 'Noto Sans Gurmukhi', 'Noto Sans Kannada', 'Noto Sans Malayalam', 'Noto Sans Oriya', 'Noto Sans Tamil', 'Noto Sans Telugu', 'Comic Sans MS', ui-rounded, cursive;
   /* A shade under the writing. The header is printed furniture, not a line of the
      diary, and matching the hand exactly made it read as the first entry. */
   font-size: calc(var(--lea-type-size) * 0.86);
@@ -4206,7 +4273,7 @@ dialog.modal[open] .modal-card {
   border: 1px solid var(--line);
   background: var(--surface);
   box-shadow: var(--shadow);
-  font-family: 'Inter', 'Noto Sans Bengali', ui-sans-serif, system-ui, sans-serif;
+  font-family: 'Inter', 'Noto Sans Bengali', 'Noto Sans Devanagari', 'Noto Sans Gujarati', 'Noto Sans Gurmukhi', 'Noto Sans Kannada', 'Noto Sans Malayalam', 'Noto Sans Oriya', 'Noto Sans Tamil', 'Noto Sans Telugu', ui-sans-serif, system-ui, sans-serif;
   /* The list is a menu, and a menu does not inherit the paper's line height. */
   line-height: 1.4;
 }
@@ -4221,9 +4288,22 @@ dialog.modal[open] .modal-card {
   margin-bottom: 0.2rem;
   font-size: 0.85rem;
   color: var(--muted);
-  /* What you actually typed, so the list can be checked against it at a glance. */
-  font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
+}
+
+/* What you actually typed, so the list can be checked against it at a glance. */
+.ime-popup-typed {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Which keyboard, in its own script. Hindi, Marathi, Nepali and Sanskrit are one
+   alphabet and four different answers, and this is the only thing on screen that says
+   which of them the next word will be. */
+.ime-popup-language {
+  flex: 0 0 auto;
+  font-size: 0.75rem;
+  opacity: 0.8;
 }
 
 .ime-popup-offline {
@@ -4298,4 +4378,73 @@ dialog.modal[open] .modal-card {
   font-size: 1.05rem;
   font-weight: 400;
   line-height: 1;
+}
+
+/*
+ * The script switch: a button that toggles, and a caret that opens the list.
+ *
+ * Two buttons welded into one control rather than a menu on its own, because going back
+ * and forth between your own script and English is the thing that happens twenty times
+ * in a paragraph, and choosing between twenty-nine scripts is the thing that happens
+ * once.
+ */
+.input-language {
+  display: inline-flex;
+  align-items: stretch;
+}
+
+.input-language > .caret {
+  /* Narrow, and joined to the button it belongs to. */
+  width: 1.1rem;
+  min-width: 0;
+  padding: 0 0.15rem;
+  margin-left: -0.15rem;
+}
+
+.caret-glyph {
+  width: 0;
+  height: 0;
+  border-left: 3.5px solid transparent;
+  border-right: 3.5px solid transparent;
+  border-top: 4px solid currentColor;
+  opacity: 0.7;
+}
+
+/* Thirteen rows, which fits on any screen worth supporting; the cap and the scroll are
+   for a short window rather than for the length of the list. */
+.menu-language {
+  min-width: 12.5rem;
+  max-height: min(60vh, 24rem);
+  overflow-y: auto;
+}
+
+.menu-language .menu-item {
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding: 0.3rem 0.55rem;
+  font-size: 0.82rem;
+}
+
+.menu-language .menu-label {
+  font-weight: 600;
+}
+
+/* The language's own name, at the muted end of the row: a reader of the script finds
+   their line by this rather than by the English beside it. */
+.menu-native {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 400;
+}
+
+.menu-item.selected .menu-native {
+  color: var(--accent);
+}
+
+.menu-rule {
+  height: 1px;
+  margin: 0.25rem 0.4rem;
+  background: var(--line);
 }
