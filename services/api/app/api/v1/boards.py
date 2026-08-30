@@ -14,6 +14,7 @@ from app.auth.deps import CurrentUser, Session, board_editor, board_owner, board
 from app.models import Board, BoardMember, BoardThumbnail, User, WorkspaceMember
 from app.schemas.boards import BoardCreate, BoardMemberAdd, BoardOut, BoardPatch, MemberOut
 from app.services.board_kinds import BoardKind
+from app.services.naming import DEFAULT_TITLE, generate_unique_board_title
 from app.services.permissions import BoardRole, at_least, resolve_role
 
 router = APIRouter(prefix="/boards", tags=["boards"])
@@ -83,9 +84,16 @@ async def create_board(body: BoardCreate, user: CurrentUser, session: Session) -
     if member is None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="no access")
 
+    # A bare "Untitled" means the caller never supplied a name (BoardsPage.tsx's
+    # create() sends exactly this literal as its fallback). Give it a random tail so
+    # boards stay distinguishable in the list, and so no two in this workspace collide.
+    title = body.title
+    if title == DEFAULT_TITLE:
+        title = await generate_unique_board_title(session, body.workspace_id)
+
     board = Board(
         workspace_id=body.workspace_id,
-        title=body.title,
+        title=title,
         kind=body.kind,
         created_by=user.id,
     )

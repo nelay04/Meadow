@@ -780,7 +780,9 @@ export default function BoardPage({ boardId, onBack }: Props) {
           onFocus={(event) => {
             // An untitled board is named by typing, not by deleting the placeholder
             // word first. Anything the user chose themselves is left alone.
-            if (event.target.value === 'Untitled') event.target.select()
+            if (event.target.value.startsWith('Untitled ') || event.target.value === 'Untitled') {
+              event.target.select()
+            }
           }}
           onBlur={() => void commitTitle()}
           onKeyDown={(event) => {
