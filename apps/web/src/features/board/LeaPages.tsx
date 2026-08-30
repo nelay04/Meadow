@@ -11,17 +11,18 @@
  * the diary rather than printed in it, and dressing them as little sheets of kraft would
  * put two kinds of paper on screen at once, neither of them the one being written on.
  *
- * One line per page: number, title, length, and the way to tear it out. The number was
- * a small ruled sheet with the numeral inside it for a while, and a column of identical
- * thumbnails of a thing every row already is says nothing at all; the length sat under
- * the title for a while after that, which made every row two lines tall and left three
- * different left edges down the list. A contents page is one line per entry.
+ * One line per page: number, title, the date it carries or how long it is, and the way
+ * to tear it out. The number was a small ruled sheet with the numeral inside it for a
+ * while, and a column of identical thumbnails of a thing every row already is says
+ * nothing at all; the length sat under the title for a while after that, which made
+ * every row two lines tall and left three different left edges down the list. A
+ * contents page is one line per entry.
  */
 
 import { IconChevronRight, IconPlus, IconTrash } from '../../ui/icons'
 import { useConfirm } from '../../ui/ConfirmDialog'
 import type { PageMeta } from '../../doc/mutations'
-import { formatDiaryDate } from './LeaDate'
+import { formatDiaryDate, formatDiaryDateShort } from './LeaDate'
 
 export type LeaPagesProps = {
   pages: readonly PageMeta[]
@@ -84,6 +85,16 @@ export function LeaPages({
       <ol className="lea-pages-list">
         {pages.map((page, position) => {
           const titled = page.subject.trim() !== ''
+          /*
+           * What a page says about itself, in the one slot the row has for it.
+           *
+           * The date when it has one. A diary is indexed by day before it is indexed
+           * by anything else - "the one from the 12th" is how a page gets asked for -
+           * and a column of line counts answers a question nobody has. The length is
+           * still there for a page with no date, where it is the only thing that
+           * distinguishes an untitled page from an empty one.
+           */
+          const dated = formatDiaryDateShort(page.date)
           return (
             <li key={page.id} className="lea-page-slot">
               <button
@@ -92,9 +103,9 @@ export function LeaPages({
                 // The list is a set of destinations, so the open one is `aria-current`
                 // rather than pressed: nothing here toggles.
                 aria-current={position === index ? 'true' : undefined}
-                // One line has no room for the date, and a page that has one should
-                // still be able to say so.
-                title={page.date === '' ? undefined : formatDiaryDate(page.date)}
+                // The row shows the short date; the full one, the way the page
+                // itself prints it, is worth a hover.
+                title={dated === '' ? undefined : formatDiaryDate(page.date)}
                 onClick={() => onTurn(position)}
               >
                 <span className="lea-page-number" aria-hidden="true">
@@ -104,7 +115,7 @@ export function LeaPages({
                   {titled ? page.subject : 'Untitled page'}
                 </span>
                 <span className="lea-page-meta">
-                  {page.lines} line{page.lines === 1 ? '' : 's'}
+                  {dated === '' ? `${page.lines} line${page.lines === 1 ? '' : 's'}` : dated}
                 </span>
               </button>
 

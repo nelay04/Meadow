@@ -42,6 +42,23 @@ export function formatDiaryDate(iso: string): string {
   return `${day}${suffix} ${MONTHS[month - 1]}, ${year}`
 }
 
+/**
+ * The same date with the month abbreviated: 28 May 2026.
+ *
+ * For the contents list, where a page's own date is worth more than its length and
+ * there is one line to say it in. The long form eats a row that has a title in it, and
+ * the ordinal is the first thing to go: it is a flourish that belongs on the page
+ * itself rather than in an index of them. Written from the same parts as the long form
+ * so the two can never disagree about what day a page is.
+ */
+export function formatDiaryDateShort(iso: string): string {
+  const parts = parseIso(iso)
+  if (parts === null) return ''
+
+  const { year, month, day } = parts
+  return `${day} ${MONTHS[month - 1]?.slice(0, 3)} ${year}`
+}
+
 type Parts = { year: number; month: number; day: number }
 
 function parseIso(iso: string): Parts | null {

@@ -595,12 +595,16 @@ export function useCanvas(
    * last repaired for rather than a boolean, so a page opened before its type changed
    * is repaired again afterwards, and typing a new row does not re-run it.
    */
-  const reseated = useRef<number | null>(null)
+  const reseated = useRef<string | null>(null)
   useEffect(() => {
     const spacing = fontSize * lineHeight
-    if (width === null || objectCount === 0 || reseated.current === spacing) return
-    reseated.current = spacing
-    reseatWritingRows(sessionRef.current, spacing, pageStride({ width, fontSize, lineHeight }))
+    if (width === null || objectCount === 0) return
+    // The pitch and the measure, because the repair now puts rows back on both and a
+    // page opened before either changed has to be repaired again afterwards.
+    const shape = `${spacing}|${width}`
+    if (reseated.current === shape) return
+    reseated.current = shape
+    reseatWritingRows(sessionRef.current, spacing, pageStride(), width)
   }, [width, fontSize, lineHeight, objectCount])
 
   const setTool = useCallback((next: ToolId) => {

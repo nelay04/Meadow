@@ -125,9 +125,11 @@ export const BOARD_KINDS: readonly BoardKindSpec[] = [
     // the writing somewhere the rules are not.
     tools: ['select', 'hand'],
     /*
-     * A measure, not a page size: 760 world units at zoom 1 is a line you can read
+     * A measure, not a page size: 860 world units at zoom 1 is a line you can read
      * without losing your place, and a window wider than that gets margins rather
-     * than a longer line.
+     * than a longer line. It was 760, which at this type size left a page narrower
+     * than the writing wanted; the measure is free to move because the pitch between
+     * pages is a constant and no longer derived from it.
      *
      * The size and the leading move together on purpose. Rule pitch is
      * `fontSize * lineHeight`, so 21/1.45 rules the page at the same 30.4 units that
@@ -135,7 +137,7 @@ export const BOARD_KINDS: readonly BoardKindSpec[] = [
      * type without shrinking the leading would push the lines apart instead, which is
      * not what "bigger writing" means on ruled paper.
      */
-    column: { width: 760, fontSize: 21, lineHeight: 1.45 },
+    column: { width: 860, fontSize: 21, lineHeight: 1.45 },
   },
 ]
 

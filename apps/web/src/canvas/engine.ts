@@ -189,6 +189,16 @@ const PAGE_HEADER = 108
 const COLUMN_TOP_MARGIN = PAGE_HEADER + 28
 
 /**
+ * Desk left showing above the sheet, in world units.
+ *
+ * Not part of the page. The fence's top used to be the sheet's own top edge, so
+ * scrolling to the start of a page put the paper flush against the app's bar and the
+ * two read as one surface - a page tucked under the chrome rather than lying on a
+ * desk under it. A few units of desk is what says the sheet has a top edge at all.
+ */
+const PAGE_TOP_AIR = 20
+
+/**
  * How many rules a page has before anybody adds more, and how many an add adds.
  *
  * A page rather than an endless roll. Writing into something with no bottom is a
@@ -228,16 +238,24 @@ const PAGE_MAX_ZOOM = 2
 const PAGE_MARGIN = 36
 
 /**
- * The desk between one page of a lea and the next, in world units.
+ * From one page of a lea's left edge to the next one's, in world units.
  *
  * A diary's pages are laid out side by side in the same world rather than stacked in
  * the same place, which is what lets a page grow to any length without moving a line
- * of writing on any other page. The camera is fenced to one page at a time, so this
- * gap is never on screen; it exists so that a row can be told which page it is on by
- * where it is, and so that nothing dropped a little outside a column can be mistaken
- * for writing on the next one.
+ * of writing on any other page. The camera is fenced to one page at a time, so the
+ * desk between them is never on screen; it exists so that a row can be told which page
+ * it is on by where it is, and so that nothing dropped a little outside a column can
+ * be mistaken for writing on the next one.
+ *
+ * A constant, and deliberately not `width + gap`. Derived from the measure, every page
+ * after the first moves the day the measure changes, and the writing already on them
+ * does not: rows are attributed to a page by where they are, so a document written at
+ * one width would find its later pages empty at another. The pitch is the archive's
+ * shape and the measure is a typographic choice, and only one of them may move. Any
+ * column narrower than this leaves desk between the pages, which is all that is asked
+ * of it.
  */
-const PAGE_GAP = 2000
+const PAGE_PITCH = 2760
 
 /**
  * Where a page's writing lives, in world x.
@@ -247,13 +265,13 @@ const PAGE_GAP = 2000
  * and a second copy of this arithmetic there is a second copy that can drift.
  */
 export function pageSpan(column: WritingColumn, slot: number): { left: number; right: number } {
-  const left = slot * (column.width + PAGE_GAP)
+  const left = slot * PAGE_PITCH
   return { left, right: left + column.width }
 }
 
 /** The distance from one page's left edge to the next one's. */
-export function pageStride(column: WritingColumn): number {
-  return column.width + PAGE_GAP
+export function pageStride(): number {
+  return PAGE_PITCH
 }
 
 /** How far the ruled lines stop short of the page's edge, in world units. */
@@ -1034,7 +1052,7 @@ export class CanvasEngine {
     // delete button that looks armed.
     this.setSelection([])
     this.applyFence()
-    this.camera.scrollTo(-COLUMN_TOP_MARGIN)
+    this.camera.scrollTo(-COLUMN_TOP_MARGIN - PAGE_TOP_AIR)
     this.requestRender()
   }
 
@@ -1057,7 +1075,7 @@ export class CanvasEngine {
         : {
             left: origin,
             right: origin + column.width,
-            top: -COLUMN_TOP_MARGIN,
+            top: -COLUMN_TOP_MARGIN - PAGE_TOP_AIR,
             // Past the last rule by the same air the page opens with, so the end of
             // the paper is something you can see rather than something you hit.
             bottom: this.pageBottom + COLUMN_TOP_MARGIN,

@@ -483,11 +483,25 @@ describe('pages', () => {
     const first = addObject(doc, { type: 'text', x: 0, y: 0, w: 760, h: 28 })
     const second = addObject(doc, { type: 'text', x: 2760, y: 0, w: 760, h: 28 })
 
-    reseatWritingRows(doc, 30.45, 2760)
+    reseatWritingRows(doc, 30.45, 2760, 760)
 
     // Page two's first line stays its first line. Across one run it would have been
     // pushed a rule down for colliding with page one's.
     expect(readObjectById(doc, first)?.y).toBeCloseTo(0, 5)
     expect(readObjectById(doc, second)?.y).toBeCloseTo(0, 5)
+  })
+
+  it('widens rows written at a narrower measure without moving them off their page', () => {
+    const doc = session()
+    const first = addObject(doc, { type: 'text', x: 0, y: 0, w: 760, h: 28 })
+    const second = addObject(doc, { type: 'text', x: 2760, y: 0, w: 760, h: 28 })
+
+    // The pitch is a constant, so only the measure moved.
+    reseatWritingRows(doc, 30.45, 2760, 860)
+
+    expect(readObjectById(doc, first)?.w).toBeCloseTo(860, 5)
+    expect(readObjectById(doc, second)?.w).toBeCloseTo(860, 5)
+    // Page two's row is still on page two, at its own left edge.
+    expect(readObjectById(doc, second)?.x).toBeCloseTo(2760, 5)
   })
 })

@@ -910,12 +910,25 @@ export function observePageMeta(session: DocSession, onChange: () => void): () =
  * run computed across all of them would see page two's first line as a collision with
  * page one's and push it a rule down the paper it does not share.
  *
- * A no-op once everything is on a band, so opening a page that has already been
- * repaired writes nothing and a viewer never needs it at all.
+ * The measure is repaired with the pitch, and for the same reason. A row spans its
+ * page's whole width, so a document written when the column was narrower has rows that
+ * stop short of the right margin - the ruling reaches the edge and the writing wraps
+ * before it, which reads as a broken page rather than as a measure that changed. The
+ * page a row is on is its `x` rounded to the pitch, which is a constant, so widening
+ * the column never moves a row to a different page.
+ *
+ * A no-op once everything is on a band and on the measure, so opening a page that has
+ * already been repaired writes nothing and a viewer never needs it at all.
  */
-export function reseatWritingRows(session: DocSession, spacing: number, stride: number): void {
+export function reseatWritingRows(
+  session: DocSession,
+  spacing: number,
+  stride: number,
+  width: number,
+): void {
   if (!session.canWrite || !Number.isFinite(spacing) || spacing <= 0) return
   if (!Number.isFinite(stride) || stride <= 0) return
+  if (!Number.isFinite(width) || width <= 0) return
 
   const rows = Array.from(session.objects.keys())
     .map((id) => ({ id, object: readObjectById(session, id) }))
@@ -934,10 +947,15 @@ export function reseatWritingRows(session: DocSession, spacing: number, stride: 
     lastBand.set(slot, band)
 
     const y = band * spacing
+    const x = slot * stride
     // Exact equality would rewrite every row on every open, because the pitch is a
     // product of two floats and the stored value is what a previous round of this
     // wrote. A twentieth of a unit is far below anything anybody can see.
-    if (Math.abs(object.y - y) > 0.05) patches.push({ id, patch: { y } })
+    const patch: Partial<ObjectData> = {}
+    if (Math.abs(object.y - y) > 0.05) patch.y = y
+    if (Math.abs(object.x - x) > 0.05) patch.x = x
+    if (Math.abs(object.w - width) > 0.05) patch.w = width
+    if (Object.keys(patch).length > 0) patches.push({ id, patch })
   }
 
   if (patches.length > 0) updateObjects(session, patches)
