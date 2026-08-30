@@ -420,6 +420,12 @@ export default function BoardPage({ boardId, onBack }: Props) {
     onRefused: toast.error,
   })
 
+  // What the arrow button draws with, for the same reason the shape button knows its
+  // shape: the choice is made in the flyout and shows nowhere else until an arrow
+  // exists.
+  const armedRouting =
+    ROUTINGS.find((routing) => routing.id === canvas.arrowRouting) ?? ROUTINGS[0]
+
   /*
    * The flyout opens when its tool becomes the active one, however that happened.
    *
@@ -834,13 +840,36 @@ export default function BoardPage({ boardId, onBack }: Props) {
         {/* The rail floats over the canvas rather than taking a column out of it.
             ARCHITECTURE 1: the drawing surface is the product. */}
         <nav className="toolbar" aria-label="Tools">
-          {tools.map((tool) => (
+          {tools.map((tool) => {
+            const active = canvas.tool === tool.id
+            /*
+             * The arrow wears the shape it will draw, on the same terms as the shape
+             * button below.
+             *
+             * A routing is chosen before the arrow exists and never applied to one
+             * already drawn, so between choosing it and using it the rail is the only
+             * place it is written down - and a button showing a plain diagonal while
+             * the elbow is armed is the rail declining to say what it is about to do.
+             * It reverts when the tool does: the arrow hands back to select once it
+             * has drawn something, and nothing is armed then.
+             */
+            const armed = tool.id === 'arrow' && active
+            const Icon = armed ? armedRouting.Icon : tool.Icon
+            const label = armed ? `${tool.label}: ${armedRouting.label}` : tool.label
+
+            return (
             <div key={tool.id} className="tool-slot">
               <button
                 type="button"
-                aria-label={`${tool.label} (${tool.hint})`}
-                aria-pressed={canvas.tool === tool.id}
-                className={canvas.tool === tool.id ? 'tool active' : 'tool'}
+                aria-label={`${label} (${tool.hint})`}
+                aria-pressed={active}
+                // `has-more` is the folded corner, and it belongs to every button with
+                // a flyout rather than only to the shapes': what it says is that there
+                // is something behind this button, which is as true of the nibs as it
+                // is of the four shapes.
+                className={`tool${TOOLS_WITH_MENU.has(tool.id) ? ' has-more' : ''}${
+                  active ? ' active' : ''
+                }`}
                 // Pan stays available to a viewer. Only the creation tools are gated.
                 disabled={!canWrite && tool.id !== 'select' && tool.id !== 'hand'}
                 onClick={() => {
@@ -848,7 +877,7 @@ export default function BoardPage({ boardId, onBack }: Props) {
                   // its flyout back after it has been dismissed, and how you put it
                   // away without drawing. Anything else is an ordinary tool switch, and
                   // the effect above opens the new tool's menu if it has one.
-                  if (canvas.tool === tool.id) {
+                  if (active) {
                     setRailMenu((open) =>
                       open === tool.id || !TOOLS_WITH_MENU.has(tool.id) ? null : tool.id,
                     )
@@ -857,8 +886,8 @@ export default function BoardPage({ boardId, onBack }: Props) {
                   canvas.setTool(tool.id)
                 }}
               >
-                <tool.Icon size={19} />
-                <Tip label={tool.label} hint={tool.hint} />
+                <Icon size={19} />
+                <Tip label={label} hint={tool.hint} />
               </button>
 
               {/*
@@ -990,7 +1019,8 @@ export default function BoardPage({ boardId, onBack }: Props) {
                 </div>
               )}
             </div>
-          ))}
+            )
+          })}
 
           {/*
             The shape family, as one slot.

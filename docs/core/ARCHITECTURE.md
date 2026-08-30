@@ -953,8 +953,13 @@ Tools: `select` `hand` `text` `sticky` `rect` `ellipse` `diamond` `parallelogram
 The four shape tools share one button on the rail, the way the connector's three
 routings share the arrow's. They are still four tools rather than options on one -
 each writes a different type - but they are one decision, and a rail that spends four
-of its slots asking it reads as a longer list than it is. The button wears the armed
-shape's own icon while a shape is in hand and the family's mark when none is.
+of its slots asking it reads as a longer list than it is.
+
+**A rail button wears what it is holding.** The shape button shows the armed shape's
+own icon and the arrow shows its armed routing, both reverting to their family's mark
+when the tool hands back to select. A choice made in a flyout and used later has
+nowhere else to live until the object exists, and the button is where somebody looks
+for it. A folded corner marks every button with a flyout behind it.
 
 ### Selection & transform
 

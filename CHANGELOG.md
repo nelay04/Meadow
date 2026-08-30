@@ -683,6 +683,14 @@ The infrastructure to run the thing. Not deployed yet.
   for a tool that is no longer in your hand is a button that is lying. The keyboard
   moves it too - `R`, `O`, `D` and `G` still arm a shape directly, and the rail follows.
 
+- **The arrow says which arrow.** Same rule, for the same reason: a routing is chosen
+  before the arrow exists and is never applied to one already drawn, so between picking
+  the elbow and using it the rail was the only place that fact lived and it was not
+  showing it. The arrow button now wears the routing it is holding while it is in hand,
+  and goes back to the plain mark when the tool hands back to select. Every button with
+  a flyout also carries the folded corner now, the pen included: what that mark says is
+  that there is something behind this button.
+
 - **The board list stopped wearing the diary's paper.** A lea's card preview and its
   kind badge were printed in kraft, and the composer's pill with them, so that the grid
   said what a thing was before you had read a word of it. Wrong surface for it: the
