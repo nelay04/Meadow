@@ -3345,7 +3345,7 @@ dialog.modal[open] .modal-card {
   grid-template-columns: auto 1fr auto auto;
   align-items: center;
   gap: 0.6rem;
-  padding: 0.7rem 0.75rem 0.7rem 0.8rem;
+  padding: 0.7rem 0.75rem;
   border-radius: var(--radius);
   border: 1px solid var(--line);
   background: var(--surface);
@@ -3373,30 +3373,11 @@ dialog.modal[open] .modal-card {
 }
 
 /*
- * The kind is carried by the glyph's shape and colour and by a coloured spine down
- * the leading edge, not by tinting the whole card. A wall of red plates in the corner
- * is louder than the news it is delivering, and it makes the text harder to read at
- * the moment you most want it read.
+ * The kind is carried by the glyph's shape and colour, and by the progress bar along
+ * the bottom, not by tinting the whole card and not by a spine down the leading edge.
+ * A wall of red plates in the corner is louder than the news it is delivering, and a
+ * stripe against the card's corner radius only ever read as a seam.
  */
-.toast::before {
-  content: '';
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 3px;
-  background: var(--muted);
-}
-
-.toast-success::before {
-  background: var(--success);
-}
-
-.toast-error::before {
-  background: var(--danger);
-}
-
-.toast-info::before {
-  background: var(--accent);
-}
 
 .toast-glyph {
   display: grid;

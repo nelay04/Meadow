@@ -401,6 +401,10 @@ export default function BoardPage({ boardId, onBack }: Props) {
    */
   const savedTitle = useRef('')
 
+  // Whether the focus that just happened selected the placeholder name, so the mouseup
+  // that follows a click-to-focus can be kept from collapsing that selection.
+  const justSelected = useRef(false)
+
   const commitTitle = useCallback(async () => {
     const next = title.trim()
     if (next === savedTitle.current) return
@@ -679,8 +683,21 @@ export default function BoardPage({ boardId, onBack }: Props) {
   emptyRef.current = empty
   const docReadyRef = useRef(docReady)
   docReadyRef.current = docReady
+  /*
+   * Once per board, not once per empty document.
+   *
+   * `empty` is derived from the object count, and the writing row is created when the
+   * caret goes into it and thrown away again when it is left with nothing on it. So
+   * without this latch the effect is a loop: opening the row makes the board non-empty,
+   * clicking the title bar blurs the editor, the empty row is discarded, the board is
+   * empty again and the caret is pulled straight back onto the page. That is the blink,
+   * and it is why it only happened on a lea you had not typed into yet.
+   */
+  const openedInto = useRef('')
   useEffect(() => {
     if (spec.column === null || !docReady || !canWrite || !empty) return
+    if (openedInto.current === boardId) return
+    openedInto.current = boardId
 
     // The engine learns about the document through its own observer, which may not
     // have run yet. One frame is enough, and failing quietly is correct: the page is
@@ -689,7 +706,7 @@ export default function BoardPage({ boardId, onBack }: Props) {
       openIntoWriting(0)
     })
     return () => cancelAnimationFrame(frame)
-  }, [spec.column, docReady, canWrite, empty, openIntoWriting])
+  }, [boardId, spec.column, docReady, canWrite, empty, openIntoWriting])
 
   /*
    * Capture a preview for the board list.
@@ -782,9 +799,27 @@ export default function BoardPage({ boardId, onBack }: Props) {
             // word first. Anything the user chose themselves is left alone.
             if (event.target.value.startsWith('Untitled ') || event.target.value === 'Untitled') {
               event.target.select()
+              justSelected.current = true
             }
           }}
-          onBlur={() => void commitTitle()}
+          onMouseUp={(event) => {
+            /*
+             * A click that lands on an unfocused input fires focus on mousedown and
+             * then collapses the selection on mouseup, so the select() above only
+             * survived while the default name was one short word you were unlikely to
+             * click twice. The generated names are a whole phrase now, and the caret
+             * landed wherever the pointer was: swallowing this one mouseup keeps the
+             * select-all. A second click, once the flag is down, places the caret.
+             */
+            if (justSelected.current) {
+              justSelected.current = false
+              event.preventDefault()
+            }
+          }}
+          onBlur={() => {
+            justSelected.current = false
+            void commitTitle()
+          }}
           onKeyDown={(event) => {
             if (event.key === 'Enter') event.currentTarget.blur()
             if (event.key === 'Escape') {

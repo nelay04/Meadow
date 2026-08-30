@@ -1722,7 +1722,15 @@ export class CanvasEngine {
 
     this.events.onEditingChange?.(null)
     this.requestRender()
-    if (this.app !== undefined) this.app.canvas.focus()
+    /*
+     * Take the keyboard back, but only if nothing else has claimed it. Leaving an
+     * editor by clicking the board's name bar blurs the editor *after* the input has
+     * taken focus, so an unconditional focus() here yanked it straight back out and
+     * the field could not be clicked into at all.
+     */
+    const focused = document.activeElement
+    const taken = focused !== null && focused !== document.body && focused !== this.app?.canvas
+    if (this.app !== undefined && !taken) this.app.canvas.focus()
   }
 
   /**
