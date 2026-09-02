@@ -19,8 +19,11 @@ from logging import getLogger
 import anyio
 
 from app.config import settings
+from app.services.mail_templates import LOGO_CID, LOGO_PATH
 
 logger = getLogger(__name__)
+
+_LOGO_BYTES = LOGO_PATH.read_bytes()
 
 
 class MailError(Exception):
@@ -63,6 +66,9 @@ async def send(*, to: str, subject: str, text: str, html: str) -> None:
     message["To"] = to
     message.set_content(text)
     message.add_alternative(html, subtype="html")
+    html_part = message.get_payload(1)
+    assert isinstance(html_part, EmailMessage)  # the alternative just added, by construction
+    html_part.add_related(_LOGO_BYTES, "image", "png", cid=f"<{LOGO_CID}>")
 
     try:
         await anyio.to_thread.run_sync(_send_blocking, message)
