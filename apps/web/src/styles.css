@@ -38,6 +38,9 @@
      the work is the content. */
   --grid-minor: light-dark(#1b1c1f07, #ffffff05);
   --grid-major: light-dark(#1b1c1f0f, #ffffff0a);
+  /* The dot lattice's ink. Deliberately far stronger than the rules above: see
+     `.canvas-host.grid-dots`. */
+  --grid-dot: light-dark(#1b1c1f3d, #ffffff30);
 
   /*
    * The lea's paper.
@@ -1634,6 +1637,13 @@ label {
   font-size: 0.85rem;
 }
 
+/* Three rows, each led by a picture of the paper it names. The label takes the slack
+   so the marks stay against the icon and only the tick sits at the far end. */
+.menu-grid .menu-label {
+  flex: 1;
+  font-weight: 600;
+}
+
 .menu-item.selected .menu-label {
   color: var(--accent);
 }
@@ -2287,6 +2297,40 @@ label {
     linear-gradient(to bottom, transparent 0, var(--grid-major) 0.4px, var(--grid-major) 1.4px, transparent 1.8px),
     linear-gradient(to right, transparent 0, var(--grid-minor) 0.4px, var(--grid-minor) 1.1px, transparent 1.5px),
     linear-gradient(to bottom, transparent 0, var(--grid-minor) 0.4px, var(--grid-minor) 1.1px, transparent 1.5px);
+}
+
+/*
+ * The same paper, marked only where two rules would have crossed.
+ *
+ * One dot, one size - not a fine dot with a coarse one every fourth cell. The coarse
+ * rule on graph paper is there to be counted along; a bigger dot every fourth crossing
+ * has nothing to be counted along and just breaks an even lattice into clusters.
+ *
+ * Four layers all the same, then, and all one size: the lattice, and the three offset
+ * copies that are the dots a halved cell would add. `--dot-fade` is how far through
+ * that halving the zoom is, and the engine writes it - see `syncDots`, which is also
+ * where the reason the last three are offsets rather than a finer lattice is written
+ * down.
+ *
+ * Its ink is its own token rather than `--grid-minor`. A rule is a line hundreds of
+ * pixels long and reads at an alpha where a dot of a pixel and a half is not there at
+ * all, so the two cannot share a value: the dot is set where it reads as a mark on the
+ * paper, which is the whole point of choosing this paper. `--canvas-bg` is untouched by
+ * any of this - the board keeps the ground it always had, in both themes, and only what
+ * is printed on it changes.
+ *
+ * Feathered like the lines, for the same reason: a hard-edged circle of about a pixel
+ * either lands on the device grid or shimmers across it while you pan.
+ */
+.canvas-host.grid-dots {
+  --dot-fade: 0;
+  --grid-dot-fading: color-mix(in srgb, var(--grid-dot) calc(var(--dot-fade) * 100%), transparent);
+
+  background-image:
+    radial-gradient(circle at center, var(--grid-dot) 0, var(--grid-dot) 1.15px, transparent 1.85px),
+    radial-gradient(circle at center, var(--grid-dot-fading) 0, var(--grid-dot-fading) 1.15px, transparent 1.85px),
+    radial-gradient(circle at center, var(--grid-dot-fading) 0, var(--grid-dot-fading) 1.15px, transparent 1.85px),
+    radial-gradient(circle at center, var(--grid-dot-fading) 0, var(--grid-dot-fading) 1.15px, transparent 1.85px);
 }
 
 .canvas-host.no-grid {

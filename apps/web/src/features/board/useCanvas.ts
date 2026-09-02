@@ -29,7 +29,13 @@ import {
   pageStride,
   type WritingColumn,
 } from '../../canvas/engine'
-import { type CanvasSurface, DEFAULT_SURFACE } from '../../canvas/surface'
+import {
+  type CanvasSurface,
+  DEFAULT_GRID_PATTERN,
+  DEFAULT_SURFACE,
+  GRID_PATTERNS,
+  type GridPattern,
+} from '../../canvas/surface'
 import type { Wanderer } from '../../canvas/overlay/wandererLayer'
 import type { PenSettings, ToolId } from '../../canvas/tools/types'
 import { DocEngineHost, observeDocument } from '../../doc/engineHost'
@@ -53,6 +59,7 @@ import { createTextEditor } from '../../overlay/textEditor'
 import { THEME_EVENT } from '../../ui/theme'
 
 const GRID_KEY = 'meadow.grid'
+const GRID_PATTERN_KEY = 'meadow.grid.pattern'
 const PEN_KEY = 'meadow.pen'
 
 /**
@@ -120,6 +127,27 @@ function readGridPreference(): boolean {
   }
 }
 
+function readGridPatternPreference(): GridPattern {
+  try {
+    const stored = localStorage.getItem(GRID_PATTERN_KEY)
+    // Checked against the list rather than cast: a value written by another build
+    // must not decide what the paper looks like.
+    return GRID_PATTERNS.includes(stored as GridPattern)
+      ? (stored as GridPattern)
+      : DEFAULT_GRID_PATTERN
+  } catch {
+    return DEFAULT_GRID_PATTERN
+  }
+}
+
+function writeGridPatternPreference(pattern: GridPattern): void {
+  try {
+    localStorage.setItem(GRID_PATTERN_KEY, pattern)
+  } catch {
+    // As with the grid: it still applies for this session.
+  }
+}
+
 function writeGridPreference(visible: boolean): void {
   try {
     localStorage.setItem(GRID_KEY, visible ? 'on' : 'off')
@@ -183,6 +211,12 @@ export type CanvasHandle = {
   /** Graph paper on the board surface. Cosmetic, remembered across sessions. */
   gridVisible: boolean
   toggleGrid(): void
+  /**
+   * Whether that paper is ruled in lines or in dots. The reader's own choice, not the
+   * board's: it is remembered here and nobody else on the glade sees it change.
+   */
+  gridPattern: GridPattern
+  setGridPattern(pattern: GridPattern): void
   /**
    * The shape newly drawn arrows get. Chosen in the rail beside the arrow tool, the
    * way a stroke width is chosen: before you draw, not after.
@@ -299,6 +333,7 @@ export function useCanvas(
   const [objectCount, setObjectCount] = useState(0)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [gridVisible, setGridVisible] = useState(readGridPreference)
+  const [gridPattern, setGridPatternState] = useState<GridPattern>(readGridPatternPreference)
   const [arrowRouting, setArrowRoutingState] = useState<ArrowRouting>('straight')
   const [polygonSides, setPolygonSidesState] = useState(DEFAULT_POLYGON_SIDES)
   const [pen, setPenState] = useState<PenSettings>(readPenPreference)
@@ -324,6 +359,8 @@ export function useCanvas(
   // down the canvas and drop the camera - so the initial value is read through a ref.
   const gridRef = useRef(gridVisible)
   gridRef.current = gridVisible
+  const gridPatternRef = useRef(gridPattern)
+  gridPatternRef.current = gridPattern
 
   // And the same for the nib, so a remembered pen is applied when the engine is built
   // rather than making the engine's effect depend on it and rebuild the canvas every
@@ -387,6 +424,7 @@ export function useCanvas(
     void engine.init().then(() => {
       if (cancelled) return
       engine.setGridVisible(gridRef.current)
+      engine.setGridPattern(gridPatternRef.current)
       engine.setPen(penRef.current)
       engine.setSurface(optionsRef.current.surface ?? DEFAULT_SURFACE)
       engine.setAvailableTools(optionsRef.current.tools ?? null)
@@ -650,6 +688,12 @@ export function useCanvas(
     engineRef.current?.setTool(next)
   }, [])
 
+  const setGridPattern = useCallback((pattern: GridPattern) => {
+    engineRef.current?.setGridPattern(pattern)
+    writeGridPatternPreference(pattern)
+    setGridPatternState(pattern)
+  }, [])
+
   const toggleGrid = useCallback(() => {
     setGridVisible((shown) => {
       const next = !shown
@@ -735,6 +779,8 @@ export function useCanvas(
     resetZoom: () => engineRef.current?.resetZoom(),
     deleteSelection: () => engineRef.current?.deleteSelection(),
     gridVisible,
+    gridPattern,
+    setGridPattern,
     toggleGrid,
     arrowRouting,
     setArrowRouting,

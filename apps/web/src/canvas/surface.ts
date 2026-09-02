@@ -36,3 +36,24 @@ export type SurfaceType = {
   lineHeight: number
   padding: number
 }
+
+/**
+ * How the graph surface rules itself: lines, or dots at their crossings.
+ *
+ * A pattern is not a surface. Both draw the same cell at the same spacing and mean
+ * the same ruler; one draws the whole rule and the other only where two would meet.
+ * Keeping it separate is what lets it be a reader's own preference rather than a
+ * property of the board - nobody else on the glade sees it change - and it is why
+ * the ruled paper ignores it entirely: a writing line with its middle rubbed out is
+ * not a writing line.
+ */
+export const GRID_PATTERNS = ['lines', 'dots'] as const
+
+export type GridPattern = (typeof GRID_PATTERNS)[number]
+
+export const DEFAULT_GRID_PATTERN: GridPattern = 'lines'
+
+/** The class the host element carries, so CSS can pick the pattern. */
+export function gridPatternClass(pattern: GridPattern): string {
+  return `grid-${pattern}`
+}

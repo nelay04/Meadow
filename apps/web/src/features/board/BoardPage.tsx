@@ -93,6 +93,7 @@ import { LeaPages } from './LeaPages'
 import { toggleInputLanguage } from '../../text/imeStore'
 import { inputLanguage } from '../../text/inputLanguages'
 import { InputLanguage } from './InputLanguage'
+import { BoardGrid } from './BoardGrid'
 import { LeaPaper } from './LeaPaper'
 import { useCanvas } from './useCanvas'
 
@@ -972,16 +973,38 @@ export default function BoardPage({ boardId, onBack }: Props) {
         */}
         <InputLanguage />
 
-        <button
-          type="button"
-          className={canvas.gridVisible ? 'icon ghost active' : 'icon ghost'}
-          aria-pressed={canvas.gridVisible}
-          onClick={canvas.toggleGrid}
-          title={canvas.gridVisible ? 'Hide grid' : 'Show grid'}
-          aria-label={canvas.gridVisible ? 'Hide grid' : 'Show grid'}
-        >
-          <IconGridLines />
-        </button>
+        {/*
+          A glade picks its paper out of three; a lea only says whether its rules show.
+
+          The difference is not a shortcut. A diary's ruling is the leading its writing
+          sits on, so there is no dot lattice to offer there - a writing line with its
+          middle rubbed out is not a writing line - and a picker of one real choice is
+          worse than the toggle it replaced.
+        */}
+        {spec.column === null ? (
+          <BoardGrid
+            value={canvas.gridVisible ? canvas.gridPattern : 'none'}
+            onChange={(choice) => {
+              if (choice === 'none') {
+                if (canvas.gridVisible) canvas.toggleGrid()
+                return
+              }
+              canvas.setGridPattern(choice)
+              if (!canvas.gridVisible) canvas.toggleGrid()
+            }}
+          />
+        ) : (
+          <button
+            type="button"
+            className={canvas.gridVisible ? 'icon ghost active' : 'icon ghost'}
+            aria-pressed={canvas.gridVisible}
+            onClick={canvas.toggleGrid}
+            title={canvas.gridVisible ? 'Hide grid' : 'Show grid'}
+            aria-label={canvas.gridVisible ? 'Hide grid' : 'Show grid'}
+          >
+            <IconGridLines />
+          </button>
+        )}
 
         {/* Only for people who could otherwise edit. Offering a lock to a viewer is
             offering to turn off something they never had. */}

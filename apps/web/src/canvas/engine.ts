@@ -49,7 +49,10 @@ import { type Wanderer, type WandererSelection, WandererLayer } from './overlay/
 import { SpatialIndex } from './spatialIndex'
 import {
   type CanvasSurface,
+  DEFAULT_GRID_PATTERN,
   DEFAULT_SURFACE,
+  type GridPattern,
+  gridPatternClass,
   type SurfaceType,
   surfaceClass,
 } from './surface'
@@ -160,6 +163,20 @@ function curveSegments(points: readonly number[], scale: number): number {
 const GRID_BASE_WORLD = 20
 const GRID_MIN_PX = 14
 const GRID_MAX_PX = 56
+
+/**
+ * The dot lattice's own screen band, and the top of it is exactly twice the bottom.
+ *
+ * That is arithmetic, not taste. The lattice halves its world cell at the top of the
+ * band, and the dots that appear in between are faded in across the band so that the
+ * halving has already finished by the time it happens (see `syncDots`). The fade only
+ * closes - the picture an instant before the step being the picture an instant after -
+ * if the cell it lands on is the one that was fading in, which is to say if the band is
+ * a doubling. Stepping by four the way the lines do puts a 4x jump under a fade that
+ * can only bridge 2x, and the lattice gathers and scatters as you zoom.
+ */
+const DOT_MIN_PX = 18
+const DOT_MAX_PX = DOT_MIN_PX * 2
 
 /**
  * The ruling on the `ruled` surface: one line every 28 world units.
@@ -544,6 +561,7 @@ export class CanvasEngine {
   private resizeObserver: ResizeObserver | null = null
 
   private gridVisible = true
+  private gridPattern: GridPattern = DEFAULT_GRID_PATTERN
   private lastGridKey = ''
   private surface: CanvasSurface = DEFAULT_SURFACE
   /*
@@ -811,6 +829,26 @@ export class CanvasEngine {
   }
 
   /**
+   * Rule the graph paper in lines or in dots.
+   *
+   * Cosmetic in the same way `setGridVisible` is, and the same shape of call: the
+   * class is what paints it, and the offsets have to be rewritten because the two
+   * patterns write a different number of background layers.
+   */
+  setGridPattern(pattern: GridPattern): void {
+    if (pattern === this.gridPattern) return
+    this.element.classList.remove(gridPatternClass(this.gridPattern))
+    this.gridPattern = pattern
+    this.element.classList.add(gridPatternClass(pattern))
+    this.lastGridKey = ''
+    this.syncGrid(this.lastTransform)
+  }
+
+  get gridPatternShown(): GridPattern {
+    return this.gridPattern
+  }
+
+  /**
    * Choose the paper.
    *
    * The class is what actually paints it; this method exists because the repeating
@@ -861,6 +899,10 @@ export class CanvasEngine {
       return
     }
     if (!this.gridVisible) return
+    if (this.gridPattern === 'dots') {
+      this.syncDots(transform)
+      return
+    }
 
     let world = GRID_BASE_WORLD
     let minor = world * transform.scale
@@ -881,13 +923,79 @@ export class CanvasEngine {
     const majorY = phase(transform.ty, major)
 
     // One string compare instead of four style writes on a frame that did not move.
-    const key = `${minor}|${minorX}|${minorY}|${majorX}|${majorY}`
+    const key = `lines|${minor}|${minorX}|${minorY}|${majorX}|${majorY}`
     if (key === this.lastGridKey) return
     this.lastGridKey = key
 
     const style = this.element.style
     style.backgroundSize = `${major}px ${major}px, ${major}px ${major}px, ${minor}px ${minor}px, ${minor}px ${minor}px`
     style.backgroundPosition = `${majorX}px ${majorY}px, ${majorX}px ${majorY}px, ${minorX}px ${minorY}px, ${minorX}px ${minorY}px`
+  }
+
+  /**
+   * The dot lattice, kept in step with the camera and continuous through the zoom.
+   *
+   * The line grid can step its world cell and get away with it: the coarse rules stay
+   * put through the step and the eye reads them as the thing that did not move. A
+   * lattice has nothing that stays put, so the same trick reads as the dots gathering
+   * and scattering as you zoom, which is the one thing a ruler must never appear to
+   * do.
+   *
+   * So the step is bridged rather than taken. Four layers on the same cell: the
+   * lattice itself, and the three offset copies that together are exactly the dots a
+   * halved cell would add - one half a cell across, one half a cell down, one on the
+   * diagonal. Those three fade in across the band, so by the time the cell halves they
+   * are already at full strength and the halving changes nothing on screen. Written as
+   * three offsets rather than as one lattice at half the cell because a half-cell
+   * lattice also repaints the dots that are already there, and a dot painted twice is
+   * a darker dot: the field would develop a pattern of heavy crossings, which is the
+   * major/minor structure this paper exists to not have.
+   *
+   * Zooming the other way runs the same fade backwards - the in-between dots thin out,
+   * reach nothing, and the cell doubles onto the lattice that is left. Either
+   * direction, the picture an instant before a step is the picture an instant after.
+   */
+  private syncDots(transform: ViewTransform): void {
+    let world = GRID_BASE_WORLD
+    let cell = world * transform.scale
+    while (cell < DOT_MIN_PX) {
+      world *= 2
+      cell = world * transform.scale
+    }
+    while (cell > DOT_MAX_PX) {
+      world /= 2
+      cell = world * transform.scale
+    }
+
+    const half = cell / 2
+    const phase = (offset: number, size: number): number => ((offset % size) + size) % size
+    // Less half a cell, because the dot is drawn at the centre of its tile and belongs
+    // on the crossing. Without it the lattice sits half a cell off from where the same
+    // camera would have put the lines, and switching paper appears to move the board.
+    const x = phase(transform.tx, cell) - half
+    const y = phase(transform.ty, cell) - half
+    // Smoothstepped, not linear. The mixed state - a full lattice with a half-strength
+    // one between its dots - is the one state that reads as two kinds of dot, and the
+    // ends of the ramp are the two that read as one lattice. Easing spends the zoom at
+    // the ends and crosses the middle quickly. It is still 0 at the bottom of the band
+    // and 1 at the top, which is all the closed step needs.
+    const t = (cell - DOT_MIN_PX) / (DOT_MAX_PX - DOT_MIN_PX)
+    const fade = t * t * (3 - 2 * t)
+
+    // Rounded, and that is what makes this cheap: the fade moves continuously with the
+    // zoom, so an exact compare would rewrite four properties on every frame of a
+    // pinch. A thousandth of the alpha is below what a screen can show.
+    const key = `dots|${cell.toFixed(3)}|${x.toFixed(3)}|${y.toFixed(3)}|${fade.toFixed(3)}`
+    if (key === this.lastGridKey) return
+    this.lastGridKey = key
+
+    const style = this.element.style
+    style.setProperty('--dot-fade', fade.toFixed(3))
+    const size = `${cell}px ${cell}px`
+    style.backgroundSize = `${size}, ${size}, ${size}, ${size}`
+    style.backgroundPosition =
+      `${x}px ${y}px, ${x + half}px ${y}px, ` +
+      `${x}px ${y + half}px, ${x + half}px ${y + half}px`
   }
 
   /**

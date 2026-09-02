@@ -345,6 +345,30 @@ export function IconGridLines(props: IconProps) {
   )
 }
 
+export function IconGridDots(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="4" y="4" width="16" height="16" rx="2" />
+      {/* Filled, not stroked: at this radius a ring reads as a smudge, and the point
+          of the icon is that the rules are gone and only their crossings are left. */}
+      <circle cx="9.3" cy="9.3" r="1" fill="currentColor" stroke="none" />
+      <circle cx="14.7" cy="9.3" r="1" fill="currentColor" stroke="none" />
+      <circle cx="9.3" cy="14.7" r="1" fill="currentColor" stroke="none" />
+      <circle cx="14.7" cy="14.7" r="1" fill="currentColor" stroke="none" />
+    </Svg>
+  )
+}
+
+/** The paper with nothing printed on it. The frame alone, so the row reads as one of
+    the three papers rather than as an absence. */
+export function IconGridNone(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="4" y="4" width="16" height="16" rx="2" />
+    </Svg>
+  )
+}
+
 /** Stand-in for a board with no preview yet. */
 export function IconCanvas(props: IconProps) {
   return (
