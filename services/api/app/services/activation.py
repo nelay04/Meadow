@@ -30,7 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.models import EmailVerification, User
-from app.services import mail
+from app.services import mail, sharing
 from app.services.mail_templates import activation_mail, password_reset_mail
 
 logger = getLogger(__name__)
@@ -136,6 +136,12 @@ async def redeem(session: AsyncSession, raw: str) -> tuple[Outcome, User | None]
 
     row.used_at = datetime.now(UTC)
     user.activated_at = datetime.now(UTC)
+    # The moment an account exists, so the moment any board invitation addressed to it
+    # becomes a grant. Here rather than at the first sign-in, because an invitation is a
+    # promise made to an *address* and this is where the address is proved: making
+    # somebody also hunt down the original link would be asking them to prove it twice,
+    # and the usual outcome of that is a board they were told about and cannot find.
+    await sharing.apply_pending(session, user)
     return Outcome.activated, user
 
 
@@ -201,15 +207,21 @@ async def _resolve_password_reset(
     return Outcome.activated, user
 
 
-async def activate_without_mail(user: User) -> None:
+async def activate_without_mail(session: AsyncSession, user: User) -> None:
     """Open the account immediately, for a deployment with no SMTP configured.
 
     A development machine that cannot send mail would otherwise produce accounts nobody
     can ever open. Loud on purpose: this is the one path where an address is trusted
     without answering, and a production deployment reaching it has a misconfiguration,
     not a feature.
+
+    Takes the session because opening an account is opening an account: any board
+    invitation waiting on this address applies here exactly as it does on the mailed
+    path. A dev machine where invitations silently never land would be a feature that
+    only works in production, which is the same as one nobody can test.
     """
     logger.warning(
         "no smtp configured: activating %s without confirming the address", user.id
     )
     user.activated_at = datetime.now(UTC)
+    await sharing.apply_pending(session, user)

@@ -27,3 +27,24 @@ class BoardKind(StrEnum):
 BOARD_KINDS = tuple(kind.value for kind in BoardKind)
 
 DEFAULT_BOARD_KIND = BoardKind.glade
+
+
+#: What one board of each kind is called, in a sentence. Sentence case because these
+#: are common nouns: "invited you to a lea", not "invited you to a Lea".
+#:
+#: Mirrors the `label` in `apps/web/src/features/boards/kinds.ts`. It is duplicated
+#: rather than served because the only thing that reads it here is outgoing mail, which
+#: is composed on the server and has to name the thing it is about.
+KIND_NOUNS: dict[str, str] = {
+    BoardKind.glade: "glade",
+    BoardKind.lea: "lea",
+}
+
+
+def noun(kind: str) -> str:
+    """The word for one board of this kind, falling back to the default's.
+
+    Falling back rather than raising, for the same reason the client does: a kind this
+    build has not heard of should still produce a readable sentence.
+    """
+    return KIND_NOUNS.get(kind, KIND_NOUNS[DEFAULT_BOARD_KIND])

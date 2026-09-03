@@ -70,6 +70,9 @@ export type ProfilePatch = {
  */
 export type BoardKind = 'glade' | 'lea'
 
+/** Who a board is open to. `public` means the share link opens it for anybody. */
+export type ShareMode = 'restricted' | 'public'
+
 export type Board = {
   id: string
   workspace_id: string
@@ -79,12 +82,108 @@ export type Board = {
   created_at: string
   updated_at: string
   role: BoardRole
+  share_mode: ShareMode
+  /** What the public link hands out. Only ever 'viewer' or 'editor'. */
+  share_role: BoardRole
+  /** The owner's board-wide edit lock. Distinct from the per-tab one in the client. */
+  is_locked: boolean
+  locked_by: string | null
+  /**
+   * Role permits writing *and* the board is not locked.
+   *
+   * Read this rather than deriving it. The server answers it in one place, the same
+   * place the websocket handshake answers it, and a second implementation on this side
+   * is the shape of bug ARCHITECTURE 7 warns about for roles.
+   */
+  can_write: boolean
 }
 
 export type WsToken = {
   token: string
   expires_in: number
   role: BoardRole
+  can_write: boolean
+  is_locked: boolean
+}
+
+/**
+ * A board as it looks to somebody holding a share link and nothing else.
+ *
+ * Fewer fields than `Board` on purpose: a link visitor has no workspace, no history
+ * with this board, and no business knowing either. Everything here is something they
+ * are about to see on the canvas anyway.
+ */
+export type SharedBoard = {
+  id: string
+  title: string
+  kind: BoardKind
+  role: BoardRole
+  is_locked: boolean
+  can_write: boolean
+}
+
+export type BoardMember = {
+  user_id: string
+  email: string
+  display_name: string
+  role: BoardRole
+  avatar_url: string | null
+}
+
+/**
+ * An invitation waiting for an account to exist at an address.
+ *
+ * `link` is on every read, not just the one that created it. Nothing was mailed - see
+ * the share dialog - so the owner holding this link is the only copy of it.
+ */
+export type BoardInvitation = {
+  id: string
+  email: string
+  role: BoardRole
+  link: string
+  created_at: string
+}
+
+export type ShareState = {
+  mode: ShareMode
+  role: BoardRole
+  /** The plain address. What "copy link" gives while sharing is restricted. */
+  url: string
+  /** The address with the capability on it, or null if the board has never been shared. */
+  link_url: string | null
+  is_locked: boolean
+  members: BoardMember[]
+  invitations: BoardInvitation[]
+}
+
+/**
+ * What happened to one address typed into the share dialog.
+ *
+ * - `granted`: there was an account. It has the role now, and has been mailed.
+ * - `pending`: there was not. **Nothing was sent.** `link` is the invitation the owner
+ *   passes on themselves.
+ * - `member`: they already had exactly this role, so nothing changed and nothing was
+ *   sent.
+ */
+export type InviteResult = {
+  status: 'granted' | 'pending' | 'member'
+  email: string
+  role: BoardRole
+  user_id: string | null
+  display_name: string | null
+  link: string | null
+  /** False when the grant landed but the notice could not be sent. */
+  mailed: boolean
+}
+
+/** What a `#/join/...` link shows, to somebody who probably has no account yet. */
+export type JoinInvitation = {
+  email: string
+  title: string
+  kind: BoardKind
+  role: BoardRole
+  status: 'pending' | 'accepted' | 'revoked'
+  invited_by: string | null
 }
 
 type AuthResponse = {
@@ -343,11 +442,122 @@ export function getBoard(boardId: string): Promise<Board> {
   return call<Board>(`/boards/${boardId}`)
 }
 
-export function mintWsToken(boardId: string): Promise<WsToken> {
+/**
+ * A websocket credential for a signed-in caller.
+ *
+ * The share token rides along whenever the browser has one, because it can only ever
+ * *raise* the answer: an editor link opens an editor connection for somebody whose
+ * membership is viewer, and a viewer link never demotes an editor who follows it. An
+ * anonymous visitor cannot call this at all and uses `mintGuestWsToken` instead.
+ */
+export function mintWsToken(boardId: string, linkToken: string | null): Promise<WsToken> {
   return call<WsToken>('/ws-token', {
     method: 'POST',
-    body: JSON.stringify({ board_id: boardId }),
+    body: JSON.stringify({ board_id: boardId, link_token: linkToken }),
   })
+}
+
+/** A websocket credential for somebody with no account, holding a public link. */
+export function mintGuestWsToken(linkToken: string): Promise<WsToken> {
+  return call<WsToken>(`/share/${encodeURIComponent(linkToken)}/ws-token`, {
+    method: 'POST',
+  })
+}
+
+/**
+ * Set the board-wide lock. Owner only; the server refuses anyone else.
+ *
+ * It stops the owner too, which is the point: this locks the document rather than
+ * holding other people off it.
+ */
+export function setBoardLock(boardId: string, locked: boolean): Promise<Board> {
+  return call<Board>(`/boards/${boardId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ is_locked: locked }),
+  })
+}
+
+// --- sharing ---
+
+/** Everything the share dialog draws, in one response. Owner only. */
+export function getShare(boardId: string): Promise<ShareState> {
+  return call<ShareState>(`/boards/${boardId}/share`)
+}
+
+/** Set who may open the board and what they get. Mints the link on first going public. */
+export function setShare(
+  boardId: string,
+  mode: ShareMode,
+  role: BoardRole,
+): Promise<ShareState> {
+  return call<ShareState>(`/boards/${boardId}/share`, {
+    method: 'PUT',
+    body: JSON.stringify({ mode, role }),
+  })
+}
+
+/** Replace the link, breaking every copy of the old one. Its own action for that reason. */
+export function rotateShareLink(boardId: string): Promise<ShareState> {
+  return call<ShareState>(`/boards/${boardId}/share/rotate`, { method: 'POST' })
+}
+
+/** Invite one address. The server decides which of the two routes it takes. */
+export function inviteToBoard(
+  boardId: string,
+  email: string,
+  role: BoardRole,
+): Promise<InviteResult> {
+  return call<InviteResult>(`/boards/${boardId}/invites`, {
+    method: 'POST',
+    body: JSON.stringify({ email, role }),
+  })
+}
+
+/** Withdraw an invitation nobody has accepted yet. */
+export function revokeInvitation(boardId: string, invitationId: string): Promise<void> {
+  return call<void>(`/boards/${boardId}/invites/${invitationId}`, { method: 'DELETE' })
+}
+
+/** Change one member's role, or add one. This is the demote path; inviting never lowers. */
+export function setMemberRole(
+  boardId: string,
+  userId: string,
+  role: BoardRole,
+): Promise<BoardMember> {
+  return call<BoardMember>(`/boards/${boardId}/members`, {
+    method: 'POST',
+    body: JSON.stringify({ user_id: userId, role }),
+  })
+}
+
+export function removeMember(boardId: string, userId: string): Promise<void> {
+  return call<void>(`/boards/${boardId}/members/${userId}`, { method: 'DELETE' })
+}
+
+/**
+ * What a share link opens, for a caller holding nothing else.
+ *
+ * The fallback when `getBoard` 403s: a signed-in non-member on a public board is
+ * refused by the members-only route and welcomed by this one.
+ */
+export function getSharedBoard(linkToken: string): Promise<SharedBoard> {
+  return call<SharedBoard>(`/share/${encodeURIComponent(linkToken)}`)
+}
+
+/** What a `#/join/...` link says. Unauthenticated: its audience has no account yet. */
+export function getInvitation(token: string): Promise<JoinInvitation> {
+  return call<JoinInvitation>(`/invites/${encodeURIComponent(token)}`)
+}
+
+/**
+ * Redeem an invitation for the account signed in right now.
+ *
+ * Rarely needed. Invitations apply themselves when an account opens at the address
+ * they name, so this is for the person who already had an account when they were
+ * invited - or who was invited at a second address they also own.
+ */
+export function acceptInvitation(token: string): Promise<Board> {
+  return call<Board>(`/invites/${encodeURIComponent(token)}/accept`, { method: 'POST' })
 }
 
 /**

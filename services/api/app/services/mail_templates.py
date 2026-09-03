@@ -1,8 +1,8 @@
 """The messages this app sends, as (subject, text, html).
 
-Built here as strings rather than through a template engine: there is one message, it
-has three substitutions, and a dependency whose job is to interpolate three values is a
-dependency to keep updated for no return.
+Built here as strings rather than through a template engine: each message has a
+handful of substitutions and one shared layout, and a dependency whose job is to
+interpolate a handful of values is a dependency to keep updated for no return.
 
 Email is not the web. The CSS lives in `style` attributes because Gmail strips a
 `<style>` block, the layout is a table because Outlook's engine is Word's, and the
@@ -53,7 +53,7 @@ _MONO = "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monosp
 
 
 def _shell(*, heading: str, body: str, action: str, link: str, footer: str) -> str:
-    """The one layout both messages use. Extracted at the second message, not the first."""
+    """The one layout every message here uses. Extracted at the second, not the first."""
     safe_link = escape(link, quote=True)
     return f"""\
 <!doctype html>
@@ -197,4 +197,109 @@ def password_reset_mail(*, name: str, link: str, has_password: bool) -> tuple[st
             "changed."
         ),
     )
+    return subject, text, html
+
+
+# What a role means to somebody who has just been handed one, as a verb phrase. The
+# role name alone ("editor") is our word for a database enum; this is the sentence a
+# person reads in an inbox and decides whether to click on.
+_ROLE_VERB = {
+    "editor": "edit it with you",
+    "owner": "manage it with you",
+    "commenter": "read it and leave comments",
+    "viewer": "read it",
+}
+
+_ROLE_NOUN = {
+    "editor": "edit",
+    "owner": "full",
+    "commenter": "comment",
+    "viewer": "read-only",
+}
+
+
+def board_invite_mail(
+    *, name: str, inviter: str, title: str, noun: str, role: str, link: str
+) -> tuple[str, str, str]:
+    """"So-and-so shared a glade with you."
+
+    Sent only to an address that already has an account, because only then is the
+    access real when the mail arrives: the grant is written before this goes out, so
+    the button opens the board rather than starting a negotiation. An address with no
+    account gets no mail at all - see `app/services/sharing.py` for why that restraint
+    is deliberate - and the person doing the inviting is handed a link instead.
+
+    The inviter is named in the subject. An invitation from a stranger's app is spam;
+    an invitation from a person you know is a message, and which one it is has to be
+    legible from the inbox list without opening anything.
+    """
+    verb = _ROLE_VERB.get(role, _ROLE_VERB["viewer"])
+    subject = f"{inviter} shared \u201c{title}\u201d with you"
+
+    text = (
+        f"Hi {name},\n\n"
+        f"{inviter} shared the {noun} \u201c{title}\u201d with you, so you can {verb}.\n\n"
+        f"{link}\n\n"
+        "It is already in your list of glades, so this link is a shortcut rather than "
+        "something you have to use.\n\n"
+        "Meadow"
+    )
+
+    html = _shell(
+        heading=f"Hi {escape(name)},",
+        body=(
+            f"{escape(inviter)} shared the {escape(noun)} "
+            f"\u201c{escape(title)}\u201d with you, so you can {verb}."
+        ),
+        action=f"Open this {escape(noun)}",
+        link=link,
+        footer=(
+            "It is already in your list of glades, so this link is a shortcut rather "
+            "than something you have to use.<br />"
+            "If you were not expecting this, you can leave it alone. Nothing of yours "
+            "was shared in return."
+        ),
+    )
+
+    return subject, text, html
+
+
+def board_role_changed_mail(
+    *, name: str, actor: str, title: str, noun: str, role: str, link: str
+) -> tuple[str, str, str]:
+    """"Your access to this glade changed."
+
+    Sent on both directions of a change, promotion and demotion alike. A demotion is
+    the one that actually needs saying: finding out that you can no longer type into
+    something you were working in yesterday, by trying to type into it, is the version
+    of this that wastes somebody's afternoon.
+
+    Not sent when nothing changed. The caller checks that, because it is the caller
+    that knows what the role was before.
+    """
+    access = _ROLE_NOUN.get(role, _ROLE_NOUN["viewer"])
+    subject = f"Your access to \u201c{title}\u201d changed"
+
+    text = (
+        f"Hi {name},\n\n"
+        f"{actor} changed your access to the {noun} \u201c{title}\u201d. "
+        f"You now have {access} access.\n\n"
+        f"{link}\n\n"
+        "Meadow"
+    )
+
+    html = _shell(
+        heading=f"Hi {escape(name)},",
+        body=(
+            f"{escape(actor)} changed your access to the {escape(noun)} "
+            f"\u201c{escape(title)}\u201d. You now have {access} access."
+        ),
+        action=f"Open this {escape(noun)}",
+        link=link,
+        footer=(
+            "Anything you had already written is still there and still yours. A change "
+            "of access changes what you can do next, never what has been done."
+        ),
+    )
+
     return subject, text, html

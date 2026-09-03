@@ -57,6 +57,12 @@ class Settings(BaseSettings):
     # Both ends of the OAuth dance. The callback is limited too: it is reachable by
     # anyone, and each call costs two requests to github.com.
     rate_limit_oauth: str = "20/60"
+    # The unauthenticated sharing endpoints, keyed on the client address because there
+    # is no user to key on. Looser than the others because a public board that ten
+    # people open at once from one office is the feature working, and because a share
+    # token is 192 bits: this is here to make walking token space pointless, not to
+    # ration ordinary use.
+    rate_limit_share: str = "60/60"
 
     # --- third-party sign-in (ARCHITECTURE 7) ---
     # Blank by default, and that is the off switch, per provider: with either half of a

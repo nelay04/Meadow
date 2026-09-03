@@ -82,7 +82,7 @@ async def _start_activation(session: Session, user: User) -> bool:
     through the form, or the two doors drift apart.
     """
     if not settings.mail_enabled:
-        await activation.activate_without_mail(user)
+        await activation.activate_without_mail(session, user)
         return False
     try:
         await activation.send(session, user)

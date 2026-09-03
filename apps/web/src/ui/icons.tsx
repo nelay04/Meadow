@@ -185,6 +185,16 @@ export function IconTrash(props: IconProps) {
   )
 }
 
+/** Two sheets, one behind the other: the copy and what it was copied from. */
+export function IconDuplicate(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="9" y="9" width="11" height="11" rx="2" />
+      <path d="M15 5.5A1.5 1.5 0 0 0 13.5 4h-8A1.5 1.5 0 0 0 4 5.5v8A1.5 1.5 0 0 0 5.5 15" />
+    </Svg>
+  )
+}
+
 export function IconBack(props: IconProps) {
   return (
     <Svg {...props}>
@@ -527,6 +537,21 @@ export function IconPencil(props: IconProps) {
   )
 }
 
+/**
+ * Owners, in the presence list.
+ *
+ * Filled rather than stroked, unlike the rest of the set: it is drawn at nine pixels
+ * perched on the rim of an avatar, and at that size a 1.75 stroke on a five-point
+ * outline closes up into a blob. The one place the house style loses to legibility.
+ */
+export function IconCrown(props: IconProps) {
+  return (
+    <Svg {...props} fill="currentColor" stroke="none">
+      <path d="M3 8.2 7.2 11 12 4.6 16.8 11 21 8.2l-1.7 9.4a1 1 0 0 1-1 .8H5.7a1 1 0 0 1-1-.8z" />
+    </Svg>
+  )
+}
+
 /*
  * The pen, and the nibs it can be fitted with.
  *
@@ -717,6 +742,144 @@ export function IconMenu(props: IconProps) {
  * it is a brand mark with a fixed shape, and redrawing it as a stroked path would
  * make it something else. Filled with `currentColor` so it still follows the button.
  */
+export function IconShare(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M12 15V4" />
+      <path d="m8.5 7.5 3.5-3.5 3.5 3.5" />
+      <path d="M5.5 12.5V18a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-5.5" />
+    </Svg>
+  )
+}
+
+export function IconLink(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M10.5 13.5a3.5 3.5 0 0 0 5 0l3-3a3.5 3.5 0 0 0-5-5l-1.4 1.4" />
+      <path d="M13.5 10.5a3.5 3.5 0 0 0-5 0l-3 3a3.5 3.5 0 0 0 5 5l1.4-1.4" />
+    </Svg>
+  )
+}
+
+export function IconGlobe(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="12" cy="12" r="8" />
+      <path d="M4 12h16" />
+      <path d="M12 4c2.2 2.2 3.3 5 3.3 8s-1.1 5.8-3.3 8c-2.2-2.2-3.3-5-3.3-8s1.1-5.8 3.3-8Z" />
+    </Svg>
+  )
+}
+
+export function IconCopy(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="9" y="9" width="11" height="11" rx="2" />
+      <path d="M15 6.5V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h.5" />
+    </Svg>
+  )
+}
+
+export function IconMail(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="3" y="5.5" width="18" height="13" rx="2" />
+      <path d="m3.8 7 7.1 5.3a2 2 0 0 0 2.2 0L20.2 7" />
+    </Svg>
+  )
+}
+
+export function IconRotate(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M20 12a8 8 0 1 1-2.6-5.9" />
+      <path d="M20 4v4.5h-4.5" />
+    </Svg>
+  )
+}
+
+/**
+ * The overflow button on the board bar.
+ *
+ * Three dots and not a hamburger. A hamburger says "the navigation is behind here",
+ * which is a claim about the whole screen; three dots say "there is more of *this*
+ * row", which is exactly what is true - the four controls that stayed out are still
+ * out, and this is the rest of them.
+ */
+export function IconMore(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="12" cy="5.5" r="1.4" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="18.5" r="1.4" fill="currentColor" stroke="none" />
+    </Svg>
+  )
+}
+
+/*
+ * The social marks, below, break this file's own rule about one stroked path on a 24
+ * grid: they are filled brand glyphs at their own proportions, because a brand mark
+ * redrawn in somebody else's stroke weight stops being recognisable, and recognisable
+ * at 16px is the entire reason to show one. Same exception `IconGitHub` and
+ * `IconGoogle` already take.
+ */
+
+function Brand({ size = 18, children, ...rest }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+      focusable="false"
+      {...rest}
+    >
+      {children}
+    </svg>
+  )
+}
+
+export function IconWhatsApp(props: IconProps) {
+  return (
+    <Brand {...props}>
+      <path d="M12 2.2a9.7 9.7 0 0 0-8.3 14.7L2.2 21.8l5-1.3A9.7 9.7 0 1 0 12 2.2Zm0 1.8a7.9 7.9 0 0 1 6.6 12.2 7.9 7.9 0 0 1-9.9 2.8l-.4-.2-3 .8.8-2.9-.2-.4A7.9 7.9 0 0 1 12 4Zm-3.4 4c-.2 0-.5.1-.7.4-.3.3-.9.9-.9 2.1s.9 2.4 1 2.6c.1.2 1.8 2.9 4.5 4 2.2.9 2.7.7 3.2.7.5 0 1.6-.6 1.8-1.3.2-.6.2-1.2.2-1.3-.1-.1-.3-.2-.6-.3l-2-1c-.3-.1-.5-.1-.6.1l-.9 1.1c-.2.2-.3.2-.6.1a6.5 6.5 0 0 1-3.2-2.8c-.2-.4 0-.5.2-.7l.4-.5c.1-.2.2-.3.3-.5 0-.2 0-.4-.1-.5l-.8-2c-.2-.5-.4-.4-.6-.4Z" />
+    </Brand>
+  )
+}
+
+export function IconX(props: IconProps) {
+  return (
+    <Brand {...props}>
+      <path d="M17.2 3h3.3l-7.2 8.3 8.5 9.7h-6.6l-5.2-6-6 6H.7l7.7-8.9L.2 3h6.8l4.7 5.5Zm-1.2 15.9h1.8L7.9 4.8H6Z" />
+    </Brand>
+  )
+}
+
+export function IconFacebook(props: IconProps) {
+  return (
+    <Brand {...props}>
+      <path d="M22 12a10 10 0 1 0-11.6 9.9v-7H7.9V12h2.5V9.8c0-2.5 1.5-3.9 3.7-3.9 1.1 0 2.2.2 2.2.2v2.4h-1.2c-1.2 0-1.6.8-1.6 1.6V12h2.7l-.4 2.9h-2.3v7A10 10 0 0 0 22 12Z" />
+    </Brand>
+  )
+}
+
+export function IconLinkedIn(props: IconProps) {
+  return (
+    <Brand {...props}>
+      <path d="M20.4 2H3.6A1.6 1.6 0 0 0 2 3.6v16.8A1.6 1.6 0 0 0 3.6 22h16.8a1.6 1.6 0 0 0 1.6-1.6V3.6A1.6 1.6 0 0 0 20.4 2ZM8.1 19H5.2V9.7h2.9Zm-1.5-10.6a1.7 1.7 0 1 1 0-3.4 1.7 1.7 0 0 1 0 3.4ZM19 19h-2.9v-4.5c0-1.1 0-2.5-1.5-2.5s-1.8 1.2-1.8 2.4V19H9.9V9.7h2.8V11h.1a3 3 0 0 1 2.7-1.5c2.9 0 3.5 1.9 3.5 4.4Z" />
+    </Brand>
+  )
+}
+
+export function IconTelegram(props: IconProps) {
+  return (
+    <Brand {...props}>
+      <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm4.6 6.9-1.5 7.3c-.1.5-.4.6-.9.4l-2.4-1.8-1.2 1.1c-.1.1-.2.3-.5.3l.2-2.5 4.5-4.1c.2-.2 0-.3-.3-.1l-5.5 3.5-2.4-.7c-.5-.2-.5-.5.1-.8l9.3-3.6c.4-.2.8.1.6.8Z" />
+    </Brand>
+  )
+}
+
 export function IconGitHub({ size = 18, ...rest }: IconProps) {
   return (
     <svg

@@ -37,17 +37,21 @@ import {
   IconCheck,
   IconChevronDown,
   IconCircle,
+  IconCrown,
   IconCursor,
   IconCylinder,
   IconDiamond,
+  IconDuplicate,
   IconFit,
   IconEye,
+  IconGlobe,
   IconGridLines,
   IconHand,
   IconItalic,
   IconLock,
   IconLine,
   IconMinus,
+  IconMore,
   IconNibBrush,
   IconNibChisel,
   IconNibFelt,
@@ -63,6 +67,7 @@ import {
   IconRouteElbow,
   IconRouteStraight,
   IconShapes,
+  IconShare,
   IconSquare,
   IconStrike,
   IconSticky,
@@ -73,15 +78,18 @@ import {
   IconTrash,
   IconUnlock,
 } from '../../ui/icons'
-import { Avatar, initialsOf } from '../../ui/Avatar'
+import { Avatar } from '../../ui/Avatar'
 import { useToast } from '../../ui/Toaster'
 import { createDocSession, roleCanWrite } from '../../doc/mutations'
-import type { BoardKind, BoardRole } from '../../lib/api'
+import type { BoardKind, BoardRole, ShareMode } from '../../lib/api'
 import * as api from '../../lib/api'
+import { clearShareToken, shareToken } from '../../lib/shareLink'
 import { boardKind, boardPath } from '../boards/kinds'
 import { type PresenceHandle, colorFor, trackPresence } from '../../sync/awareness'
 import { type BoardConnection, type ConnectionState, connectBoard } from '../../sync/provider'
 import { useAuth } from '../auth/AuthContext'
+import { guestIdentity } from '../auth/guest'
+import { ShareDialog } from './ShareDialog'
 import {
   PAPER_EVENT,
   type Paper,
@@ -328,6 +336,30 @@ function writePagesPreference(open: boolean): void {
 }
 
 /** One avatar per person, however many tabs they have open. */
+/**
+ * One person in the presence row.
+ *
+ * The self face and a peer's face differ in where their fields come from and in
+ * nothing else, so they are flattened to one shape and rendered by one branch. The
+ * alternative is the card markup written twice, which is how the two halves of a row
+ * drift apart.
+ */
+type Face = {
+  key: string
+  name: string
+  avatarUrl: string | null
+  color: number
+  role: BoardRole | null
+  canWrite: boolean
+  you: boolean
+}
+
+/** Sentence case for a card, from the lowercase word the wire carries. */
+function roleLabel(face: Face): string {
+  if (face.role === null) return face.canWrite ? 'Can edit' : 'View only'
+  return face.role[0].toUpperCase() + face.role.slice(1)
+}
+
 function dedupe(wanderers: readonly Wanderer[]): Wanderer[] {
   const seen = new Set<string>()
   const out: Wanderer[] = []
@@ -361,6 +393,30 @@ export default function BoardPage({ boardId, onBack }: Props) {
    * visit would read as the glade being broken. See `createDocSession`.
    */
   const [locked, setLocked] = useState(false)
+  /*
+   * The owner's lock, as the server last reported it.
+   *
+   * A different feature from `locked` above, sharing only its consequence. This one is
+   * on the board, everybody on it sees the same value, and only the owner lifts it. It
+   * arrives with the connection and nowhere else - the owner's press evicts every
+   * socket, each client reconnects and is told the new answer at the mint - so nothing
+   * here polls for it and nothing trusts a peer's word about it.
+   */
+  const [boardLocked, setBoardLocked] = useState(false)
+  /** Who the board is open to, so the bar can say when it is out in the world. */
+  const [shareMode, setShareMode] = useState<ShareMode>('restricted')
+  const [shareOpen, setShareOpen] = useState(false)
+  /*
+   * The overflow menu.
+   *
+   * The bar had grown to nine controls, and at that length nobody reads it - it becomes
+   * a texture you scan past. Four things stayed out because they are used mid-thought,
+   * with a hand already on the canvas: the zoom readout, Fit, the input language, and
+   * the lock. Everything else is a setting you change once and forget, and a setting
+   * you change once belongs behind a click.
+   */
+  const [moreOpen, setMoreOpen] = useState(false)
+  const moreRoot = useRef<HTMLDivElement>(null)
   const [detail, setDetail] = useState('')
   /** Whether the diary's page list is beside the paper. Only a lea has one. */
   const [pagesOpen, setPagesOpen] = useState(readPagesPreference)
@@ -385,7 +441,10 @@ export default function BoardPage({ boardId, onBack }: Props) {
 
   // One Y.Doc per board, for the lifetime of this view.
   const doc = useMemo(() => new Y.Doc(), [boardId])
-  const session = useMemo(() => createDocSession(doc, role, locked), [doc, role, locked])
+  const session = useMemo(
+    () => createDocSession(doc, role, locked, boardLocked),
+    [doc, role, locked, boardLocked],
+  )
 
   // A stable object, so the engine is not rebuilt every render. The handle behind it
   // is swapped when the connection is, and the ref indirection absorbs that.
@@ -463,6 +522,24 @@ export default function BoardPage({ boardId, onBack }: Props) {
   // this kind offers if the remembered one is not among them.
   const armedShape = shapes.find((entry) => entry.id === shape) ?? shapes[0]
 
+  /*
+   * What the lock button says it will do.
+   *
+   * Four cases and not two, because the same icon is doing two jobs and the tooltip is
+   * the only place that difference is stated. The one that matters is the fourth: a
+   * non-owner on a locked board sees a lock they cannot lift, and the sentence has to
+   * say who can - otherwise the button reads as broken rather than as held.
+   */
+  const lockHint = boardLocked
+    ? role === 'owner'
+      ? `Unlock this ${noun} for everyone`
+      : `The owner has locked this ${noun}`
+    : locked
+      ? `Unlock this ${noun} in this tab`
+      : role === 'owner'
+        ? `Lock this ${noun} against edits, for everyone`
+        : `Lock this ${noun} against edits, in this tab`
+
   const canvas = useCanvas(session, presenceBridge, {
     authorName: user?.display_name ?? '',
     surface: spec.surface,
@@ -508,6 +585,48 @@ export default function BoardPage({ boardId, onBack }: Props) {
   }, [activeTool])
 
   useEffect(() => {
+    if (!moreOpen) return
+    const onDown = (event: PointerEvent) => {
+      if (!moreRoot.current?.contains(event.target as Node)) setMoreOpen(false)
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMoreOpen(false)
+    }
+    document.addEventListener('pointerdown', onDown, true)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', onDown, true)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [moreOpen])
+
+  /**
+   * Take or lift the lock, whichever kind this person has.
+   *
+   * One button, two locks, and they are not two strengths of one thing. An owner's
+   * press is a fact about the board that everybody sees and obeys; anybody else's is a
+   * guard against their own hands, per-tab and told to nobody. Which you get follows
+   * from what you are, so there is nothing to choose and no second control to find.
+   *
+   * The board-wide half is not applied optimistically. The server writes it, evicts
+   * every socket on the board, and each client - this one included - is told the new
+   * answer when it reconnects. Setting the flag here as well would mean a failed
+   * request left this tab locked and everybody else's open, which is the one state
+   * nobody could make sense of.
+   */
+  const toggleLock = useCallback(() => {
+    if (role !== 'owner') {
+      setLocked((on) => !on)
+      return
+    }
+    void api.setBoardLock(boardId, !boardLocked).catch((error: unknown) => {
+      toast.error(
+        error instanceof Error ? error.message : `Could not lock this ${noun}.`,
+      )
+    })
+  }, [boardId, boardLocked, noun, role, toast])
+
+  useEffect(() => {
     if (!sizeMenuOpen) return
     const onDown = (event: PointerEvent) => {
       if (!sizeMenuRoot.current?.contains(event.target as Node)) setSizeMenuOpen(false)
@@ -547,27 +666,69 @@ export default function BoardPage({ boardId, onBack }: Props) {
   )
 
   useEffect(() => {
+    let cancelled = false
+
+    /*
+     * Correct the address bar if the link disagreed with the board.
+     *
+     * The kind is in the path so a URL says what it opens, but the path cannot be the
+     * authority on it: an old `#/glade/...` link, or one typed by hand, has to open the
+     * right board anyway. `replaceState` rather than assigning to `location.hash`, so
+     * this does not add a history entry the back button then has to be pressed twice to
+     * get past - and it preserves the query string, which is where a share token lives.
+     */
+    const settle = (board: { title: string; kind: BoardKind; role: BoardRole; is_locked: boolean }) => {
+      if (cancelled) return
+      setTitle(board.title)
+      savedTitle.current = board.title
+      setKind(board.kind)
+      setRole(board.role)
+      setBoardLocked(board.is_locked)
+      const path = boardPath(board.kind, boardId)
+      if (location.hash !== path) {
+        history.replaceState(null, '', `${location.pathname}${location.search}${path}`)
+      }
+    }
+
+    /*
+     * Two ways to learn about a board, tried in that order.
+     *
+     * The members-only route first, because a member should see their own role rather
+     * than the link's - an owner who opens their own share link is still the owner. Its
+     * 403 is not an error here: it is how a signed-in stranger and an anonymous visitor
+     * both find out they should be asking the public route instead. Only when *that*
+     * fails too is there nothing to show.
+     */
     void api
       .getBoard(boardId)
       .then((board) => {
-        setTitle(board.title)
-        savedTitle.current = board.title
-        setKind(board.kind)
-        setRole(board.role)
-
-        /*
-         * Correct the address bar if the link disagreed with the board.
-         *
-         * The kind is in the path so a URL says what it opens, but the path cannot be
-         * the authority on it: an old `#/glade/...` link, or one typed by hand, has to
-         * open the right board anyway. `replaceState` rather than assigning to
-         * `location.hash`, so this does not add a history entry the back button then
-         * has to be pressed twice to get past.
-         */
-        const path = boardPath(board.kind, boardId)
-        if (location.hash !== path) history.replaceState(null, '', path)
+        settle(board)
+        setShareMode(board.share_mode)
       })
-      .catch(() => setTitle('(unavailable)'))
+      .catch(() => {
+        const token = shareToken()
+        if (token === null) {
+          if (!cancelled) setTitle('(unavailable)')
+          return
+        }
+        return api
+          .getSharedBoard(token)
+          .then((board) => {
+            settle({ ...board, role: board.role })
+            setShareMode('public')
+          })
+          .catch(() => {
+            // The link was rotated, or the board is no longer public. Forget it, so
+            // every later request stops presenting a credential the server keeps
+            // refusing.
+            clearShareToken()
+            if (!cancelled) setTitle('(unavailable)')
+          })
+      })
+
+    return () => {
+      cancelled = true
+    }
   }, [boardId])
 
   useEffect(() => {
@@ -578,11 +739,18 @@ export default function BoardPage({ boardId, onBack }: Props) {
     const link = connectBoard({
       boardId,
       doc,
+      linkToken: shareToken(),
+      authenticated: user !== null,
       onState: (next, message) => {
         setState(next)
         setDetail(message ?? '')
       },
-      onRole: setRole,
+      // The server answers role and lock together at every mint, so a lock taken while
+      // this page was open arrives here, on the reconnect the eviction caused.
+      onAccess: (access) => {
+        setRole(access.role)
+        setBoardLocked(access.locked)
+      },
     })
     connection.current = link
     // Either source of truth will do: the local copy is the same document, and a lea
@@ -593,16 +761,22 @@ export default function BoardPage({ boardId, onBack }: Props) {
     link.provider.on('sync', onSync)
     void idb.whenSynced.then(() => setDocReady(true))
 
-    // Presence is bound to the provider's awareness, not to the doc, so it comes and
-    // goes with the connection.
-    const handle =
+    /*
+     * Presence is bound to the provider's awareness, not to the doc, so it comes and
+     * goes with the connection.
+     *
+     * A visitor on a public link has no account and still gets a face. Leaving them out
+     * would make a shared board feel empty to the people who own it while somebody was
+     * plainly moving things around on it, and would leave the visitor's own cursor
+     * unexplained to everyone else. The identity is made on this side and claims
+     * nothing - see `features/auth/guest.ts`.
+     */
+    const guest = guestIdentity()
+    const me =
       user === null
-        ? null
-        : trackPresence(
-            link.provider.awareness,
-            { id: user.id, name: user.display_name, canWrite: roleCanWrite(role) },
-            applyWanderers,
-          )
+        ? { id: guest.id, name: guest.name, avatarUrl: null, role }
+        : { id: user.id, name: user.display_name, avatarUrl: user.avatar_url, role }
+    const handle = trackPresence(link.provider.awareness, me, applyWanderers)
     presence.current = handle
 
     return () => {
@@ -618,10 +792,73 @@ export default function BoardPage({ boardId, onBack }: Props) {
     }
   }, [boardId, doc, user, applyWanderers])
 
-  // The role half is the server's answer and the lock half is this tab's. Both have
-  // to be true, and the same expression drives the session, so the toolbar can never
-  // offer something the mutation layer would refuse.
-  const canWrite = roleCanWrite(role) && !locked
+  // The role and the owner's lock are the server's answers; the third is this tab's
+  // own. All three have to hold, and the same expression drives the session, so the
+  // toolbar can never offer something the mutation layer would refuse.
+  const canWrite = roleCanWrite(role) && !locked && !boardLocked
+
+  /*
+   * The presence row, as one list.
+   *
+   * Deduplicated by name and colour: one person with two tabs open is two wanderers on
+   * the canvas but one face here.
+   */
+  const guest = guestIdentity()
+  // A link visitor is in this row too, under the name their own tab gave them. The
+  // alternative was a board that shows one face while two cursors move on it.
+  const me = user ?? { id: guest.id, display_name: guest.name, avatar_url: null }
+  const faces: Face[] = [
+    {
+      key: 'you',
+      name: me.display_name,
+      avatarUrl: me.avatar_url ?? null,
+      color: colorFor(me.id),
+      role,
+      canWrite: roleCanWrite(role),
+      you: true,
+    },
+    ...dedupe(wanderers).map((wanderer) => ({
+      key: `peer-${wanderer.clientId}`,
+      name: wanderer.name,
+      avatarUrl: wanderer.avatarUrl,
+      color: wanderer.color,
+      role: wanderer.role,
+      canWrite: wanderer.canWrite,
+      you: false,
+    })),
+  ]
+
+  /*
+   * Which face has its card open, by key.
+   *
+   * A click rather than a hover, because the row is small, the circles overlap, and a
+   * card that appears as the pointer crosses the row on its way to the zoom control is
+   * a card nobody asked for. One at a time: two open cards would overlap each other.
+   */
+  const [openFace, setOpenFace] = useState<string | null>(null)
+  const facesRow = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (openFace === null) return
+
+    // `pointerdown` rather than `click`, so the card is gone before whatever was
+    // clicked underneath it happens. Clicks inside the row are left alone: that is the
+    // same-face toggle and the switch to another face, both handled by the button.
+    const onDown = (event: PointerEvent) => {
+      if (facesRow.current?.contains(event.target as Node) === true) return
+      setOpenFace(null)
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpenFace(null)
+    }
+
+    window.addEventListener('pointerdown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('pointerdown', onDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [openFace])
 
   /*
    * The stock this page is on: the reader's own default, and nothing else.
@@ -666,7 +903,7 @@ export default function BoardPage({ boardId, onBack }: Props) {
   // your own hands, per-tab and never sent to anyone, so a locked tab still shows the
   // editor badge its permissions actually grant.
   useEffect(() => {
-    presence.current?.setCanWrite(roleCanWrite(role))
+    presence.current?.setRole(role)
   }, [role])
 
   /*
@@ -751,7 +988,11 @@ export default function BoardPage({ boardId, onBack }: Props) {
    * while the engine is alive.
    */
   useEffect(() => {
-    if (!canWrite) return
+    // A link visitor is skipped even when they may write. The preview exists for the
+    // board list, they have no board list, and every attempt would be an unauthenticated
+    // PUT that 401s and drags a refresh attempt along behind it - twice a minute, for a
+    // picture nobody would ever be shown.
+    if (!canWrite || user === null) return
 
     let disposed = false
 
@@ -787,7 +1028,7 @@ export default function BoardPage({ boardId, onBack }: Props) {
       window.clearInterval(timer)
       document.removeEventListener('visibilitychange', onHidden)
     }
-  }, [boardId, canWrite, canvas.engine])
+  }, [boardId, canWrite, canvas.engine, user])
 
   /*
    * Clearing the board clears its preview, straight away.
@@ -797,16 +1038,25 @@ export default function BoardPage({ boardId, onBack }: Props) {
    * when a stale picture is most obviously wrong.
    */
   useEffect(() => {
-    if (!canWrite || !docReady || !empty) return
+    if (!canWrite || user === null || !docReady || !empty) return
     void api.deleteThumbnail(boardId).catch(() => {
       // Cosmetic, like the capture itself.
     })
-  }, [boardId, canWrite, docReady, empty])
+  }, [boardId, canWrite, docReady, empty, user])
 
   return (
     <main className={`board board-${spec.id}`}>
       <header className="board-bar">
-        <button type="button" className="icon ghost" onClick={onBack} title="Back to your glades" aria-label="Back to your glades">
+        {/* A link visitor has no glades to go back to, so the button offers them the
+            app itself. Same destination either way; the sentence is the only thing that
+            would be wrong. */}
+        <button
+          type="button"
+          className="icon ghost"
+          onClick={onBack}
+          title={user === null ? 'Go to Meadow' : 'Back to your glades'}
+          aria-label={user === null ? 'Go to Meadow' : 'Back to your glades'}
+        >
           <IconBack />
         </button>
         {/*
@@ -875,39 +1125,49 @@ export default function BoardPage({ boardId, onBack }: Props) {
 
         <div className="spacer" />
 
-        {/* Presence avatars. Deduplicated by user id: one person with two tabs open is
-            two wanderers on the canvas but one face here. */}
-        <div className="wanderers" aria-label="People here">
-          {user !== null && (
-            <Avatar
-              className="avatar avatar-self"
-              name={user.display_name}
-              url={user.avatar_url}
-              style={{ background: `#${colorFor(user.id).toString(16).padStart(6, '0')}` }}
-              title={`${user.display_name} (you, ${roleCanWrite(role) ? 'editor' : 'viewer'})`}
-            >
-              <span
-                className={`badge ${roleCanWrite(role) ? 'editor' : 'viewer'}`}
-                aria-hidden="true"
+        {/* Presence. A face each, the badge saying who may write, a crown on whoever
+            owns the glade, and the name behind it one click away. */}
+        <div className="wanderers" aria-label="People here" ref={facesRow}>
+          {faces.map((face) => (
+            <span className="face" key={face.key}>
+              <Avatar
+                className={face.you ? 'avatar avatar-self' : 'avatar'}
+                name={face.name}
+                url={face.avatarUrl}
+                style={{ background: `#${face.color.toString(16).padStart(6, '0')}` }}
+                title={face.name}
+                onClick={() => setOpenFace((open) => (open === face.key ? null : face.key))}
               >
-                {roleCanWrite(role) ? <IconPencil size={9} /> : <IconEye size={9} />}
-              </span>
-            </Avatar>
-          )}
-          {dedupe(wanderers).map((wanderer) => (
-            <span
-              key={wanderer.clientId}
-              className="avatar"
-              style={{ background: `#${wanderer.color.toString(16).padStart(6, '0')}` }}
-              title={`${wanderer.name} (${wanderer.canWrite ? 'editor' : 'viewer'})`}
-            >
-              {initialsOf(wanderer.name)}
-              {/* Which of the two people in a room can actually change it is the one
-                  thing about presence that changes how you behave, and a list of
-                  identical circles does not say it. */}
-              <span className={`badge ${wanderer.canWrite ? 'editor' : 'viewer'}`} aria-hidden="true">
-                {wanderer.canWrite ? <IconPencil size={9} /> : <IconEye size={9} />}
-              </span>
+                {/* Tilted, and sitting on the rim rather than beside the circle: a
+                    crown worn at an angle reads as one at a glance, and a level one at
+                    this size reads as a smudge. */}
+                {face.role === 'owner' && (
+                  <span className="crown" aria-hidden="true">
+                    <IconCrown size={11} />
+                  </span>
+                )}
+                {/* Which of the people in a room can actually change it is the one
+                    thing about presence that changes how you behave, and a list of
+                    identical circles does not say it. */}
+                <span
+                  className={`badge ${face.canWrite ? 'editor' : 'viewer'}`}
+                  aria-hidden="true"
+                >
+                  {face.canWrite ? <IconPencil size={10} /> : <IconEye size={10} />}
+                </span>
+              </Avatar>
+
+              {openFace === face.key && (
+                <span className="face-card" role="status">
+                  <span className="who">
+                    {face.name}
+                    {face.you && <span className="you"> (you)</span>}
+                  </span>
+                  <span className={`role role-${face.role ?? (face.canWrite ? 'editor' : 'viewer')}`}>
+                    {roleLabel(face)}
+                  </span>
+                </span>
+              )}
             </span>
           ))}
         </div>
@@ -938,30 +1198,6 @@ export default function BoardPage({ boardId, onBack }: Props) {
           )}
         </div>
 
-        {/* Both of these belong to a diary and to nothing else: a glade has no pages to
-            list and no stationery to choose. */}
-        {spec.column !== null && (
-          <button
-            type="button"
-            className={pagesOpen ? 'icon ghost active' : 'icon ghost'}
-            aria-pressed={pagesOpen}
-            onClick={() =>
-              setPagesOpen((open) => {
-                writePagesPreference(!open)
-                return !open
-              })
-            }
-            title={pagesOpen ? 'Hide the pages' : 'Show the pages'}
-            aria-label={pagesOpen ? 'Hide the pages' : 'Show the pages'}
-          >
-            <IconPanel />
-          </button>
-        )}
-
-        {spec.column !== null && (
-          <LeaPaper value={paperPreference} onChange={setPaper} />
-        )}
-
         {/*
           The keyboard, not the document.
 
@@ -970,57 +1206,155 @@ export default function BoardPage({ boardId, onBack }: Props) {
           not stop at the edge of the paper. It is the person's own setting - see
           `text/imeStore.ts` - so it follows them from board to board and nobody else on
           this lea sees it change.
+
+          One of the four that stayed out of the menu, because it is switched
+          mid-sentence: a control you reach for while already typing cannot cost a click
+          to find.
         */}
         <InputLanguage />
 
         {/*
-          A glade picks its paper out of three; a lea only says whether its rules show.
+          The lock. Also out of the menu, for the opposite reason to the language
+          picker: it is not used often, but when it is used it is used *now* - you are
+          about to present, or somebody is about to nudge a shape you spent an hour on
+          - and a safety control behind a menu is a safety control nobody reaches in
+          time.
 
-          The difference is not a shortcut. A diary's ruling is the leading its writing
-          sits on, so there is no dot lattice to offer there - a writing line with its
-          middle rubbed out is not a writing line - and a picker of one real choice is
-          worse than the toggle it replaced.
+          Two locks behind one button. An owner's press stops everybody, including
+          themselves; anybody else's stops only this tab. Both are offered to whoever
+          could otherwise write, and to nobody else: offering a lock to a viewer is
+          offering to turn off something they never had.
         */}
-        {spec.column === null ? (
-          <BoardGrid
-            value={canvas.gridVisible ? canvas.gridPattern : 'none'}
-            onChange={(choice) => {
-              if (choice === 'none') {
-                if (canvas.gridVisible) canvas.toggleGrid()
-                return
-              }
-              canvas.setGridPattern(choice)
-              if (!canvas.gridVisible) canvas.toggleGrid()
-            }}
-          />
-        ) : (
+        {(roleCanWrite(role) || boardLocked) && (
           <button
             type="button"
-            className={canvas.gridVisible ? 'icon ghost active' : 'icon ghost'}
-            aria-pressed={canvas.gridVisible}
-            onClick={canvas.toggleGrid}
-            title={canvas.gridVisible ? 'Hide grid' : 'Show grid'}
-            aria-label={canvas.gridVisible ? 'Hide grid' : 'Show grid'}
+            className={locked || boardLocked ? 'icon ghost active' : 'icon ghost'}
+            aria-pressed={locked || boardLocked}
+            disabled={boardLocked && role !== 'owner'}
+            onClick={toggleLock}
+            title={lockHint}
+            aria-label={lockHint}
           >
-            <IconGridLines />
+            {locked || boardLocked ? <IconLock /> : <IconUnlock />}
           </button>
         )}
 
-        {/* Only for people who could otherwise edit. Offering a lock to a viewer is
-            offering to turn off something they never had. */}
-        {roleCanWrite(role) && (
+        {/*
+          Everything else, behind one button.
+
+          What is in here is not a leftovers drawer: it is every control that is a
+          *setting*. You choose your grid, or your stationery, or whether the page list
+          is open, once - and then you are working, and a bar still advertising those
+          choices is nine things to read past every time you look for the zoom. Sharing
+          lives here too. It is the most consequential thing on this bar and among the
+          rarest, and those two facts point the same way: a decision about who else can
+          be here should cost a deliberate click rather than sitting one stray press
+          away from the canvas.
+        */}
+        <div className="dropdown board-more" ref={moreRoot}>
           <button
             type="button"
-            className={locked ? 'icon ghost active' : 'icon ghost'}
-            aria-pressed={locked}
-            onClick={() => setLocked((on) => !on)}
-            title={locked ? `Unlock this ${noun}` : `Lock this ${noun} against edits`}
-            aria-label={locked ? `Unlock this ${noun}` : `Lock this ${noun} against edits`}
+            className={moreOpen ? 'icon ghost active' : 'icon ghost'}
+            aria-haspopup="menu"
+            aria-expanded={moreOpen}
+            onClick={() => setMoreOpen((open) => !open)}
+            title="More"
+            aria-label="More"
           >
-            {locked ? <IconLock /> : <IconUnlock />}
+            <IconMore />
           </button>
-        )}
 
+          {moreOpen && (
+            <div className="menu" role="menu" aria-label="More">
+              {/* Owner only, because every control behind it decides who else may be
+                  here. An editor is not entitled to widen their own grant. */}
+              {role === 'owner' && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="menu-item"
+                  onClick={() => {
+                    setMoreOpen(false)
+                    setShareOpen(true)
+                  }}
+                >
+                  <IconShare size={16} />
+                  <span>Share…</span>
+                  {shareMode === 'public' && (
+                    <span className="menu-badge" title="Anyone with the link can open this">
+                      <IconGlobe size={12} />
+                      Public
+                    </span>
+                  )}
+                </button>
+              )}
+
+              {/* Both of these belong to a diary and to nothing else: a glade has no
+                  pages to list and no stationery to choose. */}
+              {spec.column !== null && (
+                <button
+                  type="button"
+                  role="menuitemcheckbox"
+                  aria-checked={pagesOpen}
+                  className={pagesOpen ? 'menu-item checked' : 'menu-item'}
+                  onClick={() =>
+                    setPagesOpen((open) => {
+                      writePagesPreference(!open)
+                      return !open
+                    })
+                  }
+                >
+                  <IconPanel size={16} />
+                  <span>{pagesOpen ? 'Hide the pages' : 'Show the pages'}</span>
+                </button>
+              )}
+
+              {spec.column !== null && (
+                <div className="menu-row">
+                  <span className="menu-row-label">Paper</span>
+                  <LeaPaper value={paperPreference} onChange={setPaper} />
+                </div>
+              )}
+
+              {/*
+                A glade picks its paper out of three; a lea only says whether its rules
+                show.
+
+                The difference is not a shortcut. A diary's ruling is the leading its
+                writing sits on, so there is no dot lattice to offer there - a writing
+                line with its middle rubbed out is not a writing line - and a picker of
+                one real choice is worse than the toggle it replaced.
+              */}
+              {spec.column === null ? (
+                <div className="menu-row">
+                  <span className="menu-row-label">Grid</span>
+                  <BoardGrid
+                    value={canvas.gridVisible ? canvas.gridPattern : 'none'}
+                    onChange={(choice) => {
+                      if (choice === 'none') {
+                        if (canvas.gridVisible) canvas.toggleGrid()
+                        return
+                      }
+                      canvas.setGridPattern(choice)
+                      if (!canvas.gridVisible) canvas.toggleGrid()
+                    }}
+                  />
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  role="menuitemcheckbox"
+                  aria-checked={canvas.gridVisible}
+                  className={canvas.gridVisible ? 'menu-item checked' : 'menu-item'}
+                  onClick={canvas.toggleGrid}
+                >
+                  <IconGridLines size={16} />
+                  <span>{canvas.gridVisible ? 'Hide the rules' : 'Show the rules'}</span>
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </header>
 
       {/* `with-pages` only while the list is actually standing beside the canvas: it is
@@ -1359,6 +1693,17 @@ export default function BoardPage({ boardId, onBack }: Props) {
 
           <button
             type="button"
+            className="tool"
+            aria-label="Duplicate selection"
+            disabled={!canWrite || canvas.selection.length === 0}
+            onClick={canvas.duplicateSelection}
+          >
+            <IconDuplicate size={19} />
+            <Tip label="Duplicate" hint="Ctrl+D" />
+          </button>
+
+          <button
+            type="button"
             className="tool danger"
             aria-label="Delete selection"
             disabled={!canWrite || canvas.selection.length === 0}
@@ -1574,13 +1919,34 @@ export default function BoardPage({ boardId, onBack }: Props) {
           </div>
         )}
 
+        {/*
+          One banner, and the order is the order of what the reader can do about it.
+
+          Your own tab lock first even when the owner's is also on: it has an Unlock
+          button right there, and telling somebody to wait for the owner while their own
+          toggle is down would send them off to wait for nothing. The owner's lock names
+          the owner, because the reader cannot lift it and needs to know who can - a
+          notice that only says "locked" reads as a fault. The role notice is last,
+          because it is the one that does not change.
+        */}
         <div className="board-notices">
           {locked ? (
             <p className="banner">
-              This {noun} is locked.
+              This {noun} is locked in this tab.
               <button type="button" className="link" onClick={() => setLocked(false)}>
                 Unlock
               </button>
+            </p>
+          ) : boardLocked ? (
+            <p className="banner">
+              {role === 'owner'
+                ? `You have locked this ${noun}. Nobody can edit it until you unlock it.`
+                : `The owner has locked this ${noun} against edits.`}
+              {role === 'owner' && (
+                <button type="button" className="link" onClick={toggleLock}>
+                  Unlock
+                </button>
+              )}
             </p>
           ) : (
             !canWrite && (
@@ -1591,6 +1957,23 @@ export default function BoardPage({ boardId, onBack }: Props) {
           )}
         </div>
       </div>
+
+      {shareOpen && (
+        <ShareDialog
+          boardId={boardId}
+          title={title}
+          noun={noun}
+          onClose={() => setShareOpen(false)}
+          // The dialog and this view show the same two facts, so the dialog hands them
+          // back rather than each side fetching. The lock still arrives properly through
+          // the reconnect the server's eviction causes; this only saves the owner
+          // watching their own button lag behind their own click.
+          onChanged={(state) => {
+            setShareMode(state.mode)
+            setBoardLocked(state.is_locked)
+          }}
+        />
+      )}
 
       <footer className="statusbar">
         {/* A count of objects and a count of selected ones is a canvas talking about

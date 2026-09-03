@@ -7,6 +7,7 @@ import * as api from '../../lib/api'
 import { ApiError } from '../../lib/api'
 import type { Providers } from '../../lib/api'
 import { useAuth } from './AuthContext'
+import { takeInvitedEmail } from './invitation'
 import { OAUTH_PROVIDERS } from './providers'
 
 type Mode = 'login' | 'register'
@@ -14,7 +15,16 @@ type Mode = 'login' | 'register'
 export default function LoginPage() {
   const { login, register, signInError, clearSignInError, signInNotice, clearSignInNotice } =
     useAuth()
-  const [mode, setMode] = useState<Mode>('login')
+  /*
+   * An invitation opens this on Register, with the address already in the field.
+   *
+   * Read once, in the initialiser, and consumed as it is read - see
+   * `features/auth/invitation.ts`. Somebody who arrived from a board invitation is not
+   * here to log in; they are here because they were told there is something waiting,
+   * and the default of "Log in" would be the screen disagreeing with why they came.
+   */
+  const invited = useState(takeInvitedEmail)[0]
+  const [mode, setMode] = useState<Mode>(invited === null ? 'login' : 'register')
   /*
    * Which third-party buttons to offer, if any.
    *
@@ -24,7 +34,7 @@ export default function LoginPage() {
    * shows up, because the endpoints behind its button are a 404 there.
    */
   const [providers, setProviders] = useState<Providers | null>(null)
-  const [email, setEmail] = useState('')
+  const [email, setEmail] = useState(invited ?? '')
   const [password, setPassword] = useState('')
   const [displayName, setDisplayName] = useState('')
   const [error, setError] = useState<string | null>(null)

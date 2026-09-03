@@ -9,9 +9,18 @@ role). Owner > editor > commenter > viewer.
 
 `commenter` is inert in v1 - comments are v2 scope, so it resolves with the same
 capabilities as `viewer`. The enum value exists now so v2 does not need a migration.
+
+`resolve_role` answers only "what role does this person hold". Since sharing there are
+two more things that decide what a caller may actually do - a public share link, which
+lets in somebody with no membership row and possibly no account, and the owner's
+board-wide lock, which stops writes at any role. `resolve_access` folds all three into
+one answer, and is what the websocket handshake and the ws-token endpoint call. Adding
+a third way in means editing that function; it does not mean remembering to edit four
+routers.
 """
 
 import uuid
+from dataclasses import dataclass
 from enum import StrEnum
 
 from sqlalchemy import and_, select
@@ -112,3 +121,96 @@ async def resolve_role(
     if not granted:
         return None
     return max(granted, key=_RANK.__getitem__)
+
+
+@dataclass(frozen=True)
+class Access:
+    """Everything that decides what a caller may do to a board, resolved together.
+
+    `resolve_role` answers "what is this person's role", which was the whole question
+    while a board was reachable one way and always writable at that role. Sharing adds a
+    second way in and the lock adds a reason a role is not enough, and the moment those
+    are two more checks the callers each remember to make, one of them forgets. So they
+    are folded in here and `can_write` is a field rather than something a router derives:
+    the websocket handshake, the ws-token endpoint and the REST routes all read the same
+    answer.
+    """
+
+    role: BoardRole
+    #: True when the role came from the public link rather than from a membership row.
+    #: The ws layer needs it because a link visitor may have no account at all, and the
+    #: watchdog must re-resolve them through the link rather than through `board_members`.
+    via_link: bool
+    #: The owner's board-wide edit lock, as it stands right now.
+    locked: bool
+    #: Role permits writing *and* the board is not locked. The one boolean the read-only
+    #: filter and the client's tool palette both come from.
+    can_write: bool
+
+
+async def resolve_access(
+    session: AsyncSession,
+    *,
+    board_id: uuid.UUID,
+    user_id: uuid.UUID | None = None,
+    link_token: str | None = None,
+) -> Access | None:
+    """The effective access a caller has to a board, or None for no access at all.
+
+    Two independent sources, and the higher one wins:
+
+    - a membership role, resolved exactly as `resolve_role` always has;
+    - the public share link, when one was presented and the board is currently public.
+
+    Taking the maximum is what stops a share link *lowering* anybody. An owner who
+    opens their own board through the link they just copied is still the owner, and a
+    viewer link handed to an editor does not demote them for that visit.
+
+    `user_id` may be None: that is an anonymous visitor on a public link, which is the
+    whole point of the mode. `link_token` may be None, which is every request that was
+    not made through a shared link.
+
+    The lock is read from the board here rather than checked separately, so no caller
+    can hold a role and forget to ask.
+    """
+    from app.models import Board
+    from app.services import sharing
+
+    board = await session.get(Board, board_id)
+    if board is None:
+        return None
+
+    granted: list[BoardRole] = []
+    via_link = False
+
+    if user_id is not None:
+        membership = await resolve_role(session, user_id=user_id, board_id=board_id)
+        if membership is not None:
+            granted.append(membership)
+
+    if link_token is not None:
+        resolved = await sharing.resolve_link(session, link_token)
+        # Scoped to the board being asked about. A token for board A presented on
+        # board B grants nothing, exactly as the ws-token's scope check does - and for
+        # the same reason: an authentic credential for somewhere else is not a
+        # credential for here.
+        if resolved is not None and resolved[0].id == board_id:
+            granted.append(resolved[1])
+            via_link = True
+
+    if not granted:
+        return None
+
+    role = max(granted, key=_RANK.__getitem__)
+    locked = board.locked_at is not None
+    return Access(
+        role=role,
+        # Only true when the link is the *only* thing that got them in. Somebody with a
+        # membership row is not a link visitor even if they arrived through the link.
+        via_link=via_link and len(granted) == 1,
+        locked=locked,
+        # The lock stops the owner too. It is a lock on the document rather than a way
+        # of holding other people off it: an owner who wants to write unlocks first,
+        # which is one click and is the same gesture everybody else sees the reason for.
+        can_write=can_write(role) and not locked,
+    )

@@ -88,6 +88,11 @@ import { createShapeTool } from './tools/shapeTool'
 import { createArrowTool } from './tools/arrowTool'
 import { createPenTool } from './tools/penTool'
 import { createTextTool } from './tools/textTool'
+import type { DocSnapshot } from '../doc/mutations'
+// Only the DataTransfer half of copying lives there: it takes a snapshot and gives
+// one back, and touches no session, so the engine still reaches the document
+// through its host and nothing else.
+import { readClipboard, snapshotBounds, writeClipboard } from '../doc/clipboard'
 import type { TextMark } from '../doc/richText'
 import type {
   CanvasPointerEvent,
@@ -370,6 +375,10 @@ export type EngineHost = {
   createObject(input: Partial<ObjectData> & { type: ObjectData['type'] }): string | null
   applyPatches(patches: { id: string; patch: Partial<ObjectData> }[]): void
   deleteObjects(ids: readonly string[]): void
+  /** Objects and their bindings as plain data, for the clipboard. */
+  snapshot(ids: readonly string[]): DocSnapshot
+  /** Insert a snapshot, shifted, and answer with the ids it was given. */
+  insertSnapshot(snapshot: DocSnapshot, offset: { x: number; y: number }): string[]
   commit(): void
   undo(): void
   redo(): void
@@ -1487,6 +1496,148 @@ export class CanvasEngine {
 
     this.host.commit()
     this.requestRender()
+  }
+
+  /*
+   * --- copying -----------------------------------------------------------------
+   *
+   * Copy, cut and paste ride the browser's own `copy`, `cut` and `paste` events rather
+   * than being read off Ctrl+C in `onKeyDown`. Three reasons, and the first is enough
+   * on its own: `ClipboardEvent.clipboardData` is the only way to put something on the
+   * system clipboard without asking for a permission, and the only way to read one
+   * back at all in browsers that never grant read access. The second is that the
+   * chord differs by platform and by keyboard layout, and the browser already knows
+   * which one it is. The third is that a `paste` also arrives from the edit menu and
+   * from a trackpad gesture, and neither of those is a keystroke.
+   */
+
+  /** Where the pointer last was in world space, or null when it is off the canvas. */
+  private lastPointerWorld: Point | null = null
+
+  /**
+   * How far a paste lands from the original when there is no pointer to aim at.
+   *
+   * Enough to see the copy sitting on its own rather than hiding the thing it came
+   * from, and small enough that it is obviously the same object and not a new one
+   * somewhere else.
+   */
+  private static readonly PASTE_OFFSET = 16
+
+  /**
+   * The selection a clipboard action may act on.
+   *
+   * The page rows are excluded for the reason `deleteSelection` excludes them: the
+   * page is the paper. Copying a line off a lea and pasting it as a floating text
+   * object somewhere in the margin is not a thing anybody means by copying a line.
+   */
+  private clipboardTargets(): string[] {
+    return Array.from(this.selected).filter((id) => !this.isPageRow(id))
+  }
+
+  /** The copied objects' words, for whatever the paste lands in outside this app. */
+  private plainTextFor(ids: readonly string[]): string {
+    return ids
+      .map((id) => this.host.textPlain(id))
+      .filter((text) => text !== '')
+      .join('\n\n')
+  }
+
+  /**
+   * Put the selection on the clipboard, and take it off the board when cutting.
+   *
+   * Returns false when there was nothing to copy, so the handler can leave the event
+   * alone and let the browser do whatever it would have done.
+   */
+  copySelection(data: DataTransfer | null, cut = false): boolean {
+    const ids = this.clipboardTargets()
+    if (ids.length === 0) return false
+
+    const snapshot = this.host.snapshot(ids)
+    if (snapshot.objects.length === 0) return false
+
+    // Read before the cut, since the objects are about to stop existing.
+    writeClipboard(data, snapshot, this.plainTextFor(ids))
+    if (cut) this.deleteSelection()
+    return true
+  }
+
+  /**
+   * Paste a snapshot onto the board and select what landed.
+   *
+   * Placed under the pointer when there is one, because that is where the eye is and
+   * where a paste is aimed. When there is not - a paste from the menu, or one that
+   * arrives while the pointer is off the canvas - it goes down beside the original,
+   * which is also what pasting into the glade it was cut from should do.
+   */
+  pasteSnapshot(snapshot: DocSnapshot): boolean {
+    if (!this.host.canWrite) return false
+
+    const bounds = snapshotBounds(snapshot)
+    if (bounds === null) return false
+
+    const pointer = this.lastPointerWorld
+    const offset =
+      pointer === null
+        ? { x: CanvasEngine.PASTE_OFFSET, y: CanvasEngine.PASTE_OFFSET }
+        : { x: pointer.x - (bounds.x + bounds.w / 2), y: pointer.y - (bounds.y + bounds.h / 2) }
+
+    const created = this.host.insertSnapshot(snapshot, offset)
+    if (created.length === 0) return false
+
+    // Selected, so the paste can be dragged, restyled or undone as one thing without
+    // having to be found and picked up first.
+    this.setSelection(created)
+    this.host.commit()
+    return true
+  }
+
+  /**
+   * Copy the selection and paste it straight back, one step off the original.
+   *
+   * Never touches the clipboard. Duplicating a shape is a thing you do in the middle of
+   * arranging something, and having it quietly discard whatever you had copied earlier
+   * is the kind of loss you only notice two steps later.
+   */
+  duplicateSelection(): boolean {
+    const ids = this.clipboardTargets()
+    if (ids.length === 0 || !this.host.canWrite) return false
+
+    const snapshot = this.host.snapshot(ids)
+    const bounds = snapshotBounds(snapshot)
+    if (bounds === null) return false
+
+    const created = this.host.insertSnapshot(snapshot, {
+      x: CanvasEngine.PASTE_OFFSET,
+      y: CanvasEngine.PASTE_OFFSET,
+    })
+    if (created.length === 0) return false
+
+    this.setSelection(created)
+    this.host.commit()
+    return true
+  }
+
+  private onCopy = (event: ClipboardEvent): void => {
+    if (this.isTextTarget(event.target) || this.editing !== null) return
+    if (this.copySelection(event.clipboardData, false)) event.preventDefault()
+  }
+
+  private onCut = (event: ClipboardEvent): void => {
+    if (this.isTextTarget(event.target) || this.editing !== null) return
+    if (!this.host.canWrite) return
+    if (this.copySelection(event.clipboardData, true)) event.preventDefault()
+  }
+
+  private onPaste = (event: ClipboardEvent): void => {
+    if (this.isTextTarget(event.target) || this.editing !== null) return
+
+    const snapshot = readClipboard(event.clipboardData)
+    if (snapshot === null) return
+    // Prevented before the insert rather than after: a refused paste - a viewer, a
+    // locked glade - must still not fall through to the browser dropping a payload
+    // of JSON onto the page.
+    event.preventDefault()
+    this.pasteSnapshot(snapshot)
   }
 
   deleteSelection(): void {
@@ -2999,6 +3150,7 @@ export class CanvasEngine {
     }
 
     const canvasEvent = this.toPointerEvent(event)
+    this.lastPointerWorld = canvasEvent.world
     // Presence is told once, about where the hand actually is. The samples below are
     // the shape of how it got there, which is the pen's business and nobody else's.
     this.events.onPointerWorld?.(canvasEvent.world)
@@ -3016,6 +3168,10 @@ export class CanvasEngine {
   }
 
   private onPointerLeave = (): void => {
+    // Forgotten along with the presence cursor, so a paste after the pointer has left
+    // the canvas goes beside the original rather than at the last place it happened to
+    // be before the mouse wandered onto the toolbar.
+    this.lastPointerWorld = null
     this.events.onPointerWorld?.(null)
   }
 
@@ -3098,17 +3254,23 @@ export class CanvasEngine {
     this.requestRender()
   }
 
-  private onKeyDown = (event: KeyboardEvent): void => {
-    const target = event.target
-    // Never steal keys from a text field. M3 adds real text editing on top of this.
-    if (
+  /**
+   * Whether an event landed in something the user is typing into.
+   *
+   * Shared by the keyboard and the clipboard handlers, and it has to be: a Ctrl+C in
+   * the middle of a sticky's text is the editor's, and a board that answered it by
+   * copying the whole sticky instead would be unusable.
+   */
+  private isTextTarget(target: EventTarget | null): boolean {
+    return (
       target instanceof HTMLElement &&
-      (target.isContentEditable ||
-        target.tagName === 'INPUT' ||
-        target.tagName === 'TEXTAREA')
-    ) {
-      return
-    }
+      (target.isContentEditable || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')
+    )
+  }
+
+  private onKeyDown = (event: KeyboardEvent): void => {
+    // Never steal keys from a text field. M3 adds real text editing on top of this.
+    if (this.isTextTarget(event.target)) return
 
     const accel = event.ctrlKey || event.metaKey
 
@@ -3125,9 +3287,26 @@ export class CanvasEngine {
       else this.host.undo()
       return
     }
+    // Ctrl+Y redoes as well as Ctrl+Shift+Z. Both, rather than one: the first is what
+    // Windows has meant by redo since long before this app, the second is what every
+    // canvas and every Mac uses, and somebody who reaches for the wrong one gets
+    // nothing at all and assumes the redo stack is empty.
+    if (accel && !event.shiftKey && event.key.toLowerCase() === 'y') {
+      event.preventDefault()
+      this.host.redo()
+      return
+    }
     if (accel && event.key.toLowerCase() === 'a') {
       event.preventDefault()
       this.selectAll()
+      return
+    }
+    // Ctrl+D. It takes the browser's bookmark chord, which is the same trade every
+    // canvas app makes, and it is the one clipboard-shaped action with no clipboard
+    // event of its own to ride.
+    if (accel && event.key.toLowerCase() === 'd') {
+      event.preventDefault()
+      this.duplicateSelection()
       return
     }
     if (accel && event.key === ']') {
@@ -3305,6 +3484,11 @@ export class CanvasEngine {
     canvas.addEventListener('contextmenu', this.onContextMenu)
     window.addEventListener('keydown', this.onKeyDown)
     window.addEventListener('keyup', this.onKeyUp)
+    // On the window, not the canvas. A canvas element is not focusable, so these fire
+    // at the document with `body` as their target whatever was clicked last.
+    window.addEventListener('copy', this.onCopy)
+    window.addEventListener('cut', this.onCut)
+    window.addEventListener('paste', this.onPaste)
   }
 
   private detachInput(): void {
@@ -3326,5 +3510,8 @@ export class CanvasEngine {
     }
     window.removeEventListener('keydown', this.onKeyDown)
     window.removeEventListener('keyup', this.onKeyUp)
+    window.removeEventListener('copy', this.onCopy)
+    window.removeEventListener('cut', this.onCut)
+    window.removeEventListener('paste', this.onPaste)
   }
 }

@@ -5,24 +5,40 @@ via the `board_*` dependencies. No router computes a role itself.
 """
 
 import uuid
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import delete, or_, select
 
 from app.auth.deps import CurrentUser, Session, board_editor, board_owner, board_viewer
-from app.models import Board, BoardMember, BoardThumbnail, User, WorkspaceMember
+from app.models import (
+    Board,
+    BoardInvitation,
+    BoardMember,
+    BoardThumbnail,
+    User,
+    WorkspaceMember,
+)
+from app.realtime.rooms import WS_CLOSE_FORBIDDEN, SocketRegistry
 from app.schemas.boards import (
     BoardCreate,
     BoardMemberAdd,
     BoardOut,
     BoardPatch,
+    InvitationOut,
+    InviteCreate,
+    InviteResultOut,
     MemberOut,
+    ShareSettings,
+    ShareState,
     TitleSuggestion,
 )
+from app.services import sharing
 from app.services.board_kinds import BoardKind
 from app.services.naming import DEFAULT_TITLE, generate_unique_board_title
-from app.services.permissions import BoardRole, at_least, resolve_role
+from app.services.permissions import BoardRole, at_least, can_write, resolve_role
+from app.services.sharing import SHAREABLE_ROLES, ShareMode
 
 router = APIRouter(prefix="/boards", tags=["boards"])
 
@@ -33,6 +49,12 @@ ALLOWED_THUMBNAIL_TYPES = frozenset({"image/webp", "image/png"})
 
 
 def _out(board: Board, role: BoardRole) -> BoardOut:
+    # `can_write` is computed here rather than left to the client so the lock and the
+    # role are answered together, in the same place and the same way the websocket
+    # handshake answers them. A client deriving it from the two fields beside it would
+    # be the second implementation of a rule, which is what ARCHITECTURE 7 says not to
+    # have; these two exist alongside it only so the UI can say *why*.
+    locked = board.locked_at is not None
     return BoardOut(
         id=board.id,
         workspace_id=board.workspace_id,
@@ -42,7 +64,33 @@ def _out(board: Board, role: BoardRole) -> BoardOut:
         created_at=board.created_at,
         updated_at=board.updated_at,
         role=role,
+        share_mode=ShareMode(board.share_mode),
+        share_role=BoardRole(board.share_role),
+        is_locked=locked,
+        locked_by=board.locked_by,
+        can_write=can_write(role) and not locked,
     )
+
+
+async def _evict(request: Request, board_id: uuid.UUID, reason: str) -> None:
+    """Close every socket on this board so the handshake decides again.
+
+    Called after anything that changes what a live connection is allowed to do: the
+    lock, the share mode, the link. The read-only filter is chosen once at join time
+    (ARCHITECTURE 6), so there is no way to change a connection's mind except to end it
+    - and the watchdog that would eventually notice runs on a fifteen-minute clock,
+    which is the wrong timescale entirely for a button somebody just pressed and is
+    watching.
+
+    Best effort by design. The registry is in-process, so this reaches the sockets this
+    instance is serving and no others; everything else closes on the watchdog. It is
+    also absent in tests that mount the router without the lifespan, which is why the
+    attribute is fetched defensively rather than assumed.
+    """
+    sockets: SocketRegistry | None = getattr(request.app.state, "sockets", None)
+    if sockets is None:
+        return
+    await sockets.evict(str(board_id), code=WS_CLOSE_FORBIDDEN, reason=reason)
 
 
 @router.get("", response_model=list[BoardOut])
@@ -153,6 +201,8 @@ async def get_board(
 async def patch_board(
     board_id: uuid.UUID,
     body: BoardPatch,
+    request: Request,
+    user: CurrentUser,
     session: Session,
     role: Annotated[BoardRole, Depends(board_viewer)],
 ) -> BoardOut:
@@ -172,8 +222,28 @@ async def patch_board(
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="insufficient role")
         board.is_archived = body.is_archived
 
+    lock_changed = (
+        body.is_locked is not None and body.is_locked != (board.locked_at is not None)
+    )
+    if lock_changed:
+        # Owner only. An editor already has a lock - the per-tab one in
+        # `doc/mutations.ts` - and it does what an editor is entitled to do, which is
+        # stop *their* hands. Freezing everybody else's is a different power and it
+        # belongs to whoever the board belongs to.
+        if role is not BoardRole.owner:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="insufficient role")
+        board.locked_at = datetime.now(UTC) if body.is_locked else None
+        board.locked_by = user.id if body.is_locked else None
+
     await session.commit()
     await session.refresh(board)
+
+    if lock_changed:
+        # Unlocking evicts too, and that is not symmetry for its own sake: everybody
+        # currently on the board is holding a read-only channel chosen when they
+        # joined, and nothing but a reconnect gives it back.
+        await _evict(request, board_id, "lock changed")
+
     return _out(board, role)
 
 
@@ -297,7 +367,13 @@ async def list_board_members(
         )
     ).all()
     return [
-        MemberOut(user_id=u.id, email=u.email, display_name=u.display_name, role=member_role)
+        MemberOut(
+            user_id=u.id,
+            email=u.email,
+            display_name=u.display_name,
+            role=member_role,
+            avatar_url=u.avatar_url,
+        )
         for u, member_role in rows
     ]
 
@@ -308,12 +384,30 @@ async def list_board_members(
 async def add_board_member(
     board_id: uuid.UUID,
     body: BoardMemberAdd,
+    request: Request,
+    user: CurrentUser,
     session: Session,
     role: Annotated[BoardRole, Depends(board_owner)],
 ) -> MemberOut:
+    """Grant or change one person's role. This is also the demote path.
+
+    Unlike `invite`, which only ever raises somebody, this sets the role to exactly
+    what was asked for. That is the difference between the two controls in the share
+    dialog: typing an address is an offer, and changing the dropdown beside a name
+    already in the list is an instruction.
+    """
     target = await session.get(User, body.user_id)
     if target is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="user not found")
+
+    board = await session.get(Board, board_id)
+    if board is None:  # pragma: no cover - board_owner already resolved it
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="no access")
+
+    # Read before the write, because it is the only thing that can tell a change from a
+    # restatement - and a mail announcing that nothing happened is how people learn to
+    # ignore the ones that do.
+    before = await resolve_role(session, user_id=body.user_id, board_id=board_id)
 
     existing = await session.get(BoardMember, (board_id, body.user_id))
     if existing is not None:
@@ -326,11 +420,27 @@ async def add_board_member(
     # a board viewer is still an owner through the workspace. Return the truth, so a
     # caller is not misled into thinking the downgrade took effect.
     effective = await resolve_role(session, user_id=body.user_id, board_id=board_id)
+
+    if effective is not None and effective != before:
+        if before is not None:
+            # A change to somebody who already had access, which is the case worth
+            # writing about: they have a mental model of what they can do here and it
+            # is now wrong. Somebody who had nothing gets the invitation mail from the
+            # invite endpoint instead, which says more useful things.
+            await sharing.notify_role_change(
+                board=board, member=target, role=effective, actor=user
+            )
+        # Whatever they were allowed to do a moment ago, they are allowed to do
+        # something else now, and the socket they are holding was configured for the
+        # old answer.
+        await _evict(request, board_id, "role changed")
+
     return MemberOut(
         user_id=target.id,
         email=target.email,
         display_name=target.display_name,
         role=str(effective or body.role),
+        avatar_url=target.avatar_url,
     )
 
 
@@ -338,6 +448,7 @@ async def add_board_member(
 async def remove_board_member(
     board_id: uuid.UUID,
     user_id: uuid.UUID,
+    request: Request,
     session: Session,
     role: Annotated[BoardRole, Depends(board_owner)],
 ) -> None:
@@ -347,3 +458,249 @@ async def remove_board_member(
         )
     )
     await session.commit()
+    # Someone whose grant is gone may still hold an open socket on the board, writing
+    # into it. The mint would refuse them now; the connection they already have would
+    # not notice until the watchdog next looked.
+    await _evict(request, board_id, "access changed")
+
+
+# --- sharing ---------------------------------------------------------------------
+#
+# Owner-only, all of it. `can_manage` in `app/services/permissions.py` has always
+# listed share links beside membership and deletion, and the reason is that every
+# control below decides who else can be here: an editor who could hand out an editor
+# link would be able to grant more than they were granted.
+
+
+async def _share_state(session: Session, board: Board, request: Request) -> ShareState:
+    """Everything the share dialog draws, assembled once.
+
+    One response rather than three, because the dialog is one screen and three requests
+    would give it three chances to render half of itself. It is also the read that
+    follows every write below, so what the dialog shows after an action is what the
+    server actually holds rather than what the client guessed it would hold.
+    """
+    member_rows = (
+        await session.execute(
+            select(User, BoardMember.role)
+            .join(BoardMember, BoardMember.user_id == User.id)
+            .where(BoardMember.board_id == board.id)
+            .order_by(BoardMember.created_at)
+        )
+    ).all()
+
+    invitations = list(
+        (
+            await session.execute(
+                select(BoardInvitation)
+                .where(
+                    BoardInvitation.board_id == board.id,
+                    BoardInvitation.accepted_at.is_(None),
+                    BoardInvitation.revoked_at.is_(None),
+                )
+                .order_by(BoardInvitation.created_at)
+            )
+        ).scalars()
+    )
+
+    link = await sharing.active_link(session, board.id)
+
+    return ShareState(
+        mode=ShareMode(board.share_mode),
+        role=BoardRole(board.share_role),
+        url=sharing.board_url(board.id, board.kind),
+        # Shown even while the mode is restricted, and shown as dormant rather than
+        # hidden. An owner switching sharing off and on again is not issuing a new
+        # link, and a dialog that made the field disappear would imply they were.
+        link_url=(
+            None if link is None else sharing.board_url(board.id, board.kind, link_token=link.token)
+        ),
+        is_locked=board.locked_at is not None,
+        members=[
+            MemberOut(
+                user_id=u.id,
+                email=u.email,
+                display_name=u.display_name,
+                role=str(member_role),
+                avatar_url=u.avatar_url,
+            )
+            for u, member_role in member_rows
+        ],
+        invitations=[
+            InvitationOut(
+                id=invitation.id,
+                email=invitation.email,
+                role=invitation.role,
+                link=sharing.invite_url(invitation.token),
+                created_at=invitation.created_at,
+            )
+            for invitation in invitations
+        ],
+    )
+
+
+@router.get("/{board_id}/share", response_model=ShareState)
+async def get_share(
+    board_id: uuid.UUID,
+    request: Request,
+    session: Session,
+    role: Annotated[BoardRole, Depends(board_owner)],
+) -> ShareState:
+    board = await session.get(Board, board_id)
+    if board is None:  # pragma: no cover - board_owner already resolved it
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="no access")
+    return await _share_state(session, board, request)
+
+
+@router.put("/{board_id}/share", response_model=ShareState)
+async def put_share(
+    board_id: uuid.UUID,
+    body: ShareSettings,
+    request: Request,
+    user: CurrentUser,
+    session: Session,
+    role: Annotated[BoardRole, Depends(board_owner)],
+) -> ShareState:
+    """Set who may open the board, and what they get.
+
+    Switching to public mints the link if the board has never had one, and reuses it if
+    it has. Reuse is the point: "share, change my mind, share again" must not quietly
+    hand out a second address while the first is still in somebody's chat history, and
+    it must not break the one they already have either. Replacing a link is a separate,
+    louder action - see `rotate_share`.
+    """
+    if body.role not in SHAREABLE_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"a link may grant {' or '.join(sorted(str(r) for r in SHAREABLE_ROLES))}",
+        )
+
+    board = await session.get(Board, board_id)
+    if board is None:  # pragma: no cover - board_owner already resolved it
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="no access")
+
+    changed = board.share_mode != body.mode or board.share_role != str(body.role)
+    board.share_mode = body.mode
+    board.share_role = str(body.role)
+
+    if body.mode is ShareMode.public:
+        await sharing.ensure_link(session, board_id, user.id)
+
+    await session.commit()
+    await session.refresh(board)
+
+    if changed:
+        # Closing a board to the public has to actually remove the people who are on
+        # it, and lowering an editor link to a viewer one has to actually stop them
+        # typing. Both are decided at the handshake, so both mean ending the sockets.
+        await _evict(request, board_id, "sharing changed")
+
+    return await _share_state(session, board, request)
+
+
+@router.post("/{board_id}/share/rotate", response_model=ShareState)
+async def rotate_share(
+    board_id: uuid.UUID,
+    request: Request,
+    user: CurrentUser,
+    session: Session,
+    role: Annotated[BoardRole, Depends(board_owner)],
+) -> ShareState:
+    """Replace the link, invalidating the old one.
+
+    The undo for a link that went somewhere it was not meant to go. Deliberately its own
+    button rather than something the mode switch does implicitly: an owner toggling
+    sharing off for a minute is not asking to break every copy of the address they have
+    already sent out, and an owner who *is* asking for that should have to say so.
+    """
+    board = await session.get(Board, board_id)
+    if board is None:  # pragma: no cover - board_owner already resolved it
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="no access")
+
+    await sharing.rotate_link(session, board_id, user.id)
+    await session.commit()
+    await session.refresh(board)
+    # Everybody who came in on the old link is still here on it. The whole point of
+    # rotating was to stop that.
+    await _evict(request, board_id, "share link rotated")
+    return await _share_state(session, board, request)
+
+
+@router.post(
+    "/{board_id}/invites",
+    response_model=InviteResultOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_invite(
+    board_id: uuid.UUID,
+    body: InviteCreate,
+    request: Request,
+    user: CurrentUser,
+    session: Session,
+    role: Annotated[BoardRole, Depends(board_owner)],
+) -> InviteResultOut:
+    """Invite one address, by whichever of the two routes applies to it.
+
+    The branch - account, or no account - is in `app.services.sharing.invite`, along
+    with why the second route sends no mail. What matters here is that both come back
+    through one response shape, so the dialog has one thing to render and the difference
+    is a word in it rather than a second code path in the client.
+    """
+    if body.role not in SHAREABLE_ROLES:
+        grantable = " or ".join(sorted(str(r) for r in SHAREABLE_ROLES))
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"an invitation may grant {grantable}",
+        )
+
+    board = await session.get(Board, board_id)
+    if board is None:  # pragma: no cover - board_owner already resolved it
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="no access")
+
+    result = await sharing.invite(
+        session, board=board, email=str(body.email), role=body.role, inviter=user
+    )
+    await session.commit()
+
+    if result.status == "granted":
+        # They may have been on the board already as a viewer, holding a read-only
+        # channel that an editor grant does not upgrade.
+        await _evict(request, board_id, "access changed")
+
+    return InviteResultOut(
+        status=result.status,
+        email=result.email,
+        role=result.role,
+        user_id=result.user_id,
+        display_name=result.display_name,
+        link=result.link,
+        mailed=result.mailed,
+    )
+
+
+@router.delete(
+    "/{board_id}/invites/{invitation_id}", status_code=status.HTTP_204_NO_CONTENT
+)
+async def revoke_invite(
+    board_id: uuid.UUID,
+    invitation_id: uuid.UUID,
+    session: Session,
+    role: Annotated[BoardRole, Depends(board_owner)],
+) -> None:
+    """Withdraw an invitation that has not been accepted yet.
+
+    Revoked rather than deleted, so the link says "this invitation was withdrawn"
+    instead of "no such invitation". Somebody who was sent an address and finds nothing
+    there assumes they mistyped it and tries again; somebody told it was withdrawn asks
+    the person who sent it, which is the conversation that should happen.
+
+    Scoped by board id as well as by invitation id. Without it an owner of any board
+    could revoke an invitation belonging to any other, since the id alone is enough to
+    find the row.
+    """
+    invitation = await session.get(BoardInvitation, invitation_id)
+    if invitation is None or invitation.board_id != board_id:
+        return
+    if invitation.accepted_at is None and invitation.revoked_at is None:
+        invitation.revoked_at = datetime.now(UTC)
+        await session.commit()

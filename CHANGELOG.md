@@ -14,6 +14,125 @@ away getting there.
 The infrastructure to run the thing. Not deployed yet.
 
 ### Added
+- **Sharing: a public link, invitations by address, and an owner's lock.** A glade or a
+  lea is `restricted` until somebody says otherwise - reachable through a workspace seat
+  or an explicit grant, exactly as before - and `public` makes its link a capability that
+  opens the board for anyone holding it, at view or at edit. Nothing is shared by
+  default. A board that became world-readable because somebody left a default alone is
+  the failure this was designed against.
+
+  **A public link needs no account.** Not "sign in and then you are welcome": a link that
+  asks for an account first is a link to a sign-up form, and nobody posts one of those.
+  An anonymous visitor gets a websocket credential from a route with no auth on it, and a
+  per-tab identity made on their own machine - a name out of sixteen meadow creatures, a
+  colour, and a key for their cursor - so they show up in the face row and as a wanderer
+  like everybody else. Three guests called Hare, Wren and Otter can be talked about out
+  loud, which is the entire job of a name in a shared room; "Guest 4f2a" cannot.
+
+  The link is stored raw, alone among the tokens in this schema, and that is a decision
+  rather than an oversight. A digest works for an activation link because it is spent
+  once and never shown again - recognising it is all the server has to do - but a share
+  link is copied out of the dialog every time the owner reaches for it, so the server has
+  to be able to *produce* it. What stands in for secrecy at rest is narrowness: 192 bits,
+  one live link per board, one button to replace it, and it grants nothing at all while
+  the board is restricted. The mode is the switch, not the token, so switching sharing
+  off and on again does not quietly issue a second address for a board somebody already
+  has a link to.
+
+  **Inviting an address with no account sends no mail, and says so.** Every product in
+  this category mails it anyway. Sending to an arbitrary unverified address that a
+  stranger typed into a form is an open relay wearing this deployment's from-address, and
+  the first thing it costs is delivery of the activation mail people are actually waiting
+  on - so the restraint protects the thing it looks like it is getting in the way of.
+  The owner is handed a registration link to pass on themselves, through a channel where
+  they already know they are reaching the right person, and activation applies the grant:
+  there is no second link to keep and no code to paste. An address that *does* have an
+  account is granted outright and told by mail, because there is nothing to accept - the
+  owner had the authority, and the address was proved when the account opened.
+
+  Inviting and demoting are separate controls because they are separate intentions.
+  Typing an address is an offer and never lowers anybody; the dropdown beside a name
+  already on the list sets the role to exactly what it says. A change either way sends a
+  notice, and the demotion is the one that earns it: finding out you can no longer type
+  into something by trying to, halfway through a thought, is the version of this that
+  costs somebody an hour.
+
+  **The lock stops the owner too.** It locks the document rather than holding other
+  people off it, so an owner who wants to write unlocks first - one click, and the same
+  gesture everybody else can see the reason for. It sits under the same button as the
+  per-tab lock that was already there, and which one you get follows from what you are:
+  there is nothing to choose and no second control to find.
+
+  Everything is resolved through one function. `resolve_role` answered "what role does
+  this person hold", which was the whole question while a board was reachable one way and
+  always writable at that role; a link and a lock are two more reasons that is not
+  enough, and the moment they become two more checks each caller remembers to make, one
+  of them forgets. `resolve_access` folds all three together and is what the handshake,
+  the ws-token mint and the REST routes all read.
+
+  And anything an owner presses and then watches - the lock, the mode, the link, a role
+  change, a removal - **closes the board's sockets immediately**. The read-only filter is
+  chosen once at join time, so there is no way to change a live connection's mind except
+  to end it, and the watchdog that would eventually notice runs on a fifteen-minute
+  clock. Fifteen minutes is right for a grant quietly revoked and much too slow for a
+  button somebody just pressed in front of other people. Clients reconnect on their own
+  and the handshake decides again; eviction never adjusts anybody's permissions, it only
+  makes the one place access is decided get asked a second time.
+
+  The share buttons are plain intent URLs - WhatsApp, X, Telegram, Facebook, LinkedIn,
+  and a `mailto:` - opened in a new tab. No SDK, no script tag, no pixel: an embedded
+  share widget is a third party watching everyone who opens the dialog, on a page that is
+  otherwise entirely first-party.
+
+- **The board bar keeps four controls and puts the rest behind one button.** It had
+  grown to nine, and at that length nobody reads a row - it becomes a texture you scan
+  past on the way to the thing you wanted. What stayed out is what you reach for with a
+  hand already on the canvas: the zoom readout and its reset, Fit, the input language,
+  and the lock. Everything else is a *setting* - the grid, the stationery, the page list
+  - chosen once and then not thought about again, and a bar still advertising those
+  choices is eight things to read past every time you look for the zoom.
+
+  Sharing lives in the menu too, which is the one entry that is not there for being
+  minor. It is the most consequential control on the bar and among the rarest, and those
+  two facts point the same way: a decision about who else can be in here should cost a
+  deliberate click rather than sitting one stray press away from the canvas. A badge on
+  the menu item says when a board is public, because that is the one state with
+  consequences while nobody is looking at it.
+
+- **Ctrl+Y redoes, alongside Ctrl+Shift+Z.** Both, rather than a choice between them:
+  Ctrl+Y is what Windows has meant by redo for thirty years and Ctrl+Shift+Z is what
+  every canvas and every Mac uses, and somebody who reaches for the one this app did not
+  have got no response at all and concluded there was nothing to redo.
+
+- **Copy, cut, paste and duplicate.** Ctrl+C, Ctrl+X, Ctrl+V and Ctrl+D on a selection,
+  and a duplicate button on the rail beside delete. A copy carries everything the object
+  is: its geometry, its style, and its text with the bold and the italics still on it,
+  because a label that arrives as plain prose is a label somebody has to format again.
+
+  It goes on the system clipboard rather than into a variable, so a shape copied in one
+  glade pastes into another, into a second tab, or after a reload. The objects travel
+  under a clipboard type of our own with the copied words in `text/plain` beside them -
+  paste a sticky into a mail and you get the note, not a page of coordinates. A browser
+  that drops unknown clipboard types falls back to the last copy this tab made, which
+  covers the case nearly all copying actually is. Everything read back is validated
+  through the same schemas the document is written with: the string on a clipboard was
+  last written by another build of this app, or by another program entirely.
+
+  **A paste is a new object, not the old one again.** Ids are regenerated, since a
+  paste into the glade it came from would otherwise overwrite the original rather than
+  duplicate it. An arrow copied together with the shape it points at arrives bound to
+  the copy; an arrow copied away from its target arrives with a free end rather than
+  quietly following a shape somewhere else on the board. It lands under the pointer,
+  selected, as one undo step.
+
+  Ctrl+C, Ctrl+X and Ctrl+V ride the browser's own clipboard events rather than being
+  read off the keyboard. That is the only way to reach the system clipboard without
+  asking for a permission, it is the only way to read one at all in some browsers, and
+  it means a paste from the edit menu or from a trackpad gesture works too. Ctrl+D is
+  the exception and deliberately never touches the clipboard: duplicating a shape is
+  something you do in the middle of arranging something, and having it discard what you
+  copied five minutes ago is a loss you notice two steps later.
+
 - **Four more shapes: a triangle, a trapezoid, a polygon and a cylinder.** `J`, `Z`,
   `N` and `Y` draw them, or pick one out of the shape button on the rail, which is now a
   grid of eight rather than a row of four. All four are real primitives on the same

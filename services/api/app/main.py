@@ -15,15 +15,21 @@ from app.config import settings
 from app.db import SessionLocal, engine
 from app.realtime import wstoken
 from app.realtime.guard import ReadOnlyChannel
+from app.realtime.rooms import (
+    WS_CLOSE_FORBIDDEN,
+    WS_CLOSE_ROOM_FULL,
+    WS_CLOSE_UNAUTHORIZED,
+    SocketRegistry,
+)
 from app.realtime.server import FastAPIChannel, MeadowWebsocketServer
-from app.services.permissions import BoardRole, can_write, resolve_role
+from app.services.permissions import Access, resolve_access
 
 logger = getLogger(__name__)
 
-# Close codes from ARCHITECTURE 6.
-WS_CLOSE_UNAUTHORIZED = 4401  # the credential is bad: forged, expired, or spent
-WS_CLOSE_FORBIDDEN = 4403  # the credential is good but does not authorise this board
-WS_CLOSE_ROOM_FULL = 4429
+# Re-exported from `app.realtime.rooms`, which is where they moved once the evictor
+# needed them too. Kept in this namespace because that is where they have always been
+# read from.
+__all__ = ["WS_CLOSE_FORBIDDEN", "WS_CLOSE_ROOM_FULL", "WS_CLOSE_UNAUTHORIZED", "app"]
 
 
 @asynccontextmanager
@@ -32,6 +38,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # at boot would silently diverge from the migrations nobody then runs.
     app.state.redis = Redis.from_url(settings.redis_url, decode_responses=True)
     app.state.ws_server = MeadowWebsocketServer()
+    # Which sockets are open on which board, so the share dialog's lock and mode
+    # switches can close them and have the handshake decide again. See
+    # `app/realtime/rooms.py`.
+    app.state.sockets = SocketRegistry()
 
     async with app.state.ws_server:
         yield
@@ -50,17 +60,24 @@ async def healthz() -> dict[str, str]:
 
 
 async def _watch_session(
-    websocket: WebSocket, claims: wstoken.WsTokenClaims, granted: BoardRole
+    websocket: WebSocket, claims: wstoken.WsTokenClaims, granted: Access
 ) -> None:
-    """Close the socket when the session behind it ends or its role changes.
+    """Close the socket when the session behind it ends or its access changes.
 
     Without this the handshake is a one-time check: a socket held open for days keeps
-    whatever role it was granted on day one, and revoking access has no effect until
-    the user happens to reconnect.
+    whatever it was granted on day one, and revoking access has no effect until the
+    user happens to reconnect.
 
     Wakes at the earlier of the revalidation interval (ARCHITECTURE 6: every 15
     minutes) and the access token's own expiry, so an expiring session closes promptly
-    rather than at the next interval boundary.
+    rather than at the next interval boundary. A link visitor has no session to inherit
+    and gets an invented one of the same length, so a revoked share link closes its
+    sockets on the same schedule.
+
+    This is the backstop and not the mechanism for anything a person does and watches
+    for: locking a board, or closing it to the public, evicts its sockets immediately
+    through `app.state.sockets`. Fifteen minutes is right for a grant quietly revoked
+    and much too slow for a button somebody just pressed.
     """
     board_uuid = uuid.UUID(claims.board_id)
 
@@ -77,16 +94,32 @@ async def _watch_session(
             return
 
         async with SessionLocal() as session:
-            current = await resolve_role(session, user_id=claims.user_id, board_id=board_uuid)
-
-        # Any change closes the connection, including an upgrade: the read-only
-        # filter is chosen once at join time, so the only safe way to change role is
-        # to reconnect and be re-evaluated.
-        if current != granted:
-            logger.info(
-                "closing ws for board %s: role %s -> %s", claims.board_id, granted, current
+            current = await resolve_access(
+                session,
+                board_id=board_uuid,
+                user_id=claims.user_id,
+                link_token=claims.link_token,
             )
-            await _close(websocket, WS_CLOSE_FORBIDDEN, "role changed")
+
+        # The role *and* the lock, because the read-only filter is chosen once at join
+        # time from both of them. A board locked while this socket was open is a
+        # connection still holding a writable channel, which is the same problem as a
+        # demotion and has the same only-safe answer: close, and be re-evaluated.
+        changed = current is None or (
+            current.role,
+            current.can_write,
+        ) != (granted.role, granted.can_write)
+        if changed:
+            logger.info(
+                "closing ws for board %s: %s/%s -> %s",
+                claims.board_id,
+                granted.role,
+                "rw" if granted.can_write else "ro",
+                "none"
+                if current is None
+                else f"{current.role}/{'rw' if current.can_write else 'ro'}",
+            )
+            await _close(websocket, WS_CLOSE_FORBIDDEN, "access changed")
             return
 
 
@@ -126,13 +159,20 @@ async def board_socket(websocket: WebSocket, board_id: str, token: str = "") -> 
         await _close(websocket, WS_CLOSE_UNAUTHORIZED, str(exc))
         return
 
-    # Resolved now, against current state. The token proves who the caller is, never
-    # what they may do - it may have been minted up to 60 seconds ago, and the board
-    # can have been deleted or the grant revoked since.
+    # Resolved now, against current state, and through the one function that knows
+    # about all three ways access is decided - membership, the public link, and the
+    # owner's lock. The token proves who the caller is, never what they may do: it may
+    # have been minted up to 60 seconds ago, and the board can have been deleted, the
+    # grant revoked, the link rotated or the board locked since.
     async with SessionLocal() as session:
-        role = await resolve_role(session, user_id=claims.user_id, board_id=board_uuid)
+        access = await resolve_access(
+            session,
+            board_id=board_uuid,
+            user_id=claims.user_id,
+            link_token=claims.link_token,
+        )
 
-    if role is None:
+    if access is None:
         await _close(websocket, WS_CLOSE_FORBIDDEN, "no access")
         return
 
@@ -143,15 +183,22 @@ async def board_socket(websocket: WebSocket, board_id: str, token: str = "") -> 
         return
 
     channel: FastAPIChannel
-    if can_write(role):
+    if access.can_write:
         channel = FastAPIChannel(websocket, path=board_id)
     else:
-        # Viewers and commenters: awareness and sync requests pass, document writes
-        # are dropped. The client already knows its role from the mint response and
-        # refuses the write first; this is the backstop for a tampered client.
+        # Viewers, commenters, and anybody at all while the board is locked: awareness
+        # and sync requests pass, document writes are dropped. The client already knows
+        # from the mint response and refuses the write first; this is the backstop for
+        # a tampered client, and the reason the lock is a real lock rather than a
+        # request that everyone behave.
         channel = ReadOnlyChannel(websocket, path=board_id, log=logger)
 
-    async with anyio.create_task_group() as task_group:
-        task_group.start_soon(_watch_session, websocket, claims, role)
-        await server.serve(channel)
-        task_group.cancel_scope.cancel()
+    sockets: SocketRegistry = websocket.app.state.sockets
+    sockets.add(board_id, websocket)
+    try:
+        async with anyio.create_task_group() as task_group:
+            task_group.start_soon(_watch_session, websocket, claims, access)
+            await server.serve(channel)
+            task_group.cancel_scope.cancel()
+    finally:
+        sockets.discard(board_id, websocket)

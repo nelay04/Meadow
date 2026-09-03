@@ -20,12 +20,14 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import CITEXT, INET, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from app.services.board_kinds import BOARD_KINDS, DEFAULT_BOARD_KIND
 from app.services.permissions import BoardRole, WorkspaceRole
+from app.services.sharing import DEFAULT_SHARE_MODE, SHARE_MODES
 
 
 class Base(DeclarativeBase):
@@ -265,6 +267,29 @@ class Board(Base):
     )
     thumbnail_url: Mapped[str | None] = mapped_column(String, nullable=True)
     is_archived: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    # Who the board is open to. "restricted" is every board that has ever existed here;
+    # "public" makes the live row in `share_links` a capability anyone may use, at
+    # `share_role`. The mode is the switch, not the token: a link stays the same value
+    # across being turned off and on again, and this column is what decides whether it
+    # currently means anything. See `app.services.sharing`.
+    share_mode: Mapped[str] = mapped_column(
+        String, nullable=False, default=DEFAULT_SHARE_MODE, server_default=DEFAULT_SHARE_MODE
+    )
+    # What the public link hands out. Constrained to viewer/editor in the database:
+    # `owner` carries deletion and membership changes, and nothing that can be
+    # forwarded may carry those.
+    share_role: Mapped[str] = mapped_column(
+        String, nullable=False, default=BoardRole.viewer.value, server_default="viewer"
+    )
+    # The owner's edit lock, and a different thing from the per-tab lock in
+    # `doc/mutations.ts`. That one is a guard against your own hands and is never sent
+    # anywhere; this one is on the board, everybody sees it, and only an owner lifts
+    # it. Enforced in the websocket handshake beside the role, because a lock the
+    # client alone honours is a suggestion.
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    locked_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
@@ -276,6 +301,11 @@ class Board(Base):
             "kind in (" + ", ".join(f"'{k}'" for k in BOARD_KINDS) + ")",
             name="ck_boards_kind",
         ),
+        CheckConstraint(
+            "share_mode in (" + ", ".join(f"'{m}'" for m in SHARE_MODES) + ")",
+            name="ck_boards_share_mode",
+        ),
+        CheckConstraint("share_role in ('viewer', 'editor')", name="ck_boards_share_role"),
     )
 
 
@@ -296,6 +326,99 @@ class BoardMember(Base):
     )
     role: Mapped[BoardRole] = mapped_column(board_role_enum, nullable=False)
     created_at: Mapped[datetime] = _created_at()
+
+
+class ShareLink(Base):
+    """The board's link, as a capability.
+
+    One live row per board (partial unique index in 0008), minted the first time the
+    board is shared and replaced wholesale by rotation. Revoked rows are kept: a link
+    that has stopped working is a different thing to tell somebody about than one that
+    was never real.
+
+    **The token is stored raw**, alone among the tokens in this schema, and that is a
+    considered trade rather than an oversight. A digest works for `email_verifications`
+    because those links are single use and never shown again - recognising one is all
+    the server has to do. This one is copied out of the share dialog every time the
+    owner reaches for it, so the server has to be able to *produce* it, and no digest
+    can do that. What stands in for secrecy at rest is narrowness: it grants at most
+    `boards.share_role` on exactly one board, it means nothing at all while
+    `boards.share_mode` is `restricted`, and replacing it is one button.
+    """
+
+    __tablename__ = "share_links"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    board_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("boards.id", ondelete="CASCADE"), nullable=False
+    )
+    token: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = _created_at()
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    __table_args__ = (
+        Index(
+            "uq_share_links_board_active",
+            "board_id",
+            unique=True,
+            postgresql_where=text("revoked_at is null"),
+        ),
+    )
+
+
+class BoardInvitation(Base):
+    """A grant waiting for an account to exist at an address.
+
+    Only ever written for an address with *no* account: an invitation to somebody who
+    already has one is a `board_members` row and a mail, with nothing to accept. This
+    table is the other case, and the thing it is careful about is that **nothing is
+    mailed here**. Sending to an arbitrary unverified address that a stranger typed into
+    a form is an open relay wearing our from-address; the owner gets a link to pass on
+    themselves, through a channel where they already know they are reaching the right
+    person.
+
+    `apply_pending` in `app/services/sharing.py` turns these into grants when the
+    account opens, which is why accepting is not a step anyone has to remember.
+    """
+
+    __tablename__ = "board_invitations"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    board_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("boards.id", ondelete="CASCADE"), nullable=False
+    )
+    # citext, matching `users.email`. The two are compared when an account opens, and a
+    # case difference between them would strand the invitation forever.
+    email: Mapped[str] = mapped_column(CITEXT, nullable=False)
+    role: Mapped[BoardRole] = mapped_column(board_role_enum, nullable=False)
+    token: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    invited_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = _created_at()
+    accepted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    __table_args__ = (
+        CheckConstraint("role in ('editor', 'viewer')", name="ck_board_invitations_role"),
+        Index(
+            "uq_board_invitations_pending",
+            "board_id",
+            "email",
+            unique=True,
+            postgresql_where=text("accepted_at is null and revoked_at is null"),
+        ),
+        Index("ix_board_invitations_email", "email"),
+    )
 
 
 class BoardThumbnail(Base):

@@ -146,6 +146,15 @@ await delay(120)
 const redone = await page.evaluate((id) => window.__doc.read(id), before.id)
 check('redo reapplies it', Math.abs(redone.x - after.x) < 0.5)
 
+// The other redo. Windows has meant Ctrl+Y by it for thirty years, and somebody who
+// reaches for that one and gets nothing concludes there is nothing to redo.
+await page.keyboard.press('Control+z')
+await delay(120)
+await page.keyboard.press('Control+y')
+await delay(120)
+const redoneAgain = await page.evaluate((id) => window.__doc.read(id), before.id)
+check('ctrl+y redoes too', Math.abs(redoneAgain.x - after.x) < 0.5, `x=${redoneAgain.x.toFixed(1)}`)
+
 // --- marquee ------------------------------------------------------------------
 
 await page.mouse.click(at(1000, 700).x, at(1000, 700).y)
@@ -996,6 +1005,122 @@ check(
 // Put it back, so anything added after this runs against the default pen.
 await page.click('[data-nib="round"]')
 await page.click('[data-assist="off"]')
+
+// --- clipboard ----------------------------------------------------------------
+//
+// Copy rides the browser's own copy/cut/paste events, which is the half no unit test
+// can reach: the snapshot and the insert are covered in doc/clipboard.test.ts, and
+// what is left is whether a real Ctrl+C on a real page reaches the engine at all,
+// whether a custom clipboard type survives a round trip through the system clipboard,
+// and whether the paste lands where the pointer is.
+
+// Put the rail away and the camera back first. The pen sections above left a flyout
+// open over the left of the canvas and the camera a long way from the origin, and
+// every check below reads a world coordinate off a screen position.
+await page.click('[data-tool="select"]')
+await page.mouse.click(at(1000, 700).x, at(1000, 700).y)
+await page.evaluate(() => {
+  window.__doc.clear()
+  window.__canvas.setCamera({ x: 0, y: 0, zoom: 1 })
+})
+await delay(200)
+
+// And the canvas box, which is not where it was when `at` was defined: the host moved
+// with the flyout. Every position in this section goes through `over` instead.
+const clipboardBox = await canvas.boundingBox()
+const over = (x, y) => ({ x: clipboardBox.x + x, y: clipboardBox.y + y })
+
+await page.click('[data-tool="rect"]')
+await drag(over(200, 200), over(360, 320))
+await page.click('[data-tool="select"]')
+
+const copied = await page.evaluate(() => {
+  const id = window.__canvas.engine.getSelection()[0]
+  window.__doc.setText(id, 'copy me')
+  return id
+})
+
+await page.mouse.click(over(280, 260).x, over(280, 260).y)
+await page.keyboard.press('Control+c')
+await delay(120)
+
+// Somewhere empty and a long way off, so "landed under the pointer" is unambiguous.
+await page.mouse.move(over(800, 560).x, over(800, 560).y)
+await page.keyboard.press('Control+v')
+await delay(200)
+
+const pasted = await page.evaluate((originalId) => {
+  const engine = window.__canvas.engine
+  const selection = engine.getSelection()
+  return {
+    total: window.__doc.objectCount(),
+    selection,
+    original: window.__doc.read(originalId),
+    copy: selection.length === 1 ? window.__doc.read(selection[0]) : null,
+    text: selection.length === 1 ? window.__doc.text(selection[0]) : null,
+    isNew: selection.length === 1 && selection[0] !== originalId,
+    transform: window.__canvas.transform(),
+  }
+}, copied)
+
+check(
+  'ctrl+c then ctrl+v pastes a second object',
+  pasted.total === 2 && pasted.isNew,
+  `total=${pasted.total} selection=${JSON.stringify(pasted.selection)}`,
+)
+check('the paste is left selected', pasted.selection.length === 1)
+check(
+  'the text comes with it',
+  pasted.text === 'copy me',
+  `text=${JSON.stringify(pasted.text)}`,
+)
+check(
+  'the paste lands under the pointer, not on top of the original',
+  pasted.copy !== null &&
+    Math.abs(
+      (pasted.copy.x + pasted.copy.w / 2) * pasted.transform.scale +
+        pasted.transform.tx -
+        800,
+    ) < 12,
+  pasted.copy === null ? 'nothing pasted' : `centre x ${pasted.copy.x + pasted.copy.w / 2}`,
+)
+check(
+  'the original is left where it was',
+  pasted.original !== null && Math.abs(pasted.original.x - 200) < 12,
+  JSON.stringify(pasted.original),
+)
+
+// Ctrl+D, which has no clipboard event behind it and must not disturb the clipboard.
+await page.keyboard.press('Control+d')
+await delay(200)
+const duplicated = await page.evaluate(() => ({
+  total: window.__doc.objectCount(),
+  selection: window.__canvas.engine.getSelection(),
+}))
+check(
+  'ctrl+d duplicates the selection',
+  duplicated.total === 3 && duplicated.selection.length === 1,
+  `total=${duplicated.total}`,
+)
+
+// Cut, then paste it back: the object leaves the board and the clipboard still has it.
+await page.keyboard.press('Control+x')
+await delay(200)
+const cut = await page.evaluate(() => ({
+  total: window.__doc.objectCount(),
+  selection: window.__canvas.engine.getSelection(),
+}))
+check(
+  'ctrl+x takes the selection off the board',
+  cut.total === 2 && cut.selection.length === 0,
+  `total=${cut.total}`,
+)
+
+await page.mouse.move(over(500, 620).x, over(500, 620).y)
+await page.keyboard.press('Control+v')
+await delay(200)
+const restored = await page.evaluate(() => window.__doc.objectCount())
+check('what was cut can be pasted back', restored === 3, `total=${restored}`)
 
 await browser.close()
 stop()

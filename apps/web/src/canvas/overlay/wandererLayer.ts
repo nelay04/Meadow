@@ -14,6 +14,7 @@
  * construct and a cursor moves on nearly every frame while its label does not change.
  */
 
+import type { BoardRole } from '../../lib/api'
 import { Container, Graphics, Text } from 'pixi.js'
 
 import { type ViewTransform, projectPoint } from '../camera'
@@ -23,7 +24,14 @@ export type Wanderer = {
   /** Yjs awareness client id. Stable for the life of a connection. */
   clientId: number
   name: string
+  /** The picture this person chose, or null when they have none. */
+  avatarUrl: string | null
   color: number
+  /**
+   * The role this peer announced, or null when it announced none. Presentational in
+   * exactly the way `canWrite` is, and for the same reason.
+   */
+  role: BoardRole | null
   /**
    * What this person can do on the board, as *they* resolved it on their own
    * handshake. Presentational only - it decides which badge the header draws and

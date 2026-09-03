@@ -198,3 +198,107 @@ export function setFragmentPlainText(fragment: Y.XmlFragment, value: string): vo
 
   fragment.insert(0, paragraphs)
 }
+
+/**
+ * A fragment's content as plain JSON, for copying text between objects.
+ *
+ * Deliberately not HTML. The static HTML above is for display and is lossy on the way
+ * back - a heading's level survives as a tag name, a mark this file does not know
+ * about does not survive at all - and reading it back would mean a parser that has to
+ * agree with the serialiser forever. This is the CRDT's own shape written out: node
+ * names as ProseMirror stores them, attributes as they are, and a `Y.XmlText` as the
+ * delta it already reports. Anything TipTap can produce round-trips, including nodes
+ * added after this was written.
+ */
+export type RichRun = { insert: string; attributes?: Record<string, unknown> }
+
+export type RichNode =
+  | { text: RichRun[] }
+  | { name: string; attributes?: Record<string, string>; children: RichNode[] }
+
+function nodeSnapshot(node: Y.XmlElement | Y.XmlText | Y.XmlHook): RichNode | null {
+  if (node instanceof Y.XmlText) {
+    const runs: RichRun[] = []
+    for (const run of node.toDelta() as RichRun[]) {
+      if (typeof run.insert !== 'string') continue
+      runs.push(run.attributes === undefined ? { insert: run.insert } : run)
+    }
+    return { text: runs }
+  }
+  if (!(node instanceof Y.XmlElement)) return null
+
+  const attributes = node.getAttributes() as Record<string, string>
+  return {
+    name: node.nodeName,
+    // Omitted when empty rather than written as `{}`, because this goes on the
+    // clipboard as JSON and a paragraph is the overwhelmingly common node.
+    ...(Object.keys(attributes).length > 0 ? { attributes } : {}),
+    children: nodesSnapshot(node.toArray()),
+  }
+}
+
+function nodesSnapshot(nodes: readonly (Y.XmlElement | Y.XmlText | Y.XmlHook)[]): RichNode[] {
+  const out: RichNode[] = []
+  for (const node of nodes) {
+    const snapshot = nodeSnapshot(node)
+    if (snapshot !== null) out.push(snapshot)
+  }
+  return out
+}
+
+/** Read a fragment out as JSON. A pure read: nothing is written and nothing is held. */
+export function fragmentToNodes(fragment: Y.XmlFragment): RichNode[] {
+  return nodesSnapshot(fragment.toArray())
+}
+
+function buildNode(node: RichNode): Y.XmlElement | Y.XmlText | null {
+  if ('text' in node) {
+    const text = new Y.XmlText()
+    // Built before integration, which Yjs queues and replays when the tree is
+    // inserted. Filling the nodes after insertion instead would emit one update per
+    // node and put a half-built paragraph on the wire.
+    if (node.text.length > 0) text.applyDelta(node.text)
+    return text
+  }
+  if (typeof node.name !== 'string' || node.name === '') return null
+
+  const element = new Y.XmlElement(node.name)
+  for (const [key, value] of Object.entries(node.attributes ?? {})) {
+    if (typeof value === 'string') element.setAttribute(key, value)
+  }
+  const children = buildNodes(node.children ?? [])
+  if (children.length > 0) element.insert(0, children)
+  return element
+}
+
+function buildNodes(nodes: readonly RichNode[]): (Y.XmlElement | Y.XmlText)[] {
+  const out: (Y.XmlElement | Y.XmlText)[] = []
+  for (const node of nodes) {
+    if (node === null || typeof node !== 'object') continue
+    const built = buildNode(node)
+    if (built !== null) out.push(built)
+  }
+  return out
+}
+
+/**
+ * Replace a fragment's content with a snapshot taken by `fragmentToNodes`.
+ *
+ * The same contract as `setFragmentPlainText`: the caller wraps it in a transaction,
+ * and what lands has to be something `y-prosemirror` can mount. A snapshot whose top
+ * level is bare text would break that, so it is wrapped in a paragraph rather than
+ * inserted as it stands - the source of a snapshot is a clipboard, which is to say a
+ * string a peer or another build wrote.
+ */
+export function setFragmentNodes(fragment: Y.XmlFragment, nodes: readonly RichNode[]): void {
+  if (fragment.length > 0) fragment.delete(0, fragment.length)
+
+  const built = buildNodes(nodes).map((node) => {
+    if (!(node instanceof Y.XmlText)) return node
+    const paragraph = new Y.XmlElement('paragraph')
+    paragraph.insert(0, [node])
+    return paragraph
+  })
+
+  if (built.length > 0) fragment.insert(0, built)
+}
