@@ -273,6 +273,10 @@ boards
   created_by      uuid fk -> users
   thumbnail_url   text
   is_archived     bool default false
+  share_mode      text not null default 'restricted'  -- check in ('restricted','public')
+  share_role      text not null default 'viewer'      -- check in ('viewer','editor')
+  locked_at       timestamptz            -- the owner's board-wide edit lock
+  locked_by       uuid fk -> users on delete set null
   created_at, updated_at
   index (workspace_id, is_archived)
 
@@ -295,9 +299,44 @@ board_snapshots                           -- compacted state vectors
   created_at      timestamptz not null default now()   -- load + prune order both key on this
   index (board_id, created_at desc)
 
-share_links
-  id, board_id, token unique, role enum(viewer|editor),
-  expires_at, created_by, revoked_at
+share_links                              -- the public link, as a capability
+  id              uuid pk
+  board_id        uuid fk -> boards on delete cascade
+  token           text unique not null   -- RAW, not hashed. See below.
+  created_by      uuid fk -> users on delete set null
+  created_at      timestamptz
+  revoked_at      timestamptz            -- rotation revokes rather than deletes
+  unique (board_id) where revoked_at is null   -- one live link per board
+
+  -- The role lives on `boards.share_role`, not here: the mode and what it grants are
+  -- one setting the owner holds, and a link that carried its own role would make
+  -- "switch sharing off for a minute" lose it.
+  --
+  -- The token is stored raw, alone in this schema. A digest works for
+  -- `email_verifications` because those links are single use and never shown again -
+  -- recognising one is all the server has to do. This one is copied out of the share
+  -- dialog every time the owner reaches for it, so the server has to be able to
+  -- *produce* it, and no digest can. What replaces secrecy at rest is narrowness:
+  -- 192 bits, one live link per board, rotation as one button, and it grants nothing
+  -- at all while `boards.share_mode` is 'restricted'.
+
+board_invitations                        -- a grant waiting for an account to exist
+  id              uuid pk
+  board_id        uuid fk -> boards on delete cascade
+  email           citext not null        -- matched against users.email when one opens
+  role            enum(viewer|editor)
+  token           text unique not null
+  invited_by      uuid fk -> users on delete set null
+  created_at, accepted_at, revoked_at
+  unique (board_id, email) where accepted_at is null and revoked_at is null
+  index (email)
+
+  -- Only ever written for an address with NO account. An invitation to somebody who
+  -- has one is a board_members row plus a mail, with nothing to accept. **Nothing is
+  -- mailed on this path**: sending to an arbitrary unverified address a stranger typed
+  -- into a form is an open relay wearing our from-address, and the first thing it costs
+  -- is delivery of the activation mail people are actually waiting on. The owner gets
+  -- a link to pass on themselves, and activation applies the grant.
 
 assets
   id, board_id, uploader_id, s3_key, mime, size_bytes, width, height, created_at
@@ -1137,13 +1176,24 @@ DELETE /workspaces/{id}/members/{user_id}
 GET    /boards?workspace_id=&archived=
 POST   /boards
 GET    /boards/{id}                   metadata only, not content
-PATCH  /boards/{id}                   title, archive
+PATCH  /boards/{id}                   title, archive, lock (lock is owner-only)
 DELETE /boards/{id}
 POST   /boards/{id}/duplicate
 GET    /boards/{id}/members
-POST   /boards/{id}/members
-POST   /boards/{id}/share-links
-DELETE /share-links/{id}
+POST   /boards/{id}/members           also the demote path; inviting never lowers
+DELETE /boards/{id}/members/{user_id}
+
+GET    /boards/{id}/share             owner: mode, link, members, invitations
+PUT    /boards/{id}/share             { mode, role }; mints the link on going public
+POST   /boards/{id}/share/rotate      replaces the link, breaking every copy
+POST   /boards/{id}/invites           { email, role } -> granted | pending | member
+DELETE /boards/{id}/invites/{id}      withdraw one nobody has accepted
+
+-- unauthenticated, on purpose. See app/api/v1/share.py.
+GET    /share/{token}                 what a public link opens, for a caller with nothing
+POST   /share/{token}/ws-token        a ws credential for an anonymous guest
+GET    /invites/{token}               what a #/join/ link says, before registering
+POST   /invites/{token}/accept        signed in; the address still has to match
 
 POST   /boards/{id}/assets            presigned MinIO upload
 POST   /boards/{id}/export            { format: pdf|png|svg } -> job id
@@ -1162,13 +1212,25 @@ Handshake sequence — **this is the security boundary**:
 
 1. Accept connection
 2. Validate `ws_token` (60s TTL, single-use, scoped to one board_id)
-3. Resolve the user's effective role on the board — **live, at connect time**, never
-   from a role baked into the token. The 60s lifetime is a window in which access can
-   be revoked or the board deleted.
+3. Resolve the caller's effective access on the board — **live, at connect time**,
+   never from anything baked into the token. The 60s lifetime is a window in which
+   access can be revoked, the board deleted, the share link rotated or the board
+   locked.
 4. Reject with close code 4403 if no access
 5. Reject with 4401 if the token is invalid/expired
-6. Join the pycrdt room; attach role to the connection
-7. If role is `viewer`, drop inbound updates (accept awareness only)
+6. Join the pycrdt room; attach the resolved access to the connection
+7. If the caller may not write, drop inbound updates (accept awareness only)
+
+Step 3 goes through `resolve_access`, which is the single authority and folds in all
+three ways access is decided: a membership role, the public share link, and the owner's
+board-wide lock. The token carries *identity* — a user id, or a random per-visit guest
+id for an anonymous link visitor — plus the share token the browser arrived with, and
+never a role.
+
+An anonymous visitor is a real case, not an edge one: a public link that needed an
+account first would be a link to a sign-up form. They have no session to inherit, so
+one is invented at mint time (15 minutes), which is what makes a revoked link
+eventually close the sockets it opened.
 
 **4401 means the credential is bad; 4403 means it is good but does not authorise this
 board.** The split matters for a token presented to the wrong board: it is authentic
@@ -1190,8 +1252,17 @@ Re-validate every 15 minutes, **and whenever the access token behind the connect
 expires, whichever comes first**. Otherwise the handshake is a one-time check: a
 socket held open for days keeps the role it was granted on day one, and revoking
 access does nothing until the user happens to reconnect. The watchdog closes on 4401
-when the session lapses and 4403 when the role changes; either way the client
-reconnects and is re-evaluated from scratch.
+when the session lapses and 4403 when the access changes — the role *or* the lock,
+because step 7 is decided once from both — and either way the client reconnects and is
+re-evaluated from scratch.
+
+Fifteen minutes is the right interval for a grant quietly revoked and much too slow for
+a button somebody just pressed in front of other people. So anything an owner does and
+then watches — the lock, the share mode, the link, a role change, a removal — **evicts
+the board's sockets immediately** (`app/realtime/rooms.py`), and they reconnect through
+the handshake. Eviction never adjusts anybody's permissions; it only ends connections so
+the one place access is decided gets asked again. The registry is in-process, matching
+the rooms: a second API instance closes its own sockets on the watchdog.
 
 **The websocket is the door.** REST permission checks are decorative if this is
 wrong. Write tests for it first — see `services/api/tests/test_ws_handshake.py`,

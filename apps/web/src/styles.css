@@ -4611,3 +4611,385 @@ dialog.modal[open] .modal-card {
   margin: 0.25rem 0.4rem;
   background: var(--line);
 }
+
+/* --- sharing -----------------------------------------------------------------
+ *
+ * The share dialog is the widest thing in the app that is not the canvas, and it is
+ * the only dialog with sections. Both follow from what it holds: two decisions that
+ * must not be confused for each other (who in general, and which people in
+ * particular), a URL that has to be readable character by character, and a list that
+ * grows. A 26rem confirm card cannot carry any of that.
+ */
+
+.share-modal .modal-card {
+  /* Wide enough that a share URL fits on one line at a comfortable size, capped so it
+     does not become a page. The viewport clamp is what keeps it usable on a phone,
+     where the dialog is nearly full-bleed. */
+  width: min(34rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 4rem);
+  overflow-y: auto;
+}
+
+.share-section {
+  margin-top: 1.35rem;
+}
+
+.share-section h3 {
+  margin: 0 0 0.6rem;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+/* Two large targets rather than a select, because this is the consequential choice on
+   the screen and it deserves to look like one. Each says what it does underneath its
+   own name: "restricted" and "public" are our words, and the line below is the
+   sentence somebody actually decides on. */
+.access-choice {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.access {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  padding: 0.7rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--fg);
+  text-align: left;
+}
+
+.access:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.access.active {
+  border-color: var(--accent);
+  /* A tint rather than a fill: the unselected option has to stay legible beside it,
+     and a solid plate here would read as the only button on the row. */
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+}
+
+.access > svg {
+  flex: 0 0 auto;
+  margin-top: 0.1rem;
+  color: var(--muted);
+}
+
+.access.active > svg {
+  color: var(--accent);
+}
+
+.access-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.access-text strong {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--fg-strong);
+}
+
+.access-text small {
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: var(--faint);
+}
+
+.share-role {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.share-role-label {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+/* The dialog's segmented controls sit inside rows rather than under a heading, so
+   they drop the standalone control's top margin and stop stretching to fill. */
+.share-modal .segmented,
+.menu-row .segmented {
+  margin-top: 0;
+  grid-auto-columns: auto;
+}
+
+.share-modal .segmented button,
+.menu-row .segmented button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+/* These are radios, not toggles, so they carry `aria-checked` rather than
+   `aria-pressed` and need the selected treatment spelled out for both. */
+.share-modal .segmented button.active,
+.menu-row .segmented button.active {
+  background: var(--surface);
+  color: var(--fg-strong);
+  box-shadow: var(--shadow-sm);
+}
+
+/* A URL is read character by character or not at all, so it is set in the code face
+   and given the whole row. The field is an input rather than a div: it is selectable
+   with a keyboard, and select-on-focus makes the manual copy - the one that always
+   works - a click and a keystroke. */
+.copy-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.4rem;
+  margin-top: 0.75rem;
+  min-width: 0;
+}
+
+.copy-field {
+  flex: 1;
+  min-width: 0;
+  /* The same stack `code` uses. There is no token for it, and a URL is exactly the
+     kind of string that has to be read character by character. */
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.78rem;
+  color: var(--muted);
+  background: var(--surface-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 0.45rem 0.6rem;
+  /* No wrapping and no ellipsis fight: the field scrolls, so the start of the URL -
+     the part that says which host this is - is what stays visible. */
+  text-overflow: ellipsis;
+}
+
+.copy-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: 0 0 auto;
+  padding: 0.45rem 0.7rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.copy-button.copied {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.share-note {
+  margin: 0.6rem 0 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--faint);
+}
+
+/* Plain links to each service's own intent URL - no SDK, no script, no pixel. Square
+   and equal, because none of these is more recommended than the others. */
+.socials {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.7rem;
+}
+
+.social {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.1rem;
+  height: 2.1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.social:hover {
+  border-color: var(--accent);
+  color: var(--fg-strong);
+}
+
+/* Rotating the link breaks every copy already sent, so it is set apart from the
+   buttons that only hand it out - same row, because it is about the same link, and
+   visibly not one of them. */
+.social.rotate {
+  margin-left: auto;
+  color: var(--faint);
+}
+
+.social.rotate:hover:not(:disabled) {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.invite-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.invite-email {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+/* The "no account yet" answer, and the one thing in this dialog that must not be a
+   toast: it carries a link that is the only copy, and a message that dismisses itself
+   while somebody is reaching for it loses it. */
+.invite-pending {
+  margin-top: 0.8rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-3);
+}
+
+.invite-pending p {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.people {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.person {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.4rem 0.2rem;
+  border-radius: var(--radius-sm);
+}
+
+.person:hover {
+  background: var(--surface-3);
+}
+
+.person-who {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.person-who strong {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--fg-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.person-who small {
+  font-size: 0.75rem;
+  color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.person-role {
+  flex: 0 0 auto;
+  font-size: 0.8rem;
+  padding: 0.3rem 0.45rem;
+}
+
+/* A pending invitation is an address and its link, so it needs the full width and
+   wraps onto a second line rather than squeezing the URL into a sliver. */
+.person.pending {
+  flex-wrap: wrap;
+}
+
+.person.pending .copy-row {
+  flex-basis: 100%;
+  margin-top: 0.35rem;
+}
+
+/* --- the board bar's overflow menu ------------------------------------------- */
+
+/* Rows that hold a control rather than being one. The label is on the left so the
+   menu still reads as a list of names down its edge, and the picker sits at the end
+   where a value belongs. */
+.menu-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.4rem 0.6rem;
+}
+
+.menu-row-label {
+  font-size: 0.85rem;
+  color: var(--fg);
+}
+
+.menu-item.checked > svg {
+  color: var(--accent);
+}
+
+/* "Public" beside Share, so an owner can see what the board is currently doing
+   without opening anything. It is the one state on this menu that has consequences
+   while nobody is looking at it. */
+.menu-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: auto;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.board-more .menu {
+  min-width: 15rem;
+}
+
+/* --- the invitation landing screen -------------------------------------------
+ *
+ * Reuses the auth card, because that is exactly what this is: the first screen of
+ * somebody's first visit, and the next thing it asks for is a registration.
+ */
+
+.join-title {
+  margin: 1.2rem 0 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--fg-strong);
+  letter-spacing: -0.01em;
+}
+
+.join-body {
+  margin: 0.6rem 0 1.1rem;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.join-body strong {
+  color: var(--fg-strong);
+}

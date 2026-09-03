@@ -60,18 +60,27 @@ export const LOCAL_ORIGIN = 'local'
  */
 export const PAGE_ORIGIN = 'page'
 
+/** Why a write was refused, in the order the session checks them. */
+export type ReadOnlyReason = 'role' | 'board-locked' | 'locked'
+
+const READ_ONLY_MESSAGE: Record<ReadOnlyReason, string> = {
+  role: 'This glade is read-only for your role',
+  // Not "unlock it": whoever is reading this cannot. Naming the owner's lock is what
+  // stops somebody hunting for a control they do not have.
+  'board-locked': 'The owner has locked this glade. Nobody can edit it until they unlock it.',
+  locked: 'This glade is locked. Unlock it to edit.',
+}
+
 export class ReadOnlyError extends Error {
   /**
    * The message names the actual cause. A refusal reaches the user as a notice, and
    * "read-only for your role" when they locked the glade themselves a moment ago is
    * the kind of wrong explanation that sends someone hunting through sharing settings.
+   * The owner's lock and the per-tab one are just as different: one has an unlock
+   * button in front of the reader and the other does not.
    */
-  constructor(reason: 'role' | 'locked' = 'role') {
-    super(
-      reason === 'locked'
-        ? 'This glade is locked. Unlock it to edit.'
-        : 'This glade is read-only for your role',
-    )
+  constructor(reason: ReadOnlyReason = 'role') {
+    super(READ_ONLY_MESSAGE[reason])
     this.name = 'ReadOnlyError'
   }
 }
@@ -86,6 +95,14 @@ export type DocSession = {
   readonly role: BoardRole
   /** The local edit lock. Never persisted, never sent. */
   readonly locked: boolean
+  /**
+   * The owner's board-wide lock, as the server last reported it.
+   *
+   * Not the same feature as `locked` even though both end in the same refusal. This one
+   * is everybody's, it arrives with the connection, and no button on this client lifts
+   * it unless the person happens to be the owner.
+   */
+  readonly boardLocked: boolean
   readonly canWrite: boolean
 }
 
@@ -113,7 +130,12 @@ export function roleCanWrite(role: BoardRole): boolean {
  * The server is still the authority on what this client may do. Unlocking cannot grant
  * a viewer anything, because the role half of this expression is unchanged.
  */
-export function createDocSession(doc: Y.Doc, role: BoardRole, locked = false): DocSession {
+export function createDocSession(
+  doc: Y.Doc,
+  role: BoardRole,
+  locked = false,
+  boardLocked = false,
+): DocSession {
   const roots = docRoots(doc)
 
   const undo = new Y.UndoManager([roots.objects, roots.bindings, roots.order], {
@@ -135,17 +157,35 @@ export function createDocSession(doc: Y.Doc, role: BoardRole, locked = false): D
     undo,
     role,
     locked,
-    canWrite: roleCanWrite(role) && !locked,
+    boardLocked,
+    // Three reasons a write can be refused, folded into one boolean, for exactly the
+    // reason the paragraph above gives: the tools, the shortcuts, undo, redo and the
+    // text editor all read this and none of them has to know how many reasons there are.
+    canWrite: roleCanWrite(role) && !locked && !boardLocked,
   }
 }
 
 function write<T>(session: DocSession, fn: () => T): T {
-  if (!session.canWrite) throw new ReadOnlyError(session.locked ? 'locked' : 'role')
+  if (!session.canWrite) throw new ReadOnlyError(readOnlyReason(session))
   let result!: T
   session.doc.transact(() => {
     result = fn()
   }, LOCAL_ORIGIN)
   return result
+}
+
+/**
+ * Which of the three refusals applies, most specific first.
+ *
+ * Order matters and it is not the order they are checked in `canWrite`. Somebody's own
+ * per-tab lock is named first because it is the one they can do something about, even
+ * while the owner's lock is also in force: telling them to wait for the owner when
+ * their own toggle is down would send them off to wait for nothing.
+ */
+function readOnlyReason(session: DocSession): ReadOnlyReason {
+  if (session.locked) return 'locked'
+  if (session.boardLocked) return 'board-locked'
+  return 'role'
 }
 
 /** Close the current undo step, so the next edit starts a new one. */

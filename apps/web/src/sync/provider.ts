@@ -1,7 +1,7 @@
 import { WebsocketProvider } from 'y-websocket'
 import type * as Y from 'yjs'
 
-import { ApiError, type BoardRole, mintWsToken } from '../lib/api'
+import { ApiError, type BoardRole, mintGuestWsToken, mintWsToken } from '../lib/api'
 
 /**
  * ws-tokens are single-use with a 60s TTL, which fights y-websocket's built-in
@@ -27,12 +27,52 @@ const CLOSE_ROOM_FULL = 4429
 
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'denied'
 
+/**
+ * What the server says this connection may do, as of the mint that opened it.
+ *
+ * Three fields rather than one, because `canWrite` alone cannot be explained to
+ * anybody: a viewer and an editor on a locked board are both refused, and the notice
+ * that says which is the difference between "ask the owner for access" and "the owner
+ * locked it, wait".
+ */
+export type BoardAccess = {
+  role: BoardRole
+  /** Role permits writing *and* the board is not locked. The server's answer, not ours. */
+  canWrite: boolean
+  /** The owner's board-wide lock. */
+  locked: boolean
+}
+
 type Options = {
   boardId: string
   doc: Y.Doc
+  /**
+   * The share token from the address bar, or null.
+   *
+   * Presented on every mint even by a member, because it can only raise the answer -
+   * an editor link opens an editor connection for somebody whose membership is viewer.
+   */
+  linkToken: string | null
+  /**
+   * Whether there is a session behind this page.
+   *
+   * It picks the endpoint, and the two are genuinely different: a signed-in caller
+   * mints against their membership (raised by the link if there is one), and an
+   * anonymous visitor mints against the link alone at a route that has no auth on it
+   * at all. Guessing from a 401 instead would make every anonymous visit start with a
+   * refused request.
+   */
+  authenticated: boolean
   onState: (state: ConnectionState, detail?: string) => void
-  /** Fires whenever the server reports a role, including a change after reconnect. */
-  onRole: (role: BoardRole) => void
+  /**
+   * Fires whenever the server reports access, including a change after a reconnect.
+   *
+   * This is how a lock reaches the client. The owner's press evicts every socket on
+   * the board; each one reconnects, re-mints, and is told the new answer here - which
+   * is why nothing in the client needs to watch a lock flag or trust a peer's word
+   * about one.
+   */
+  onAccess: (access: BoardAccess) => void
 }
 
 export type BoardConnection = {
@@ -42,7 +82,14 @@ export type BoardConnection = {
   destroy: () => void
 }
 
-export function connectBoard({ boardId, doc, onState, onRole }: Options): BoardConnection {
+export function connectBoard({
+  boardId,
+  doc,
+  linkToken,
+  authenticated,
+  onState,
+  onAccess,
+}: Options): BoardConnection {
   const wsBase = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/board`
 
   const provider = new WebsocketProvider(wsBase, boardId, doc, {
@@ -73,18 +120,29 @@ export function connectBoard({ boardId, doc, onState, onRole }: Options): BoardC
     if (!wantConnection || destroyed) return
     onState('connecting')
     try {
-      const minted = await mintWsToken(boardId)
-      // Re-read on every attempt: a role change is exactly why the server closed the
-      // previous socket, so the reconnect is where the client learns the new one.
-      onRole(minted.role)
+      const minted =
+        authenticated || linkToken === null
+          ? await mintWsToken(boardId, linkToken)
+          : await mintGuestWsToken(linkToken)
+      // Re-read on every attempt: an access change is exactly why the server closed
+      // the previous socket, so the reconnect is where the client learns the new
+      // answer - a promotion, a demotion, or the board having just been locked.
+      onAccess({ role: minted.role, canWrite: minted.can_write, locked: minted.is_locked })
       provider.params = { token: minted.token }
       provider.connect()
     } catch (error) {
       // 403 from the mint endpoint means access is gone, not that the network is
-      // flaky. Retrying cannot help and only burns the rate limit.
-      if (error instanceof ApiError && error.status === 403) {
+      // flaky. 404 is the same thing said by the public route: the link was rotated,
+      // or the board is no longer shared. Retrying either cannot help and only burns
+      // the rate limit.
+      if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
         wantConnection = false
-        onState('denied', 'you no longer have access to this glade')
+        onState(
+          'denied',
+          error.status === 404
+            ? 'this link no longer opens this glade'
+            : 'you no longer have access to this glade',
+        )
         return
       }
       onState('disconnected', error instanceof Error ? error.message : String(error))
@@ -106,8 +164,9 @@ export function connectBoard({ boardId, doc, onState, onRole }: Options): BoardC
     provider.disconnect()
 
     if (event?.code === CLOSE_FORBIDDEN) {
-      // Access was revoked, or the role changed mid-session. Reconnecting re-mints,
-      // which re-resolves the role - and a genuine revocation fails at the mint.
+      // Access was revoked, the role changed, or the board was locked or unlocked
+      // mid-session. Reconnecting re-mints, which re-resolves all of it - and a genuine
+      // revocation fails at the mint, which is what turns this into 'denied'.
       onState('disconnected', 'access changed, reconnecting')
       retryMs = MIN_RETRY_MS
       schedule()
