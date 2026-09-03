@@ -443,22 +443,66 @@ check(
   JSON.stringify(straight),
 )
 
-const middle = await page.evaluate((id) => {
+// The midpoint handle, and the way off the chord from it.
+//
+// Perpendicular, and far, and neither is fussiness. A correct symmetric bow puts its
+// peak exactly under the pointer, so only the component of the drag across the chord
+// becomes bow at all - and this arrow's chord is a long diagonal, so a straight-up
+// drag is both foreshortened and shallower than the spread of the endpoints it has to
+// escape for the check below to mean anything. That check used to pass on a drag of
+// 120 straight up, which is worth recording: it was passing on an overshoot. The solve
+// re-read the arrow's routing on every move, the gesture's own first move turned the
+// arrow curved, and every move after that drove one control point and left the other
+// frozen - a bow carried by half the curve, leaning at the tail and bulging well past
+// the pointer. Fixing that made the bow land where it is dragged, which is smaller.
+const bow = await page.evaluate((id) => {
   const points = window.__doc.points(id)
   const { tx, ty, scale } = window.__canvas.transform()
   const last = points.length - 2
+  const screen = (x, y) => ({ x: x * scale + tx, y: y * scale + ty })
+  const from = screen(points[0], points[1])
+  const to = screen(points[last], points[last + 1])
+  const dx = to.x - from.x
+  const dy = to.y - from.y
+  const length = Math.hypot(dx, dy)
+  // The normal that points up the screen, so the bow rises above the endpoints.
+  const sign = dx > 0 ? -1 : 1
   return {
-    x: ((points[0] + points[last]) / 2) * scale + tx,
-    y: ((points[1] + points[last + 1]) / 2) * scale + ty,
+    from,
+    to,
+    middle: { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 },
+    normal: { x: (sign * -dy) / length, y: (sign * dx) / length },
   }
 }, handleArrowId)
 
-await drag(at(middle.x, middle.y), at(middle.x, middle.y - 120), 14)
+/** A point on the chord itself, offset across it. Screen units, for aiming a drag. */
+const acrossChord = (t, reach) => ({
+  x: bow.from.x + (bow.to.x - bow.from.x) * t + bow.normal.x * reach,
+  y: bow.from.y + (bow.to.y - bow.from.y) * t + bow.normal.y * reach,
+})
+
+const middle = bow.middle
+const REACH = 320
+await drag(
+  at(middle.x, middle.y),
+  at(middle.x + bow.normal.x * REACH, middle.y + bow.normal.y * REACH),
+  14,
+)
 
 const bent = await page.evaluate((id) => window.__doc.routing(id), handleArrowId)
 check(
   'dragging the middle handle bends the arrow',
   bent.routing === 'curved' && Math.abs(bent.curvature) > 0.05,
+  JSON.stringify(bent),
+)
+
+// One handle, one bow: the midpoint handle drives both control points together, so
+// what comes out of a single drag is a symmetric C. This is the check that fails if
+// the gesture ever again decides half way through that it is dragging one half of an
+// S - the two would part company and the curve would lean.
+check(
+  'the midpoint handle bends both halves by the same amount',
+  Math.abs(bent.curvature - bent.curvatureEnd) < 1e-6,
   JSON.stringify(bent),
 )
 
@@ -507,10 +551,16 @@ check(
 // single bow can only lean the whole arrow one way; two can lean opposite ways, and
 // that is the only shape that inflects.
 
+// Each handle is dragged to a point measured off the chord rather than off wherever
+// it happens to be sitting: the bow it starts from is as deep as the C above, so a
+// fixed nudge in screen y is not necessarily enough to carry a control point across
+// the line and the check would be testing the size of the previous drag.
 const firstBend = await screenAt(1 / 3)
-await drag(at(firstBend.x, firstBend.y), at(firstBend.x, firstBend.y - 110), 14)
+const firstTarget = acrossChord(1 / 3, -160)
+await drag(at(firstBend.x, firstBend.y), at(firstTarget.x, firstTarget.y), 14)
 const secondBend = await screenAt(2 / 3)
-await drag(at(secondBend.x, secondBend.y), at(secondBend.x, secondBend.y + 110), 14)
+const secondTarget = acrossChord(2 / 3, 160)
+await drag(at(secondBend.x, secondBend.y), at(secondTarget.x, secondTarget.y), 14)
 
 const sCurve = await page.evaluate((id) => window.__doc.routing(id), handleArrowId)
 check(

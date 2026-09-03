@@ -73,7 +73,27 @@ type Gesture =
   /** Dragging one end of an existing arrow, to re-aim or re-attach it. */
   | { kind: 'endpoint'; arrowId: string; end: 'start' | 'end'; anchorPoint: Point }
   /** Dragging one of a curved arrow's bend handles. */
-  | { kind: 'curve'; arrowId: string; start: Point; end: Point; t: number; which: 0 | 1 }
+  | {
+      kind: 'curve'
+      arrowId: string
+      start: Point
+      end: Point
+      t: number
+      which: 0 | 1
+      /**
+       * Whether this handle drives both bows, decided when it was grabbed.
+       *
+       * It has to be captured, and that is the whole of a bug worth naming. It used to
+       * be re-read from the arrow's routing on every move - but the first move of this
+       * very gesture is what turns a straight arrow into a curved one, so the answer
+       * flipped underneath the drag. Everything after that first move solved one
+       * control point and left the other frozen wherever the first move had put it, so
+       * the whole bow was carried by half the curve: it leaned towards the tail and
+       * bulged well past the pointer that was supposedly dragging it, and further with
+       * every pixel of travel.
+       */
+      symmetric: boolean
+    }
   /** Sliding an elbow's dogleg along the axis it turns on. */
   | { kind: 'elbow'; arrowId: string; start: Point; end: Point }
 
@@ -290,6 +310,11 @@ export function createSelectTool(context: ToolContext): Tool {
               // A straight arrow's single handle drives both bows at once, so it is
               // solved as the first one and the second is mirrored onto it below.
               which: handle === 'bend1' ? 1 : 0,
+              // Read off the handle rather than the routing: `bend` is the midpoint
+              // handle, which only a straight arrow has, and `bend0`/`bend1` are the
+              // thirds, which only a curved one has. Same question, but asked of
+              // something this gesture cannot change under itself.
+              symmetric: handle === 'bend',
             }
             return
           }
@@ -454,7 +479,7 @@ export function createSelectTool(context: ToolContext): Tool {
         const arrow = context.object(active.arrowId)
         if (arrow === undefined) return
         const props = resolveArrowProps(arrow)
-        const symmetric = props.routing !== 'curved'
+        const symmetric = active.symmetric
 
         // A straight arrow being bent for the first time gets a symmetric C: both
         // bows solved together, at the midpoint, so one grab does the obvious thing.
