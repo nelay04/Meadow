@@ -41,7 +41,12 @@ import {
 import * as Y from 'yjs'
 
 import type { BoardRole } from '../lib/api'
-import { setFragmentPlainText } from './richText'
+import {
+  type RichNode,
+  fragmentToNodes,
+  setFragmentNodes,
+  setFragmentPlainText,
+} from './richText'
 
 /** Origin tag for local edits. Undo filters on it; the provider ignores it. */
 export const LOCAL_ORIGIN = 'local'
@@ -444,6 +449,121 @@ export function setArrowPoints(
 export function reconcileBindings(session: DocSession): void {
   if (!session.canWrite || session.bindings.size === 0) return
   write(session, () => reflowArrows(session, new Set(session.objects.keys())))
+}
+
+// --- copying ------------------------------------------------------------------
+//
+// Copy is a read into plain JSON and paste is an insert of it, and the two are here
+// rather than in the engine for the reason the rest of this file exists: paste creates
+// objects, rewrites their bindings and touches `order`, which is three invariants that
+// have to hold together and one transaction that has to contain them.
+//
+// Ids are not carried across. A snapshot is pasted into the document it came from as
+// often as anywhere else, and reusing an id there would not duplicate the object, it
+// would overwrite it.
+
+/** One object as it goes onto the clipboard: its fields, plus its text if it has any. */
+export type ObjectSnapshot = { object: ObjectData; text: RichNode[] | null }
+
+export type DocSnapshot = {
+  objects: readonly ObjectSnapshot[]
+  bindings: readonly BindingData[]
+}
+
+/**
+ * Read objects out of the document as a snapshot.
+ *
+ * In z-order rather than in the order the ids were given, so a paste rebuilds the
+ * stack it was taken from: a label copied along with the shape behind it must not come
+ * back underneath it because the selection happened to be built by clicking the label
+ * first.
+ *
+ * A binding is only carried when both ends of the relationship are in the copy. An
+ * arrow copied away from the shape it points at arrives as an arrow with a free end,
+ * which is the same thing that happens when its target is deleted (ARCHITECTURE 4) -
+ * the alternative is a pasted arrow that silently re-attaches to the original's target
+ * and moves when a shape somewhere else on the board moves.
+ */
+export function snapshotObjects(session: DocSession, ids: readonly string[]): DocSnapshot {
+  const wanted = new Set(ids)
+  const objects: ObjectSnapshot[] = []
+
+  for (const id of session.order.toArray()) {
+    if (!wanted.has(id)) continue
+    const map = session.objects.get(id)
+    if (map === undefined) continue
+    const fragment = objectText(map)
+    objects.push({
+      object: readObject(map),
+      text: fragment === null ? null : fragmentToNodes(fragment),
+    })
+  }
+
+  const bindings: BindingData[] = []
+  for (const map of session.bindings.values()) {
+    const binding = readBinding(map)
+    if (!wanted.has(binding.arrowId)) continue
+    if (binding.targetId === null || !wanted.has(binding.targetId)) continue
+    bindings.push(binding)
+  }
+
+  return { objects, bindings }
+}
+
+/**
+ * Insert a snapshot, shifted by an offset, and return the ids it was given.
+ *
+ * Every stored geometry in this document is relative to the object's own x,y - an
+ * arrow's points, a stroke's samples - so moving a pasted object is a write to x and y
+ * and nothing else, and that is the whole of what the offset has to do.
+ */
+export function insertSnapshot(
+  session: DocSession,
+  snapshot: DocSnapshot,
+  offset: { x: number; y: number },
+): string[] {
+  if (snapshot.objects.length === 0) return []
+
+  return write(session, () => {
+    const remap = new Map<string, string>()
+    for (const { object } of snapshot.objects) remap.set(object.id, nanoid())
+
+    const created: string[] = []
+    for (const { object, text } of snapshot.objects) {
+      const id = remap.get(object.id) as string
+      insert(session, {
+        ...object,
+        id,
+        x: object.x + offset.x,
+        y: object.y + offset.y,
+        // A parent that came along in the copy is followed to its new self; one that
+        // did not is dropped, because pasting into a frame that is not there is a
+        // child of nothing.
+        parentId: object.parentId === null ? null : (remap.get(object.parentId) ?? null),
+      })
+      created.push(id)
+
+      if (text === null) continue
+      const fragment = objectText(session.objects.get(id) as Y.Map<unknown>)
+      if (fragment !== null) setFragmentNodes(fragment, text)
+    }
+
+    for (const binding of snapshot.bindings) {
+      const arrowId = remap.get(binding.arrowId)
+      const targetId = binding.targetId === null ? null : remap.get(binding.targetId)
+      if (arrowId === undefined || targetId === undefined) continue
+      const data = bindingData.parse({ ...binding, id: nanoid(), arrowId, targetId })
+      session.bindings.set(data.id, createBindingMap(data))
+    }
+
+    // The copies were solved against the originals and moved by the same offset as
+    // their targets, so the geometry is already right. This is for the case where it
+    // is not: an arrow whose target was left behind keeps a binding to nothing, and
+    // re-solving is what settles which of its ends are still attached.
+    reflowArrows(session, new Set(created))
+
+    return created
+  })
 }
 
 // --- text ---------------------------------------------------------------------

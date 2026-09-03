@@ -14,6 +14,40 @@ away getting there.
 The infrastructure to run the thing. Not deployed yet.
 
 ### Added
+- **Ctrl+Y redoes, alongside Ctrl+Shift+Z.** Both, rather than a choice between them:
+  Ctrl+Y is what Windows has meant by redo for thirty years and Ctrl+Shift+Z is what
+  every canvas and every Mac uses, and somebody who reaches for the one this app did not
+  have got no response at all and concluded there was nothing to redo.
+
+- **Copy, cut, paste and duplicate.** Ctrl+C, Ctrl+X, Ctrl+V and Ctrl+D on a selection,
+  and a duplicate button on the rail beside delete. A copy carries everything the object
+  is: its geometry, its style, and its text with the bold and the italics still on it,
+  because a label that arrives as plain prose is a label somebody has to format again.
+
+  It goes on the system clipboard rather than into a variable, so a shape copied in one
+  glade pastes into another, into a second tab, or after a reload. The objects travel
+  under a clipboard type of our own with the copied words in `text/plain` beside them -
+  paste a sticky into a mail and you get the note, not a page of coordinates. A browser
+  that drops unknown clipboard types falls back to the last copy this tab made, which
+  covers the case nearly all copying actually is. Everything read back is validated
+  through the same schemas the document is written with: the string on a clipboard was
+  last written by another build of this app, or by another program entirely.
+
+  **A paste is a new object, not the old one again.** Ids are regenerated, since a
+  paste into the glade it came from would otherwise overwrite the original rather than
+  duplicate it. An arrow copied together with the shape it points at arrives bound to
+  the copy; an arrow copied away from its target arrives with a free end rather than
+  quietly following a shape somewhere else on the board. It lands under the pointer,
+  selected, as one undo step.
+
+  Ctrl+C, Ctrl+X and Ctrl+V ride the browser's own clipboard events rather than being
+  read off the keyboard. That is the only way to reach the system clipboard without
+  asking for a permission, it is the only way to read one at all in some browsers, and
+  it means a paste from the edit menu or from a trackpad gesture works too. Ctrl+D is
+  the exception and deliberately never touches the clipboard: duplicating a shape is
+  something you do in the middle of arranging something, and having it discard what you
+  copied five minutes ago is a loss you notice two steps later.
+
 - **Four more shapes: a triangle, a trapezoid, a polygon and a cylinder.** `J`, `Z`,
   `N` and `Y` draw them, or pick one out of the shape button on the rail, which is now a
   grid of eight rather than a row of four. All four are real primitives on the same

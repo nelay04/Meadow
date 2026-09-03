@@ -40,6 +40,7 @@ import {
   IconCursor,
   IconCylinder,
   IconDiamond,
+  IconDuplicate,
   IconFit,
   IconEye,
   IconGridLines,
@@ -1356,6 +1357,17 @@ export default function BoardPage({ boardId, onBack }: Props) {
           )}
 
           <hr />
+
+          <button
+            type="button"
+            className="tool"
+            aria-label="Duplicate selection"
+            disabled={!canWrite || canvas.selection.length === 0}
+            onClick={canvas.duplicateSelection}
+          >
+            <IconDuplicate size={19} />
+            <Tip label="Duplicate" hint="Ctrl+D" />
+          </button>
 
           <button
             type="button"

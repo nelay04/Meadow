@@ -208,6 +208,15 @@ export type CanvasHandle = {
   /** Re-read the surface colours. For anything that repaints the page under WebGL. */
   syncTheme(): void
   deleteSelection(): void
+  /**
+   * Copy the selection and put the copy down beside it.
+   *
+   * On the rail as well as on Ctrl+D, because it is the one clipboard action with
+   * somewhere obvious to live: copy and paste are chords everybody already knows and
+   * buttons for them would say nothing a keyboard does not, while duplicate is the
+   * thing people reach for and do not think to guess a shortcut for.
+   */
+  duplicateSelection(): void
   /** Graph paper on the board surface. Cosmetic, remembered across sessions. */
   gridVisible: boolean
   toggleGrid(): void
@@ -778,6 +787,7 @@ export function useCanvas(
     zoomToFit: () => engineRef.current?.zoomToFit(),
     resetZoom: () => engineRef.current?.resetZoom(),
     deleteSelection: () => engineRef.current?.deleteSelection(),
+    duplicateSelection: () => engineRef.current?.duplicateSelection(),
     gridVisible,
     gridPattern,
     setGridPattern,

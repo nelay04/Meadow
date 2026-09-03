@@ -25,6 +25,7 @@ import type { EngineHost } from '../canvas/engine'
 import type { SurfaceType } from '../canvas/surface'
 import {
   type DocSession,
+  type DocSnapshot,
   ReadOnlyError,
   addObject,
   bindArrow,
@@ -33,10 +34,12 @@ import {
   deleteObjects,
   endGesture,
   ensureObjectFragment,
+  insertSnapshot,
   objectFragment,
   sendBackward,
   sendToBack,
   setArrowPoints,
+  snapshotObjects,
   setArrowRouting,
   updateObjects,
 } from './mutations'
@@ -157,6 +160,19 @@ export class DocEngineHost implements EngineHost {
 
   deleteObjects(ids: readonly string[]): void {
     this.guard(() => deleteObjects(this.session, ids), undefined)
+  }
+
+  snapshot(ids: readonly string[]): DocSnapshot {
+    return snapshotObjects(this.session, ids)
+  }
+
+  /**
+   * Paste a snapshot in. Guarded like every other write: a viewer who copies a shape
+   * and presses paste gets the same refusal notice as one who tries to move it, rather
+   * than objects that appear locally and vanish on the next server state.
+   */
+  insertSnapshot(snapshot: DocSnapshot, offset: { x: number; y: number }): string[] {
+    return this.guard(() => insertSnapshot(this.session, snapshot, offset), [])
   }
 
   commit(): void {
