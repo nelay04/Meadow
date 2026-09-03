@@ -537,6 +537,21 @@ export function IconPencil(props: IconProps) {
   )
 }
 
+/**
+ * Owners, in the presence list.
+ *
+ * Filled rather than stroked, unlike the rest of the set: it is drawn at nine pixels
+ * perched on the rim of an avatar, and at that size a 1.75 stroke on a five-point
+ * outline closes up into a blob. The one place the house style loses to legibility.
+ */
+export function IconCrown(props: IconProps) {
+  return (
+    <Svg {...props} fill="currentColor" stroke="none">
+      <path d="M3 8.2 7.2 11 12 4.6 16.8 11 21 8.2l-1.7 9.4a1 1 0 0 1-1 .8H5.7a1 1 0 0 1-1-.8z" />
+    </Svg>
+  )
+}
+
 /*
  * The pen, and the nibs it can be fitted with.
  *

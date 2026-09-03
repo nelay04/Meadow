@@ -37,6 +37,7 @@ import {
   IconCheck,
   IconChevronDown,
   IconCircle,
+  IconCrown,
   IconCursor,
   IconCylinder,
   IconDiamond,
@@ -329,6 +330,30 @@ function writePagesPreference(open: boolean): void {
 }
 
 /** One avatar per person, however many tabs they have open. */
+/**
+ * One person in the presence row.
+ *
+ * The self face and a peer's face differ in where their fields come from and in
+ * nothing else, so they are flattened to one shape and rendered by one branch. The
+ * alternative is the card markup written twice, which is how the two halves of a row
+ * drift apart.
+ */
+type Face = {
+  key: string
+  name: string
+  avatarUrl: string | null
+  color: number
+  role: BoardRole | null
+  canWrite: boolean
+  you: boolean
+}
+
+/** Sentence case for a card, from the lowercase word the wire carries. */
+function roleLabel(face: Face): string {
+  if (face.role === null) return face.canWrite ? 'Can edit' : 'View only'
+  return face.role[0].toUpperCase() + face.role.slice(1)
+}
+
 function dedupe(wanderers: readonly Wanderer[]): Wanderer[] {
   const seen = new Set<string>()
   const out: Wanderer[] = []
@@ -605,7 +630,7 @@ export default function BoardPage({ boardId, onBack }: Props) {
               id: user.id,
               name: user.display_name,
               avatarUrl: user.avatar_url,
-              canWrite: roleCanWrite(role),
+              role,
             },
             applyWanderers,
           )
@@ -628,6 +653,68 @@ export default function BoardPage({ boardId, onBack }: Props) {
   // to be true, and the same expression drives the session, so the toolbar can never
   // offer something the mutation layer would refuse.
   const canWrite = roleCanWrite(role) && !locked
+
+  /*
+   * The presence row, as one list.
+   *
+   * Deduplicated by name and colour: one person with two tabs open is two wanderers on
+   * the canvas but one face here.
+   */
+  const faces: Face[] =
+    user === null
+      ? []
+      : [
+          {
+            key: 'you',
+            name: user.display_name,
+            avatarUrl: user.avatar_url ?? null,
+            color: colorFor(user.id),
+            role,
+            canWrite: roleCanWrite(role),
+            you: true,
+          },
+          ...dedupe(wanderers).map((wanderer) => ({
+            key: `peer-${wanderer.clientId}`,
+            name: wanderer.name,
+            avatarUrl: wanderer.avatarUrl,
+            color: wanderer.color,
+            role: wanderer.role,
+            canWrite: wanderer.canWrite,
+            you: false,
+          })),
+        ]
+
+  /*
+   * Which face has its card open, by key.
+   *
+   * A click rather than a hover, because the row is small, the circles overlap, and a
+   * card that appears as the pointer crosses the row on its way to the zoom control is
+   * a card nobody asked for. One at a time: two open cards would overlap each other.
+   */
+  const [openFace, setOpenFace] = useState<string | null>(null)
+  const facesRow = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (openFace === null) return
+
+    // `pointerdown` rather than `click`, so the card is gone before whatever was
+    // clicked underneath it happens. Clicks inside the row are left alone: that is the
+    // same-face toggle and the switch to another face, both handled by the button.
+    const onDown = (event: PointerEvent) => {
+      if (facesRow.current?.contains(event.target as Node) === true) return
+      setOpenFace(null)
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpenFace(null)
+    }
+
+    window.addEventListener('pointerdown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('pointerdown', onDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [openFace])
 
   /*
    * The stock this page is on: the reader's own default, and nothing else.
@@ -672,7 +759,7 @@ export default function BoardPage({ boardId, onBack }: Props) {
   // your own hands, per-tab and never sent to anyone, so a locked tab still shows the
   // editor badge its permissions actually grant.
   useEffect(() => {
-    presence.current?.setCanWrite(roleCanWrite(role))
+    presence.current?.setRole(role)
   }, [role])
 
   /*
@@ -881,40 +968,50 @@ export default function BoardPage({ boardId, onBack }: Props) {
 
         <div className="spacer" />
 
-        {/* Presence avatars. Deduplicated by user id: one person with two tabs open is
-            two wanderers on the canvas but one face here. */}
-        <div className="wanderers" aria-label="People here">
-          {user !== null && (
-            <Avatar
-              className="avatar avatar-self"
-              name={user.display_name}
-              url={user.avatar_url}
-              style={{ background: `#${colorFor(user.id).toString(16).padStart(6, '0')}` }}
-              title={`${user.display_name} (you, ${roleCanWrite(role) ? 'editor' : 'viewer'})`}
-            >
-              <span
-                className={`badge ${roleCanWrite(role) ? 'editor' : 'viewer'}`}
-                aria-hidden="true"
+        {/* Presence. A face each, the badge saying who may write, a crown on whoever
+            owns the glade, and the name behind it one click away. */}
+        <div className="wanderers" aria-label="People here" ref={facesRow}>
+          {faces.map((face) => (
+            <span className="face" key={face.key}>
+              <Avatar
+                className={face.you ? 'avatar avatar-self' : 'avatar'}
+                name={face.name}
+                url={face.avatarUrl}
+                style={{ background: `#${face.color.toString(16).padStart(6, '0')}` }}
+                title={face.name}
+                onClick={() => setOpenFace((open) => (open === face.key ? null : face.key))}
               >
-                {roleCanWrite(role) ? <IconPencil size={9} /> : <IconEye size={9} />}
-              </span>
-            </Avatar>
-          )}
-          {dedupe(wanderers).map((wanderer) => (
-            <Avatar
-              key={wanderer.clientId}
-              name={wanderer.name}
-              url={wanderer.avatarUrl}
-              style={{ background: `#${wanderer.color.toString(16).padStart(6, '0')}` }}
-              title={`${wanderer.name} (${wanderer.canWrite ? 'editor' : 'viewer'})`}
-            >
-              {/* Which of the two people in a room can actually change it is the one
-                  thing about presence that changes how you behave, and a list of
-                  identical circles does not say it. */}
-              <span className={`badge ${wanderer.canWrite ? 'editor' : 'viewer'}`} aria-hidden="true">
-                {wanderer.canWrite ? <IconPencil size={9} /> : <IconEye size={9} />}
-              </span>
-            </Avatar>
+                {/* Tilted, and sitting on the rim rather than beside the circle: a
+                    crown worn at an angle reads as one at a glance, and a level one at
+                    this size reads as a smudge. */}
+                {face.role === 'owner' && (
+                  <span className="crown" aria-hidden="true">
+                    <IconCrown size={11} />
+                  </span>
+                )}
+                {/* Which of the people in a room can actually change it is the one
+                    thing about presence that changes how you behave, and a list of
+                    identical circles does not say it. */}
+                <span
+                  className={`badge ${face.canWrite ? 'editor' : 'viewer'}`}
+                  aria-hidden="true"
+                >
+                  {face.canWrite ? <IconPencil size={10} /> : <IconEye size={10} />}
+                </span>
+              </Avatar>
+
+              {openFace === face.key && (
+                <span className="face-card" role="status">
+                  <span className="who">
+                    {face.name}
+                    {face.you && <span className="you"> (you)</span>}
+                  </span>
+                  <span className={`role role-${face.role ?? (face.canWrite ? 'editor' : 'viewer')}`}>
+                    {roleLabel(face)}
+                  </span>
+                </span>
+              )}
+            </span>
           ))}
         </div>
 

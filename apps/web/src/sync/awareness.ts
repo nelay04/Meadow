@@ -16,6 +16,8 @@
 import type { Awareness } from 'y-protocols/awareness'
 
 import type { Wanderer } from '../canvas/overlay/wandererLayer'
+import { roleCanWrite } from '../doc/mutations'
+import type { BoardRole } from '../lib/api'
 
 /** Roughly 30Hz. Below the rate a cursor reads as smooth, well above what is polite. */
 const CURSOR_INTERVAL_MS = 33
@@ -31,6 +33,8 @@ const PALETTE = [
   0x2f7d4f, 0xd8456b, 0x7b8fd4, 0xd88c5a, 0x5aa7c4, 0xc47ba0, 0x8a7bc4, 0x4f9d6b,
 ]
 
+const ROLES: readonly BoardRole[] = ['owner', 'editor', 'commenter', 'viewer']
+
 export function colorFor(userId: string): number {
   let hash = 0
   for (let index = 0; index < userId.length; index += 1) {
@@ -44,12 +48,27 @@ export type LocalPresence = {
   name: string
   /** The picture this person chose, so peers show a face rather than initials. */
   avatarUrl?: string | null
-  /** Whether this client may edit, so peers can show a viewer or editor badge. */
-  canWrite: boolean
+  /**
+   * What this client resolved its own role to, so peers can name it: the badge, the
+   * crown on an owner, and the line the card under a face shows on click.
+   */
+  role: BoardRole
 }
 
 export type WandererState = {
-  user: { id: string; name: string; avatarUrl: string | null; color: number; canWrite: boolean }
+  user: {
+    id: string
+    name: string
+    avatarUrl: string | null
+    color: number
+    role: BoardRole
+    /**
+     * Redundant with the role, and sent anyway: peers on a build from before roles
+     * were published read this field and nothing else, and dropping it would demote
+     * every one of them to a viewer badge.
+     */
+    canWrite: boolean
+  }
   cursor: { x: number; y: number } | null
   selection: string[]
 }
@@ -65,7 +84,7 @@ export type PresenceHandle = {
    * handshake a moment later, so the first announcement is always made without it. It
    * can also change mid-session when an owner promotes somebody.
    */
-  setCanWrite(canWrite: boolean): void
+  setRole(role: BoardRole): void
   destroy(): void
 }
 
@@ -88,7 +107,8 @@ export function trackPresence(
     // peer on an older build rather than as a peer with no picture.
     avatarUrl: local.avatarUrl ?? null,
     color: colorFor(local.id),
-    canWrite: local.canWrite,
+    role: local.role,
+    canWrite: roleCanWrite(local.role),
   }
   let announced = user
   awareness.setLocalStateField('user', user)
@@ -153,8 +173,12 @@ export function trackPresence(
         avatarUrl:
           typeof remote.avatarUrl === 'string' && remote.avatarUrl !== '' ? remote.avatarUrl : null,
         color: typeof remote.color === 'number' ? remote.color : colorFor(String(remote.id ?? '')),
-        // Absent means a peer on an older build. Reading that as "viewer" would mark
-        // every one of them read-only, so the benign default is the common case.
+        // Absent means a peer on an older build, which announced `canWrite` and no
+        // role. There is no honest name for the role in that case - an editor and an
+        // owner both write - so it stays null and the header shows the badge alone.
+        role: ROLES.includes(remote.role as BoardRole) ? (remote.role as BoardRole) : null,
+        // Reading an absent `canWrite` as "viewer" would mark every older peer
+        // read-only, so the benign default is the common case.
         canWrite: remote.canWrite !== false,
         cursor:
           state?.cursor != null &&
@@ -203,9 +227,9 @@ export function trackPresence(
       if (timer === undefined) timer = window.setTimeout(flush, CURSOR_INTERVAL_MS)
     },
 
-    setCanWrite(canWrite) {
-      if (announced.canWrite === canWrite) return
-      announced = { ...announced, canWrite }
+    setRole(role) {
+      if (announced.role === role) return
+      announced = { ...announced, role, canWrite: roleCanWrite(role) }
       awareness.setLocalStateField('user', announced)
     },
 

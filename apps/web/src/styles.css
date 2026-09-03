@@ -2975,7 +2975,7 @@ kbd {
   justify-content: center;
   width: 1.7rem;
   height: 1.7rem;
-  margin-left: -0.4rem;
+  margin-left: -0.55rem;
   border-radius: 50%;
   border: 2px solid var(--surface);
   color: #fff;
@@ -2989,7 +2989,82 @@ kbd {
 /* Yourself first and slightly set apart, so the row reads as "me, then them". */
 .avatar-self {
   margin-left: 0;
-  margin-right: 0.15rem;
+  margin-right: 0.05rem;
+}
+
+/* The anchor for one person's card. Not `.avatar` itself: the avatar is a circle with
+   its own overlap and its own negative margin, and hanging a card off it would put the
+   card wherever the overlap left the circle. */
+.face {
+  position: relative;
+  display: inline-flex;
+}
+
+.face .avatar {
+  cursor: pointer;
+  /* Faces further left sit under the ones to their right, which is what makes the row
+     read as a stack. Hovering lifts one out of it, so the circle you are about to
+     click is the whole circle. */
+  transition: transform 0.12s ease;
+}
+
+.face:hover .avatar,
+.face .avatar:focus-visible {
+  transform: translateY(-1px);
+  z-index: 1;
+}
+
+.face .avatar:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/*
+ * Who a face belongs to, and what they may do here.
+ *
+ * Right-aligned rather than centred under the circle: the row sits at the right end of
+ * the bar, and a card centred on the last face would hang off the edge of the window.
+ */
+.face-card {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  right: 0;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.4rem 0.55rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  white-space: nowrap;
+  animation: face-card-in 0.12s ease;
+}
+
+.face-card .who {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--fg-strong);
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.face-card .who .you {
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.face-card .role {
+  font-size: 0.6rem;
+}
+
+@keyframes face-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -3175,16 +3250,22 @@ kbd {
 
 .avatar .badge {
   position: absolute;
-  right: -2px;
-  bottom: -2px;
+  right: -3px;
+  bottom: -3px;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 0.85rem;
-  height: 0.85rem;
+  /* A hair under the icon it holds, so the glyph fills the disc instead of floating in
+     the middle of one. Below about this size a stroked icon stops being a pencil. */
+  width: 0.9rem;
+  height: 0.9rem;
   border-radius: 50%;
   border: 1.5px solid var(--surface);
   box-sizing: content-box;
+}
+
+.avatar .badge svg {
+  display: block;
 }
 
 .avatar .badge.editor {
@@ -3195,6 +3276,39 @@ kbd {
 .avatar .badge.viewer {
   background: var(--surface-3);
   color: var(--muted);
+}
+
+/*
+ * The owner's crown.
+ *
+ * Tilted and perched on the top-left rim, the way a crown sits on a head rather than
+ * the way a sticker sits on a corner. Left, because the badge already has the right,
+ * and a circle with something on both bottom-right and top-right looks decorated.
+ */
+.avatar .crown {
+  position: absolute;
+  /*
+   * Sat on the rim, not floating beside it.
+   *
+   * The circle is 1.7rem, so its edge on the upper-left diagonal is about 4px in from
+   * the corner of the box on both axes, and the drawn crown inside an 11px icon ends
+   * about 2.5px above its own bottom edge. These two offsets put the base of the crown
+   * on that point; rotating about the base then tips it left without lifting it off.
+   */
+  left: -1px;
+  top: -5px;
+  display: flex;
+  color: #e8a53a;
+  transform: rotate(-25deg);
+  transform-origin: 55% 95%;
+  /* The gold is bright, and a face behind it may be too. A thin dark halo keeps the
+     five points readable over a pale photograph. */
+  filter: drop-shadow(0 0 1px rgb(0 0 0 / 0.45));
+  pointer-events: none;
+}
+
+.avatar .crown svg {
+  display: block;
 }
 
 /*
@@ -3863,6 +3977,11 @@ dialog.modal[open] .modal-card {
    */
   .board-bar .role {
     display: none;
+  }
+
+  /* Except the one inside a face's card, which is the entire reason that card opened. */
+  .board-bar .face-card .role {
+    display: inline-block;
   }
 
   .board-bar .spacer {
