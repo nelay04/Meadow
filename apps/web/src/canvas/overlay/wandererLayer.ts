@@ -23,6 +23,8 @@ export type Wanderer = {
   /** Yjs awareness client id. Stable for the life of a connection. */
   clientId: number
   name: string
+  /** The picture this person chose, or null when they have none. */
+  avatarUrl: string | null
   color: number
   /**
    * What this person can do on the board, as *they* resolved it on their own

@@ -42,12 +42,14 @@ export function colorFor(userId: string): number {
 export type LocalPresence = {
   id: string
   name: string
+  /** The picture this person chose, so peers show a face rather than initials. */
+  avatarUrl?: string | null
   /** Whether this client may edit, so peers can show a viewer or editor badge. */
   canWrite: boolean
 }
 
 export type WandererState = {
-  user: { id: string; name: string; color: number; canWrite: boolean }
+  user: { id: string; name: string; avatarUrl: string | null; color: number; canWrite: boolean }
   cursor: { x: number; y: number } | null
   selection: string[]
 }
@@ -81,6 +83,10 @@ export function trackPresence(
   const user = {
     id: local.id,
     name: local.name,
+    // Normalised to null rather than left undefined: awareness state is JSON on the
+    // wire, and an undefined field simply vanishes, which reads on the far side as a
+    // peer on an older build rather than as a peer with no picture.
+    avatarUrl: local.avatarUrl ?? null,
     color: colorFor(local.id),
     canWrite: local.canWrite,
   }
@@ -142,6 +148,10 @@ export function trackPresence(
       wanderers.push({
         clientId,
         name: typeof remote.name === 'string' && remote.name !== '' ? remote.name : 'someone',
+        // A peer on an older build sends no picture at all, and the header falls back
+        // to initials on its own.
+        avatarUrl:
+          typeof remote.avatarUrl === 'string' && remote.avatarUrl !== '' ? remote.avatarUrl : null,
         color: typeof remote.color === 'number' ? remote.color : colorFor(String(remote.id ?? '')),
         // Absent means a peer on an older build. Reading that as "viewer" would mark
         // every one of them read-only, so the benign default is the common case.

@@ -74,7 +74,7 @@ import {
   IconTrash,
   IconUnlock,
 } from '../../ui/icons'
-import { Avatar, initialsOf } from '../../ui/Avatar'
+import { Avatar } from '../../ui/Avatar'
 import { useToast } from '../../ui/Toaster'
 import { createDocSession, roleCanWrite } from '../../doc/mutations'
 import type { BoardKind, BoardRole } from '../../lib/api'
@@ -601,7 +601,12 @@ export default function BoardPage({ boardId, onBack }: Props) {
         ? null
         : trackPresence(
             link.provider.awareness,
-            { id: user.id, name: user.display_name, canWrite: roleCanWrite(role) },
+            {
+              id: user.id,
+              name: user.display_name,
+              avatarUrl: user.avatar_url,
+              canWrite: roleCanWrite(role),
+            },
             applyWanderers,
           )
     presence.current = handle
@@ -896,20 +901,20 @@ export default function BoardPage({ boardId, onBack }: Props) {
             </Avatar>
           )}
           {dedupe(wanderers).map((wanderer) => (
-            <span
+            <Avatar
               key={wanderer.clientId}
-              className="avatar"
+              name={wanderer.name}
+              url={wanderer.avatarUrl}
               style={{ background: `#${wanderer.color.toString(16).padStart(6, '0')}` }}
               title={`${wanderer.name} (${wanderer.canWrite ? 'editor' : 'viewer'})`}
             >
-              {initialsOf(wanderer.name)}
               {/* Which of the two people in a room can actually change it is the one
                   thing about presence that changes how you behave, and a list of
                   identical circles does not say it. */}
               <span className={`badge ${wanderer.canWrite ? 'editor' : 'viewer'}`} aria-hidden="true">
                 {wanderer.canWrite ? <IconPencil size={9} /> : <IconEye size={9} />}
               </span>
-            </span>
+            </Avatar>
           ))}
         </div>
 
