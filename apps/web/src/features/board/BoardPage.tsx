@@ -417,6 +417,14 @@ export default function BoardPage({ boardId, onBack }: Props) {
    */
   const [moreOpen, setMoreOpen] = useState(false)
   const moreRoot = useRef<HTMLDivElement>(null)
+  /*
+   * The owner's lock menu.
+   *
+   * Only an owner has two locks to choose between, so only an owner opens anything:
+   * everybody else's button is the lock itself. See the bar.
+   */
+  const [lockMenuOpen, setLockMenuOpen] = useState(false)
+  const lockRoot = useRef<HTMLDivElement>(null)
   const [detail, setDetail] = useState('')
   /** Whether the diary's page list is beside the paper. Only a lea has one. */
   const [pagesOpen, setPagesOpen] = useState(readPagesPreference)
@@ -523,22 +531,28 @@ export default function BoardPage({ boardId, onBack }: Props) {
   const armedShape = shapes.find((entry) => entry.id === shape) ?? shapes[0]
 
   /*
-   * What the lock button says it will do.
+   * What the lock button says.
    *
-   * Four cases and not two, because the same icon is doing two jobs and the tooltip is
-   * the only place that difference is stated. The one that matters is the fourth: a
+   * An owner's button opens a menu rather than doing one thing, so theirs reports state
+   * and the menu states the actions. Everybody else's is a single lock and says what
+   * pressing it will do - except the last case, which is the one that matters: a
    * non-owner on a locked board sees a lock they cannot lift, and the sentence has to
-   * say who can - otherwise the button reads as broken rather than as held.
+   * say who can, otherwise the button reads as broken rather than as held.
    */
-  const lockHint = boardLocked
-    ? role === 'owner'
-      ? `Unlock this ${noun} for everyone`
-      : `The owner has locked this ${noun}`
-    : locked
-      ? `Unlock this ${noun} in this tab`
-      : role === 'owner'
-        ? `Lock this ${noun} against edits, for everyone`
-        : `Lock this ${noun} against edits, in this tab`
+  const lockHint =
+    role === 'owner'
+      ? boardLocked
+        ? locked
+          ? `Locked for everyone, and in this tab`
+          : `Locked for everyone`
+        : locked
+          ? `Locked in this tab`
+          : `Lock this ${noun}`
+      : boardLocked
+        ? `The owner has locked this ${noun}`
+        : locked
+          ? `Unlock this ${noun} in this tab`
+          : `Lock this ${noun} against edits, in this tab`
 
   const canvas = useCanvas(session, presenceBridge, {
     authorName: user?.display_name ?? '',
@@ -600,31 +614,73 @@ export default function BoardPage({ boardId, onBack }: Props) {
     }
   }, [moreOpen])
 
+  useEffect(() => {
+    if (!lockMenuOpen) return
+    const onDown = (event: PointerEvent) => {
+      if (!lockRoot.current?.contains(event.target as Node)) setLockMenuOpen(false)
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setLockMenuOpen(false)
+    }
+    document.addEventListener('pointerdown', onDown, true)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', onDown, true)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [lockMenuOpen])
+
   /**
-   * Take or lift the lock, whichever kind this person has.
+   * The per-tab lock: this tab, this session, nobody else told.
    *
-   * One button, two locks, and they are not two strengths of one thing. An owner's
-   * press is a fact about the board that everybody sees and obeys; anybody else's is a
-   * guard against their own hands, per-tab and told to nobody. Which you get follows
-   * from what you are, so there is nothing to choose and no second control to find.
+   * A guard against your own hands. It is state and nothing else, so it takes effect
+   * on the press with nothing to wait for.
+   */
+  const toggleTabLock = useCallback(() => setLocked((on) => !on), [])
+
+  /**
+   * The owner's lock: a fact about the board that everybody on it sees and obeys.
    *
-   * The board-wide half is not applied optimistically. The server writes it, evicts
-   * every socket on the board, and each client - this one included - is told the new
-   * answer when it reconnects. Setting the flag here as well would mean a failed
-   * request left this tab locked and everybody else's open, which is the one state
-   * nobody could make sense of.
+   * Applied from the server's own answer rather than from the click. The PATCH returns
+   * the row it just wrote, so `board.is_locked` is the committed truth and setting it
+   * here cannot invent a state the server disagrees with - while a rejected request
+   * leaves the flag exactly where it was.
+   *
+   * That answer used to be waited for on the reconnect instead: the server evicts every
+   * socket on the board, each client re-mints, and the mint reports the lock. Everybody
+   * else still learns it that way, and it is the only way they could. But it left the
+   * person who pressed the button watching an unchanged bar for a whole eviction and
+   * reconnect - and if the eviction did not reach them at all, until they reloaded.
+   * The one client that already has the server's answer in its hand should use it.
+   */
+  const setBoardLockTo = useCallback(
+    (next: boolean) => {
+      setLockMenuOpen(false)
+      void api
+        .setBoardLock(boardId, next)
+        .then((board) => setBoardLocked(board.is_locked))
+        .catch((error: unknown) => {
+          toast.error(
+            error instanceof Error ? error.message : `Could not lock this ${noun}.`,
+          )
+        })
+    },
+    [boardId, noun, toast],
+  )
+
+  /**
+   * What the lock button does when there is nothing to choose.
+   *
+   * Everybody but the owner has exactly one lock, so their press is that lock. An owner
+   * has two and gets the menu instead - see the bar.
    */
   const toggleLock = useCallback(() => {
     if (role !== 'owner') {
-      setLocked((on) => !on)
+      toggleTabLock()
       return
     }
-    void api.setBoardLock(boardId, !boardLocked).catch((error: unknown) => {
-      toast.error(
-        error instanceof Error ? error.message : `Could not lock this ${noun}.`,
-      )
-    })
-  }, [boardId, boardLocked, noun, role, toast])
+    setLockMenuOpen((open) => !open)
+  }, [role, toggleTabLock])
 
   useEffect(() => {
     if (!sizeMenuOpen) return
@@ -1220,23 +1276,80 @@ export default function BoardPage({ boardId, onBack }: Props) {
           - and a safety control behind a menu is a safety control nobody reaches in
           time.
 
-          Two locks behind one button. An owner's press stops everybody, including
-          themselves; anybody else's stops only this tab. Both are offered to whoever
-          could otherwise write, and to nobody else: offering a lock to a viewer is
-          offering to turn off something they never had.
+          Two locks, and they are not two strengths of one thing. The tab lock guards
+          your own hands and is told to nobody; the board lock stops everybody on the
+          board, including the owner who pressed it. Everybody but the owner holds only
+          the first, so their button *is* that lock and stays one press. An owner holds
+          both, and a button that silently picked the heavier one for them was the wrong
+          answer: locking the board in front of four other people is not the same act as
+          stopping your own cursor, and the control has to let them say which. So an
+          owner gets the two named, and nothing happens until one is chosen.
+
+          Both are offered to whoever could otherwise write, and to nobody else:
+          offering a lock to a viewer is offering to turn off something they never had.
         */}
         {(roleCanWrite(role) || boardLocked) && (
-          <button
-            type="button"
-            className={locked || boardLocked ? 'icon ghost active' : 'icon ghost'}
-            aria-pressed={locked || boardLocked}
-            disabled={boardLocked && role !== 'owner'}
-            onClick={toggleLock}
-            title={lockHint}
-            aria-label={lockHint}
-          >
-            {locked || boardLocked ? <IconLock /> : <IconUnlock />}
-          </button>
+          <div className="dropdown board-lock" ref={lockRoot}>
+            <button
+              type="button"
+              className={locked || boardLocked ? 'icon ghost active' : 'icon ghost'}
+              // A menu button reports whether the menu is open; a lock button reports
+              // whether it is locked. Two different questions, so only the one that
+              // applies to this button is answered.
+              {...(role === 'owner'
+                ? { 'aria-haspopup': 'menu' as const, 'aria-expanded': lockMenuOpen }
+                : { 'aria-pressed': locked || boardLocked })}
+              disabled={boardLocked && role !== 'owner'}
+              onClick={toggleLock}
+              title={lockHint}
+              aria-label={lockHint}
+            >
+              {locked || boardLocked ? <IconLock /> : <IconUnlock />}
+            </button>
+
+            {role === 'owner' && lockMenuOpen && (
+              <div className="menu menu-compact" role="menu" aria-label="Lock">
+                {/* This tab first. It is the smaller of the two and the one you can
+                    take back on your own, so it is the safer thing to land on. */}
+                <button
+                  type="button"
+                  role="menuitemcheckbox"
+                  aria-checked={locked}
+                  className={locked ? 'menu-item checked' : 'menu-item'}
+                  onClick={() => {
+                    setLockMenuOpen(false)
+                    toggleTabLock()
+                  }}
+                >
+                  <span className="menu-label">
+                    {locked ? 'Unlock for me' : 'Lock for me'}
+                  </span>
+                  {locked && <IconCheck size={15} />}
+                </button>
+
+                <button
+                  type="button"
+                  role="menuitemcheckbox"
+                  aria-checked={boardLocked}
+                  className={boardLocked ? 'menu-item checked' : 'menu-item'}
+                  onClick={() => setBoardLockTo(!boardLocked)}
+                >
+                  <span className="menu-label">
+                    {boardLocked ? 'Unlock for everyone' : 'Lock for everyone'}
+                  </span>
+                  {boardLocked && <IconCheck size={15} />}
+                </button>
+
+                {/* Said once, under both, because the difference between them is the
+                    only thing anybody needs to know here and neither label can carry
+                    it alone. */}
+                <p className="menu-note">
+                  Locking for everyone stops all edits on this {noun} until you unlock
+                  it.
+                </p>
+              </div>
+            )}
+          </div>
         )}
 
         {/*

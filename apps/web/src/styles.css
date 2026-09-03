@@ -4969,6 +4969,23 @@ dialog.modal[open] .modal-card {
   min-width: 15rem;
 }
 
+/* The owner's two locks. Wider than a compact menu's default because the longest row
+   reads "Unlock for everyone" and a label that wraps in a menu of two reads as three. */
+.board-lock .menu {
+  min-width: 13rem;
+}
+
+/* One line of consequence under a menu of choices, for the case where the labels are
+   short enough to be honest but not long enough to be clear. Not a menu item: it takes
+   no hover and no press, and styling it like one would offer a third choice. */
+.menu-note {
+  margin: 0.3rem 0.2rem 0.1rem;
+  padding: 0 0.4rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
 /* --- the invitation landing screen -------------------------------------------
  *
  * Reuses the auth card, because that is exactly what this is: the first screen of
