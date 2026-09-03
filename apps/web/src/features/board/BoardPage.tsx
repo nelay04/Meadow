@@ -89,6 +89,7 @@ import { type PresenceHandle, colorFor, trackPresence } from '../../sync/awarene
 import { type BoardConnection, type ConnectionState, connectBoard } from '../../sync/provider'
 import { useAuth } from '../auth/AuthContext'
 import { guestIdentity } from '../auth/guest'
+import { AccessGate } from './AccessGate'
 import { ShareDialog } from './ShareDialog'
 import {
   PAPER_EVENT,
@@ -405,6 +406,15 @@ export default function BoardPage({ boardId, onBack }: Props) {
   const [boardLocked, setBoardLocked] = useState(false)
   /** Who the board is open to, so the bar can say when it is out in the world. */
   const [shareMode, setShareMode] = useState<ShareMode>('restricted')
+  /*
+   * How many people are waiting to be let in.
+   *
+   * Owners only, and it exists because the share dialog is two clicks deep: a request
+   * that only appears once you go looking for it is a person waiting on somebody who
+   * has no reason to look. The mail is the other half of that and this is the half
+   * that works when the mail is filtered.
+   */
+  const [waiting, setWaiting] = useState(0)
   const [shareOpen, setShareOpen] = useState(false)
   /*
    * The overflow menu.
@@ -441,6 +451,15 @@ export default function BoardPage({ boardId, onBack }: Props) {
   const [docReady, setDocReady] = useState(false)
 
   const connection = useRef<BoardConnection | null>(null)
+  /*
+   * The local copy of the document, held so that losing access can erase it.
+   *
+   * Offline persistence is the reason it exists and the reason it has to be erasable:
+   * a collaborator the owner has just removed still has the whole glade in their own
+   * IndexedDB, and without this a reload would hand it back to them off a canvas the
+   * server is refusing to fill.
+   */
+  const local = useRef<IndexeddbPersistence | null>(null)
 
   const { user } = useAuth()
   const toast = useToast()
@@ -787,10 +806,46 @@ export default function BoardPage({ boardId, onBack }: Props) {
     }
   }, [boardId])
 
+  /*
+   * Poll for people asking to be let in.
+   *
+   * A minute is deliberately slow. Nobody is watching this number, it becomes news
+   * through the mail or through opening the dialog, and the badge is here so that
+   * somebody who did open the glade for another reason cannot miss it. Owners only -
+   * for everyone else the endpoint answers 403, and asking would be a request per
+   * minute per reader for an answer they may not have.
+   */
+  useEffect(() => {
+    if (role !== 'owner') {
+      setWaiting(0)
+      return
+    }
+    let cancelled = false
+
+    const count = (): void => {
+      api
+        .listAccessRequests(boardId)
+        .then((requests) => {
+          if (!cancelled) setWaiting(requests.length)
+        })
+        .catch(() => {
+          // Says nothing. The badge is an extra, and a failed poll is not news.
+        })
+    }
+
+    count()
+    const timer = window.setInterval(count, 60_000)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [boardId, role])
+
   useEffect(() => {
     // Offline persistence. Edits made while disconnected survive a reload and replay
     // on reconnect.
     const idb = new IndexeddbPersistence(`meadow-${boardId}`, doc)
+    local.current = idb
 
     const link = connectBoard({
       boardId,
@@ -800,6 +855,10 @@ export default function BoardPage({ boardId, onBack }: Props) {
       onState: (next, message) => {
         setState(next)
         setDetail(message ?? '')
+        // A new socket is a new introduction. Without this the faces on both sides of
+        // a reconnect sit out the fifteen-second keepalive before they come back - see
+        // `PresenceHandle.resync`.
+        if (next === 'connected') presence.current?.resync()
       },
       // The server answers role and lock together at every mint, so a lock taken while
       // this page was open arrives here, on the reconnect the eviction caused.
@@ -843,10 +902,31 @@ export default function BoardPage({ boardId, onBack }: Props) {
       handle?.destroy()
       applyWanderers([])
       link.destroy()
-      void idb.destroy()
+      local.current = null
+      // Already gone if access was refused, and destroying a destroyed store throws.
+      void idb.destroy().catch(() => {})
       doc.destroy()
     }
   }, [boardId, doc, user, applyWanderers])
+
+  /*
+   * Losing access erases the local copy.
+   *
+   * `denied` is the mint refusing this client outright - the grant withdrawn, the
+   * board deleted, the link rotated - which is a different thing from being offline
+   * and has to be treated as one. Offline keeps its cache on purpose, because the work
+   * is coming back. This one is not: leaving the store behind would mean a removed
+   * collaborator reloads the page and reads the whole glade out of their own browser,
+   * from a canvas the server has already stopped answering for.
+   */
+  useEffect(() => {
+    if (state !== 'denied') return
+    const store = local.current
+    local.current = null
+    // clearData destroys the store as well as emptying it, so the effect cleanup's
+    // destroy is skipped by the null above rather than racing this.
+    void store?.clearData().catch(() => {})
+  }, [state])
 
   // The role and the owner's lock are the server's answers; the third is this tab's
   // own. All three have to hold, and the same expression drives the session, so the
@@ -1099,6 +1179,18 @@ export default function BoardPage({ boardId, onBack }: Props) {
       // Cosmetic, like the capture itself.
     })
   }, [boardId, canWrite, docReady, empty, user])
+
+  /*
+   * Refused, so nothing of the glade is drawn.
+   *
+   * After every hook, because this is a render branch and not a mount condition - the
+   * connection has to keep running to notice access coming back, and hooks cannot be
+   * skipped on the way to a screen. What it replaces is the old behaviour, which was a
+   * status pill reading "No access" over a canvas still showing the document.
+   */
+  if (state === 'denied') {
+    return <AccessGate boardId={boardId} noun={noun} reason={detail} onBack={onBack} />
+  }
 
   return (
     <main className={`board board-${spec.id}`}>
@@ -1371,10 +1463,14 @@ export default function BoardPage({ boardId, onBack }: Props) {
             aria-haspopup="menu"
             aria-expanded={moreOpen}
             onClick={() => setMoreOpen((open) => !open)}
-            title="More"
-            aria-label="More"
+            title={waiting > 0 ? `More (${waiting} waiting to join)` : 'More'}
+            aria-label={waiting > 0 ? `More, ${waiting} waiting to join` : 'More'}
           >
             <IconMore />
+            {/* A dot rather than a number: the count is in the menu, and what this has
+                to carry from across the bar is only that there is something to look
+                at. */}
+            {waiting > 0 && <span className="dot-badge" aria-hidden="true" />}
           </button>
 
           {moreOpen && (
@@ -1393,6 +1489,11 @@ export default function BoardPage({ boardId, onBack }: Props) {
                 >
                   <IconShare size={16} />
                   <span>Share…</span>
+                  {waiting > 0 && (
+                    <span className="menu-badge waiting" title="Waiting for your answer">
+                      {waiting} asking
+                    </span>
+                  )}
                   {shareMode === 'public' && (
                     <span className="menu-badge" title="Anyone with the link can open this">
                       <IconGlobe size={12} />
@@ -2078,6 +2179,9 @@ export default function BoardPage({ boardId, onBack }: Props) {
           onChanged={(state) => {
             setShareMode(state.mode)
             setBoardLocked(state.is_locked)
+            // The dialog has just been answered by the server, so the badge follows it
+            // rather than waiting out the next minute of the poll.
+            setWaiting(state.requests.length)
           }}
         />
       )}

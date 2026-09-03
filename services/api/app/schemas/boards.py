@@ -143,6 +143,52 @@ class InvitationOut(BaseModel):
     created_at: datetime
 
 
+class AccessRequestOut(BaseModel):
+    """One person waiting for an owner to decide."""
+
+    id: uuid.UUID
+    user_id: uuid.UUID
+    email: str
+    display_name: str
+    avatar_url: str | None = None
+    #: What they asked for: viewer or editor. A request, not a claim - the owner may
+    #: grant something else.
+    role: BoardRole
+    created_at: datetime
+
+
+class AccessRequestCreate(BaseModel):
+    #: Viewer or editor. The same pair a link may grant, refused elsewhere.
+    role: BoardRole = BoardRole.viewer
+
+
+class AccessRequestDecision(BaseModel):
+    #: True to let them in, False to turn them down.
+    approve: bool
+    #: What to grant, when approving. Defaults to what was asked for - an owner who
+    #: wants to grant something else says so, rather than the app quietly rounding a
+    #: request for edit down to view.
+    role: BoardRole | None = None
+
+
+class MyAccessRequestOut(BaseModel):
+    """What the person who asked is told, and it is deliberately very little.
+
+    No title, no owner, no membership list. The caller has proved nothing except that
+    they are signed in and know a board id, and until somebody decides otherwise they
+    are entitled to know only the state of their own request.
+    """
+
+    #: "none", "pending", "granted", or "declined".
+    status: str
+    #: What they last asked for, when there is a request at all.
+    role: BoardRole | None = None
+    #: Whether they can open the board right now. The one field that is about access
+    #: rather than about the request, and what the waiting screen watches: an owner may
+    #: also have let them in by some entirely different route.
+    has_access: bool = False
+
+
 class ShareState(BaseModel):
     """Everything the share dialog draws, in one response."""
 
@@ -158,6 +204,10 @@ class ShareState(BaseModel):
     is_locked: bool
     members: list[MemberOut]
     invitations: list[InvitationOut]
+    #: People who have asked to be let in and are still waiting. Part of the same
+    #: response as the members list because they are the same question - who is on this
+    #: board - asked a moment earlier.
+    requests: list[AccessRequestOut]
 
 
 class InviteCreate(BaseModel):

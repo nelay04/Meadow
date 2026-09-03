@@ -24,12 +24,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import * as api from '../../lib/api'
-import type { BoardRole, InviteResult, ShareMode, ShareState } from '../../lib/api'
+import type {
+  BoardAccessRequest,
+  BoardRole,
+  InviteResult,
+  ShareMode,
+  ShareState,
+} from '../../lib/api'
 import { Avatar } from '../../ui/Avatar'
+import { colorFor } from '../../sync/awareness'
 import { useConfirm } from '../../ui/ConfirmDialog'
 import { useToast } from '../../ui/Toaster'
 import {
   IconCheck,
+  IconChevronDown,
   IconCopy,
   IconEye,
   IconFacebook,
@@ -151,6 +159,170 @@ async function copy(text: string): Promise<boolean> {
 }
 
 /** A field showing a URL, with the button that copies it. */
+/**
+ * The colour a face gets when there is no picture behind it.
+ *
+ * The same function the canvas colours a wanderer with, so one person is one colour
+ * everywhere they appear: in this list, in the presence row, and under their cursor.
+ * `Avatar` has no colour of its own on purpose - it is drawn in a dozen places that
+ * each know something different about who they are drawing - and this list forgot to
+ * give it one, which is why the initials were white on white here.
+ */
+function faceStyle(userId: string): { background: string } {
+  return { background: `#${colorFor(userId).toString(16).padStart(6, '0')}` }
+}
+
+/**
+ * The role control on a row of the people list.
+ *
+ * A native `<select>` was here, and it was the one control in the app that opened an
+ * operating-system menu: grey where everything else is themed, square where everything
+ * else is rounded, and rendered by the platform rather than by us, so it ignored the
+ * dark theme entirely. Every other choice in Meadow that opens underneath itself is a
+ * `.dropdown` with a `.menu`, so this is one too.
+ *
+ * Two options and never more - `SHAREABLE` is viewer and editor - so it stays a list
+ * rather than growing a search box.
+ */
+function RolePicker({
+  value,
+  disabled,
+  label,
+  onPick,
+}: {
+  value: BoardRole
+  disabled: boolean
+  /** Named for a screen reader, which cannot see whose row this is. */
+  label: string
+  onPick: (role: BoardRole) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const root = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const dismiss = (event: PointerEvent) => {
+      if (root.current !== null && !root.current.contains(event.target as Node)) setOpen(false)
+    }
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        // Stopped, or the dialog behind it closes on the same key - which is the whole
+        // share dialog vanishing because somebody dismissed a two-item menu.
+        event.stopPropagation()
+        setOpen(false)
+      }
+    }
+    window.addEventListener('pointerdown', dismiss)
+    window.addEventListener('keydown', escape, true)
+    return () => {
+      window.removeEventListener('pointerdown', dismiss)
+      window.removeEventListener('keydown', escape, true)
+    }
+  }, [open])
+
+  const current = SHAREABLE.find((option) => option.id === value) ?? SHAREABLE[0]
+
+  return (
+    <div className="dropdown person-role" ref={root}>
+      <button
+        type="button"
+        className="dropdown-button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={label}
+        disabled={disabled}
+        onClick={() => setOpen((was) => !was)}
+      >
+        <current.Icon size={14} />
+        <span>{current.label}</span>
+        <IconChevronDown size={13} />
+      </button>
+
+      {open && (
+        <div className="menu menu-compact" role="menu" aria-label={label}>
+          {SHAREABLE.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              role="menuitemradio"
+              aria-checked={option.id === value}
+              className={option.id === value ? 'menu-item checked' : 'menu-item'}
+              onClick={() => {
+                setOpen(false)
+                if (option.id !== value) onPick(option.id)
+              }}
+            >
+              <option.Icon size={15} />
+              <span>{option.label}</span>
+              {option.id === value && <IconCheck size={15} />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * One person waiting, and what to do about them.
+ *
+ * Its own component for one reason: the role dropdown is per-row state, and a single
+ * piece of it in the dialog would make choosing "can view" for one person silently
+ * change what the button beside somebody else's name would grant.
+ */
+function RequestRow({
+  request,
+  busy,
+  onDecide,
+}: {
+  request: BoardAccessRequest
+  busy: boolean
+  onDecide: (requestId: string, approve: boolean, grant?: BoardRole) => void
+}) {
+  // Starts at what they asked for, because that is the answer most requests get.
+  const [grant, setGrant] = useState<BoardRole>(request.role)
+
+  return (
+    <li className="person asking">
+      <Avatar
+        name={request.display_name}
+        url={request.avatar_url}
+        style={faceStyle(request.user_id)}
+      />
+      <span className="person-who">
+        <strong>{request.display_name}</strong>
+        <small>{request.email}</small>
+      </span>
+
+      <RolePicker
+        value={grant}
+        disabled={busy}
+        label={`What to grant ${request.display_name}`}
+        onPick={setGrant}
+      />
+
+      <button
+        type="button"
+        className="person-decide"
+        disabled={busy}
+        onClick={() => onDecide(request.id, true, grant)}
+      >
+        Let in
+      </button>
+      <button
+        type="button"
+        className="icon ghost"
+        disabled={busy}
+        title={`Turn down ${request.display_name}`}
+        aria-label={`Turn down ${request.display_name}`}
+        onClick={() => onDecide(request.id, false)}
+      >
+        <IconX size={15} />
+      </button>
+    </li>
+  )
+}
+
 function CopyRow({ value, label }: { value: string; label: string }) {
   const [copied, setCopied] = useState(false)
   const toast = useToast()
@@ -329,6 +501,20 @@ export function ShareDialog({ boardId, title, noun, onClose, onChanged }: Props)
       setBusy(false)
     }
   }
+
+  /**
+   * Answer somebody who asked to be let in.
+   *
+   * `grant` is what they get, which starts as what they asked for and is a dropdown
+   * because the two are not the same question. An owner who would happily let somebody
+   * read but not write should be able to say that in one action; without it the only
+   * answer to "can I edit?" is no, and the person has to ask again for less.
+   */
+  const decide = (requestId: string, approve: boolean, grant?: BoardRole) =>
+    void run(
+      () => api.decideAccessRequest(boardId, requestId, approve, grant),
+      approve ? 'Could not let them in.' : 'Could not turn that down.',
+    )
 
   const revoke = async (invitationId: string) => {
     setBusy(true)
@@ -556,13 +742,44 @@ export function ShareDialog({ boardId, title, noun, onClose, onChanged }: Props)
               )}
             </section>
 
+            {share.requests.length > 0 && (
+              /*
+               * First of the three people-sections, and the only one that is a queue.
+               * Somebody is waiting on an answer here; the other two are records of
+               * answers already given, and a request that sat underneath them would be
+               * read last or not at all.
+               */
+              <section className="share-section">
+                <h3>Asking to join</h3>
+                <p className="share-note">
+                  They have the address and cannot open it. Nothing has changed until
+                  you decide, and turning somebody down gives them nothing.
+                </p>
+
+                <ul className="people">
+                  {share.requests.map((request) => (
+                    <RequestRow
+                      key={request.id}
+                      request={request}
+                      busy={busy}
+                      onDecide={decide}
+                    />
+                  ))}
+                </ul>
+              </section>
+            )}
+
             <section className="share-section">
               <h3>People with access</h3>
 
               <ul className="people">
                 {share.members.map((member) => (
                   <li key={member.user_id} className="person">
-                    <Avatar name={member.display_name} url={member.avatar_url} />
+                    <Avatar
+                      name={member.display_name}
+                      url={member.avatar_url}
+                      style={faceStyle(member.user_id)}
+                    />
                     <span className="person-who">
                       <strong>{member.display_name}</strong>
                       <small>{member.email}</small>
@@ -571,22 +788,22 @@ export function ShareDialog({ boardId, title, noun, onClose, onChanged }: Props)
                     {member.role === 'owner' ? (
                       // No control at all rather than a disabled one. An owner cannot
                       // be demoted here, and a greyed-out dropdown invites the click
-                      // that proves it.
-                      <span className="role role-owner">Owner</span>
+                      // that proves it. The empty slot after it stands in for the
+                      // delete button every other row has, so the badges and the
+                      // dropdowns below them end on the same line instead of the owner
+                      // row reaching further right than the rest.
+                      <>
+                        <span className="role role-owner">Owner</span>
+                        <span className="person-slot" aria-hidden="true" />
+                      </>
                     ) : (
                       <>
-                        <select
-                          className="person-role"
-                          aria-label={`Access for ${member.display_name}`}
+                        <RolePicker
                           value={member.role}
                           disabled={busy}
-                          onChange={(event) =>
-                            void changeRole(member.user_id, event.target.value as BoardRole)
-                          }
-                        >
-                          <option value="viewer">Can view</option>
-                          <option value="editor">Can edit</option>
-                        </select>
+                          label={`Access for ${member.display_name}`}
+                          onPick={(role) => void changeRole(member.user_id, role)}
+                        />
                         <button
                           type="button"
                           className="icon ghost"

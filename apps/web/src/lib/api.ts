@@ -144,6 +144,45 @@ export type BoardInvitation = {
   created_at: string
 }
 
+/**
+ * Somebody waiting to be let in.
+ *
+ * The address is here beside the display name, and it is the field that matters: an
+ * owner is being asked to recognise a person, and a display name is whatever that
+ * person typed when they registered.
+ */
+export type BoardAccessRequest = {
+  id: string
+  user_id: string
+  email: string
+  display_name: string
+  avatar_url: string | null
+  /** What they asked for. A request, not a claim - the owner may grant something else. */
+  role: BoardRole
+  created_at: string
+}
+
+/**
+ * The state of your own request, which is all somebody without access is told.
+ *
+ * No title, no owner, no member list: knowing a board id is not a relationship with
+ * the board, and until somebody decides otherwise the only thing you are entitled to
+ * know is what became of what you asked.
+ */
+export type MyAccessRequest = {
+  status: 'none' | 'pending' | 'granted' | 'declined'
+  role: BoardRole | null
+  /**
+   * Whether the board opens right now.
+   *
+   * The field the waiting screen actually watches. An owner may let somebody in by a
+   * route that has nothing to do with the request - adding them to the members list,
+   * or making the board public - and a screen watching only its own row would leave
+   * them staring at "waiting" in front of an open door.
+   */
+  has_access: boolean
+}
+
 export type ShareState = {
   mode: ShareMode
   role: BoardRole
@@ -154,6 +193,8 @@ export type ShareState = {
   is_locked: boolean
   members: BoardMember[]
   invitations: BoardInvitation[]
+  /** People who have asked to be let in and are still waiting on an answer. */
+  requests: BoardAccessRequest[]
 }
 
 /**
@@ -532,6 +573,49 @@ export function setMemberRole(
 
 export function removeMember(boardId: string, userId: string): Promise<void> {
   return call<void>(`/boards/${boardId}/members/${userId}`, { method: 'DELETE' })
+}
+
+/**
+ * Ask to be let in to a board you only have the address of.
+ *
+ * The one board call that works without any access to the board, which is the point of
+ * it. It grants nothing and reveals nothing: a board that does not exist answers
+ * exactly as one that does, so this cannot be used to find out which ids are real.
+ */
+export function requestAccess(boardId: string, role: BoardRole): Promise<MyAccessRequest> {
+  return call<MyAccessRequest>(`/boards/${boardId}/access-requests`, {
+    method: 'POST',
+    body: JSON.stringify({ role }),
+  })
+}
+
+/** Who is waiting to be let in. Owner only. */
+export function listAccessRequests(boardId: string): Promise<BoardAccessRequest[]> {
+  return call<BoardAccessRequest[]>(`/boards/${boardId}/access-requests`)
+}
+
+/** What became of your request. Polled by the waiting screen. */
+export function getMyAccessRequest(boardId: string): Promise<MyAccessRequest> {
+  return call<MyAccessRequest>(`/boards/${boardId}/access-requests/mine`)
+}
+
+/**
+ * Let somebody in, or turn them down.
+ *
+ * `role` overrides what they asked for, so an owner can answer a request to edit with
+ * view access rather than having to refuse it. Answers with the whole share state,
+ * like every other write in the dialog.
+ */
+export function decideAccessRequest(
+  boardId: string,
+  requestId: string,
+  approve: boolean,
+  role?: BoardRole,
+): Promise<ShareState> {
+  return call<ShareState>(`/boards/${boardId}/access-requests/${requestId}`, {
+    method: 'POST',
+    body: JSON.stringify(role === undefined ? { approve } : { approve, role }),
+  })
 }
 
 /**

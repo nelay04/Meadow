@@ -304,6 +304,143 @@ check(
   `status ${denied.status}`,
 )
 
+// --- the owner's lock, seen from the other side --------------------------------------
+//
+// The reported failure was that a lock only took effect for everybody else once they
+// reloaded. The server evicts every socket on the board so the handshake decides again;
+// what was broken was the reconnect, which re-entered y-websocket's teardown from
+// inside its own close event and blew the stack, leaving a provider that would never
+// open another socket. Nothing below touches Grace's page - it is all done as Ada -
+// so what it measures is exactly what a collaborator sees without lifting a finger.
+
+const lock = (locked) =>
+  fetch(`${apiBase}/api/v1/boards/${board.id}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${alice.token}` },
+    body: JSON.stringify({ is_locked: locked }),
+  })
+
+const locked = await lock(true)
+check('the owner can lock the glade', locked.ok, `status ${locked.status}`)
+
+let lockReached = true
+try {
+  await b.page.waitForFunction(
+    () => document.querySelector('.board-notices .banner')?.textContent?.includes('locked') === true,
+    null,
+    { timeout: 20000 },
+  )
+} catch {
+  lockReached = false
+}
+check('the lock reaches the other peer without a reload', lockReached)
+
+const graceToolDisabled = await b.page.evaluate(() => {
+  const rectangle = document.querySelector('button[aria-label^="Shapes"]')
+  return rectangle instanceof HTMLButtonElement ? rectangle.disabled : null
+})
+check('and its toolbar refuses to draw', graceToolDisabled === true, `disabled = ${graceToolDisabled}`)
+
+// The eviction is a reconnect for everyone on the board, and presence has to survive
+// one. Before the fix this is where the faces vanished and stayed vanished.
+await delay(3000)
+for (const [name, session] of [
+  ['Ada', a],
+  ['Grace', b],
+]) {
+  const avatars = await session.page.locator('.wanderers .avatar').count()
+  check(`${name} still sees both people after the eviction`, avatars === 2, `found ${avatars}`)
+}
+
+const unlocked = await lock(false)
+check('the owner can unlock it again', unlocked.ok, `status ${unlocked.status}`)
+
+let unlockReached = true
+try {
+  await b.page.waitForFunction(
+    () => document.querySelector('.board-notices .banner') === null,
+    null,
+    { timeout: 20000 },
+  )
+} catch {
+  unlockReached = false
+}
+check('and the other peer can write again without a reload', unlockReached)
+
+// --- being removed, and asking to come back -------------------------------------
+//
+// Removal has to be immediate and it has to take the content with it: a collaborator
+// who has just been removed must not be left reading the glade off a canvas the server
+// has stopped answering for, nor find it again in their own IndexedDB on reload.
+
+const removed = await fetch(
+  `${apiBase}/api/v1/boards/${board.id}/members/${bob.user.id}`,
+  { method: 'DELETE', headers: { authorization: `Bearer ${alice.token}` } },
+)
+check('the owner can remove the editor', removed.status === 204, `status ${removed.status}`)
+
+let blocked = true
+try {
+  // Generous, because this is a dev-mode browser: the first render after a module
+  // graph changes underneath it can cost several seconds that mean nothing.
+  await b.page.waitForSelector('.auth-card', { timeout: 30000 })
+} catch {
+  blocked = false
+}
+check('the removed peer is blocked without a reload', blocked)
+
+const canvasGone = await b.page.locator('.canvas-host canvas').count()
+check('and the glade is no longer on screen', canvasGone === 0, `${canvasGone} canvases`)
+
+await b.page.reload({ waitUntil: 'load' })
+await b.page.waitForSelector('.auth-card', { timeout: 30000 })
+const canvasAfterReload = await b.page.locator('.canvas-host canvas').count()
+check(
+  'nor is it after a reload, from the local copy',
+  canvasAfterReload === 0,
+  `${canvasAfterReload} canvases`,
+)
+
+// The way back in. Asking grants nothing; the owner decides, and the waiting page
+// opens itself when they do.
+await b.page.click('text=Ask to edit')
+await b.page.waitForSelector('text=Waiting to be let in', { timeout: 15000 })
+
+const stillRefused = await fetch(`${apiBase}/api/v1/boards/${board.id}`, {
+  headers: { authorization: `Bearer ${bob.token}` },
+})
+check('asking grants nothing on its own', stillRefused.status === 403, `status ${stillRefused.status}`)
+
+const queue = await (
+  await fetch(`${apiBase}/api/v1/boards/${board.id}/access-requests`, {
+    headers: { authorization: `Bearer ${alice.token}` },
+  })
+).json()
+check(
+  'the owner sees who is asking, and for what',
+  Array.isArray(queue) && queue.length === 1 && queue[0].role === 'editor',
+  JSON.stringify(queue).slice(0, 200),
+)
+
+const approved = await fetch(
+  `${apiBase}/api/v1/boards/${board.id}/access-requests/${queue[0]?.id}`,
+  {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${alice.token}` },
+    body: JSON.stringify({ approve: true }),
+  },
+)
+check('the owner can let them in', approved.ok, `status ${approved.status}`)
+
+let letIn = true
+try {
+  // The waiting screen polls, so this is the poll interval plus a reload.
+  await b.page.waitForSelector('.canvas-host canvas', { timeout: 30000 })
+} catch {
+  letIn = false
+}
+check('the waiting page opens the glade by itself once granted', letIn)
+
 check('no uncaught page errors for the first peer', a.errors.length === 0, a.errors.join('; '))
 check('no uncaught page errors for the second peer', b.errors.length === 0, b.errors.join('; '))
 

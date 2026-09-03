@@ -421,6 +421,59 @@ class BoardInvitation(Base):
     )
 
 
+class BoardAccessRequest(Base):
+    """Somebody with the address of a restricted board, asking to be let in.
+
+    The other direction of `board_invitations`. An invitation is the owner reaching out
+    to an address; this is a person who already has the link reaching back, which is the
+    case a restricted board had no answer for at all: the link worked, the board refused
+    them, and the only way forward was to leave the app and ask by some other means.
+
+    One row per person per board, rewritten rather than accumulated. Somebody who was
+    turned down and asks again is making the same request a second time, not opening a
+    second case, and a table that grew a row per attempt would turn a persistent asker
+    into a flood in the owner's dialog.
+
+    `role` is what they asked for - view or edit - and it is a request and not a claim:
+    the owner decides what to grant, and `decide` may grant something else entirely.
+    Nothing here is access. The only thing that grants access is a `board_members` row.
+    """
+
+    __tablename__ = "board_access_requests"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    board_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("boards.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    #: What was asked for. Constrained to viewer/editor in the database for the same
+    #: reason `boards.share_role` is: nothing anyone can ask for may carry deletion.
+    role: Mapped[BoardRole] = mapped_column(board_role_enum, nullable=False)
+    #: pending -> granted or declined, and never back. A fresh ask rewrites the row to
+    #: pending, which is what makes asking twice one request rather than two.
+    status: Mapped[str] = mapped_column(String, nullable=False, server_default="pending")
+    created_at: Mapped[datetime] = _created_at()
+    decided_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    decided_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+    __table_args__ = (
+        UniqueConstraint("board_id", "user_id", name="uq_board_access_requests_board_user"),
+        CheckConstraint(
+            "status in ('pending', 'granted', 'declined')",
+            name="ck_board_access_requests_status",
+        ),
+        CheckConstraint(
+            "role in ('viewer', 'editor')", name="ck_board_access_requests_role"
+        ),
+    )
+
+
 class BoardThumbnail(Base):
     """A small preview image of the board, for the board list.
 

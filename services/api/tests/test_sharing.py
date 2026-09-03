@@ -15,7 +15,7 @@ waiting on stops being delivered anywhere.
 from typing import Any
 
 import pytest
-from starlette.testclient import TestClient
+from starlette.testclient import TestClient, WebSocketDisconnect
 
 from tests import ywire
 from tests.conftest import Actor
@@ -347,6 +347,10 @@ def test_a_socket_opened_before_the_lock_is_closed_by_it(
     Without the eviction the board would keep moving for everybody already on it until
     the watchdog next looked, a quarter of an hour later - which for a button somebody
     just pressed in front of other people is the feature not working.
+
+    Asserted against a socket that is actually open, rather than against the mint alone.
+    The mint changing its answer proves the lock is recorded; only the close proves it
+    reaches the people who are already here, which is the half that was reported broken.
     """
     board_id = owner.create_board()
     client.post(
@@ -356,13 +360,21 @@ def test_a_socket_opened_before_the_lock_is_closed_by_it(
     )
     token = outsider.ws_token(board_id)["token"]
 
-    client.patch(f"/api/v1/boards/{board_id}", json={"is_locked": True}, headers=owner.auth)
+    with client.websocket_connect(ws_url(board_id, token)) as websocket:
+        websocket.receive_bytes()  # the room's sync step 1, so the socket is live
 
-    # Reconnecting with the credential minted before the lock re-runs the handshake,
-    # which resolves the lock live. The connection is refused nothing - it is simply
-    # read-only now - so what this pins is that the *mint* has changed its answer.
+        client.patch(
+            f"/api/v1/boards/{board_id}", json={"is_locked": True}, headers=owner.auth
+        )
+
+        with pytest.raises(WebSocketDisconnect) as excinfo:
+            for _ in range(5):
+                websocket.receive_bytes()
+
+    # 4403 and not 4401: the credential was never in question, what it authorised was.
+    # The client re-mints on this code, and the mint is where it is told the new answer.
+    assert excinfo.value.code == WS_FORBIDDEN
     assert outsider.ws_token(board_id)["can_write"] is False
-    assert token != ""
 
 
 # --- invitations -------------------------------------------------------------------

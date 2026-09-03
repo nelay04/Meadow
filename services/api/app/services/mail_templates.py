@@ -303,3 +303,50 @@ def board_role_changed_mail(
     )
 
     return subject, text, html
+
+
+def board_access_request_mail(
+    *, name: str, asker: str, asker_email: str, title: str, noun: str, role: str, link: str
+) -> tuple[str, str, str]:
+    """"Somebody is asking to be let in."
+
+    The one mail in this file that is a question rather than an announcement, and the
+    only reason it exists is that nobody watches a share dialog. A request nobody sees
+    is a person waiting for an answer that is never coming, which is worse than the
+    refusal they got before the feature existed.
+
+    It names the address as well as the display name, and that is the load-bearing
+    detail: the owner is being asked to recognise a person, display names are chosen
+    freely, and a first name alone is not something anybody can act on. The button
+    opens the board, where the share dialog holds the decision - nothing is granted or
+    refused from inside a mail, because a link that changes access on click is a link
+    that changes it when a mail client prefetches it.
+    """
+    wanted = _ROLE_VERB.get(role, _ROLE_VERB["viewer"])
+    subject = f"{asker} is asking for access to \u201c{title}\u201d"
+
+    text = (
+        f"Hi {name},\n\n"
+        f"{asker} ({asker_email}) asked for access to the {noun} "
+        f"\u201c{title}\u201d, so they can {wanted}.\n\n"
+        f"{link}\n\n"
+        "Open the share dialog to let them in or turn them down. Nothing has changed "
+        "until you do.\n\n"
+        "Meadow"
+    )
+
+    html = _shell(
+        heading=f"Hi {escape(name)},",
+        body=(
+            f"{escape(asker)} ({escape(asker_email)}) asked for access to the "
+            f"{escape(noun)} \u201c{escape(title)}\u201d, so they can {wanted}."
+        ),
+        action=f"Open this {escape(noun)}",
+        link=link,
+        footer=(
+            "The request is waiting in the share dialog. Nothing has changed until you "
+            "decide, and turning it down tells them so without giving them anything."
+        ),
+    )
+
+    return subject, text, html

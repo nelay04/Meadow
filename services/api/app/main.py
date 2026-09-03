@@ -8,6 +8,7 @@ from logging import getLogger
 
 import anyio
 from fastapi import FastAPI, WebSocket
+from pycrdt.websocket import YRoom
 from redis.asyncio import Redis
 
 from app.api.v1 import router as api_router
@@ -21,7 +22,7 @@ from app.realtime.rooms import (
     WS_CLOSE_UNAUTHORIZED,
     SocketRegistry,
 )
-from app.realtime.server import FastAPIChannel, MeadowWebsocketServer
+from app.realtime.server import FastAPIChannel, MeadowWebsocketServer, awareness_snapshot
 from app.services.permissions import Access, resolve_access
 
 logger = getLogger(__name__)
@@ -123,6 +124,23 @@ async def _watch_session(
             return
 
 
+async def _greet_with_presence(room: YRoom, channel: FastAPIChannel) -> None:
+    """Tell a joining client who is already on the board.
+
+    Without it the faces on a reconnect arrive up to fifteen seconds late, which covers
+    every eviction the app does on purpose - see `awareness_snapshot`.
+
+    Best effort: a socket that is already gone raises from `send`, and a client that
+    missed the snapshot still heals on the peers' next re-announce, which is exactly
+    where it was before this existed.
+    """
+    message = awareness_snapshot(room)
+    if message is None:
+        return
+    with suppress(Exception):  # noqa: BLE001 - the socket is on its way out either way
+        await channel.send(message)
+
+
 async def _close(websocket: WebSocket, code: int, reason: str) -> None:
     # The watchdog closes from a different task than the one serving the room, so it
     # can race a peer disconnect that already tore the socket down.
@@ -198,6 +216,7 @@ async def board_socket(websocket: WebSocket, board_id: str, token: str = "") -> 
     try:
         async with anyio.create_task_group() as task_group:
             task_group.start_soon(_watch_session, websocket, claims, access)
+            task_group.start_soon(_greet_with_presence, room, channel)
             await server.serve(channel)
             task_group.cancel_scope.cancel()
     finally:

@@ -157,11 +157,32 @@ export function connectBoard({
     }
   })
 
-  // y-websocket reconnects internally on close. Disconnect first so it cannot retry
-  // with the spent token, then drive the retry from here with a fresh one.
+  /*
+   * Stop y-websocket's own reconnect without re-entering its teardown.
+   *
+   * `provider.disconnect()` is the obvious call here and it is a trap: it ends in
+   * `closeWebsocketConnection`, which emits `connection-close` *before* it clears
+   * `provider.ws`. Calling it from inside that same event therefore re-enters, sees a
+   * socket still set, and emits again - about twelve hundred times, until the stack
+   * overflows. The RangeError escapes through `ws.onclose`, so the teardown never
+   * finishes: `provider.ws` stays set, `wsconnected` stays true, and every later
+   * `connect()` is a no-op because it only acts on a null socket. The connection is
+   * dead for the rest of the page's life, which is why locking a glade, or any ordinary
+   * network blip, used to need a reload to recover from.
+   *
+   * The flag is all that was wanted from `disconnect()` anyway. y-websocket's internal
+   * retry is a `setTimeout(setupWS)` that checks `shouldConnect`, so clearing it is
+   * what stops the retry replaying our spent single-use token; the close it is already
+   * in the middle of does the rest, and `attempt()` sets the flag back through
+   * `provider.connect()`.
+   */
+  const stopInternalRetry = (): void => {
+    provider.shouldConnect = false
+  }
+
   provider.on('connection-close', (event: CloseEvent | null) => {
     if (!wantConnection) return
-    provider.disconnect()
+    stopInternalRetry()
 
     if (event?.code === CLOSE_FORBIDDEN) {
       // Access was revoked, the role changed, or the board was locked or unlocked
@@ -186,7 +207,9 @@ export function connectBoard({
   provider.on('connection-error', () => {
     if (!wantConnection) return
     onState('disconnected', 'connection error')
-    provider.disconnect()
+    // Same reason as above, and the socket is on its way down regardless: a WebSocket
+    // error is always followed by a close, and that close is what clears `provider.ws`.
+    stopInternalRetry()
     schedule()
   })
 

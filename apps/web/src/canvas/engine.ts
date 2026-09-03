@@ -586,6 +586,23 @@ export class CanvasEngine {
   private ready = false
 
   /*
+   * Whether `app.init` has resolved.
+   *
+   * A third state, and it has to be tracked separately from both of the above: the
+   * Application object exists from the line before the await, `ready` is only set
+   * pages later once every layer is built, and in between is a window where the app is
+   * half-constructed. Tearing one down there threw from inside Pixi's own resize
+   * plugin - `_cancelResize is not a function` - which took the whole React tree with
+   * it and left a blank page.
+   *
+   * That window is not exotic. It is exactly what happens when a board is unmounted
+   * within a few hundred milliseconds of being mounted, which is what the server
+   * refusing access does: the view opens, the mint comes back 403, and the canvas is
+   * replaced before it ever finished being built.
+   */
+  private appReady = false
+
+  /*
    * The tools this board offers, or null for all of them.
    *
    * Held here rather than only in the rail, because the rail is not the only way to
@@ -665,7 +682,11 @@ export class CanvasEngine {
       resolution: window.devicePixelRatio || 1,
       autoStart: false,
     })
+    this.appReady = true
     if (this.disposed) {
+      // Torn down while the await above was in flight. Destroying here rather than in
+      // `destroy` is what makes that safe: by this line the app is whole, and there is
+      // nothing else left to unwind.
       this.app.destroy(true, { children: true })
       return
     }
@@ -742,7 +763,9 @@ export class CanvasEngine {
     if (this.wanderers !== undefined) this.wanderers.destroy()
     if (this.arrows !== undefined) this.arrows.destroy()
     if (this.ink !== undefined) this.ink.destroy()
-    if (this.app !== undefined) this.app.destroy(true, { children: true })
+    // Only once the app is whole. A half-initialised one is destroyed by `init` itself
+    // when it notices it has been disposed - see `appReady`.
+    if (this.app !== undefined && this.appReady) this.app.destroy(true, { children: true })
   }
 
   // --- public API -------------------------------------------------------------

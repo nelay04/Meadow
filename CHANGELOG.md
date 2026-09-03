@@ -14,6 +14,54 @@ away getting there.
 The infrastructure to run the thing. Not deployed yet.
 
 ### Added
+- **Asking to be let in.** A restricted glade answered somebody holding its address
+  with a flat refusal and no next step, so the link was either useless or the board had
+  to be made public - which is a decision about strangers being forced by a missing
+  screen. A signed-in person now gets a way forward: ask to view, or ask to edit, and
+  the owner decides in the share dialog. The two are asked separately because they are
+  not the same favour, and reading something is the smaller one to grant.
+
+  **A request is a record, never a key.** It grants nothing at all. The only thing that
+  ever grants access is the `board_members` row the owner's decision writes, resolved
+  afterwards through `resolve_role` like every other grant - and approving one closes
+  the sockets on the board, so somebody who was already here as a viewer stops holding
+  a read-only channel the moment they stop being one.
+
+  **A board that does not exist answers exactly like one that does.** This is the only
+  board route reachable with no access to the board, which makes "no such board" an
+  oracle for which ids are real; so a stranger gets the same "none" either way, and the
+  request they send is recorded only if there is something to record it against. What
+  they are told about a board they cannot open is the state of their own request and
+  nothing else: no title, no owner, no member list.
+
+  One row per person per board, rewritten rather than appended to. Asking twice is the
+  same request made again, not a second case, and a table with a row per attempt would
+  let one anxious person fill an owner's dialog. Re-asking while a request is already
+  pending mails nobody, and the endpoint is rate limited per account, because this is
+  the one place an ordinary signed-in user can point at somebody else's inbox. A
+  decline is not a dead end - the usual reason is "I do not know who this is", and that
+  gets answered somewhere this app cannot see - so it can be asked again.
+
+  Anonymously, it cannot. The whole value of a request to the person deciding it is a
+  name and an address they can recognise, and a form that let an anonymous visitor send
+  one would be an unauthenticated endpoint that mails a stranger on a stranger's
+  say-so, which is the thing the invitation flow already refuses to do.
+- **Renaming from the glade list.** The name field inside a board was the only place
+  to do it, which is fine once you are already there and wrong when you are looking at a
+  wall of cards and one of them is called "Untitled meadow": renaming it meant loading a
+  canvas, a document and a websocket to change one string. A pencil on the card, beside
+  the delete button, and it is offered to editors rather than only to owners - which is
+  what `PATCH /boards/{id}` has always allowed and what the field inside the board has
+  always let an editor do. A list that refused it would be a third opinion about a
+  permission.
+- **Losing access closes the glade, rather than labelling it.** Being removed used to
+  leave a status pill reading "No access" over a canvas still showing the document: it
+  said you were locked out while displaying the thing you were locked out of, and a
+  reload served the whole board back out of the browser's own copy. The view is
+  replaced now, the local copy is erased on the way, and the screen that replaces it is
+  the one with the way back in on it. Deleting a glade closes its sockets too, instead
+  of leaving people typing into a board whose rows had already been cascaded away.
+
 - **Sharing: a public link, invitations by address, and an owner's lock.** A glade or a
   lea is `restricted` until somebody says otherwise - reachable through a workspace seat
   or an explicit grant, exactly as before - and `public` makes its link a capability that
@@ -991,6 +1039,67 @@ The infrastructure to run the thing. Not deployed yet.
   else.
 
 ### Fixed
+- **One person closing a laptop lid took realtime down for everybody.** The room relays
+  every update and every cursor to every client it holds, and a client leaving between
+  the fan-out and the write is a race that happens constantly. It was not treated as
+  one. Each write is spawned on the *room's* task group, so the disconnect unwound the
+  room; pycrdt re-raised what it had no handler for, which unwound the **server's** task
+  group, because a room is started as a child of it. From that moment the process had no
+  websocket server at all: every connect on every board answered "The WebsocketServer is
+  not running" until somebody restarted the API. Sends to a departed peer are dropped
+  now, and the server carries an exception handler so that nothing else can end the
+  realtime layer either - a room that fails is logged and stopped, and its board reloads
+  from Postgres when somebody next opens it.
+
+  This is also why the connection pill had been reading Offline and staying there. It
+  had been reading "Live" through the same outage before, which was worse: the provider
+  was dead in a way it could not report.
+- **Two people could end up in two different rooms on the same board.** The room for a
+  board was created on first join, and between the check for "is there one" and the
+  assignment there is an `await` - the store replaying the board's history - which is a
+  place another connection runs. Two clients arriving inside that window both found no
+  room, both built one, and the second overwrote the first. Nothing raised. The first
+  client went on being served by a room that was no longer registered, and two rooms on
+  one board are two documents: neither side sees the other's edits or the other's
+  cursor, both write into the same store, and the board they reload into afterwards is
+  whichever history interleaved last. It read as the app losing sync at random, and it
+  happened exactly where clients arrive together - two people opening a board at once,
+  and every eviction, because an eviction is everybody reconnecting at the same
+  instant. Room creation is now locked per board.
+- **A locked glade stayed writable for everybody else until they reloaded, and so did
+  every other change to access.** The server was doing its part: it closes the sockets
+  so the handshake decides again. The client never came back. Its close handler called
+  `provider.disconnect()`, which ends in y-websocket's own teardown - and that emits
+  the close event *before* it clears its socket reference, so the call re-entered the
+  event it was made from, about twelve hundred times, until the stack overflowed. The
+  error escaped through `onclose`, the teardown never finished, and every later attempt
+  to connect was a no-op because it only acts on a socket that has been cleared. One
+  ordinary network blip did the same thing. That is the whole of "it only works after a
+  refresh": the connection was dead for the life of the page.
+- **Collaborators' faces vanished after a while and did not come back.** Two clock
+  rules meeting. y-protocols accepts an update for a client only when its clock has
+  advanced, and a clock advances only when a client sets its state - which a reconnect
+  does not do. So peers read a reconnecting client's re-announcement as old news and
+  dropped it, while the reconnecting client, which had deleted every remote *state* on
+  close but kept the *clock* it last saw for each, dropped everything it was told in
+  return. Both sides sat there until the fifteen-second keepalive finally moved a
+  number. Reconnecting now forgets the clocks of peers it no longer holds and moves its
+  own, and the server sends a joining client the room's current awareness the way the
+  reference implementation does, so a face is back in the row in a blink rather than a
+  quarter of a minute.
+- **Unmounting the board mid-load took the whole page with it.** Pixi's application is
+  built one `await` after the object exists, and destroying it inside that window threw
+  from its own resize plugin - which unmounted React and left a blank screen. Reachable
+  whenever a board is closed within a few hundred milliseconds of opening, which is
+  precisely what a refused glade does now.
+- **The share dialog was six borrowed parts.** The role control was the one place in
+  the app that opened an operating-system menu - grey, square, and ignoring the theme -
+  and it is a proper dropdown now, like every other choice here. The faces in the list
+  were drawn with the presence row's rule, which overlaps them on purpose, so each one
+  sat half under the edge of its own row and had no colour behind its initials at all.
+  The fields were three different heights and two different corner radii; they are the
+  sign-in form's now. Sections are separated by a muted rule instead of guesswork, and
+  the rows have a card's worth of padding rather than touching the walls.
 - **A preference changed in one tab never reached the others.** The diary paper and the
   theme are settings of this browser: they live in `localStorage`, which every tab
   shares, and they are announced with a `CustomEvent`, which no other tab hears. So a

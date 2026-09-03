@@ -85,6 +85,14 @@ export type PresenceHandle = {
    * can also change mid-session when an owner promotes somebody.
    */
   setRole(role: BoardRole): void
+  /**
+   * Re-introduce this client to the room, after the socket has been replaced.
+   *
+   * Called on every connect, including reconnects, and it is the difference between
+   * presence recovering in a blink and recovering in fifteen seconds. See the body for
+   * the clock rule it is working around.
+   */
+  resync(): void
   destroy(): void
 }
 
@@ -129,23 +137,19 @@ export function trackPresence(
   /**
    * Peers we have already greeted, so a re-announce happens once per arrival.
    *
-   * The server relays awareness but does not replay it: `YRoom.serve` sends a sync
-   * message to a joining client and nothing else, so the newest peer knows the
-   * document immediately and knows *who else is here* only when one of them next
-   * publishes. y-protocols does re-announce on a timer, so it heals on its own after
-   * roughly fifteen seconds, which is long enough that opening a busy board shows an
-   * empty room and the avatars trickle in.
+   * The half of the introduction this side owes. The server now sends a joining client
+   * the room's current awareness (`app/realtime/server.py::awareness_snapshot`), so an
+   * arriving peer learns about us without being told twice - but a peer arriving is
+   * still news to *us*, and answering it means they get whatever we have changed since
+   * that snapshot was taken. It cannot ping-pong, because a re-announce reaches the
+   * other side as an *update* to a client it already knows, and only additions trigger
+   * this.
    *
-   * The fix is to answer an arrival: when a peer we have not seen appears, publish our
-   * own state again so they learn about us in the same round trip. It cannot ping-pong,
-   * because a re-announce reaches the other side as an *update* to a client it already
-   * knows, and only additions trigger this.
-   *
-   * Deliberately client-side. The server-side version - encoding the room's awareness
-   * and writing it to the socket at handshake time - worked, and intermittently hung
-   * the room: it writes to the channel before `YRoom.serve` has taken it over, and the
-   * backend test suite deadlocked on it roughly half the time. There is no race to
-   * have here.
+   * Both halves are needed, and the reason is the reconnect. y-websocket drops every
+   * remote awareness state when a socket closes, so a client coming back from an
+   * eviction has forgotten the room, while the peers it left behind never noticed it
+   * go and have no reason to announce themselves again. Only the server knows both
+   * things at once.
    */
   const greeted = new Set<number>()
 
@@ -211,6 +215,42 @@ export function trackPresence(
   collect()
 
   return {
+    resync() {
+      /*
+       * Both halves of a reconnection, and both are about the awareness *clock*
+       * rather than about the states everybody can see.
+       *
+       * y-protocols accepts an update for a client only when its clock has advanced
+       * (`applyAwarenessUpdate`), and a clock advances only on `setLocalState`. A
+       * reconnect changes neither side's state, so both sides go quiet in a way that
+       * is invisible until you look at the clocks:
+       *
+       * - **Peers ignore us.** y-websocket re-announces our state the moment the new
+       *   socket opens, at the clock we already had. Everybody who kept a clock for us
+       *   - which is everybody who did not drop at the same instant - reads that as
+       *   old news and drops it, and we stay missing from their row until our own
+       *   fifteen-second keepalive finally moves the number.
+       * - **We ignore peers.** Closing a socket makes y-websocket delete every remote
+       *   *state* while keeping the *clock* it last saw for each. So the room snapshot
+       *   the server sends on join, and any peer re-announce, both arrive looking
+       *   equally stale, and the faces stay gone for the same fifteen seconds.
+       *
+       * So: forget the clocks of peers whose state we no longer hold, which lets us
+       * accept whatever we are told next, and bump our own, which is what makes
+       * everybody else accept us. This is the reported "collaborator circles vanish
+       * when I sit still" - sitting still is what a reconnect leaves you doing.
+       */
+      for (const clientId of Array.from(awareness.meta.keys())) {
+        if (clientId !== awareness.clientID && !awareness.getStates().has(clientId)) {
+          awareness.meta.delete(clientId)
+        }
+      }
+      greeted.clear()
+      // setLocalState rather than setLocalStateField: the point is the clock, and a
+      // field written with the value it already holds does not move it.
+      awareness.setLocalState(awareness.getLocalState())
+    },
+
     setCursor(point) {
       pending = point
       hasPending = true

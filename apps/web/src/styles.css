@@ -1867,10 +1867,17 @@ label {
 }
 
 /* Revealed on hover, and always present for the keyboard. */
-.board-card .card-delete {
+/* What you can do to a card without opening it. A row in the corner, so a card that
+   offers one of them puts it where a card that offers both puts the last one. */
+.board-card .card-actions {
   position: absolute;
   top: 0.55rem;
   right: 0.55rem;
+  display: flex;
+  gap: 0.3rem;
+}
+
+.board-card .card-action {
   width: 2rem;
   height: 2rem;
   padding: 0;
@@ -1885,9 +1892,14 @@ label {
     background var(--fast);
 }
 
-.board-card:hover .card-delete,
-.board-card .card-delete:focus-visible {
+.board-card:hover .card-action,
+.board-card .card-action:focus-visible {
   opacity: 1;
+}
+
+.board-card .card-rename:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .board-card .card-delete:hover {
@@ -3499,6 +3511,37 @@ dialog.modal::backdrop {
   margin-top: 1.25rem;
 }
 
+/* The dialog above it is a stack of sections with a rule between each; the actions do
+   not need a third gap on top of the last one. */
+.share-modal .modal-actions {
+  margin-top: 1rem;
+}
+
+/*
+ * The weight of the dialog, lifted.
+ *
+ * Everything in here was set in 600 - the buttons, the segments, the role controls, the
+ * names - which is a lot of bold for a screen that is mostly a list of quiet facts. The
+ * headings and the names stay heavy, because they are what the eye is meant to land on;
+ * the controls around them drop a step, and the dialog reads as one voice at a normal
+ * volume rather than everything speaking at once.
+ */
+.share-modal button,
+.share-modal .segmented button,
+.share-modal .dropdown-button,
+.share-modal .copy-button {
+  font-weight: 500;
+}
+
+/* The two ends of the dialog: the one that sends an invitation and the one that closes
+   it. Matched, because a pair of buttons at different widths reads as one of them
+   mattering more, and these are simply the two things you can do from here. */
+.share-modal .invite-terms .primary,
+.share-modal .modal-actions button {
+  min-width: 6rem;
+  font-weight: 500;
+}
+
 .modal-actions button {
   min-width: 5.5rem;
   justify-content: center;
@@ -4633,20 +4676,49 @@ dialog.modal[open] .modal-card {
  */
 
 .share-modal .modal-card {
-  /* Wide enough that a share URL fits on one line at a comfortable size, capped so it
-     does not become a page. The viewport clamp is what keeps it usable on a phone,
+  /* Wide enough that a share URL is readable, and no wider.
+     It was 34rem, sized for the URL to fit whole - which it never does anyway, because
+     a board address is a host plus a uuid and the field scrolls. What the extra width
+     actually bought was a long line to spread six short rows across, and the dialog
+     read as scattered. At 31rem the rows are near enough the width of the sign-in form
+     to feel like the same app, and the URL still shows the host and the start of the
+     id, which is the part anybody reads. The viewport clamp keeps it usable on a phone,
      where the dialog is nearly full-bleed. */
-  width: min(34rem, calc(100vw - 2rem));
+  width: min(31rem, calc(100vw - 2rem));
   max-height: calc(100vh - 4rem);
   overflow-y: auto;
+  padding: 1.3rem 1.35rem 1.1rem;
 }
 
+/*
+ * The vertical rhythm of the whole dialog.
+ *
+ * Tighter than it was, and deliberately close to the sign-in form's 0.85rem: this is
+ * six short blocks stacked, and at the old spacing a laptop could not hold the people
+ * list and the link on screen at once. Space between *sections* is what separates
+ * them; space inside one only makes it hard to see that it is one.
+ */
 .share-section {
-  margin-top: 1.15rem;
+  margin-top: 0.95rem;
+}
+
+/*
+ * A rule between sections, and only between them.
+ *
+ * This dialog is five stacked lists - the link, the invite form, the requests, the
+ * members, the pending invitations - and with nothing but whitespace between them the
+ * eye ran the end of one into the heading of the next. Very muted on purpose: the
+ * headings already do the work of separating, and a line at full strength would make
+ * five boxes out of one dialog.
+ */
+.share-section + .share-section {
+  margin-top: 1.05rem;
+  padding-top: 1.05rem;
+  border-top: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
 }
 
 .share-section h3 {
-  margin: 0 0 0.6rem;
+  margin: 0 0 0.5rem;
   font-size: 0.76rem;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -4680,8 +4752,8 @@ dialog.modal[open] .modal-card {
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 0.5rem 0.9rem;
-  margin-top: 0.55rem;
+  gap: 0.45rem 0.9rem;
+  margin-top: 0.5rem;
 }
 
 .access-line .share-note {
@@ -4700,6 +4772,9 @@ dialog.modal[open] .modal-card {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
+  /* The same vertical padding as a field, so the "Can view / Can edit" pair and the
+     Invite button beside it are one row of one height. */
+  padding: 0.5rem 0.75rem;
   font-size: 0.82rem;
   white-space: nowrap;
 }
@@ -4720,33 +4795,43 @@ dialog.modal[open] .modal-card {
   display: flex;
   align-items: stretch;
   gap: 0.4rem;
-  margin-top: 0.75rem;
+  margin-top: 0.6rem;
   min-width: 0;
 }
 
+/*
+ * The link field, at the same height and radius as every other field in the app.
+ *
+ * It used to be shorter and squarer than the invite box directly beneath it and than
+ * the sign-in form this dialog sits next to in a session, which is what made a column
+ * of five controls read as five borrowed parts. The monospace face stays - a URL is
+ * read character by character and the code stack is what makes that possible - and so
+ * does the recessed background, which says this one is to be copied rather than typed
+ * into. Everything a shape is made of is now shared: padding, radius, border.
+ */
 .copy-field {
   flex: 1;
   min-width: 0;
-  /* The same stack `code` uses. There is no token for it, and a URL is exactly the
-     kind of string that has to be read character by character. */
   font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.78rem;
   color: var(--muted);
   background: var(--surface-3);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius);
+  padding: 0.6rem 0.85rem;
   /* No wrapping and no ellipsis fight: the field scrolls, so the start of the URL -
      the part that says which host this is - is what stays visible. */
   text-overflow: ellipsis;
 }
 
+/* Beside the field and the same height as it, so the row has one top edge and one
+   bottom edge rather than a button floating inside a taller box. */
 .copy-button {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
   flex: 0 0 auto;
-  padding: 0.45rem 0.7rem;
+  padding: 0.6rem 0.85rem;
   font-size: 0.82rem;
   font-weight: 600;
 }
@@ -4768,8 +4853,13 @@ dialog.modal[open] .modal-card {
 .socials {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.4rem;
-  margin-top: 0.7rem;
+  gap: 0.3rem;
+  margin-top: 0.5rem;
+}
+
+.social {
+  width: 1.85rem;
+  height: 1.85rem;
 }
 
 .social {
@@ -4854,11 +4944,22 @@ dialog.modal[open] .modal-card {
   gap: 0.2rem;
 }
 
+/*
+ * A row of the people list, as a card rather than a line of text.
+ *
+ * The padding and the negative margin are one gesture: the row is inset from the
+ * dialog's wall on both sides, and pulled back out by the same amount so the names
+ * still line up under the section heading. Without the pull the whole list would sit
+ * indented from its own title; without the padding the face and the delete button sat
+ * hard against the edges, and the hover block looked like a bar drawn across the
+ * dialog rather than a card under one person.
+ */
 .person {
   display: flex;
   align-items: center;
   gap: 0.6rem;
-  padding: 0.4rem 0.2rem;
+  margin: 0 -0.65rem;
+  padding: 0.4rem 0.65rem;
   border-radius: var(--radius-sm);
 }
 
@@ -4876,7 +4977,9 @@ dialog.modal[open] .modal-card {
 
 .person-who strong {
   font-size: 0.88rem;
-  font-weight: 700;
+  /* A name is the content of the row rather than a heading over it, so it is set apart
+     from the address under it by one step, not two. */
+  font-weight: 600;
   color: var(--fg-strong);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4891,10 +4994,64 @@ dialog.modal[open] .modal-card {
   white-space: nowrap;
 }
 
+/*
+ * The avatar in a list is not the avatar in the presence row.
+ *
+ * `.avatar` is written for the header, where the faces deliberately overlap - hence
+ * the negative left margin and the ring in the surface colour, which is what makes one
+ * circle sit *in front of* the next. In a list of separate people that same rule pulls
+ * every face half under the edge of its own row and draws a pale notch through it,
+ * which is what made this list look broken rather than dense.
+ */
+.people .avatar {
+  margin-left: 0;
+  width: 2rem;
+  height: 2rem;
+  font-size: 0.68rem;
+  border-color: transparent;
+}
+
+/*
+ * The role control on a row.
+ *
+ * Sized down from the standard dropdown, because it shares a row with a name, an
+ * address and a delete button, and a control at full size turns each of those into an
+ * ellipsis.
+ */
 .person-role {
   flex: 0 0 auto;
+}
+
+/* A shade smaller than a field, because it shares a row with a name and an address
+   rather than standing on its own line - but the same shape, the same radius and the
+   same border as one. */
+.person-role .dropdown-button {
+  gap: 0.35rem;
+  padding: 0.4rem 0.6rem;
   font-size: 0.8rem;
-  padding: 0.3rem 0.45rem;
+}
+
+.person-role .menu {
+  min-width: 10.5rem;
+}
+
+/* The width of the icon button the owner's row does not have. */
+.person-slot {
+  flex: 0 0 auto;
+  width: 2.25rem;
+}
+
+/* A request has one more control than a membership - the answer itself - so its row is
+   allowed to wrap rather than crushing the name. */
+.person.asking {
+  flex-wrap: wrap;
+  row-gap: 0.35rem;
+}
+
+.person.asking .person-decide {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 500;
 }
 
 /* A pending invitation is an address and its link, so it needs the full width and
@@ -4983,6 +5140,30 @@ dialog.modal[open] .modal-card {
   font-weight: 700;
 }
 
+/* A request is the one thing in this menu somebody else is waiting on, so it does not
+ * share the accent colour with "Public", which is a state rather than a queue. */
+.menu-badge.waiting {
+  background: color-mix(in srgb, var(--warning) 18%, transparent);
+  color: var(--warning);
+}
+
+/* The same news, seen from across the bar with the menu shut. No number: a count you
+ * cannot read at 6px is a smudge, and the menu behind it has the number. */
+.board-more > button {
+  position: relative;
+}
+
+.dot-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--warning);
+  box-shadow: 0 0 0 2px var(--surface);
+}
+
 .board-more .menu {
   min-width: 15rem;
 }
@@ -5027,4 +5208,40 @@ dialog.modal[open] .modal-card {
 
 .join-body strong {
   color: var(--fg-strong);
+}
+
+/* Two answers to one question, side by side and equally reachable: "ask to view" and
+ * "ask to edit" are not a choice and its afterthought. They stack on a narrow screen
+ * rather than shrinking, because a button that has been squeezed to fit reads as the
+ * less important one. */
+.auth-card .row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.auth-card .row button {
+  /* Small enough that the pair fits side by side in the card, which is what makes them
+     read as two answers to one question rather than an action and its afterthought. */
+  flex: 1 1 8rem;
+}
+
+/* The second answer is quieter than the first and still an answer: a ghost button with
+   no edge at all reads as a caption sitting next to a button, and half the people
+   asking for access want the one on the right. */
+.auth-card .row button.ghost {
+  border-color: var(--line);
+  background: var(--surface);
+}
+
+/*
+ * The way out, under the answers.
+ *
+ * Flush with the text above it. A ghost button carries the horizontal padding every
+ * button in the app has, which set this one word in from the paragraph and the heading
+ * and made the whole card look as though it had two left margins.
+ */
+.auth-card > button.link {
+  margin-top: 0.15rem;
+  margin-left: -0.7rem;
 }

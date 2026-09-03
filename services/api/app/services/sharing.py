@@ -405,7 +405,7 @@ async def invite(
         existing.role = role
     await session.flush()
 
-    mailed = await _try_send(
+    mailed = await try_send(
         target.email,
         board_invite_mail(
             name=target.display_name,
@@ -440,7 +440,7 @@ async def notify_role_change(
     knows what the role was before, and a mail announcing an unchanged fact is noise
     that teaches people to ignore the ones that matter.
     """
-    return await _try_send(
+    return await try_send(
         member.email,
         board_role_changed_mail(
             name=member.display_name,
@@ -453,8 +453,12 @@ async def notify_role_change(
     )
 
 
-async def _try_send(to: str, message: tuple[str, str, str]) -> bool:
+async def try_send(to: str, message: tuple[str, str, str]) -> bool:
     """Send, and report whether it went, rather than raising.
+
+    Public because `app/services/access_requests.py` sends its notice the same way and
+    for the same reason. Two copies of "swallow the relay being down" would be two
+    chances to get the swallowing wrong.
 
     Deliberately different from activation, where a failed mail fails the request: an
     account nobody can open is worse than a refused registration, so there the failure

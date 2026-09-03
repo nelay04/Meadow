@@ -63,6 +63,12 @@ class Settings(BaseSettings):
     # token is 192 bits: this is here to make walking token space pointless, not to
     # ration ordinary use.
     rate_limit_share: str = "60/60"
+    # Asking to be let in to a board. Keyed on the account, and tight, because this is
+    # the one endpoint an ordinary signed-in user can point at somebody else's inbox:
+    # each new ask mails the board's owners. Re-asking while a request is already
+    # pending sends nothing at all, so the limit is only ever reached by somebody
+    # deliberately cycling requests.
+    rate_limit_access_request: str = "10/3600"
 
     # --- third-party sign-in (ARCHITECTURE 7) ---
     # Blank by default, and that is the off switch, per provider: with either half of a

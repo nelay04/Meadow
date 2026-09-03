@@ -338,6 +338,31 @@ board_invitations                        -- a grant waiting for an account to ex
   -- is delivery of the activation mail people are actually waiting on. The owner gets
   -- a link to pass on themselves, and activation applies the grant.
 
+board_access_requests                    -- somebody asking to be let in
+  id              uuid pk
+  board_id        uuid fk -> boards on delete cascade
+  user_id         uuid fk -> users on delete cascade
+  role            enum(viewer|editor)    -- what was asked for, never what was granted
+  status          text check (pending|granted|declined)
+  created_at, decided_at, decided_by
+  unique (board_id, user_id)
+
+  -- The other direction of board_invitations: an owner reaching out, versus somebody
+  -- who already has the address reaching back. **Nothing here is access.** The only
+  -- thing that grants access is the board_members row the owner's decision writes,
+  -- resolved afterwards through resolve_role like every other grant.
+  --
+  -- One row per person per board, rewritten on a second ask. Asking twice is the same
+  -- request repeated, and a row per attempt would let one person fill an owner's
+  -- dialog. Re-asking while already pending mails nobody: each *new* ask notifies the
+  -- board's owners, so without that rule the one endpoint a signed-in stranger can
+  -- reach is also a way to send them a message per click. Rate limited per account for
+  -- the same reason.
+  --
+  -- The read side is uniform for a board that does not exist: this is the only board
+  -- route reachable with no access to the board, and an answer that distinguished "no
+  -- such board" from "no request" would be an oracle for which board ids are real.
+
 assets
   id, board_id, uploader_id, s3_key, mime, size_bytes, width, height, created_at
 ```
@@ -1183,11 +1208,19 @@ GET    /boards/{id}/members
 POST   /boards/{id}/members           also the demote path; inviting never lowers
 DELETE /boards/{id}/members/{user_id}
 
-GET    /boards/{id}/share             owner: mode, link, members, invitations
+GET    /boards/{id}/share             owner: mode, link, members, invitations, requests
 PUT    /boards/{id}/share             { mode, role }; mints the link on going public
 POST   /boards/{id}/share/rotate      replaces the link, breaking every copy
 POST   /boards/{id}/invites           { email, role } -> granted | pending | member
 DELETE /boards/{id}/invites/{id}      withdraw one nobody has accepted
+
+-- asking to be let in. The first of these is the only board route reachable with no
+-- access at all to the board, which is the point of it: it grants nothing, reveals
+-- nothing, and answers a board that does not exist exactly as it answers one that does.
+POST   /boards/{id}/access-requests           { role: viewer|editor } -> my request
+GET    /boards/{id}/access-requests/mine      status + whether the board opens now
+GET    /boards/{id}/access-requests           owner: who is waiting
+POST   /boards/{id}/access-requests/{req}     owner: { approve, role? } -> share state
 
 -- unauthenticated, on purpose. See app/api/v1/share.py.
 GET    /share/{token}                 what a public link opens, for a caller with nothing
@@ -1295,6 +1328,37 @@ whenever the client it was serving was the last one out — two clients disconne
 together both see an empty client set and the second raises out of the teardown path.
 `MeadowWebsocketServer` overrides it.
 
+⚠️ **A relay must never let one connection end the layer.** `YRoom.serve` fans a
+message out with `tg.start_soon(client.send, ...)` on the *room's* task group, and a
+room is started as a child of the *server's* task group. So an exception in a single
+write walks straight up both: room, then server. After that `WebsocketServer` has no
+task group and every connect on every board answers "The WebsocketServer is not
+running" for the life of the process. It happened in production from the most ordinary
+event there is — a peer disconnecting while the room was writing to it — and it
+presented to users as the connection pill sitting on Offline for hours.
+
+Two guards, and both are needed. `FastAPIChannel.send` treats the departure family as
+routine and drops the message, because that is what it is: the socket is gone, there is
+nobody to deliver to, and the serve loop removes the client a moment later.
+`MeadowWebsocketServer` then passes an `exception_handler` that handles *everything*,
+which is deliberate rather than lazy — there is no exception a relay can hit for which
+"stop relaying for every board until a human notices" is the better outcome. Handled is
+not hidden: a departed peer logs at debug, everything else logs its traceback at error.
+
+⚠️ **Room creation must be locked per board.** `get_room` checks whether a room exists
+and then awaits — the store replaying the board's history — before registering the one
+it built, and an await is a place another connection runs. Two clients arriving inside
+that window both found no room, both built one, and the second overwrote the first in
+`self.rooms`. Nothing raised, and that is the problem: the first client went on being
+served by a room nobody could reach any more, and **two rooms on one board are two
+documents.** Neither side sees the other's edits or the other's cursor, both append to
+the same store, and the board that comes back on reload is whichever history
+interleaved last. It presents as the app losing sync at random, and it fires exactly
+where clients arrive together: two people opening a board at once, and every eviction,
+since an eviction is everybody reconnecting at the same instant. The lock is per board
+rather than one for the server, because replaying a long history is a database read and
+one lock would put every board's first join behind every other board's.
+
 ### Background jobs (arq)
 
 | Job | Trigger |
@@ -1334,7 +1398,10 @@ together both see an empty client set and the second raises out of the teardown 
   spent token. Fetch a fresh token per connection attempt — likely a thin wrapper
   around the provider rather than a plain URL string. **Verify what the pinned
   version supports during M0** (five minutes then, an annoying detour in M1).
-- Rate limits (Redis): login 5/min/IP, register 3/hour/IP, ws-token 30/min/user.
+- Rate limits (Redis): login 5/min/IP, register 3/hour/IP, ws-token 30/min/user,
+  access requests 10/hour/user. The last one is keyed on the account rather than the
+  address because it is the one endpoint an ordinary signed-in caller can point at
+  somebody else's inbox: a new ask mails the board's owners.
 
 ### Third-party sign-in (GitHub added in M6, Google alongside it)
 
@@ -1698,22 +1765,38 @@ and the undo stack, and a board would accumulate a permanent record of where eve
 mouse had been. Cursors publish at ~30Hz; selection is unthrottled, because it is
 discrete and rare and a late highlight reads worse than a late cursor.
 
-**A joining client learns who is already here from its peers, not from the server.**
-`YRoom.serve` sends a sync message and nothing else, so the newest peer used to sit in
-an apparently empty room until somebody re-announced on the keepalive, roughly fifteen
-seconds later. `pnpm e2e:presence` caught it as an asymmetry no single-page test could
-produce: the first peer saw two avatars, the second saw one.
+**A joining client is introduced from both sides.** `YRoom.serve` sends a sync message
+and nothing else, so the newest peer used to sit in an apparently empty room until
+somebody re-announced on the keepalive, roughly fifteen seconds later. `pnpm
+e2e:presence` caught it as an asymmetry no single-page test could produce: the first
+peer saw two avatars, the second saw one.
 
-The fix is in `sync/awareness.ts`: when a peer we have not seen appears, re-publish our
-own state so they learn about us in the same round trip. It cannot ping-pong, because a
-re-announce arrives at the other side as an update to a client it already knows.
+Two halves, and both are needed. In `sync/awareness.ts`, a peer we have not seen
+appearing makes us re-publish our own state so they learn about us in the same round
+trip; it cannot ping-pong, because a re-announce arrives at the other side as an update
+to a client it already knows. And the server sends a joining client the room's current
+awareness (`awareness_snapshot` in `app/realtime/server.py`), which is what the
+reference y-websocket server does.
 
-**The server-side version of this was tried first and reverted.** Encoding the room's
-awareness and writing it to the socket during the handshake worked, and intermittently
-deadlocked the room: it writes to the channel before `YRoom.serve` has taken it over.
-The backend suite hung on `test_a_viewer_write_never_reaches_the_live_room` in three of
-five full runs, for fifteen minutes each time, and passed in isolation every time.
-Presence is a client concern and there is no race to have there.
+**A server-side snapshot was tried in M6 and reverted before it worked.** Encoding the
+room's awareness and writing it to the socket *during the handshake* deadlocked the
+room intermittently — it writes to the channel before `YRoom.serve` has taken it over —
+and the backend suite hung on `test_a_viewer_write_never_reaches_the_live_room` in
+three of five full runs. The fault was the placement, not the idea. It is sent from
+inside the connection's own task group now, alongside the room, through the channel's
+send lock.
+
+⚠️ **A reconnect is invisible to y-protocols unless both sides move a clock.**
+`applyAwarenessUpdate` accepts an update for a client only when its clock has advanced,
+and a clock advances only on `setLocalState` — which reconnecting does not do. So peers
+read a reconnecting client's re-announcement as old news and dropped it, while the
+reconnecting client, which deletes every remote *state* when its socket closes but
+keeps the *clock* it last saw for each, dropped the room snapshot and every peer
+re-announce in return. Both sides waited out the fifteen-second keepalive, which is
+what "the collaborator circles vanish when I sit idle" was: sitting idle is what a
+reconnect leaves you doing, and every eviction in this design is a reconnect.
+`PresenceHandle.resync`, called on every connect, forgets the clocks of peers whose
+state it no longer holds and bumps its own.
 
 Compaction is scheduled from here, in `app/workers/`. The fold itself stayed in
 `realtime/ystore.py`, next to the read path it has to remain consistent with.

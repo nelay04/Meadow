@@ -10,11 +10,13 @@ import {
   IconMenu,
   IconPlus,
   IconSearch,
+  IconPencil,
   IconTrash,
 } from '../../ui/icons'
 import { useConfirm } from '../../ui/ConfirmDialog'
 import { usePrompt } from '../../ui/PromptDialog'
 import { useToast } from '../../ui/Toaster'
+import { roleCanWrite } from '../../doc/mutations'
 import * as api from '../../lib/api'
 import type { Board, BoardKind } from '../../lib/api'
 import { useAuth } from '../auth/AuthContext'
@@ -367,6 +369,44 @@ export default function BoardsPage({ onOpen }: Props) {
     }
   }
 
+  /*
+   * Renaming from the list.
+   *
+   * The name field on the board itself was the only place to do this, which is fine
+   * when you are already inside - and wrong when you are looking at a wall of cards and
+   * one of them is called "Untitled meadow". Opening a glade to rename it means loading
+   * a canvas, a document and a websocket to change one string.
+   *
+   * Offered to editors, not only owners: renaming is what `PATCH /boards/{id}` has
+   * always allowed an editor to do, and the field inside the board has always let them.
+   * The list refusing it would be a third opinion about a permission, which is the
+   * thing ARCHITECTURE 7 is about.
+   */
+  const rename = async (board: Board) => {
+    const kind = boardKind(board.kind).label.toLowerCase()
+    const chosen = await prompt({
+      title: `Rename “${board.title}”`,
+      label: 'Name',
+      initial: board.title,
+      placeholder: `A name for this ${kind}`,
+      confirmLabel: 'Rename',
+    })
+    if (chosen === null) return
+
+    const next = chosen.trim()
+    // Nothing to say about either: an empty answer is a cancel that went through the
+    // field, and the same name is not a change.
+    if (next === '' || next === board.title) return
+
+    try {
+      await api.renameBoard(board.id, next)
+      await reload()
+      toast.success(`Renamed to “${next}”.`)
+    } catch {
+      toast.error(`Could not rename that ${kind}.`)
+    }
+  }
+
   const remove = async (board: Board) => {
     const kind = boardKind(board.kind).label.toLowerCase()
     const agreed = await confirm({
@@ -622,17 +662,33 @@ export default function BoardsPage({ onOpen }: Props) {
                     </span>
                   </button>
 
-                  {board.role === 'owner' && (
-                    <button
-                      type="button"
-                      className="card-delete"
-                      title={`Delete ${board.title}`}
-                      aria-label={`Delete ${board.title}`}
-                      onClick={() => void remove(board)}
-                    >
-                      <IconTrash size={15} />
-                    </button>
-                  )}
+                  {/* A row rather than one absolutely placed button each, so a card
+                      with only one of them puts it in the same corner as a card with
+                      both, and adding a third later is not a fourth set of offsets. */}
+                  <div className="card-actions">
+                    {roleCanWrite(board.role) && (
+                      <button
+                        type="button"
+                        className="card-action card-rename"
+                        title={`Rename ${board.title}`}
+                        aria-label={`Rename ${board.title}`}
+                        onClick={() => void rename(board)}
+                      >
+                        <IconPencil size={14} />
+                      </button>
+                    )}
+                    {board.role === 'owner' && (
+                      <button
+                        type="button"
+                        className="card-action card-delete"
+                        title={`Delete ${board.title}`}
+                        aria-label={`Delete ${board.title}`}
+                        onClick={() => void remove(board)}
+                      >
+                        <IconTrash size={15} />
+                      </button>
+                    )}
+                  </div>
                 </li>
               )
             })}

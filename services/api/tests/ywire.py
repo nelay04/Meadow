@@ -70,3 +70,36 @@ def parse(message: bytes) -> tuple[int, int | None, bytes]:
     sync_type, pos = read_varuint(message, pos)
     length, pos = read_varuint(message, pos)
     return message_type, sync_type, message[pos : pos + length]
+
+
+def _var_string(text: str) -> bytes:
+    return _var_bytes(text.encode())
+
+
+def awareness(client_id: int, clock: int, state: str) -> bytes:
+    """One client's awareness entry, in the y-protocols envelope.
+
+    `state` is the JSON the client publishes, or the literal "null" for a client
+    announcing that it has left.
+    """
+    update = write_varuint(1) + write_varuint(client_id) + write_varuint(clock) + _var_string(state)
+    return write_varuint(MESSAGE_AWARENESS) + _var_bytes(update)
+
+
+def read_awareness(message: bytes) -> dict[int, str]:
+    """The states in an awareness message, by client id."""
+    message_type, pos = read_varuint(message)
+    if message_type != MESSAGE_AWARENESS:
+        raise ValueError("not an awareness message")
+    length, pos = read_varuint(message, pos)
+    payload = message[pos : pos + length]
+
+    count, pos = read_varuint(payload)
+    states: dict[int, str] = {}
+    for _ in range(count):
+        client_id, pos = read_varuint(payload, pos)
+        _clock, pos = read_varuint(payload, pos)
+        size, pos = read_varuint(payload, pos)
+        states[client_id] = payload[pos : pos + size].decode()
+        pos += size
+    return states

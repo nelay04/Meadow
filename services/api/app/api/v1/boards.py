@@ -12,8 +12,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response,
 from sqlalchemy import delete, or_, select
 
 from app.auth.deps import CurrentUser, Session, board_editor, board_owner, board_viewer
+from app.config import settings
 from app.models import (
     Board,
+    BoardAccessRequest,
     BoardInvitation,
     BoardMember,
     BoardThumbnail,
@@ -22,6 +24,9 @@ from app.models import (
 )
 from app.realtime.rooms import WS_CLOSE_FORBIDDEN, SocketRegistry
 from app.schemas.boards import (
+    AccessRequestCreate,
+    AccessRequestDecision,
+    AccessRequestOut,
     BoardCreate,
     BoardMemberAdd,
     BoardOut,
@@ -30,14 +35,16 @@ from app.schemas.boards import (
     InviteCreate,
     InviteResultOut,
     MemberOut,
+    MyAccessRequestOut,
     ShareSettings,
     ShareState,
     TitleSuggestion,
 )
-from app.services import sharing
+from app.services import access_requests, sharing
 from app.services.board_kinds import BoardKind
 from app.services.naming import DEFAULT_TITLE, generate_unique_board_title
-from app.services.permissions import BoardRole, at_least, can_write, resolve_role
+from app.services.permissions import BoardRole, at_least, can_write, rank, resolve_role
+from app.services.ratelimit import check as rate_limit_check
 from app.services.sharing import SHAREABLE_ROLES, ShareMode
 
 router = APIRouter(prefix="/boards", tags=["boards"])
@@ -250,16 +257,21 @@ async def patch_board(
 @router.delete("/{board_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_board(
     board_id: uuid.UUID,
+    request: Request,
     session: Session,
     role: Annotated[BoardRole, Depends(board_owner)],
 ) -> None:
     """Hard delete. board_updates and board_snapshots cascade away with it.
 
-    Any live websocket on this board keeps its socket until the watchdog next
-    revalidates, at which point role resolution returns None and it is closed.
+    The sockets go with it. Leaving them to the watchdog meant up to fifteen minutes of
+    people typing into a board that no longer exists - accepted, relayed between them,
+    and written to a store whose rows had been cascaded away - and then finding the work
+    gone with no account of where. Closing now makes their next reconnect resolve to no
+    access, which is the truth and says so.
     """
     await session.execute(delete(Board).where(Board.id == board_id))
     await session.commit()
+    await _evict(request, board_id, "glade deleted")
 
 
 @router.put("/{board_id}/thumbnail", status_code=status.HTTP_204_NO_CONTENT)
@@ -503,6 +515,8 @@ async def _share_state(session: Session, board: Board, request: Request) -> Shar
         ).scalars()
     )
 
+    waiting = await access_requests.waiting(session, board.id)
+
     link = await sharing.active_link(session, board.id)
 
     return ShareState(
@@ -535,6 +549,18 @@ async def _share_state(session: Session, board: Board, request: Request) -> Shar
                 created_at=invitation.created_at,
             )
             for invitation in invitations
+        ],
+        requests=[
+            AccessRequestOut(
+                id=request.id,
+                user_id=asker.id,
+                email=asker.email,
+                display_name=asker.display_name,
+                avatar_url=asker.avatar_url,
+                role=request.role,
+                created_at=request.created_at,
+            )
+            for request, asker in waiting
         ],
     )
 
@@ -704,3 +730,214 @@ async def revoke_invite(
     if invitation.accepted_at is None and invitation.revoked_at is None:
         invitation.revoked_at = datetime.now(UTC)
         await session.commit()
+
+
+# --- access requests -------------------------------------------------------------
+#
+# The other direction of sharing. Everything above is an owner deciding who else may be
+# here; this is somebody who already has the address asking to be one of them, which is
+# the case a restricted board previously answered with a flat refusal and no next step.
+#
+# Nothing here grants anything. A request is a record that a named, signed-in account
+# asked for viewer or editor, and the only thing that ever grants access is the
+# `board_members` row `decide_access_request` writes - resolved afterwards through
+# `resolve_role` like every other grant.
+
+
+async def _my_request_state(
+    session: Session, *, board_id: uuid.UUID, user_id: uuid.UUID
+) -> MyAccessRequestOut:
+    """What the person who asked is allowed to know: the state of their own request.
+
+    Deliberately answerable for a board that does not exist, and answerable the same
+    way. This is the one endpoint in the API a caller can point at a board id they have
+    no relationship with at all, and an answer that differed between "no such board"
+    and "no request on this board" would turn it into a way to test whether an id is
+    real. So a stranger gets "none" either way, and the request they then send is
+    recorded only if there is something to record it against.
+    """
+    role = await resolve_role(session, user_id=user_id, board_id=board_id)
+    existing = await access_requests.mine(session, board_id=board_id, user_id=user_id)
+
+    return MyAccessRequestOut(
+        status="none" if existing is None else existing.status,
+        role=None if existing is None else existing.role,
+        has_access=role is not None,
+    )
+
+
+@router.get("/{board_id}/access-requests/mine", response_model=MyAccessRequestOut)
+async def my_access_request(
+    board_id: uuid.UUID,
+    user: CurrentUser,
+    session: Session,
+) -> MyAccessRequestOut:
+    """Where the waiting screen looks while somebody decides.
+
+    `has_access` rather than the request's own status is what that screen actually
+    acts on. An owner may let somebody in by a route that has nothing to do with the
+    request - adding them as a member, or opening the board to the public - and a
+    screen watching only its own row would leave them staring at "waiting" while the
+    board sat open behind it.
+    """
+    return await _my_request_state(session, board_id=board_id, user_id=user.id)
+
+
+@router.post(
+    "/{board_id}/access-requests",
+    response_model=MyAccessRequestOut,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def request_access(
+    board_id: uuid.UUID,
+    body: AccessRequestCreate,
+    request: Request,
+    user: CurrentUser,
+    session: Session,
+) -> MyAccessRequestOut:
+    """Ask to be let in.
+
+    202, not 201: nothing was created that the caller can go and look at, and the thing
+    they actually want has not happened yet. It is an accepted request awaiting a
+    person.
+
+    No role dependency on this route, which makes it the only board route reachable
+    without any access to the board - that is the entire point of it. What stands in
+    for the check is that it grants nothing, reveals nothing, and is rate limited per
+    account, because each new ask puts mail in somebody else's inbox.
+    """
+    if body.role not in access_requests.ASKABLE_ROLES:
+        askable = " or ".join(sorted(str(r) for r in access_requests.ASKABLE_ROLES))
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"you may ask for {askable}",
+        )
+
+    if settings.rate_limit_enabled:
+        allowed = await rate_limit_check(
+            request.app.state.redis,
+            action="access-request",
+            identity=str(user.id),
+            spec=settings.rate_limit_access_request,
+        )
+        if not allowed:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="too many requests"
+            )
+
+    board = await session.get(Board, board_id)
+    if board is None:
+        # Answered exactly as a real board with no request on it would be - see
+        # `_my_request_state`. Nothing is written, because there is nothing to write it
+        # against.
+        return MyAccessRequestOut(status="none", role=None, has_access=False)
+
+    existing_role = await resolve_role(session, user_id=user.id, board_id=board_id)
+    if existing_role is not None and at_least(existing_role, body.role):
+        # They already have what they are asking for. Recording a request would put a
+        # decision in front of an owner that has already been made, and the honest
+        # answer is that the door is open.
+        return MyAccessRequestOut(status="granted", role=body.role, has_access=True)
+
+    _, notify = await access_requests.ask(
+        session, board_id=board_id, user_id=user.id, role=body.role
+    )
+    await session.commit()
+
+    if notify:
+        await access_requests.notify_owners(session, board=board, asker=user, role=body.role)
+
+    return MyAccessRequestOut(
+        status="pending", role=body.role, has_access=existing_role is not None
+    )
+
+
+@router.get("/{board_id}/access-requests", response_model=list[AccessRequestOut])
+async def list_access_requests(
+    board_id: uuid.UUID,
+    session: Session,
+    role: Annotated[BoardRole, Depends(board_owner)],
+) -> list[AccessRequestOut]:
+    """Who is waiting. Owner only, like every other control over who may be here."""
+    return [
+        AccessRequestOut(
+            id=request.id,
+            user_id=asker.id,
+            email=asker.email,
+            display_name=asker.display_name,
+            avatar_url=asker.avatar_url,
+            role=request.role,
+            created_at=request.created_at,
+        )
+        for request, asker in await access_requests.waiting(session, board_id)
+    ]
+
+
+@router.post("/{board_id}/access-requests/{request_id}", response_model=ShareState)
+async def decide_access_request(
+    board_id: uuid.UUID,
+    request_id: uuid.UUID,
+    body: AccessRequestDecision,
+    request: Request,
+    user: CurrentUser,
+    session: Session,
+    role: Annotated[BoardRole, Depends(board_owner)],
+) -> ShareState:
+    """Let somebody in, or turn them down.
+
+    Approving writes the same `board_members` row an invitation would, through the same
+    rule: never lower what somebody already holds. Somebody who asked to view while
+    already an editor through their workspace is asking for less than they have, and
+    granting it must not take the rest away.
+
+    Answers with the whole share state, like every other write in this section, so the
+    dialog redraws from what the server holds rather than from what it guessed.
+    """
+    board = await session.get(Board, board_id)
+    if board is None:  # pragma: no cover - board_owner already resolved it
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="no access")
+
+    pending = await session.get(BoardAccessRequest, request_id)
+    # Scoped by board as well as by id, for the reason `revoke_invite` is: an id alone
+    # is enough to find a row belonging to somebody else's board.
+    if pending is None or pending.board_id != board_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no such request")
+
+    granted = body.role or pending.role
+    if body.approve and granted not in access_requests.ASKABLE_ROLES:
+        askable = " or ".join(sorted(str(r) for r in access_requests.ASKABLE_ROLES))
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"a request may be granted {askable}",
+        )
+
+    pending.status = access_requests.GRANTED if body.approve else access_requests.DECLINED
+    pending.decided_at = datetime.now(UTC)
+    pending.decided_by = user.id
+
+    target = await session.get(User, pending.user_id)
+    before = await resolve_role(session, user_id=pending.user_id, board_id=board_id)
+
+    if body.approve:
+        existing = await session.get(BoardMember, (board_id, pending.user_id))
+        if existing is None:
+            session.add(
+                BoardMember(board_id=board_id, user_id=pending.user_id, role=granted)
+            )
+        elif rank(granted) > rank(existing.role):
+            existing.role = granted
+
+    await session.commit()
+
+    if body.approve:
+        effective = await resolve_role(session, user_id=pending.user_id, board_id=board_id)
+        if target is not None and effective is not None and effective != before:
+            await sharing.notify_role_change(
+                board=board, member=target, role=effective, actor=user
+            )
+        # They may be sitting on the waiting screen with a socket that was refused, or
+        # already here as a viewer holding a read-only channel. Either way the answer
+        # the handshake gave them is out of date.
+        await _evict(request, board_id, "access granted")
+
+    return await _share_state(session, board, request)
