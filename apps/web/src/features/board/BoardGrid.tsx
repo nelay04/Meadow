@@ -7,6 +7,12 @@
  * choices are before you commit to one, which is what every board tool worth copying
  * does with its paper.
  *
+ * The three rows now open *inside* the menu that holds them rather than in a second
+ * popup beside it. A dropdown within a dropdown is two surfaces to dismiss and a
+ * second place for the pointer to fall off, for a choice of three; opening in place
+ * keeps it one menu, and the row can say which paper is on without being pressed -
+ * it wears the chosen pattern's own icon and names it.
+ *
  * Not a permission and not a property of the board. This is the reader's own paper -
  * it is remembered in this browser, and nobody else on the glade sees it change - so
  * a viewer chooses it as freely as an editor does. Offered on a glade only: a lea's
@@ -14,10 +20,16 @@
  * rubbed out is not a writing line.
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 
 import type { GridPattern } from '../../canvas/surface'
-import { IconCheck, IconGridDots, IconGridLines, IconGridNone } from '../../ui/icons'
+import {
+  IconCheck,
+  IconChevronDown,
+  IconGridDots,
+  IconGridLines,
+  IconGridNone,
+} from '../../ui/icons'
 
 /** The picker's value: the two patterns, plus the paper with nothing printed on it. */
 export type GridChoice = GridPattern | 'none'
@@ -36,56 +48,44 @@ export function BoardGrid({
   onChange: (choice: GridChoice) => void
 }) {
   const [open, setOpen] = useState(false)
-  const root = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onDown = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(false)
-    }
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('pointerdown', onDown, true)
-    window.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('pointerdown', onDown, true)
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [open])
 
   const current = CHOICES.find((choice) => choice.id === value) ?? CHOICES[0]
   const Face = current.Icon
 
   return (
-    <div className="dropdown" ref={root}>
+    <div className="menu-section">
       <button
         type="button"
-        className={open ? 'icon ghost active' : 'icon ghost'}
-        aria-haspopup="listbox"
+        // A menu item that opens a group inside the same menu, so it stays a
+        // `menuitem` and says whether the group under it is showing. The choices below
+        // are radios in that group: one paper is on, and picking one is picking all of
+        // them differently.
+        role="menuitem"
+        className="menu-item"
         aria-expanded={open}
-        title="Grid"
-        aria-label="Grid"
         onClick={() => setOpen((shown) => !shown)}
       >
-        {/* The button wears the paper that is on, the way the shape button wears the
-            shape it draws. */}
-        <Face />
+        {/* The row wears the paper that is on, the way the rail's shape button wears
+            the shape it will draw. */}
+        <Face size={16} />
+        <span>Page background</span>
+        <span className="menu-value">{current.label}</span>
+        <IconChevronDown size={14} className={open ? 'menu-caret open' : 'menu-caret'} />
       </button>
 
       {open && (
-        <div className="menu menu-compact menu-grid" role="listbox" aria-label="Grid">
+        <div className="menu-options" role="group" aria-label="Page background">
           {CHOICES.map((choice) => (
             <button
               key={choice.id}
               type="button"
-              role="option"
-              aria-selected={choice.id === value}
+              role="menuitemradio"
+              aria-checked={choice.id === value}
               className={choice.id === value ? 'menu-item selected' : 'menu-item'}
-              onClick={() => {
-                setOpen(false)
-                onChange(choice.id)
-              }}
+              // The list stays open on a choice, and so does the menu around it. There
+              // are three papers and the whole point of seeing them together is trying
+              // them against what is actually on the canvas.
+              onClick={() => onChange(choice.id)}
             >
               <choice.Icon size={15} />
               <span className="menu-label">{choice.label}</span>

@@ -1423,10 +1423,7 @@ export default function BoardPage({ boardId, onBack }: Props) {
               )}
 
               {spec.column !== null && (
-                <div className="menu-row">
-                  <span className="menu-row-label">Paper</span>
-                  <LeaPaper value={paperPreference} onChange={setPaper} />
-                </div>
+                <LeaPaper value={paperPreference} onChange={setPaper} />
               )}
 
               {/*
@@ -1439,20 +1436,17 @@ export default function BoardPage({ boardId, onBack }: Props) {
                 one real choice is worse than the toggle it replaced.
               */}
               {spec.column === null ? (
-                <div className="menu-row">
-                  <span className="menu-row-label">Grid</span>
-                  <BoardGrid
-                    value={canvas.gridVisible ? canvas.gridPattern : 'none'}
-                    onChange={(choice) => {
-                      if (choice === 'none') {
-                        if (canvas.gridVisible) canvas.toggleGrid()
-                        return
-                      }
-                      canvas.setGridPattern(choice)
-                      if (!canvas.gridVisible) canvas.toggleGrid()
-                    }}
-                  />
-                </div>
+                <BoardGrid
+                  value={canvas.gridVisible ? canvas.gridPattern : 'none'}
+                  onChange={(choice) => {
+                    if (choice === 'none') {
+                      if (canvas.gridVisible) canvas.toggleGrid()
+                      return
+                    }
+                    canvas.setGridPattern(choice)
+                    if (!canvas.gridVisible) canvas.toggleGrid()
+                  }}
+                />
               ) : (
                 <button
                   type="button"

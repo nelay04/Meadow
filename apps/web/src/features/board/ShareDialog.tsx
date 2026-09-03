@@ -376,41 +376,60 @@ export function ShareDialog({ boardId, title, noun, onClose, onChanged }: Props)
             <section className="share-section">
               <h3>General access</h3>
 
-              <div className="access-choice" role="radiogroup" aria-label="General access">
+              {/*
+                One row, two segments, and a sentence under it.
+
+                This was two large cards, each with its own heading and its own line of
+                explanation, and then - when the board was public - a third row below
+                repeating "Anyone with the link" beside the role control. Four lines of
+                type and a duplicated label for a choice between two things, at the top
+                of a dialog that already holds a URL, a send row, an invite form and a
+                list of people. The choice is binary and it is a *setting*, so it gets
+                the control every other setting in this app gets, and the explanation is
+                one line that changes with the answer rather than two that stand whether
+                they apply or not.
+              */}
+              <div
+                className="segmented access-modes"
+                role="radiogroup"
+                aria-label="General access"
+              >
                 <button
                   type="button"
                   role="radio"
                   aria-checked={!isPublic}
-                  className={isPublic ? 'access' : 'access active'}
+                  className={isPublic ? '' : 'active'}
                   disabled={busy}
                   onClick={() => setMode('restricted', share.role)}
                 >
-                  <IconLock size={17} />
-                  <span className="access-text">
-                    <strong>Restricted</strong>
-                    <small>Only people listed below can open it.</small>
-                  </span>
+                  <IconLock size={14} />
+                  Restricted
                 </button>
 
                 <button
                   type="button"
                   role="radio"
                   aria-checked={isPublic}
-                  className={isPublic ? 'access active' : 'access'}
+                  className={isPublic ? 'active' : ''}
                   disabled={busy}
                   onClick={() => setMode('public', share.role)}
                 >
-                  <IconGlobe size={17} />
-                  <span className="access-text">
-                    <strong>Anyone with the link</strong>
-                    <small>No sign-in needed. They arrive as a guest.</small>
-                  </span>
+                  <IconGlobe size={14} />
+                  Anyone with the link
                 </button>
               </div>
 
-              {isPublic && (
-                <div className="share-role">
-                  <span className="share-role-label">Anyone with the link</span>
+              {/* The consequence on the left, and - when there is a link to strangers -
+                  what it hands them on the right. One row, because they are one
+                  sentence: anyone with the link can view. */}
+              <div className="access-line">
+                <p className="share-note">
+                  {isPublic
+                    ? `Anyone who has the link opens this ${noun} as a guest, with no sign-in.`
+                    : 'Only the people listed below can open it, signed in or not.'}
+                </p>
+
+                {isPublic && (
                   <div className="segmented" role="radiogroup" aria-label="What the link grants">
                     {SHAREABLE.map((option) => (
                       <button
@@ -428,17 +447,10 @@ export function ShareDialog({ boardId, title, noun, onClose, onChanged }: Props)
                       </button>
                     ))}
                   </div>
-                </div>
-              )}
+                )}
+              </div>
 
               <CopyRow value={linkValue} label={`Link to this ${noun}`} />
-
-              {!isPublic && (
-                <p className="share-note">
-                  This is the plain address. It opens only for the people listed below -
-                  anyone else is turned away, whether they are signed in or not.
-                </p>
-              )}
 
               <div className="socials" aria-label="Share this link">
                 {SOCIALS.map((social) => (
@@ -499,30 +511,37 @@ export function ShareDialog({ boardId, title, noun, onClose, onChanged }: Props)
                     }
                   }}
                 />
-                <div className="segmented" role="radiogroup" aria-label="What they get">
-                  {SHAREABLE.map((option) => (
-                    <button
-                      key={option.id}
-                      type="button"
-                      role="radio"
-                      aria-checked={inviteRole === option.id}
-                      className={inviteRole === option.id ? 'active' : ''}
-                      disabled={busy}
-                      onClick={() => setInviteRole(option.id)}
-                    >
-                      <option.Icon size={14} />
-                      {option.label}
-                    </button>
-                  ))}
+                {/* The address gets the whole first line and what it grants gets the
+                    second. Three controls abreast left the email field the narrowest
+                    thing on the row, and an email field too short to show an email is
+                    the one field in this dialog that cannot afford it. */}
+                <div className="invite-terms">
+                  <div className="segmented" role="radiogroup" aria-label="What they get">
+                    {SHAREABLE.map((option) => (
+                      <button
+                        key={option.id}
+                        type="button"
+                        role="radio"
+                        aria-checked={inviteRole === option.id}
+                        className={inviteRole === option.id ? 'active' : ''}
+                        disabled={busy}
+                        onClick={() => setInviteRole(option.id)}
+                      >
+                        <option.Icon size={14} />
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <button
+                    type="button"
+                    className="primary"
+                    disabled={busy || email.trim() === ''}
+                    onClick={() => void invite()}
+                  >
+                    Invite
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  className="primary"
-                  disabled={busy || email.trim() === ''}
-                  onClick={() => void invite()}
-                >
-                  Invite
-                </button>
               </div>
 
               {result?.status === 'pending' && result.link !== null && (

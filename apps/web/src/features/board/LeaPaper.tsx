@@ -12,13 +12,17 @@
  * the profile as a fallback under it, and two controls that disagreed after either one
  * was touched read as a bug however carefully the fallback was labelled.
  *
+ * Opens in place, under its own row, for the reason `BoardGrid` does: a popup opening
+ * out of a popup is a second thing to dismiss for a choice of three, and the row can
+ * name the paper that is on without being opened at all.
+ *
  * Being this browser's preference rather than the document's, it is not a permission:
  * a viewer chooses what a page they can only read looks like to them.
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 
-import { IconCheck, IconPaper } from '../../ui/icons'
+import { IconCheck, IconChevronDown, IconPaper } from '../../ui/icons'
 import { PAPERS, PAPER_LABEL, type Paper } from '../../ui/paper'
 
 export function LeaPaper({
@@ -29,53 +33,36 @@ export function LeaPaper({
   onChange: (paper: Paper) => void
 }) {
   const [open, setOpen] = useState(false)
-  const root = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onDown = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(false)
-    }
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('pointerdown', onDown, true)
-    window.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('pointerdown', onDown, true)
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [open])
-
-  const pick = (paper: Paper): void => {
-    setOpen(false)
-    onChange(paper)
-  }
 
   return (
-    <div className="dropdown" ref={root}>
+    <div className="menu-section">
       <button
         type="button"
-        className={open ? 'icon ghost active' : 'icon ghost'}
-        aria-haspopup="listbox"
+        // A menu item that opens a group inside the same menu, so it stays a
+        // `menuitem` and says whether the group under it is showing. The choices below
+        // are radios in that group: one paper is on, and picking one is picking all of
+        // them differently.
+        role="menuitem"
+        className="menu-item"
         aria-expanded={open}
-        title="Paper"
-        aria-label="Paper"
         onClick={() => setOpen((shown) => !shown)}
       >
-        <IconPaper />
+        <IconPaper size={16} />
+        <span>Paper</span>
+        <span className="menu-value">{PAPER_LABEL[value]}</span>
+        <IconChevronDown size={14} className={open ? 'menu-caret open' : 'menu-caret'} />
       </button>
 
       {open && (
-        <div className="menu menu-compact" role="listbox" aria-label="Paper">
+        <div className="menu-options" role="group" aria-label="Paper">
           {PAPERS.map((option) => (
             <button
               key={option}
               type="button"
-              role="option"
-              aria-selected={option === value}
+              role="menuitemradio"
+              aria-checked={option === value}
               className={option === value ? 'menu-item selected' : 'menu-item'}
-              onClick={() => pick(option)}
+              onClick={() => onChange(option)}
             >
               <span className="menu-label">{PAPER_LABEL[option]}</span>
               {option === value && <IconCheck size={15} />}

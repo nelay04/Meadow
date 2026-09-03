@@ -1608,15 +1608,34 @@ label {
 
 .menu-item {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
+  /*
+   * A menu item is a line in a list, not a button on a bar.
+   *
+   * The base `button` rule centres its content and sets it in 600, which is right for
+   * a bar and wrong here: it put "Share..." in the middle of its own row in bold while
+   * the "Grid" label beneath it sat against the left edge at the body weight, so a menu
+   * of two rows read as two unrelated things. Every other menu in the app happens to
+   * override both, which is why this only ever showed in the board bar's overflow.
+   */
+  justify-content: flex-start;
   gap: 0.6rem;
   width: 100%;
-  padding: 0.5rem 0.6rem;
+  padding: 0.45rem 0.6rem;
   border-color: transparent;
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--fg);
+  font-size: 0.85rem;
+  font-weight: inherit;
   text-align: left;
+}
+
+/* The label takes the slack, so a tick or a badge at the end of a row sits at the end
+   of the row rather than against the words. */
+.menu-item > span:not([class]) {
+  flex: 1;
+  min-width: 0;
 }
 
 .menu-item:hover:not(:disabled) {
@@ -1637,13 +1656,6 @@ label {
   font-size: 0.85rem;
 }
 
-/* Three rows, each led by a picture of the paper it names. The label takes the slack
-   so the marks stay against the icon and only the tick sits at the far end. */
-.menu-grid .menu-label {
-  flex: 1;
-  font-weight: 600;
-}
-
 .menu-item.selected .menu-label {
   color: var(--accent);
 }
@@ -1655,7 +1667,6 @@ label {
 
 .menu-item > svg {
   flex: 0 0 auto;
-  margin-top: 0.1rem;
   color: var(--muted);
 }
 
@@ -4631,7 +4642,7 @@ dialog.modal[open] .modal-card {
 }
 
 .share-section {
-  margin-top: 1.35rem;
+  margin-top: 1.15rem;
 }
 
 .share-section h3 {
@@ -4643,90 +4654,49 @@ dialog.modal[open] .modal-card {
   color: var(--faint);
 }
 
-/* Two large targets rather than a select, because this is the consequential choice on
-   the screen and it deserves to look like one. Each says what it does underneath its
-   own name: "restricted" and "public" are our words, and the line below is the
-   sentence somebody actually decides on. */
-.access-choice {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.5rem;
+/*
+ * General access, as one control.
+ *
+ * It was two large cards, each with a heading and a sentence, and it cost four lines of
+ * type plus a repeated label to ask a yes-or-no question at the top of the busiest
+ * dialog in the app. The cards were sized for their consequence; what they actually did
+ * was push the link, the send row and the people list below the fold on a laptop, so
+ * the consequence was harder to see rather than easier. The two segments read as one
+ * question with two answers, which is what this is.
+ */
+/* The specificity is deliberate: `.share-modal .segmented` below shrinks this
+   dialog's segmented controls to their content, which is right for a control sitting at
+   the end of a row and wrong for the one that *is* the row. */
+.share-modal .segmented.access-modes {
+  grid-auto-columns: 1fr;
+  width: 100%;
 }
 
-.access {
+/* The sentence that says what the chosen mode means, and - only when the link is open
+   to strangers - what it hands them. They wrap onto separate lines on a narrow dialog
+   rather than squeezing the words. */
+.access-line {
   display: flex;
-  align-items: flex-start;
-  gap: 0.55rem;
-  padding: 0.7rem 0.75rem;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface);
-  color: var(--fg);
-  text-align: left;
-}
-
-.access:hover:not(:disabled) {
-  border-color: var(--accent);
-}
-
-.access.active {
-  border-color: var(--accent);
-  /* A tint rather than a fill: the unselected option has to stay legible beside it,
-     and a solid plate here would read as the only button on the row. */
-  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
-}
-
-.access > svg {
-  flex: 0 0 auto;
-  margin-top: 0.1rem;
-  color: var(--muted);
-}
-
-.access.active > svg {
-  color: var(--accent);
-}
-
-.access-text {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  min-width: 0;
-}
-
-.access-text strong {
-  font-size: 0.9rem;
-  font-weight: 700;
-  color: var(--fg-strong);
-}
-
-.access-text small {
-  font-size: 0.75rem;
-  line-height: 1.35;
-  color: var(--faint);
-}
-
-.share-role {
-  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.75rem;
-  margin-top: 0.75rem;
+  justify-content: space-between;
+  gap: 0.5rem 0.9rem;
+  margin-top: 0.55rem;
 }
 
-.share-role-label {
-  font-size: 0.85rem;
-  color: var(--muted);
+.access-line .share-note {
+  flex: 1 1 14rem;
+  margin: 0;
 }
 
 /* The dialog's segmented controls sit inside rows rather than under a heading, so
    they drop the standalone control's top margin and stop stretching to fill. */
-.share-modal .segmented,
-.menu-row .segmented {
+.share-modal .segmented {
   margin-top: 0;
   grid-auto-columns: auto;
 }
 
-.share-modal .segmented button,
-.menu-row .segmented button {
+.share-modal .segmented button {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
@@ -4736,8 +4706,7 @@ dialog.modal[open] .modal-card {
 
 /* These are radios, not toggles, so they carry `aria-checked` rather than
    `aria-pressed` and need the selected treatment spelled out for both. */
-.share-modal .segmented button.active,
-.menu-row .segmented button.active {
+.share-modal .segmented button.active {
   background: var(--surface);
   color: var(--fg-strong);
   box-shadow: var(--shadow-sm);
@@ -4807,17 +4776,21 @@ dialog.modal[open] .modal-card {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2.1rem;
-  height: 2.1rem;
-  border: 1px solid var(--line);
+  width: 2rem;
+  height: 2rem;
+  /* Transparent until pointed at. Six bordered plates in a row read as six decisions;
+     these are one decision - send this link - taken six ways, and the border was doing
+     nothing but adding edges to a dialog that already had too many. */
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
-  background: var(--surface);
-  color: var(--muted);
+  background: transparent;
+  color: var(--faint);
   text-decoration: none;
 }
 
 .social:hover {
-  border-color: var(--accent);
+  border-color: var(--line);
+  background: var(--surface-3);
   color: var(--fg-strong);
 }
 
@@ -4834,16 +4807,24 @@ dialog.modal[open] .modal-card {
   color: var(--danger);
 }
 
+/* The address on its own line, then what it grants and the button that sends it. */
 .invite-row {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  flex-direction: column;
   gap: 0.5rem;
 }
 
 .invite-email {
-  flex: 1 1 12rem;
+  width: 100%;
   min-width: 0;
+}
+
+.invite-terms {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
 }
 
 /* The "no account yet" answer, and the one thing in this dialog that must not be a
@@ -4929,20 +4910,57 @@ dialog.modal[open] .modal-card {
 
 /* --- the board bar's overflow menu ------------------------------------------- */
 
-/* Rows that hold a control rather than being one. The label is on the left so the
-   menu still reads as a list of names down its edge, and the picker sits at the end
-   where a value belongs. */
-.menu-row {
+/*
+ * A setting that opens its choices underneath itself.
+ *
+ * It was a row with a picker parked at the end of it, and the picker was a dropdown -
+ * so choosing the dot lattice meant opening a second popup out of the side of the
+ * first, with two surfaces to dismiss and a gap between them for the pointer to fall
+ * into, all for a choice of three. Opening in place keeps it one menu. The closed row
+ * still says which one is on, in its icon and in a word at the end, so the answer is
+ * readable without opening anything.
+ */
+.menu-section {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.4rem 0.6rem;
+  flex-direction: column;
 }
 
-.menu-row-label {
-  font-size: 0.85rem;
-  color: var(--fg);
+/* What is currently chosen, at the end of the closed row. Quiet: it is an answer, not
+   a control, and the row it sits in is the control. */
+.menu-value {
+  flex: 0 0 auto;
+  font-size: 0.78rem;
+  color: var(--faint);
+}
+
+/* Written against `.menu-item > svg` above, which is the rule that colours a row's
+   leading icon and would otherwise colour the caret with it. */
+.menu-item > svg.menu-caret {
+  flex: 0 0 auto;
+  color: var(--faint);
+  transition: transform var(--fast);
+}
+
+.menu-item > svg.menu-caret.open {
+  transform: rotate(180deg);
+}
+
+/* The choices, indented under the row that opened them so the menu still reads as one
+   list with a branch in it rather than as two lists that happen to touch. */
+.menu-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  margin: 0.1rem 0 0.25rem;
+  padding-left: 1.2rem;
+}
+
+.menu-options .menu-label {
+  flex: 1;
+  min-width: 0;
+  /* The same weight as every other line in this menu. `.menu-label` is bold for the
+     pickers that are a menu on their own, where the label is the whole row. */
+  font-weight: inherit;
 }
 
 .menu-item.checked > svg {
