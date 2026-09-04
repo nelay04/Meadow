@@ -69,12 +69,15 @@ import {
   IconShapes,
   IconShare,
   IconSquare,
+  IconStack,
   IconStrike,
   IconSticky,
   IconText,
   IconTrapezoid,
   IconTriangle,
   IconUnderline,
+  IconToBack,
+  IconToFront,
   IconTrash,
   IconUnlock,
 } from '../../ui/icons'
@@ -99,6 +102,7 @@ import {
 } from '../../ui/paper'
 import { LeaDate } from './LeaDate'
 import { LeaPages } from './LeaPages'
+import { StackPanel } from './StackPanel'
 import { toggleInputLanguage } from '../../text/imeStore'
 import { inputLanguage } from '../../text/inputLanguages'
 import { InputLanguage } from './InputLanguage'
@@ -347,6 +351,34 @@ function writePagesPreference(open: boolean): void {
   }
 }
 
+/*
+ * Whether the stack list is open, remembered the same way and for the same reason.
+ *
+ * Its own key rather than a shared "sidebar" one, because the two lists belong to
+ * different kinds of glade and nobody has both on screen: closing the pages on a lea
+ * must not also close the stack on the canvas you open next. Closed by default, unlike
+ * the pages - the stack is a thing you go and get when depth is the problem, and a
+ * panel that opens itself on every glade is a panel most people would close once and
+ * then have to keep closing.
+ */
+const STACK_KEY = 'meadow.stack'
+
+function readStackPreference(): boolean {
+  try {
+    return localStorage.getItem(STACK_KEY) === 'on'
+  } catch {
+    return false
+  }
+}
+
+function writeStackPreference(open: boolean): void {
+  try {
+    localStorage.setItem(STACK_KEY, open ? 'on' : 'off')
+  } catch {
+    // It still holds for this session.
+  }
+}
+
 /** One avatar per person, however many tabs they have open. */
 /**
  * One person in the presence row.
@@ -449,6 +481,7 @@ export default function BoardPage({ boardId, onBack }: Props) {
   const [detail, setDetail] = useState('')
   /** Whether the diary's page list is beside the paper. Only a lea has one. */
   const [pagesOpen, setPagesOpen] = useState(readPagesPreference)
+  const [stackOpen, setStackOpen] = useState(readStackPreference)
   /** The text-size menu, the same `.menu` popup as the paper picker rather than a native `<select>`. */
   const [sizeMenuOpen, setSizeMenuOpen] = useState(false)
   const sizeMenuRoot = useRef<HTMLDivElement>(null)
@@ -1096,6 +1129,35 @@ export default function BoardPage({ boardId, onBack }: Props) {
   }, [toast])
 
   /*
+   * Ctrl+L opens and closes the stack.
+   *
+   * On the window rather than on the canvas, deliberately: the panel is chrome around
+   * the surface and not a canvas tool, and binding it inside the engine would mean it
+   * stopped working the moment focus was in the stack's own search box - which is
+   * exactly where somebody is when they want to put the panel away again.
+   *
+   * Left alone while a caret is in a text object, because on a canvas the editor is a
+   * real editor and Ctrl+L belongs to it there. Also left alone on a lea, which has no
+   * stack to show.
+   */
+  const stackable = spec.column === null
+  useEffect(() => {
+    if (!stackable) return
+    const onKey = (event: KeyboardEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return
+      if (event.altKey || event.shiftKey || event.key.toLowerCase() !== 'l') return
+      if (canvas.editingId !== null) return
+      event.preventDefault()
+      setStackOpen((open) => {
+        writeStackPreference(!open)
+        return !open
+      })
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [canvas.editingId, stackable])
+
+  /*
    * A new lea opens with the caret on its first line.
    *
    * Only when the page is genuinely empty. Once there is writing on it, forcing a
@@ -1564,6 +1626,33 @@ export default function BoardPage({ boardId, onBack }: Props) {
                 line with its middle rubbed out is not a writing line - and a picker of
                 one real choice is worse than the toggle it replaced.
               */}
+              {/*
+                The stack list, on a glade and nowhere else.
+
+                A lea has an order too - it is the same document - but nothing on a
+                ruled page is in front of anything, so a panel about depth there would
+                be a panel about a problem the surface cannot have. It would also want
+                the side of the body the pages already stand on.
+              */}
+              {spec.column === null && (
+                <button
+                  type="button"
+                  role="menuitemcheckbox"
+                  aria-checked={stackOpen}
+                  className={stackOpen ? 'menu-item checked' : 'menu-item'}
+                  onClick={() =>
+                    setStackOpen((open) => {
+                      writeStackPreference(!open)
+                      return !open
+                    })
+                  }
+                >
+                  <IconStack size={16} />
+                  <span>{stackOpen ? 'Hide the stack' : 'Show the stack'}</span>
+                  <span className="menu-hint">Ctrl+L</span>
+                </button>
+              )}
+
               {spec.column === null ? (
                 <BoardGrid
                   value={canvas.gridVisible ? canvas.gridPattern : 'none'}
@@ -1595,7 +1684,15 @@ export default function BoardPage({ boardId, onBack }: Props) {
 
       {/* `with-pages` only while the list is actually standing beside the canvas: it is
           what everything centred on the paper subtracts to stay centred on it. */}
-      <div className={spec.column !== null && pagesOpen ? 'board-body with-pages' : 'board-body'}>
+      <div
+        className={[
+          'board-body',
+          spec.column !== null && pagesOpen ? 'with-pages' : '',
+          spec.column === null && stackOpen ? 'with-stack' : '',
+        ]
+          .filter((name) => name !== '')
+          .join(' ')}
+      >
         {/* The rail floats over the canvas rather than taking a column out of it.
             ARCHITECTURE 1: the drawing surface is the product. */}
         <nav className="toolbar" aria-label="Tools">
@@ -1925,6 +2022,45 @@ export default function BoardPage({ boardId, onBack }: Props) {
             </div>
           )}
 
+          {/*
+            The two ends of the stack, on the rail.
+
+            Two of the four moves rather than all of them, and these two because they
+            are the ones with a single obvious meaning: "over everything" and "under
+            everything" are what people want most of the time, and one step at a time is
+            a thing you do while looking at the stack, where the list shows you what the
+            step did. The panel has all four.
+
+            Not on a lea: there is no in front of on a ruled page.
+          */}
+          {spec.column === null && (
+            <>
+              <hr />
+
+              <button
+                type="button"
+                className="tool"
+                aria-label="Bring selection to the front"
+                disabled={!canWrite || canvas.selection.length === 0}
+                onClick={canvas.bringToFront}
+              >
+                <IconToFront size={19} />
+                <Tip label="To front" hint="Ctrl+]" />
+              </button>
+
+              <button
+                type="button"
+                className="tool"
+                aria-label="Send selection to the back"
+                disabled={!canWrite || canvas.selection.length === 0}
+                onClick={canvas.sendToBack}
+              >
+                <IconToBack size={19} />
+                <Tip label="To back" hint="Ctrl+[" />
+              </button>
+            </>
+          )}
+
           <hr />
 
           <button
@@ -2065,6 +2201,43 @@ export default function BoardPage({ boardId, onBack }: Props) {
             onCollapse={() => {
               writePagesPreference(false)
               setPagesOpen(false)
+            }}
+          />
+        )}
+
+        {/* The way back to a stack you have closed, on the edge it came off. The count
+            says what is behind it, which is the one thing a bare icon would not. */}
+        {spec.column === null && !stackOpen && (
+          <button
+            type="button"
+            className="lea-pages-tab"
+            title="Show the stack (Ctrl+L)"
+            aria-label="Show the stack"
+            onClick={() => {
+              writeStackPreference(true)
+              setStackOpen(true)
+            }}
+          >
+            <IconStack size={17} />
+            <span className="lea-pages-tab-count">{canvas.objectCount}</span>
+          </button>
+        )}
+
+        {spec.column === null && stackOpen && (
+          <StackPanel
+            session={session}
+            selection={canvas.selection}
+            editable={canWrite}
+            onSelect={canvas.select}
+            onSpotlight={canvas.spotlight}
+            onReveal={canvas.reveal}
+            onBringToFront={canvas.bringToFront}
+            onSendToBack={canvas.sendToBack}
+            onBringForward={canvas.bringForward}
+            onSendBackward={canvas.sendBackward}
+            onCollapse={() => {
+              writeStackPreference(false)
+              setStackOpen(false)
             }}
           />
         )}

@@ -5275,3 +5275,385 @@ dialog.modal[open] .modal-card {
   margin-top: 0.15rem;
   margin-left: -0.7rem;
 }
+
+/*
+ * The stack.
+ *
+ * A column of the body, standing where a lea's pages stand, and never on screen at the
+ * same time as them: one is a diary's spine and the other is a canvas's depth, and no
+ * glade is both. Sharing `--pages-width` is the point rather than reuse for its own
+ * sake - `--board-aside` is what everything centred on the drawing surface subtracts to
+ * stay centred, and two different sidebar widths would need it computed twice.
+ */
+.stack {
+  flex: none;
+  width: var(--pages-width);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--line);
+  background: var(--surface);
+  /* Above the canvas host, exactly as the page list is. */
+  z-index: 3;
+}
+
+.board-body.with-stack {
+  --board-aside: var(--pages-width);
+}
+
+.stack-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.7rem 0.7rem 0.35rem 0.9rem;
+}
+
+.stack-head h2 {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.stack-count {
+  margin-right: auto;
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.stack-collapse {
+  width: 1.6rem;
+  height: 1.6rem;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+}
+
+.stack-collapse:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: transparent;
+  color: var(--fg-strong);
+  transform: none;
+}
+
+/*
+ * Which end is the front, said once at the top.
+ *
+ * A list whose order is its entire meaning has to say which way it runs, and it has to
+ * say it where somebody reads before they drag rather than after. One quiet line beats
+ * an arrow glyph in the header, which everybody reads as a sort control.
+ */
+.stack-legend {
+  margin: 0;
+  padding: 0 0.9rem 0.5rem;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+/* `flex-direction` restated: the app's own `label` rule stacks a caption over a field,
+   which is right for a form and wrong for a search box whose caption is an icon. */
+.stack-search {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0 0.6rem 0.5rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+.stack-search:focus-within {
+  border-color: var(--accent);
+  color: var(--fg-strong);
+}
+
+.stack-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--fg-strong);
+  font: inherit;
+  font-size: 0.8rem;
+}
+
+.stack-search input:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+/* The four moves, as one segmented group: they are one control with four answers. */
+.stack-moves {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.2rem;
+  margin: 0 0.6rem 0.5rem;
+  padding: 0.2rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.stack-moves button {
+  height: 2rem;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: calc(var(--radius-sm) - 3px);
+  background: transparent;
+  color: var(--muted);
+}
+
+.stack-moves button:hover:not(:disabled) {
+  background: var(--surface);
+  color: var(--fg-strong);
+  transform: none;
+}
+
+.stack-moves button:disabled {
+  opacity: 0.4;
+}
+
+.stack-empty {
+  margin: 0;
+  padding: 0.6rem 0.9rem 1rem;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.stack-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0 0.5rem 0.6rem;
+  list-style: none;
+  /* The drag maths reads `offsetTop` off the rows, which is measured against the
+     nearest positioned ancestor. This is that ancestor, and it has to stay one. */
+  position: relative;
+}
+
+/* Nothing on a row is selectable while a drag is live, or the pointer paints text
+   down the list instead of carrying the row. */
+.stack-list.dragging {
+  user-select: none;
+  cursor: grabbing;
+}
+
+.stack-row {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0 0.15rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  /* The insertion line is drawn as a border on the row it would land above, so the row
+     has to reserve the space either way or the whole list jumps by a pixel on drop. */
+  border-top-color: transparent;
+  border-bottom-color: transparent;
+}
+
+.stack-row:hover {
+  background: var(--surface-2);
+}
+
+.stack-row.selected {
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+/* The rows being carried fade rather than move: lifting them out of the list would
+   reflow everything under the pointer mid-drag, and the insertion line already says
+   where they are going. */
+.stack-row.lifting {
+  opacity: 0.45;
+}
+
+.stack-row.drop-above {
+  border-top-color: var(--accent);
+}
+
+.stack-row.drop-below {
+  border-bottom-color: var(--accent);
+}
+
+.stack-grip {
+  display: grid;
+  place-items: center;
+  width: 1.05rem;
+  height: 1.9rem;
+  color: color-mix(in srgb, var(--muted) 55%, transparent);
+  cursor: grab;
+  touch-action: none;
+}
+
+.stack-row:hover .stack-grip:not(.idle) {
+  color: var(--muted);
+}
+
+/* A grip that will not pick anything up must not look like one. Dragging is off while
+   the list is filtered, because a drop between two visible rows says nothing about the
+   rows hidden between them - see `canDrag` in StackPanel. */
+.stack-grip.idle {
+  color: transparent;
+  cursor: default;
+}
+
+/*
+ * The depth, which is also the field that sets it.
+ *
+ * Printed as plain text until it is pointed at. A column of forty visible number
+ * inputs is a form, and this list is not a form - it is a picture of a stack that
+ * happens to accept a typed answer.
+ */
+.stack-z {
+  width: 2.1rem;
+  padding: 0.1rem 0.2rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  /* The spinners would be two more targets on a row that already has four. */
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.stack-z::-webkit-outer-spin-button,
+.stack-z::-webkit-inner-spin-button {
+  appearance: none;
+  margin: 0;
+}
+
+.stack-row:hover .stack-z:not([readonly]) {
+  border-color: var(--line);
+  background: var(--surface);
+  color: var(--fg-strong);
+}
+
+.stack-z:focus {
+  border-color: var(--accent);
+  background: var(--surface);
+  color: var(--fg-strong);
+}
+
+.stack-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  height: 1.9rem;
+  padding: 0 0.3rem;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-strong);
+  font: inherit;
+  font-size: 0.8rem;
+  text-align: left;
+}
+
+.stack-name:hover:not(:disabled) {
+  background: transparent;
+  transform: none;
+}
+
+.stack-kind {
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+
+.stack-row.selected .stack-kind {
+  color: var(--accent);
+}
+
+.stack-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* A kind is what the app called it, not what the author called it, so it is set in the
+   same quiet tone the placeholder text is. The two must not read as equally chosen. */
+.stack-label.kind {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.stack-lock {
+  flex: none;
+  width: 1.6rem;
+  height: 1.6rem;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  /* Invisible until the row is pointed at or the object is actually locked: a padlock
+     on every row is a column of padlocks, and a locked object is the exception. */
+  opacity: 0;
+}
+
+.stack-row:hover .stack-lock,
+.stack-lock:focus-visible,
+.stack-lock.locked {
+  opacity: 1;
+}
+
+.stack-lock.locked {
+  color: var(--accent);
+}
+
+.stack-lock:hover:not(:disabled) {
+  background: var(--surface);
+  color: var(--fg-strong);
+  transform: none;
+}
+
+/*
+ * Below this the body has no column to spare, so the stack floats over the canvas the
+ * way the page list does. It has taken nothing, so the middle of the body is the middle
+ * of the drawing surface again.
+ */
+@media (max-width: 900px) {
+  .stack {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 14.5rem;
+    box-shadow: var(--shadow-lg);
+  }
+
+  .board-body.with-stack {
+    --board-aside: 0px;
+  }
+}

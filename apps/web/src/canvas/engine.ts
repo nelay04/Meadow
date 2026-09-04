@@ -68,6 +68,7 @@ import {
   connectorInk,
   MARQUEE_FILL,
   SELECTION_COLOR,
+  SPOTLIGHT_COLOR,
   isDarkSurface,
   readCanvasInk,
   resolveStyle,
@@ -359,6 +360,11 @@ export type WritingColumn = {
 }
 
 
+/** How much room `revealObjects` leaves round what it framed, in screen pixels. */
+const REVEAL_MARGIN_PX = 140
+/** How far the stack list's ring sits outside the object's box, in screen pixels. */
+const SPOTLIGHT_INSET_PX = 5
+
 const RULE_BASE_WORLD = 28
 const RULE_MIN_PX = 18
 const RULE_MAX_PX = 72
@@ -493,6 +499,15 @@ export class CanvasEngine {
   private hoverTarget: string | null = null
   /** The shape showing connector dots. Hover state, published by the select tool. */
   private connectorHost: string | null = null
+  /**
+   * What the stack list is pointing at, if anything.
+   *
+   * Deliberately not `hoverTarget`, which belongs to the arrow tool and means "this is
+   * what the end you are dragging would bind to". Sharing one field would have the
+   * panel's hover offer a binding, and an arrow drag erase the row you were pointing
+   * at. Two questions, two fields, drawn in two colours.
+   */
+  private spotlight: string | null = null
 
   /**
    * The routing new arrows are drawn with, chosen in the tool rail.
@@ -1376,6 +1391,79 @@ export class CanvasEngine {
 
   selectAll(): void {
     this.setSelection(this.host.order().filter((id) => !this.cache.get(id)?.locked))
+  }
+
+  /*
+   * The four z-order moves, on the engine rather than only on the keyboard.
+   *
+   * Each is the selection plus the host call, which was previously written out at both
+   * `Ctrl+]` and `]`. Chrome outside the canvas - the stack panel, the rail - needs the
+   * same pairing, and a third and fourth copy of "read the selection, call the host" is
+   * how one of them ends up sending the wrong ids.
+   */
+  bringToFront(): void {
+    this.host.bringToFront(this.getSelection())
+  }
+
+  sendToBack(): void {
+    this.host.sendToBack(this.getSelection())
+  }
+
+  bringForward(): void {
+    this.host.bringForward(this.getSelection())
+  }
+
+  sendBackward(): void {
+    this.host.sendBackward(this.getSelection())
+  }
+
+  /**
+   * Ring one object, or clear the ring.
+   *
+   * Pure chrome: it changes nothing in the document and nothing about what a gesture
+   * would do. The stack list calls it on row hover so that pointing at a name in a
+   * list says which thing on the canvas that name belongs to, which is the whole
+   * reason a list of objects is worth having in the first place.
+   *
+   * A no-op when the id has not changed, because it is called from `onMouseEnter` on
+   * every row of a list that can be a hundred rows long, and a render request per
+   * mouse move across a list is a frame's worth of work for nothing.
+   */
+  setSpotlight(id: string | null): void {
+    const next = id !== null && this.cache.has(id) ? id : null
+    if (this.spotlight === next) return
+    this.spotlight = next
+    this.requestRender()
+  }
+
+  /**
+   * Bring these objects into view, without re-scaling the world around them.
+   *
+   * Not `zoomToFit` on a subset. Fitting one small object means zooming to 800%, which
+   * loses every landmark the person had and answers "where is it" with a picture of
+   * nothing else. So the frame is fitted and then the zoom is pulled back to at most
+   * 1:1: close enough that the object is on screen at a usable size, far enough that
+   * its neighbours came with it.
+   *
+   * Zoom is left alone entirely when the camera is already closer in than 1:1 and the
+   * object fits on screen at that scale, because someone working at 200% who clicks a
+   * row wants to be taken there, not zoomed out.
+   */
+  revealObjects(ids: readonly string[]): void {
+    const objects: ObjectData[] = []
+    for (const id of ids) {
+      const object = this.cache.get(id)
+      if (object !== undefined) objects.push(object)
+    }
+    const box = unionBounds(objects)
+    if (box === null) return
+
+    const current = this.camera.zoom
+    this.camera.fit(box, this.viewportWidth, this.viewportHeight, REVEAL_MARGIN_PX)
+    const fitted = this.camera.zoom
+    const keep = current > fitted ? Math.min(current, fitted) : Math.min(fitted, 1)
+    if (keep !== fitted) this.camera.setZoom(keep, this.viewportWidth, this.viewportHeight)
+    this.requestRender()
   }
 
   /**
@@ -2844,6 +2932,31 @@ export class CanvasEngine {
       }
     }
 
+    /*
+     * The stack list's ring.
+     *
+     * Last of the hover chrome and before the marquee, so it is not hidden under an
+     * arrow's binding highlight when both happen to land on the same shape. Drawn a
+     * little further out than that highlight for the same reason: two rings of the
+     * same size on one object read as one ring of an indeterminate colour.
+     */
+    if (this.spotlight !== null) {
+      const target = this.cache.get(this.spotlight)
+      if (target !== undefined) {
+        const bounds = objectBounds(target)
+        const topLeft = projectPoint(transform, bounds.minX, bounds.minY)
+        const bottomRight = projectPoint(transform, bounds.maxX, bounds.maxY)
+        graphics
+          .rect(
+            topLeft.x - SPOTLIGHT_INSET_PX,
+            topLeft.y - SPOTLIGHT_INSET_PX,
+            bottomRight.x - topLeft.x + SPOTLIGHT_INSET_PX * 2,
+            bottomRight.y - topLeft.y + SPOTLIGHT_INSET_PX * 2,
+          )
+          .stroke({ width: 2, color: SPOTLIGHT_COLOR, alpha: 0.95 })
+      }
+    }
+
     if (this.marquee !== null) {
       const topLeft = projectPoint(transform, this.marquee.minX, this.marquee.minY)
       const bottomRight = projectPoint(transform, this.marquee.maxX, this.marquee.maxY)
@@ -3334,12 +3447,12 @@ export class CanvasEngine {
     }
     if (accel && event.key === ']') {
       event.preventDefault()
-      this.host.bringToFront(this.getSelection())
+      this.bringToFront()
       return
     }
     if (accel && event.key === '[') {
       event.preventDefault()
-      this.host.sendToBack(this.getSelection())
+      this.sendToBack()
       return
     }
 
@@ -3355,10 +3468,10 @@ export class CanvasEngine {
         this.setSelection([])
         return
       case ']':
-        this.host.bringForward(this.getSelection())
+        this.bringForward()
         return
       case '[':
-        this.host.sendBackward(this.getSelection())
+        this.sendBackward()
         return
       case '0':
         this.resetZoom()

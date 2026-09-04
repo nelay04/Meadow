@@ -14,6 +14,42 @@ away getting there.
 The infrastructure to run the thing. Not deployed yet.
 
 ### Added
+- **The stack: seeing and setting what is in front of what.** Depth has been a document
+  fact since M2 - `order` is a `Y.Array` of ids and index is depth - with no face on it
+  beyond four keyboard chords. A chord is not a feature to anybody who has not been told
+  it exists, and the four relative moves cannot answer the question people actually
+  have: not "one step forward" but "put this one behind that one", which you cannot say
+  with `]` without counting against a stack you cannot see.
+
+  So the list is the feature and the buttons are the shortcut. A panel down the side of
+  a glade shows every object front first, with its depth, its kind and its own first
+  line of writing where it has one. Pointing at a row rings that object on the canvas in
+  amber, which is the whole reason a list of objects is worth having; double-clicking one
+  brings it into view without throwing the reader's scale away - the frame is fitted and
+  then pulled back to at most 1:1, because zooming to 800% to show one small rectangle
+  answers "where is it" with a picture of nothing else.
+
+  Three ways to restack, because they are three different thoughts. Drag a row and drop
+  it between two others. Type a number into its depth badge, which reads the way
+  `z-index` does - bigger is nearer the front - and clamps rather than refusing, since
+  somebody typing 900 to mean "the top" has said something perfectly clear. Or use the
+  four moves, on the panel and on `]`, `[`, `Ctrl+]` and `Ctrl+[` as before, with the
+  two absolute ones now on the tool rail as well. `Alt+Up` and `Alt+Down` nudge the row
+  the keyboard is on. `Ctrl+L` opens and closes the panel, and whether it is open is
+  remembered per browser, not written into the document.
+
+  Two mutations are new underneath, both taking a whole selection as one block that
+  keeps its relative order: an absolute `moveToDepth`, and `moveBehind`, which names a
+  neighbour rather than an index because the caller does not know what that neighbour's
+  index will be after the dragged rows have been lifted out. Getting that wrong is how
+  every downward drag lands short by exactly the size of the selection, so the
+  arithmetic is in the document layer with tests on it rather than in the panel.
+
+  Dragging is off while the list is filtered, and that is a correctness rule rather than
+  a shortcut: a drop between two visible rows says nothing about where the block goes
+  relative to the rows the filter is hiding between them, and any answer would be a
+  guess that silently reorders somebody's work. On a lea there is no panel at all -
+  nothing on a ruled page is in front of anything.
 - **Asking to be let in.** A restricted glade answered somebody holding its address
   with a flat refusal and no next step, so the link was either useless or the board had
   to be made public - which is a decision about strangers being forced by a missing

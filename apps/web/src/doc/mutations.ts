@@ -741,6 +741,67 @@ export function sendBackward(session: DocSession, ids: readonly string[]): void 
 }
 
 /**
+ * Put these objects at an exact depth, as one block.
+ *
+ * The other four movers are relative: they say "further up" or "all the way down" and
+ * the answer depends on what else is there. This one is the absolute form, and it is
+ * what a list you can drag rows around in needs - a drop lands *between* two named
+ * neighbours, not one step from where it started, and expressing that as a count of
+ * `bringForward` calls is both slower and wrong the moment the selection is not
+ * contiguous.
+ *
+ * `depth` is an index into the finished array, counted from the back, and it is
+ * clamped rather than rejected: the panel computes it from a drop position, and a drop
+ * past the end of the list means the front, which is a sensible answer and not an
+ * error.
+ *
+ * The moved ids keep their relative order and land contiguously. Two shapes that were
+ * one in front of the other stay that way after being dragged somewhere else together,
+ * which is the only behaviour that makes dragging a multi-selection predictable.
+ */
+export function moveToDepth(session: DocSession, ids: readonly string[], depth: number): void {
+  if (ids.length === 0) return
+  const selected = new Set(ids)
+  write(session, () => {
+    const current = session.order.toArray()
+    // Read the block off `order` rather than out of `ids`, so it is in z-order and not
+    // in whatever order the selection happened to be built in.
+    const block = current.filter((id) => selected.has(id))
+    if (block.length === 0) return
+    const rest = current.filter((id) => !selected.has(id))
+    const at = Math.max(0, Math.min(rest.length, Math.round(depth)))
+    applyOrder(session, [...rest.slice(0, at), ...block, ...rest.slice(at)])
+  })
+}
+
+/**
+ * Put `ids` directly behind `beforeId`, or at the front when it is null.
+ *
+ * The drag-and-drop spelling of `moveToDepth`. The panel knows which row the drop
+ * landed above; it does not know what that row's index will be *after* the dragged
+ * rows have been lifted out, and computing that in the caller is the off-by-one this
+ * file's z-order section already warns about. So the caller names a neighbour and the
+ * index is worked out here, on the array with the block already removed.
+ */
+export function moveBehind(
+  session: DocSession,
+  ids: readonly string[],
+  beforeId: string | null,
+): void {
+  if (ids.length === 0) return
+  const selected = new Set(ids)
+  write(session, () => {
+    const current = session.order.toArray()
+    const block = current.filter((id) => selected.has(id))
+    if (block.length === 0) return
+    const rest = current.filter((id) => !selected.has(id))
+    const at = beforeId === null ? rest.length : rest.indexOf(beforeId)
+    const where = at < 0 ? rest.length : at
+    applyOrder(session, [...rest.slice(0, where), ...block, ...rest.slice(where)])
+  })
+}
+
+/**
  * The pages of a lea.
  *
  * A diary has pages. Until now a lea had exactly one, and its length, its subject and

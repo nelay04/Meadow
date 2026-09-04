@@ -195,6 +195,16 @@ export const BINDING_COLOR = 0xe05c8a
 export const GUIDE_COLOR = 0xe05c8a
 export const MARQUEE_FILL = 0x3f86f0
 
+/**
+ * The ring drawn round an object the stack list is pointing at.
+ *
+ * Its own colour rather than the selection blue, because the two say different things
+ * and are on screen at the same time: the blue box with handles is what a drag would
+ * move, and this is only "the row under your cursor is that one". Amber reads as a
+ * pointer at a glance and does not collide with the pink an arrow's binding uses.
+ */
+export const SPOTLIGHT_COLOR = 0xf0a63f
+
 /** Fallback if the host element has no resolved ink yet. */
 const INK_FALLBACK = 0x2a3340
 const SURFACE_FALLBACK = 0xfbf9f5

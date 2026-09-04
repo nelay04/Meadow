@@ -22,6 +22,8 @@ import {
   ensureObjectFragment,
   deleteObjects,
   endGesture,
+  moveBehind,
+  moveToDepth,
   readObjectById,
   readPages,
   reconcileOrder,
@@ -218,6 +220,64 @@ describe('z-order', () => {
     const { doc, ids } = seed(4)
     bringForward(doc, [ids[0], ids[1]])
     expect(doc.order.toArray()).toEqual([ids[2], ids[0], ids[1], ids[3]])
+  })
+
+  it('places at an absolute depth', () => {
+    const { doc, ids } = seed(4)
+    moveToDepth(doc, [ids[3]], 1)
+    expect(doc.order.toArray()).toEqual([ids[0], ids[3], ids[1], ids[2]])
+  })
+
+  it('clamps a depth past either end instead of refusing it', () => {
+    const { doc, ids } = seed(3)
+
+    // What somebody typing 900 into the depth badge means, and it is not an error.
+    moveToDepth(doc, [ids[0]], 900)
+    expect(doc.order.toArray()).toEqual([ids[1], ids[2], ids[0]])
+
+    moveToDepth(doc, [ids[0]], -4)
+    expect(doc.order.toArray()).toEqual([ids[0], ids[1], ids[2]])
+  })
+
+  it('moves a scattered selection as one contiguous block, in document order', () => {
+    const { doc, ids } = seed(5)
+    // Named back to front on purpose: the block is read off `order`, not off the
+    // order the ids happened to arrive in.
+    moveToDepth(doc, [ids[3], ids[0]], 1)
+    expect(doc.order.toArray()).toEqual([ids[1], ids[0], ids[3], ids[2], ids[4]])
+  })
+
+  it('drops a block directly behind a named neighbour', () => {
+    const { doc, ids } = seed(4)
+    moveBehind(doc, [ids[0]], ids[3])
+    expect(doc.order.toArray()).toEqual([ids[1], ids[2], ids[0], ids[3]])
+  })
+
+  it('sends a block to the front when it is behind nothing', () => {
+    const { doc, ids } = seed(3)
+    moveBehind(doc, [ids[0], ids[1]], null)
+    expect(doc.order.toArray()).toEqual([ids[2], ids[0], ids[1]])
+  })
+
+  it('counts the neighbour after the block has been lifted out', () => {
+    // The off-by-one a drag down a list produces if the block's own rows are still
+    // counted as neighbours: `ids[0]` must land behind `ids[2]`, not behind `ids[1]`.
+    const { doc, ids } = seed(4)
+    moveBehind(doc, [ids[0]], ids[2])
+    expect(doc.order.toArray()).toEqual([ids[1], ids[0], ids[2], ids[3]])
+  })
+
+  it('leaves the order alone when the ids are not in it', () => {
+    const { doc, ids } = seed(3)
+    moveToDepth(doc, ['ghost'], 0)
+    moveBehind(doc, ['ghost'], ids[0])
+    expect(doc.order.toArray()).toEqual(ids)
+  })
+
+  it('refuses both absolute moves for a viewer', () => {
+    const doc = session('viewer')
+    expect(() => moveToDepth(doc, ['x'], 0)).toThrow(ReadOnlyError)
+    expect(() => moveBehind(doc, ['x'], null)).toThrow(ReadOnlyError)
   })
 })
 

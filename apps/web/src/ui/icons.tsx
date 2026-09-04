@@ -932,3 +932,95 @@ export function IconGoogle({ size = 18, ...rest }: IconProps) {
     </svg>
   )
 }
+
+/**
+ * The stack, drawn as three sheets seen at an angle.
+ *
+ * Depth is what the panel behind this button is about, so the mark has to show
+ * something in front of something else. Three offset diamonds do that at 16px, where a
+ * numbered list or a pair of overlapping rectangles both read as "document".
+ */
+export function IconStack(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="m12 3 8.5 4.5L12 12 3.5 7.5z" />
+      <path d="m4.5 12 7.5 4 7.5-4" />
+      <path d="m4.5 16.5 7.5 4 7.5-4" />
+    </Svg>
+  )
+}
+
+/*
+ * The four z-order moves.
+ *
+ * An arrow and, on the two absolute moves, the wall it travels to. That is the whole
+ * difference between them, and it has to be the whole difference: "forward" and "to the
+ * front" are the same direction, so anything else the marks disagreed about would be
+ * noise arguing with the one thing they are meant to say.
+ *
+ * Deliberately not a picture of stacked cards. Two or three overlapping rectangles plus
+ * an arrow is four shapes inside sixteen pixels, and at that size it reads as a smudge
+ * with a tick on it. The panel is titled Stack and every button carries its own words on
+ * hover, so the icons only have to carry direction and distance.
+ */
+export function IconToFront(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M4.5 3.5h15" />
+      <path d="M12 20.5V7.5" />
+      <path d="m7.5 12 4.5-4.5 4.5 4.5" />
+    </Svg>
+  )
+}
+
+export function IconForward(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M12 20V5.5" />
+      <path d="m7 10.5 5-5 5 5" />
+    </Svg>
+  )
+}
+
+export function IconBackward(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M12 4v14.5" />
+      <path d="m7 13.5 5 5 5-5" />
+    </Svg>
+  )
+}
+
+export function IconToBack(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M4.5 20.5h15" />
+      <path d="M12 3.5v13" />
+      <path d="m7.5 12 4.5 4.5 4.5-4.5" />
+    </Svg>
+  )
+}
+
+/**
+ * The grip on a row that can be dragged.
+ *
+ * Six dots, which is the one mark for "pick this up and move it" that everybody has
+ * already learnt. Drawn as dots rather than as the usual pair of rules because the
+ * rules are indistinguishable from the stack panel's own dividers at row height.
+ */
+export function IconGrip(props: IconProps) {
+  return (
+    <Svg {...props} strokeWidth={2.4}>
+      <path d="M9.5 6.5h.01M9.5 12h.01M9.5 17.5h.01M14.5 6.5h.01M14.5 12h.01M14.5 17.5h.01" />
+    </Svg>
+  )
+}
+
+/** A freehand stroke, for the row a `freedraw` object gets in the stack list. */
+export function IconInk(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M3.5 16.5c3-6 5-8 6.5-6s-1.5 8 .5 8.5 4.5-4.5 6-8 3-4 4-3.5" />
+    </Svg>
+  )
+}

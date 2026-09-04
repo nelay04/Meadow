@@ -217,6 +217,24 @@ export type CanvasHandle = {
    * thing people reach for and do not think to guess a shortcut for.
    */
   duplicateSelection(): void
+  /**
+   * The four relative z-order moves, and the two ways to point at an object.
+   *
+   * They are on the handle rather than reached through `engine` directly so that the
+   * stack panel and the rail drive the same code path the keyboard shortcuts do. Each
+   * is a no-op before the engine has mounted, which is the one state React can render
+   * in and the engine cannot be asked about.
+   */
+  bringToFront(): void
+  sendToBack(): void
+  bringForward(): void
+  sendBackward(): void
+  /** Ring an object on the canvas while the pointer is over its row. Chrome only. */
+  spotlight(id: string | null): void
+  /** Scroll these objects into view without throwing the reader's scale away. */
+  reveal(ids: readonly string[]): void
+  /** Replace the selection from outside the canvas. */
+  select(ids: readonly string[]): void
   /** Graph paper on the board surface. Cosmetic, remembered across sessions. */
   gridVisible: boolean
   toggleGrid(): void
@@ -788,6 +806,13 @@ export function useCanvas(
     resetZoom: () => engineRef.current?.resetZoom(),
     deleteSelection: () => engineRef.current?.deleteSelection(),
     duplicateSelection: () => engineRef.current?.duplicateSelection(),
+    bringToFront: () => engineRef.current?.bringToFront(),
+    sendToBack: () => engineRef.current?.sendToBack(),
+    bringForward: () => engineRef.current?.bringForward(),
+    sendBackward: () => engineRef.current?.sendBackward(),
+    spotlight: (id: string | null) => engineRef.current?.setSpotlight(id),
+    reveal: (ids: readonly string[]) => engineRef.current?.revealObjects(ids),
+    select: (ids: readonly string[]) => engineRef.current?.setSelection(ids),
     gridVisible,
     gridPattern,
     setGridPattern,
