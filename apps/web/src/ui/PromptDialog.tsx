@@ -31,6 +31,16 @@ export type PromptOptions = {
   placeholder?: string
   confirmLabel?: string
   cancelLabel?: string
+  /**
+   * `password` masks the field and stops the answer being trimmed.
+   *
+   * Both halves matter. Trimming is right for a name, where a stray space is a typo,
+   * and wrong for a password, where it is a character somebody chose: silently removing
+   * it here would set a password nobody can then type.
+   */
+  type?: 'text' | 'password'
+  /** Refuse to submit below this many characters, so the server's 422 is never met. */
+  minLength?: number
 }
 
 type Prompt = (options: PromptOptions) => Promise<string | null>
@@ -79,12 +89,18 @@ export function PromptProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
-  const submit = useCallback(() => {
-    const next = value.trim()
-    answer(next === '' ? null : next)
-  }, [answer, value])
-
   const options = request?.options
+  const isPassword = options?.type === 'password'
+  // The answer as it will be sent: trimmed for ordinary text, exactly as typed for a
+  // password.
+  const answered = isPassword ? value : value.trim()
+  const tooShort = answered.length < (options?.minLength ?? 1)
+
+  const submit = useCallback(() => {
+    const next = isPassword ? value : value.trim()
+    if (next.length < (options?.minLength ?? 1)) return
+    answer(next === '' ? null : next)
+  }, [answer, isPassword, options?.minLength, value])
 
   return (
     <PromptContext.Provider value={prompt}>
@@ -122,6 +138,11 @@ export function PromptProvider({ children }: { children: ReactNode }) {
               <span>{options.label}</span>
               <input
                 ref={fieldRef}
+                type={options.type ?? 'text'}
+                // Off for a password: this dialog sets a password *on a board*, and a
+                // browser offering to save it under this site's account credentials
+                // would file it as the wrong thing entirely.
+                autoComplete={isPassword ? 'off' : undefined}
                 value={value}
                 placeholder={options.placeholder}
                 maxLength={200}
@@ -133,7 +154,7 @@ export function PromptProvider({ children }: { children: ReactNode }) {
               <button type="button" className="ghost" onClick={() => answer(null)}>
                 {options.cancelLabel ?? 'Cancel'}
               </button>
-              <button type="submit" className="primary" disabled={value.trim() === ''}>
+              <button type="submit" className="primary" disabled={tooShort}>
                 {options.confirmLabel ?? 'Create'}
               </button>
             </div>

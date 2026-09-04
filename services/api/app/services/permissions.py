@@ -17,6 +17,12 @@ board-wide lock, which stops writes at any role. `resolve_access` folds all thre
 one answer, and is what the websocket handshake and the ws-token endpoint call. Adding
 a third way in means editing that function; it does not mean remembering to edit four
 routers.
+
+Since board passwords there is a fourth thing, and it is not a fourth *way in*: it is a
+gate in front of the other three. A board with a password is closed to everybody who
+has not typed it, at every role, through every route - see
+`app/services/board_password.py`. It is resolved here because a rule that outranks the
+role has to be answered wherever the role is, or there is a route that forgets it.
 """
 
 import uuid
@@ -146,6 +152,12 @@ class Access:
     #: Role permits writing *and* the board is not locked. The one boolean the read-only
     #: filter and the client's tool palette both come from.
     can_write: bool
+    #: The board has a password and this caller has not proved it. Nobody may open the
+    #: document while this is True - not a viewer, not a link visitor, not the owner who
+    #: set it. A separate field rather than folding into `can_write` because it is a
+    #: different refusal with a different way out: `can_write` is answered by asking
+    #: somebody for more access, and this one is answered by typing.
+    password_required: bool = False
 
 
 async def resolve_access(
@@ -154,6 +166,7 @@ async def resolve_access(
     board_id: uuid.UUID,
     user_id: uuid.UUID | None = None,
     link_token: str | None = None,
+    pass_version: int | None = None,
 ) -> Access | None:
     """The effective access a caller has to a board, or None for no access at all.
 
@@ -171,10 +184,14 @@ async def resolve_access(
     not made through a shared link.
 
     The lock is read from the board here rather than checked separately, so no caller
-    can hold a role and forget to ask.
+    can hold a role and forget to ask. The board's password is read here for the same
+    reason and is the strongest of the three: `pass_version` is the version a caller
+    has proved - from a pass token at the REST mint, or carried in the ws-token at the
+    handshake - and anything short of the board's current one leaves
+    `password_required` set, whatever role was resolved above it.
     """
     from app.models import Board
-    from app.services import sharing
+    from app.services import board_password, sharing
 
     board = await session.get(Board, board_id)
     if board is None:
@@ -203,6 +220,11 @@ async def resolve_access(
 
     role = max(granted, key=_RANK.__getitem__)
     locked = board.locked_at is not None
+    # The owner is in here too. A password whose author is exempt from it is a
+    # password on other people, which is not what the control says it is - and the
+    # owner is the one person who can never be shut out by it, since removing it is an
+    # owner-only route that does not ask for the current one.
+    password_required = board_password.is_set(board) and pass_version != board.password_version
     return Access(
         role=role,
         # Only true when the link is the *only* thing that got them in. Somebody with a
@@ -212,5 +234,11 @@ async def resolve_access(
         # The lock stops the owner too. It is a lock on the document rather than a way
         # of holding other people off it: an owner who wants to write unlocks first,
         # which is one click and is the same gesture everybody else sees the reason for.
-        can_write=can_write(role) and not locked,
+        #
+        # An unproved password makes this False as well. It would be a contradiction
+        # otherwise - a caller who may not read the document cannot be told they may
+        # write to it - and it means a caller that ignores `password_required` fails
+        # closed rather than open.
+        can_write=can_write(role) and not locked and not password_required,
+        password_required=password_required,
     )

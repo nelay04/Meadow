@@ -51,24 +51,30 @@ def make_update(**objects: dict[str, Any]) -> bytes:
 
 
 def write_object(
-    client: TestClient, actor: Actor, board_id: str, **objects: dict[str, Any]
+    client: TestClient,
+    actor: Actor,
+    board_id: str,
+    pass_token: str | None = None,
+    **objects: dict[str, Any],
 ) -> None:
     """Connect, push an update, wait for the server to acknowledge, disconnect."""
     with client.websocket_connect(
-        ws_url(board_id, actor.ws_token(board_id)["token"])
+        ws_url(board_id, actor.ws_token(board_id, pass_token)["token"])
     ) as websocket:
         websocket.send_bytes(ywire.sync_update(make_update(**objects)))
         websocket.send_bytes(ywire.sync_step1(Doc().get_state()))
         drain_until_update(websocket)
 
 
-def board_objects(client: TestClient, actor: Actor, board_id: str) -> dict[str, Any]:
+def board_objects(
+    client: TestClient, actor: Actor, board_id: str, pass_token: str | None = None
+) -> dict[str, Any]:
     """Reconnect from scratch and read the document the server actually holds."""
     doc = Doc()
     doc["objects"] = objects = Map()
 
     with client.websocket_connect(
-        ws_url(board_id, actor.ws_token(board_id)["token"])
+        ws_url(board_id, actor.ws_token(board_id, pass_token)["token"])
     ) as websocket:
         websocket.send_bytes(ywire.sync_step1(doc.get_state()))
         update = drain_until_update(websocket)

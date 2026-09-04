@@ -1,12 +1,16 @@
 """The endpoints somebody without an account can reach.
 
-Everything else in this API is behind a bearer token. These four are not, and each one
+Everything else in this API is behind a bearer token. These five are not, and each one
 is unauthenticated for a specific reason rather than by omission:
 
 - `GET /share/{token}` and `POST /share/{token}/ws-token` are the public link. A link
   that needs an account first is not a public link; it is a link to a sign-up form. The
   capability *is* the credential, and it is checked on every call - a board switched
   back to restricted stops answering here immediately.
+
+- `POST /share/{token}/password/verify` is how somebody with no account answers a board
+  password. The link is what gives them the standing to be asked: a route that took a
+  board id and a guess would be an oracle against every board in the deployment.
 
 - `GET /invites/{token}` is what an invitation link shows before the person it names
   has registered. It is the one screen in the app whose whole audience has no account
@@ -32,8 +36,16 @@ from app.auth.deps import CurrentUser, Session
 from app.config import settings
 from app.models import Board, BoardMember, User
 from app.realtime import wstoken
-from app.schemas.boards import BoardOut, JoinInvitationOut, PublicBoardOut, WsTokenOut
-from app.services import sharing
+from app.schemas.boards import (
+    BoardOut,
+    BoardPassOut,
+    BoardPasswordVerify,
+    GuestWsTokenRequest,
+    JoinInvitationOut,
+    PublicBoardOut,
+    WsTokenOut,
+)
+from app.services import board_password, sharing
 from app.services.board_kinds import BoardKind
 from app.services.permissions import BoardRole, rank, resolve_role
 from app.services.ratelimit import check as rate_limit_check
@@ -86,6 +98,7 @@ async def open_shared_board(
 
     board, role = resolved
     locked = board.locked_at is not None
+    protected = board_password.is_set(board)
     return PublicBoardOut(
         id=board.id,
         title=board.title,
@@ -93,8 +106,11 @@ async def open_shared_board(
         role=role,
         is_locked=locked,
         # A visitor on an editor link still cannot type into a locked board. The lock
-        # is on the document, so it applies to however you got here.
-        can_write=role is BoardRole.editor and not locked,
+        # is on the document, so it applies to however you got here. Nor while a
+        # password stands unanswered - `can_write` has to mean "and you may", or the
+        # client reads it as permission it does not have.
+        can_write=role is BoardRole.editor and not locked and not protected,
+        has_password=protected,
     )
 
 
@@ -103,6 +119,7 @@ async def mint_guest_ws_token(
     token: Token,
     request: Request,
     session: Session,
+    body: GuestWsTokenRequest | None = None,
 ) -> WsTokenOut:
     """A websocket credential for an anonymous link visitor.
 
@@ -129,6 +146,20 @@ async def mint_guest_ws_token(
     board, role = resolved
     locked = board.locked_at is not None
 
+    # The password outranks the link, so a visitor holding a perfectly good public link
+    # and no pass gets nothing. Same refusal string as the signed-in route: the client
+    # tells the password prompt apart from a dead link by reading it.
+    pass_version = (
+        None
+        if body is None or body.pass_token is None
+        else board_password.read_pass(body.pass_token, str(board.id))
+    )
+    if board_password.is_set(board) and pass_version != board.password_version:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=board_password.PASSWORD_REQUIRED,
+        )
+
     return WsTokenOut(
         token=wstoken.mint(
             str(board.id),
@@ -139,11 +170,49 @@ async def mint_guest_ws_token(
             int(time.time()) + wstoken.GUEST_SESSION_TTL_SECONDS,
             guest_id=wstoken.new_guest_id(),
             link_token=token,
+            pass_version=pass_version,
         ),
         expires_in=settings.ws_token_ttl_seconds,
         role=role,
         can_write=role is BoardRole.editor and not locked,
         is_locked=locked,
+    )
+
+
+@router.post("/share/{token}/password/verify", response_model=BoardPassOut)
+async def verify_shared_board_password(
+    token: Token,
+    body: BoardPasswordVerify,
+    request: Request,
+    session: Session,
+) -> BoardPassOut:
+    """Type a public board's password, with no account at all.
+
+    The share link is the standing to be asked, and it is doing the same job here that
+    a membership row does on the signed-in route: without it this would be an oracle
+    against any board somebody cared to name. A link that opens nothing gets the same
+    404 the other public routes give, before any comparison happens.
+
+    Keyed on the client address like every other unauthenticated route in this file,
+    and that is weaker than keying on an account - see the module docstring. What it
+    defends is a script working through a wordlist from one place, which it does; a
+    determined attacker with a proxy pool is held off by the password being a password.
+    """
+    await _limit(request, "share-password")
+
+    resolved = await sharing.resolve_link(session, token)
+    if resolved is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no such link")
+
+    board, _role = resolved
+    if not board_password.check(board, body.password):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="that is not the password"
+        )
+
+    return BoardPassOut(
+        pass_token=board_password.mint_pass(str(board.id), board.password_version),
+        expires_in=settings.board_pass_ttl_seconds,
     )
 
 

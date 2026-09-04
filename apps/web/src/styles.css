@@ -514,6 +514,25 @@ label {
   font-weight: 600;
 }
 
+/*
+ * The password screen's form.
+ *
+ * It borrows the auth card, because it is the same shape of moment - one field, one
+ * button, nothing else on the page - and building a second card for it would be a
+ * second set of paddings to keep in step with the first.
+ */
+.password-gate {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  margin-top: 0.25rem;
+}
+
+.password-gate .row {
+  align-items: center;
+  gap: 0.75rem;
+}
+
 /* A label with an action at its far end. The label text keeps its own styling; this only
    puts the two on one line. */
 .label-row {
@@ -1440,6 +1459,14 @@ label {
   margin-bottom: 1rem;
 }
 
+/* The failure notice stands off whatever is under it - the grid, the empty state, the
+   skeletons - rather than butting against it. `.error` carries no margin of its own
+   because most of its homes are forms, where the field above owns the spacing; here it
+   is one card in a stack of cards and has to be spaced like one. */
+.workspace-main > .error {
+  margin-bottom: 1rem;
+}
+
 .workspace-head .spacer {
   flex: 1;
 }
@@ -1828,6 +1855,32 @@ label {
   color: var(--muted);
   font-size: 0.7rem;
   font-weight: 700;
+}
+
+/*
+ * A shut door on a card: the key for a password, the padlock for the owner's lock.
+ *
+ * Square rather than the kind badge's pill, and carrying a glyph instead of a word,
+ * because these two are a different sort of fact from "this is a lea". The kind is what
+ * the thing *is* and is read; these are conditions on it and are scanned - you are
+ * looking down a wall of cards for the one that will ask you for something, not reading
+ * each row.
+ *
+ * Warmer than the kind badge on purpose. It is the same accent the share dialog uses
+ * for a board that is out in the world, and it wants to be the thing the eye lands on
+ * in a row that is otherwise all grey.
+ */
+.state-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  margin-right: 0.35rem;
+  vertical-align: -0.2rem;
+  border-radius: 0.35rem;
+  background: light-dark(#fff2d8, #3a2f14);
+  color: light-dark(#8a6100, #f0c34d);
 }
 
 /*
@@ -5227,6 +5280,14 @@ dialog.modal[open] .modal-card {
   font-weight: 700;
   color: var(--fg-strong);
   letter-spacing: -0.01em;
+}
+
+/* A title with a glyph in front of it. Baseline-aligned by hand, because an icon sitting
+   on the text baseline reads as part of the sentence rather than as a bullet beside it. */
+.join-title.with-icon {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .join-body {

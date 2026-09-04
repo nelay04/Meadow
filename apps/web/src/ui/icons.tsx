@@ -336,6 +336,25 @@ export function IconLock(props: IconProps) {
   )
 }
 
+/**
+ * A key, for the board's password.
+ *
+ * Deliberately not `IconLock`, which is already the owner's edit lock and is drawn on
+ * the same bar. Two different controls wearing one glyph would make the bar say the
+ * same thing twice about two unrelated things: one stops writing, the other stops
+ * opening.
+ */
+export function IconKey(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="8" cy="8" r="3.6" />
+      <path d="M10.6 10.6 20 20" />
+      <path d="M17.2 17.2 15.4 19" />
+      <path d="M14.6 14.6 12.8 16.4" />
+    </Svg>
+  )
+}
+
 export function IconUnlock(props: IconProps) {
   return (
     <Svg {...props}>

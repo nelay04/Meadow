@@ -23,6 +23,7 @@ from app.realtime.rooms import (
     SocketRegistry,
 )
 from app.realtime.server import FastAPIChannel, MeadowWebsocketServer, awareness_snapshot
+from app.services import board_password
 from app.services.permissions import Access, resolve_access
 
 logger = getLogger(__name__)
@@ -100,16 +101,23 @@ async def _watch_session(
                 board_id=board_uuid,
                 user_id=claims.user_id,
                 link_token=claims.link_token,
+                pass_version=claims.pass_version,
             )
 
         # The role *and* the lock, because the read-only filter is chosen once at join
         # time from both of them. A board locked while this socket was open is a
         # connection still holding a writable channel, which is the same problem as a
         # demotion and has the same only-safe answer: close, and be re-evaluated.
+        # The password is in here through `can_write` and through the None: a board
+        # given a password while this socket was open resolves to a version this
+        # connection cannot match, and `resolve_access` answers that the same way it
+        # answers a demotion. The eviction on the owner's press gets there first; this
+        # is what catches it when the press happened on another instance.
         changed = current is None or (
             current.role,
             current.can_write,
-        ) != (granted.role, granted.can_write)
+            current.password_required,
+        ) != (granted.role, granted.can_write, granted.password_required)
         if changed:
             logger.info(
                 "closing ws for board %s: %s/%s -> %s",
@@ -188,10 +196,19 @@ async def board_socket(websocket: WebSocket, board_id: str, token: str = "") -> 
             board_id=board_uuid,
             user_id=claims.user_id,
             link_token=claims.link_token,
+            pass_version=claims.pass_version,
         )
 
     if access is None:
         await _close(websocket, WS_CLOSE_FORBIDDEN, "no access")
+        return
+
+    # The password, re-asked here for the same reason the role is: the mint that issued
+    # this token happened up to sixty seconds ago, and the owner may have changed the
+    # password since. A read-only channel is not the fallback - somebody who has not
+    # proved the password does not get the document at all.
+    if access.password_required:
+        await _close(websocket, WS_CLOSE_FORBIDDEN, board_password.PASSWORD_REQUIRED)
         return
 
     server: MeadowWebsocketServer = websocket.app.state.ws_server

@@ -2,6 +2,7 @@ import { WebsocketProvider } from 'y-websocket'
 import type * as Y from 'yjs'
 
 import { ApiError, type BoardRole, mintGuestWsToken, mintWsToken } from '../lib/api'
+import { boardPass, forgetBoardPass } from '../lib/boardPass'
 
 /**
  * ws-tokens are single-use with a 60s TTL, which fights y-websocket's built-in
@@ -25,7 +26,35 @@ const MAX_RETRY_MS = 15_000
 const CLOSE_FORBIDDEN = 4403
 const CLOSE_ROOM_FULL = 4429
 
-export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'denied'
+/**
+ * What the API says when a board's password has not been answered.
+ *
+ * Matched on the substring rather than parsed, because the body arrives as FastAPI's
+ * JSON envelope and this is the one detail string the client branches on. The server
+ * spells it from a single constant (`board_password.PASSWORD_REQUIRED`) so the two
+ * halves cannot drift apart quietly.
+ */
+const PASSWORD_REQUIRED = 'password required'
+
+function isPasswordRefusal(error: ApiError): boolean {
+  return error.message.includes(PASSWORD_REQUIRED)
+}
+
+/**
+ * `password` is a refusal like `denied`, and a different one.
+ *
+ * Both mean the mint said no and retrying cannot help, so both stop the loop. What
+ * separates them is what the person does next: `denied` is answered by somebody else
+ * granting access, and `password` is answered by typing. Folding them together would
+ * put "ask the owner to let you in" in front of somebody who was let in weeks ago and
+ * simply has not typed today's password.
+ */
+export type ConnectionState =
+  | 'connecting'
+  | 'connected'
+  | 'disconnected'
+  | 'denied'
+  | 'password'
 
 /**
  * What the server says this connection may do, as of the mint that opened it.
@@ -120,10 +149,13 @@ export function connectBoard({
     if (!wantConnection || destroyed) return
     onState('connecting')
     try {
+      // The pass is re-read on every attempt rather than captured once: the password
+      // screen writes it and then asks for a reconnect, and this is where that lands.
+      const pass = boardPass(boardId)
       const minted =
         authenticated || linkToken === null
-          ? await mintWsToken(boardId, linkToken)
-          : await mintGuestWsToken(linkToken)
+          ? await mintWsToken(boardId, linkToken, pass)
+          : await mintGuestWsToken(linkToken, pass)
       // Re-read on every attempt: an access change is exactly why the server closed
       // the previous socket, so the reconnect is where the client learns the new
       // answer - a promotion, a demotion, or the board having just been locked.
@@ -135,6 +167,15 @@ export function connectBoard({
       // flaky. 404 is the same thing said by the public route: the link was rotated,
       // or the board is no longer shared. Retrying either cannot help and only burns
       // the rate limit.
+      // The board has a password and this browser has not proved it - either it never
+      // did, or the owner has since changed it. Either way the pass in hand is worth
+      // nothing, so it is dropped before the screen that asks for a new one.
+      if (error instanceof ApiError && error.status === 403 && isPasswordRefusal(error)) {
+        wantConnection = false
+        forgetBoardPass(boardId)
+        onState('password')
+        return
+      }
       if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
         wantConnection = false
         onState(

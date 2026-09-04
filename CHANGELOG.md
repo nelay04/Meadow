@@ -14,6 +14,50 @@ away getting there.
 The infrastructure to run the thing. Not deployed yet.
 
 ### Added
+- **A password on a glade or a lea, and it outranks everything else.** Sharing could
+  answer "who may open this" three ways - a workspace seat, a board grant, the public
+  link - and every one of them is about who somebody *is*. None of them was any use for
+  the thing an owner actually does when they read an address out to a room: let these
+  people in, and nobody else, whatever else happens to be true.
+
+  So a board can have a password, set by its owner, and it sits in front of all three.
+  It is asked of a stranger on a public link, of a member with an editor grant, and of
+  the owner who set it - and that last one is the feature rather than an oversight. An
+  exemption for the person who set it would make the control weaker than its own label,
+  and it is exactly the sort of convenience that gets added later without anybody
+  noticing it is a hole. There is a test named after it.
+
+  **Nobody is ever locked out of their own board by it.** Setting, changing and removing
+  are owner-only routes and none of them asks for the current password: the owner has
+  already proved who they are with their session, and making them produce a string they
+  may have lost would turn the only way out of a forgotten password into another thing
+  it locks. Forgetting one costs a click, not a board.
+
+  **Typed once, not on every reconnect.** A correct answer mints a short-lived signed
+  pass naming one board and the password version it was minted against. It carries no
+  identity and grants no role - a receipt, not a credential - and the browser keeps it in
+  `sessionStorage`, so closing the tab is what locks the board again. That is the right
+  scope for a meeting-room display or a borrowed laptop, which `localStorage` would
+  quietly turn into a copy of the password.
+
+  **Changing it takes effect on the people already inside.** Every set, change and
+  removal bumps `boards.password_version`, which is baked into the pass and into the
+  ws-token minted from it and compared at every handshake and every fifteen-minute
+  revalidation - so there is no table of issued passes to sweep and nothing waits for an
+  expiry. The change also evicts the board's sockets, the owner's own included, which is
+  what makes "the old one has gone round too far" a thing you can actually fix.
+
+  The check lives in `resolve_access` beside the role and the lock, because a rule that
+  outranks the role has to be resolved wherever the role is or there is a route that
+  forgets it. Nothing of the document is rendered behind the prompt, and the local
+  IndexedDB copy is erased on the way to it - a password on a board whose contents were
+  still sitting in the browser would be a lock with the window left open.
+
+  It is set from the glade's own three-dot menu, under Share and owned by the same
+  person, because it is the other half of the same question: sharing decides who is told
+  about this glade, and the password decides whether being told is enough. Cards in the
+  list carry a key when a board will ask for one - it is the card you should not click
+  while screen-sharing - and a padlock when the owner has frozen edits.
 - **The stack: seeing and setting what is in front of what.** Depth has been a document
   fact since M2 - `order` is a `Y.Array` of ids and index is depth - with no face on it
   beyond four keyboard chords. A chord is not a feature to anybody who has not been told

@@ -30,6 +30,9 @@ from app.schemas.boards import (
     BoardCreate,
     BoardMemberAdd,
     BoardOut,
+    BoardPassOut,
+    BoardPasswordSet,
+    BoardPasswordVerify,
     BoardPatch,
     InvitationOut,
     InviteCreate,
@@ -40,10 +43,17 @@ from app.schemas.boards import (
     ShareState,
     TitleSuggestion,
 )
-from app.services import access_requests, sharing
+from app.services import access_requests, board_password, sharing
 from app.services.board_kinds import BoardKind
 from app.services.naming import DEFAULT_TITLE, generate_unique_board_title
-from app.services.permissions import BoardRole, at_least, can_write, rank, resolve_role
+from app.services.permissions import (
+    BoardRole,
+    at_least,
+    can_write,
+    rank,
+    resolve_access,
+    resolve_role,
+)
 from app.services.ratelimit import check as rate_limit_check
 from app.services.sharing import SHAREABLE_ROLES, ShareMode
 
@@ -76,6 +86,11 @@ def _out(board: Board, role: BoardRole) -> BoardOut:
         is_locked=locked,
         locked_by=board.locked_by,
         can_write=can_write(role) and not locked,
+        # Only whether there is one. The board still appears in the list and still
+        # answers with its title and its role: what the password holds back is the
+        # document, and hiding the board's existence from people who were deliberately
+        # given it would be a second, different feature.
+        has_password=board_password.is_set(board),
     )
 
 
@@ -530,6 +545,7 @@ async def _share_state(session: Session, board: Board, request: Request) -> Shar
             None if link is None else sharing.board_url(board.id, board.kind, link_token=link.token)
         ),
         is_locked=board.locked_at is not None,
+        has_password=board_password.is_set(board),
         members=[
             MemberOut(
                 user_id=u.id,
@@ -730,6 +746,132 @@ async def revoke_invite(
     if invitation.accepted_at is None and invitation.revoked_at is None:
         invitation.revoked_at = datetime.now(UTC)
         await session.commit()
+
+
+# --- the board's password ---------------------------------------------------------
+#
+# Setting and clearing are owner-only, like everything under sharing above, and for a
+# sharper version of the same reason: this control decides who may open the board at
+# all, over the top of every grant anybody else has been given.
+#
+# Neither one asks for the current password, and that is the deliberate escape hatch. An
+# owner proves who they are with their session; making them also produce a password they
+# may have forgotten would turn the only route out of a forgotten password into another
+# thing it locks. The cost is that an owner can always take the lock off their own board,
+# which is not a hole - it is what "the owner set it" means.
+
+
+@router.put("/{board_id}/password", response_model=BoardOut)
+async def set_board_password(
+    board_id: uuid.UUID,
+    body: BoardPasswordSet,
+    request: Request,
+    session: Session,
+    role: Annotated[BoardRole, Depends(board_owner)],
+) -> BoardOut:
+    """Put a password on the board, or replace the one it has.
+
+    Everybody currently on the board is thrown off, including the owner doing this.
+    That is the point rather than a side effect: the usual reason to change a password
+    is that the old one reached somebody it should not have, and a change that left
+    them connected until they happened to reload would not be a change. The owner's own
+    tab asks them for the new one on its next connect, which takes one keystroke more
+    than they have already typed.
+    """
+    board = await session.get(Board, board_id)
+    if board is None:  # pragma: no cover - board_owner already resolved it
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="no access")
+
+    board_password.set_password(board, body.password)
+    await session.commit()
+    await session.refresh(board)
+    await _evict(request, board_id, "password changed")
+    return _out(board, role)
+
+
+@router.delete("/{board_id}/password", response_model=BoardOut)
+async def clear_board_password(
+    board_id: uuid.UUID,
+    request: Request,
+    session: Session,
+    role: Annotated[BoardRole, Depends(board_owner)],
+) -> BoardOut:
+    """Take the password off, so the board is back to being decided by roles alone.
+
+    Evicts too. Nothing anybody holds is *lost* by this - a pass that no longer matches
+    a board with no password is simply not consulted - but the sockets carry a resolved
+    answer from before, and one reconnect is how every other change here lands.
+    """
+    board = await session.get(Board, board_id)
+    if board is None:  # pragma: no cover - board_owner already resolved it
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="no access")
+
+    if board_password.is_set(board):
+        board_password.clear(board)
+        await session.commit()
+        await session.refresh(board)
+        await _evict(request, board_id, "password removed")
+    return _out(board, role)
+
+
+@router.post("/{board_id}/password/verify", response_model=BoardPassOut)
+async def verify_board_password(
+    board_id: uuid.UUID,
+    body: BoardPasswordVerify,
+    request: Request,
+    user: CurrentUser,
+    session: Session,
+) -> BoardPassOut:
+    """Type the password, get the pass. For a caller who is signed in.
+
+    Not behind `board_viewer`, because a signed-in visitor on a public link has no
+    membership row and is exactly who this has to answer. It resolves through
+    `resolve_access` instead - the same function the handshake uses - so somebody with
+    neither a grant nor a live link is refused before any comparison happens rather than
+    finding out this board id is real by being asked for a password.
+
+    An anonymous link visitor posts to `/share/{token}/password/verify` instead. Same
+    split as the ws-token routes, for the same reason: one requires a session and the
+    other must not have one.
+
+    The refusal for a wrong password is 403 and says only that. Not 401, which would
+    read as a problem with the session; not 404, which would say something about the
+    board.
+    """
+    if settings.rate_limit_enabled:
+        allowed = await rate_limit_check(
+            request.app.state.redis,
+            action="board-password",
+            identity=f"{user.id}:{board_id}",
+            spec=settings.rate_limit_board_password,
+        )
+        if not allowed:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="too many attempts"
+            )
+
+    # Standing to be asked at all: a role, or the public link they arrived on. Without
+    # this the route is a password oracle for any board id a signed-in stranger cares
+    # to type.
+    access = await resolve_access(
+        session, board_id=board_id, user_id=user.id, link_token=body.link_token
+    )
+    if access is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="no access")
+
+    board = await session.get(Board, board_id)
+    if board is None:  # pragma: no cover - resolve_access already loaded it
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="no access")
+
+    if not board_password.check(board, body.password):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="that is not the password"
+        )
+
+    return BoardPassOut(
+        pass_token=board_password.mint_pass(str(board.id), board.password_version),
+        expires_in=settings.board_pass_ttl_seconds,
+    )
 
 
 # --- access requests -------------------------------------------------------------

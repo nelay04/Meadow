@@ -692,9 +692,23 @@ export function ShareDialog({ boardId, title, noun, onClose, onChanged }: Props)
                   sentence: anyone with the link can view. */}
               <div className="access-line">
                 <p className="share-note">
+                  {/*
+                    The password qualifies both sentences, so it is said in both rather
+                    than as a third line nobody reads. "Anyone who has the link" is the
+                    one that would otherwise be plainly untrue while a password is set,
+                    and it is exactly the sentence an owner reads to decide whether they
+                    have shared too widely.
+
+                    Only stated here. Setting and removing it live in the board's own
+                    menu - one control, in one place - and a second copy of it in this
+                    dialog would be two places to look for the same switch.
+                  */}
                   {isPublic
-                    ? `Anyone who has the link opens this ${noun} as a guest, with no sign-in.`
-                    : 'Only the people listed below can open it, signed in or not.'}
+                    ? `Anyone who has the link opens this ${noun} as a guest, with no
+                       sign-in${share.has_password ? ' - after typing the password' : ''}.`
+                    : `Only the people listed below can open it, signed in or not${
+                        share.has_password ? ', and only with the password' : ''
+                      }.`}
                 </p>
 
                 {isPublic && (

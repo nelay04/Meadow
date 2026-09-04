@@ -169,10 +169,13 @@ class Actor:
         board_id: str = response.json()["id"]
         return board_id
 
-    def ws_token(self, board_id: str) -> dict[str, Any]:
-        response = self.client.post(
-            "/api/v1/ws-token", json={"board_id": board_id}, headers=self.auth
-        )
+    def ws_token(self, board_id: str, pass_token: str | None = None) -> dict[str, Any]:
+        body: dict[str, Any] = {"board_id": board_id}
+        if pass_token is not None:
+            # Only sent when the board has a password. Absent otherwise, which is what
+            # every caller here except `test_board_password.py` wants.
+            body["pass_token"] = pass_token
+        response = self.client.post("/api/v1/ws-token", json=body, headers=self.auth)
         assert response.status_code == 200, response.text
         body: dict[str, Any] = response.json()
         return body

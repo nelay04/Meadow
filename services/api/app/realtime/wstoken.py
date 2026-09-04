@@ -17,6 +17,13 @@ Identity here is one of two things, and the token says which:
   people on the same public board are two wanderers rather than one flickering between
   positions.
 
+`pass_version` rides along too, and it is the same idea as `link_token` applied to the
+board's password: not a credential, but the record of what was proved at mint time so
+the handshake can ask whether it is still true. A board whose password changed in the
+sixty seconds between mint and connect has a new version, and the connection is refused
+- which is what makes changing a password take effect on the people already inside
+rather than on the next person to arrive.
+
 `link_token` rides along for both. It is not a second credential so much as the reason
 the handshake should look at the share link at all, and it is re-checked at connect
 time exactly like a role: a link revoked or a board switched back to restricted between
@@ -97,6 +104,9 @@ class WsTokenClaims:
     guest_id: str | None
     #: The share link this connection came in through, if any. Re-checked at connect.
     link_token: str | None
+    #: The board password version proved at mint time, or None if none was presented.
+    #: Compared against the board's own at connect and at every revalidation.
+    pass_version: int | None
     expires_at: int
     session_expires_at: int
     jti: str
@@ -126,6 +136,7 @@ def _payload(
     user: str,
     guest: str,
     link: str,
+    board_pass: str,
     expires_at: int | str,
     session_expires_at: int | str,
     jti: str,
@@ -134,7 +145,9 @@ def _payload(
     # verifying, and verification has to rebuild the signed bytes exactly as they were
     # written. Parsing them to int first would silently canonicalise, and a payload that
     # differs from the one that was signed by even a leading zero fails to verify.
-    return f"{board_id}.{user}.{guest}.{link}.{expires_at}.{session_expires_at}.{jti}"
+    return (
+        f"{board_id}.{user}.{guest}.{link}.{board_pass}.{expires_at}.{session_expires_at}.{jti}"
+    )
 
 
 def mint(
@@ -144,6 +157,7 @@ def mint(
     *,
     guest_id: str | None = None,
     link_token: str | None = None,
+    pass_version: int | None = None,
 ) -> str:
     """Issue a token. Exactly one of `user_id` and `guest_id` must be set."""
     if (user_id is None) == (guest_id is None):
@@ -156,6 +170,7 @@ def mint(
         str(user_id) if user_id is not None else _ABSENT,
         guest_id or _ABSENT,
         link_token or _ABSENT,
+        _ABSENT if pass_version is None else str(pass_version),
         expires_at,
         session_expires_at,
         jti,
@@ -166,7 +181,7 @@ def mint(
 async def verify(token: str, board_id: str, redis: Redis) -> WsTokenClaims:
     """Validate and consume a token. Raises TokenError on any rejection."""
     parts = token.split(".")
-    if len(parts) != 8:
+    if len(parts) != 9:
         raise TokenInvalid("malformed token")
 
     (
@@ -174,6 +189,7 @@ async def verify(token: str, board_id: str, redis: Redis) -> WsTokenClaims:
         raw_user,
         raw_guest,
         raw_link,
+        raw_pass,
         raw_expires,
         raw_session_expires,
         jti,
@@ -181,13 +197,21 @@ async def verify(token: str, board_id: str, redis: Redis) -> WsTokenClaims:
     ) = parts
 
     payload = _payload(
-        claimed_board, raw_user, raw_guest, raw_link, raw_expires, raw_session_expires, jti
+        claimed_board,
+        raw_user,
+        raw_guest,
+        raw_link,
+        raw_pass,
+        raw_expires,
+        raw_session_expires,
+        jti,
     )
     if not hmac.compare_digest(_sign(payload), signature):
         raise TokenInvalid("bad signature")
 
     try:
         user_id = None if raw_user == _ABSENT else uuid.UUID(raw_user)
+        pass_version = None if raw_pass == _ABSENT else int(raw_pass)
         expires_at = int(raw_expires)
         session_expires_at = int(raw_session_expires)
     except ValueError as exc:
@@ -223,6 +247,7 @@ async def verify(token: str, board_id: str, redis: Redis) -> WsTokenClaims:
         user_id=user_id,
         guest_id=guest_id,
         link_token=None if raw_link == _ABSENT else raw_link,
+        pass_version=pass_version,
         expires_at=expires_at,
         session_expires_at=session_expires_at,
         jti=jti,

@@ -45,6 +45,7 @@ import {
   IconFit,
   IconEye,
   IconGlobe,
+  IconKey,
   IconGridLines,
   IconHand,
   IconItalic,
@@ -82,6 +83,8 @@ import {
   IconUnlock,
 } from '../../ui/icons'
 import { Avatar } from '../../ui/Avatar'
+import { useConfirm } from '../../ui/ConfirmDialog'
+import { usePrompt } from '../../ui/PromptDialog'
 import { useToast } from '../../ui/Toaster'
 import { createDocSession, roleCanWrite } from '../../doc/mutations'
 import type { BoardKind, BoardRole, ShareMode } from '../../lib/api'
@@ -93,6 +96,7 @@ import { type BoardConnection, type ConnectionState, connectBoard } from '../../
 import { useAuth } from '../auth/AuthContext'
 import { guestIdentity } from '../auth/guest'
 import { AccessGate } from './AccessGate'
+import { PasswordGate } from './PasswordGate'
 import { ShareDialog } from './ShareDialog'
 import {
   PAPER_EVENT,
@@ -323,6 +327,10 @@ const CONNECTION_LABEL: Record<ConnectionState, string> = {
   connected: 'Live',
   disconnected: 'Offline',
   denied: 'No access',
+  // Never actually drawn - the password screen replaces the whole board rather than
+  // sitting behind a status pill - but the map is exhaustive over the states on
+  // purpose, so a state added later cannot reach the bar unlabelled.
+  password: 'Locked',
 }
 
 /*
@@ -450,6 +458,16 @@ export default function BoardPage({ boardId, onBack }: Props) {
   /** Who the board is open to, so the bar can say when it is out in the world. */
   const [shareMode, setShareMode] = useState<ShareMode>('restricted')
   /*
+   * Whether a password stands in front of this board.
+   *
+   * Only the fact of one ever reaches the client. It drives two things and nothing
+   * else: what the owner's menu offers, and - through the connection being refused -
+   * whether this view is the board or the password screen. Never a client-side check
+   * of its own: the board opens because the server minted a token, not because this
+   * flag was false.
+   */
+  const [hasPassword, setHasPassword] = useState(false)
+  /*
    * How many people are waiting to be let in.
    *
    * Owners only, and it exists because the share dialog is two clicks deep: a request
@@ -507,6 +525,8 @@ export default function BoardPage({ boardId, onBack }: Props) {
 
   const { user } = useAuth()
   const toast = useToast()
+  const prompt = usePrompt()
+  const confirm = useConfirm()
   const [wanderers, setWanderers] = useState<Wanderer[]>([])
   const presence = useRef<PresenceHandle | null>(null)
 
@@ -731,6 +751,70 @@ export default function BoardPage({ boardId, onBack }: Props) {
     [boardId, noun, toast],
   )
 
+  /*
+   * Setting, changing and removing the board's password.
+   *
+   * Owner only, and the server says so too - these three are the client half of an
+   * owner-only route, not the enforcement.
+   *
+   * Nothing here asks for the current password, including the change. That is the
+   * escape hatch, and it is the reason a forgotten board password costs a click rather
+   * than a board: the owner has already proved who they are with their session, and
+   * making them produce a string they may have lost would turn the only way out of a
+   * forgotten password into another thing it locks.
+   *
+   * All three end with the server evicting every socket on the board, this tab's
+   * included - so the next thing the owner sees after setting one is the password
+   * screen asking for what they just typed. That is not a bug to paper over: a password
+   * that let the person who set it carry on without it would be a password with an
+   * exemption baked in, and this is the one place that exemption would be invisible.
+   */
+  const editPassword = useCallback(async () => {
+    setMoreOpen(false)
+    const chosen = await prompt({
+      title: hasPassword ? 'Change the password' : `Put a password on this ${noun}`,
+      body: hasPassword
+        ? `Everybody currently in this ${noun}, including you, is asked for the new one.`
+        : `Everybody who opens this ${noun} is asked for it - anyone you have shared it
+           with, anyone with the link, and you. Only you can change or remove it.`,
+      label: 'Password',
+      type: 'password',
+      minLength: api.MIN_BOARD_PASSWORD,
+      confirmLabel: hasPassword ? 'Change it' : 'Set it',
+    })
+    if (chosen === null) return
+    try {
+      const board = await api.setBoardPassword(boardId, chosen)
+      setHasPassword(board.has_password)
+      toast.success(hasPassword ? 'Password changed.' : 'Password set.')
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'That password could not be set.',
+      )
+    }
+  }, [boardId, hasPassword, noun, prompt, toast])
+
+  const removePassword = useCallback(async () => {
+    setMoreOpen(false)
+    const sure = await confirm({
+      title: 'Remove the password?',
+      body: `This ${noun} goes back to being decided by who you have shared it with -
+             which, while it is public, is anyone holding the link.`,
+      confirmLabel: 'Remove it',
+      tone: 'danger',
+    })
+    if (!sure) return
+    try {
+      const board = await api.clearBoardPassword(boardId)
+      setHasPassword(board.has_password)
+      toast.success('Password removed.')
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'That password could not be removed.',
+      )
+    }
+  }, [boardId, confirm, noun, toast])
+
   /**
    * What the lock button does when there is nothing to choose.
    *
@@ -823,6 +907,7 @@ export default function BoardPage({ boardId, onBack }: Props) {
       .then((board) => {
         settle(board)
         setShareMode(board.share_mode)
+        setHasPassword(board.has_password)
       })
       .catch(() => {
         const token = shareToken()
@@ -835,6 +920,7 @@ export default function BoardPage({ boardId, onBack }: Props) {
           .then((board) => {
             settle({ ...board, role: board.role })
             setShareMode('public')
+            setHasPassword(board.has_password)
           })
           .catch(() => {
             // The link was rotated, or the board is no longer public. Forget it, so
@@ -981,7 +1067,7 @@ export default function BoardPage({ boardId, onBack }: Props) {
    * from a canvas the server has already stopped answering for.
    */
   useEffect(() => {
-    if (state !== 'denied') return
+    if (state !== 'denied' && state !== 'password') return
     const store = local.current
     local.current = null
     // clearData destroys the store as well as emptying it, so the effect cleanup's
@@ -1280,6 +1366,31 @@ export default function BoardPage({ boardId, onBack }: Props) {
    */
   if (state === 'denied') {
     return <AccessGate boardId={boardId} noun={noun} reason={detail} onBack={onBack} />
+  }
+
+  /*
+   * The password, before anything else is drawn.
+   *
+   * Beside `denied` rather than folded into it because they are two different dead ends
+   * with two different ways out - see `ConnectionState` in `sync/provider.ts`. The
+   * effect above has already erased the local copy, so there is genuinely nothing
+   * behind this screen: a password on a board whose contents were still sitting in
+   * IndexedDB would be a lock with the window left open.
+   */
+  if (state === 'password') {
+    return (
+      <PasswordGate
+        boardId={boardId}
+        noun={noun}
+        linkToken={shareToken()}
+        // Reloading rather than reconnecting in place, for the reason `AccessGate`
+        // gives: getting in changes the answer to every question this view already
+        // asked, and one path back through mount is simpler than a second, rarer one
+        // that has to put the document, the local store and the presence handle back.
+        onUnlocked={() => location.reload()}
+        onBack={onBack}
+      />
+    )
   }
 
   return (
@@ -1590,6 +1701,45 @@ export default function BoardPage({ boardId, onBack }: Props) {
                       Public
                     </span>
                   )}
+                </button>
+              )}
+
+              {/*
+                The password, under Share and owned by the same person, because it is
+                the other half of the same question. Sharing decides who is told about
+                this {noun}; the password decides whether being told is enough.
+
+                Two items rather than one toggle once there is a password, because
+                changing one and taking it off are not two strengths of the same action:
+                one keeps the door shut and rekeys it, the other opens it to everybody
+                the sharing settings already let in.
+              */}
+              {role === 'owner' && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="menu-item"
+                  onClick={() => void editPassword()}
+                >
+                  <IconKey size={16} />
+                  <span>{hasPassword ? 'Change the password…' : 'Set a password…'}</span>
+                  {hasPassword && (
+                    <span className="menu-badge" title="Everybody is asked for it">
+                      On
+                    </span>
+                  )}
+                </button>
+              )}
+
+              {role === 'owner' && hasPassword && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="menu-item"
+                  onClick={() => void removePassword()}
+                >
+                  <IconUnlock size={16} />
+                  <span>Remove the password</span>
                 </button>
               )}
 

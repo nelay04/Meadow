@@ -41,6 +41,15 @@ class Settings(BaseSettings):
 
     ws_token_ttl_seconds: int = 60
 
+    # How long a board password stays proved for, once somebody has typed it.
+    #
+    # Long enough to be a day's work and no longer. It is not a session - it names one
+    # board, carries no identity and grants no role - so the risk it carries is only
+    # that a tab left open somewhere keeps a board readable, which is the same risk the
+    # tab itself already is. Changing the board's password retires every pass
+    # immediately regardless, so this is the ceiling and not the mechanism.
+    board_pass_ttl_seconds: int = 12 * 60 * 60
+
     # ARCHITECTURE 6: "re-validate every 15 minutes; force reconnect on failure". The
     # watchdog also wakes early when the access token behind the connection expires,
     # so a socket can never outlive the session that authorised it.
@@ -69,6 +78,12 @@ class Settings(BaseSettings):
     # pending sends nothing at all, so the limit is only ever reached by somebody
     # deliberately cycling requests.
     rate_limit_access_request: str = "10/3600"
+    # Typing a board's password. Tight, and tighter than anything else here, because
+    # this is the only endpoint in the app that answers "was that guess right" about a
+    # secret somebody else chose. Keyed on the account where there is one and on the
+    # client address for a link visitor - see `app/api/v1/share.py` for what that key
+    # is worth.
+    rate_limit_board_password: str = "10/300"
 
     # --- third-party sign-in (ARCHITECTURE 7) ---
     # Blank by default, and that is the off switch, per provider: with either half of a

@@ -16,6 +16,7 @@ from sqlalchemy import (
     Enum,
     ForeignKey,
     Index,
+    Integer,
     LargeBinary,
     String,
     UniqueConstraint,
@@ -289,6 +290,25 @@ class Board(Base):
     locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     locked_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    # The owner's password on the board, argon2id. Null is every board that has never
+    # had one, which is most of them.
+    #
+    # It is not a fourth kind of permission. It sits *in front of* all three - the
+    # workspace seat, the board grant and the public link - and it applies to the owner
+    # who set it as much as to a stranger holding the link. See
+    # `app.services.board_password`, and `resolve_access`, which is where that ordering
+    # is actually enforced.
+    password_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    password_set_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Incremented by every set, change and removal. A pass carries the version it was
+    # minted at, so changing the password is what makes everybody holding the old one
+    # stop - with no table of issued passes to sweep, and no wait for anything to
+    # expire.
+    password_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
     )
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = mapped_column(

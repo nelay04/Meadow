@@ -7,6 +7,8 @@ import {
   IconChevronDown,
   IconClock,
   IconGrid,
+  IconKey,
+  IconLock,
   IconMenu,
   IconPlus,
   IconSearch,
@@ -653,6 +655,37 @@ export default function BoardsPage({ onOpen }: Props) {
                             <span className="kind-badge">
                               <spec.Icon size={12} />
                               {spec.label}
+                            </span>
+                          )}
+                          {/*
+                            Two different shut doors, drawn differently on purpose. The
+                            key says this one will ask for a password before it opens -
+                            which is the thing worth knowing from the list, because it
+                            is the card you should not click while screen-sharing. The
+                            padlock says the owner has frozen edits, so it opens
+                            normally and nothing can be changed once it does.
+
+                            Icon only, with the word in the tooltip: a card carries a
+                            title, a kind, a role and a date already, and two more words
+                            would cost the title its line before they said anything the
+                            glyphs do not.
+                          */}
+                          {board.has_password && (
+                            <span
+                              className="state-badge"
+                              title="Asks for a password before it opens"
+                            >
+                              <IconKey size={12} />
+                              <span className="visually-hidden">Password</span>
+                            </span>
+                          )}
+                          {board.is_locked && (
+                            <span
+                              className="state-badge"
+                              title="Locked by the owner - nobody can edit it"
+                            >
+                              <IconLock size={12} />
+                              <span className="visually-hidden">Locked</span>
                             </span>
                           )}
                           Edited {relativeTime(board.updated_at)}

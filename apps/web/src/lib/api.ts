@@ -96,6 +96,14 @@ export type Board = {
    * is the shape of bug ARCHITECTURE 7 warns about for roles.
    */
   can_write: boolean
+  /**
+   * Whether a password stands in front of this board.
+   *
+   * Only the fact of one - the password itself never leaves the server, and neither
+   * does anything derived from it. It is what the card in the list badges and what the
+   * board view knows before it tries to connect.
+   */
+  has_password: boolean
 }
 
 export type WsToken = {
@@ -104,6 +112,18 @@ export type WsToken = {
   role: BoardRole
   can_write: boolean
   is_locked: boolean
+}
+
+/**
+ * The receipt for having typed a board's password.
+ *
+ * Not a session and not a role: it names one board, carries no identity, and stops
+ * working the moment the owner changes the password. Kept for the tab in
+ * `lib/boardPass.ts` and presented at every ws-token mint.
+ */
+export type BoardPass = {
+  pass_token: string
+  expires_in: number
 }
 
 /**
@@ -120,6 +140,8 @@ export type SharedBoard = {
   role: BoardRole
   is_locked: boolean
   can_write: boolean
+  /** Whether the visitor will be asked for a password before anything opens. */
+  has_password: boolean
 }
 
 export type BoardMember = {
@@ -191,6 +213,14 @@ export type ShareState = {
   /** The address with the capability on it, or null if the board has never been shared. */
   link_url: string | null
   is_locked: boolean
+  /**
+   * Whether a password stands in front of the board.
+   *
+   * The dialog says so beside the link, because "anyone with the link can open this"
+   * stops being true the moment one is set and an owner reading that sentence deserves
+   * to know which of the two statements they are looking at.
+   */
+  has_password: boolean
   members: BoardMember[]
   invitations: BoardInvitation[]
   /** People who have asked to be let in and are still waiting on an answer. */
@@ -491,17 +521,31 @@ export function getBoard(boardId: string): Promise<Board> {
  * membership is viewer, and a viewer link never demotes an editor who follows it. An
  * anonymous visitor cannot call this at all and uses `mintGuestWsToken` instead.
  */
-export function mintWsToken(boardId: string, linkToken: string | null): Promise<WsToken> {
+export function mintWsToken(
+  boardId: string,
+  linkToken: string | null,
+  passToken: string | null = null,
+): Promise<WsToken> {
   return call<WsToken>('/ws-token', {
     method: 'POST',
-    body: JSON.stringify({ board_id: boardId, link_token: linkToken }),
+    body: JSON.stringify({
+      board_id: boardId,
+      link_token: linkToken,
+      // Null on every board with no password, which is most of them. Where there is
+      // one, this is the whole reason it is typed once rather than on every reconnect.
+      pass_token: passToken,
+    }),
   })
 }
 
 /** A websocket credential for somebody with no account, holding a public link. */
-export function mintGuestWsToken(linkToken: string): Promise<WsToken> {
+export function mintGuestWsToken(
+  linkToken: string,
+  passToken: string | null = null,
+): Promise<WsToken> {
   return call<WsToken>(`/share/${encodeURIComponent(linkToken)}/ws-token`, {
     method: 'POST',
+    body: JSON.stringify({ pass_token: passToken }),
   })
 }
 
@@ -515,6 +559,58 @@ export function setBoardLock(boardId: string, locked: boolean): Promise<Board> {
   return call<Board>(`/boards/${boardId}`, {
     method: 'PATCH',
     body: JSON.stringify({ is_locked: locked }),
+  })
+}
+
+// --- the board's password ---
+//
+// A different thing from the lock above, and from every role. The lock stops writing;
+// this stops opening, for everybody including the owner who set it. See
+// `app/services/board_password.py` for why the owner is not exempt and why neither of
+// the two owner routes below asks for the current password.
+
+/** The shortest password the server will take. The dialog says so before it refuses. */
+export const MIN_BOARD_PASSWORD = 6
+
+/** Put a password on the board, or replace the one it has. Owner only. */
+export function setBoardPassword(boardId: string, password: string): Promise<Board> {
+  return call<Board>(`/boards/${boardId}/password`, {
+    method: 'PUT',
+    body: JSON.stringify({ password }),
+  })
+}
+
+/** Take the password off, so roles alone decide again. Owner only. */
+export function clearBoardPassword(boardId: string): Promise<Board> {
+  return call<Board>(`/boards/${boardId}/password`, { method: 'DELETE' })
+}
+
+/**
+ * Answer a board's password, as somebody who is signed in.
+ *
+ * The link token goes along for a member-by-link: it is what gives a caller with no
+ * membership row the standing to be asked at all, and without it the server refuses
+ * before it compares anything.
+ */
+export function verifyBoardPassword(
+  boardId: string,
+  password: string,
+  linkToken: string | null,
+): Promise<BoardPass> {
+  return call<BoardPass>(`/boards/${boardId}/password/verify`, {
+    method: 'POST',
+    body: JSON.stringify({ password, link_token: linkToken }),
+  })
+}
+
+/** The same, for a visitor with no account holding a public link. */
+export function verifySharedBoardPassword(
+  linkToken: string,
+  password: string,
+): Promise<BoardPass> {
+  return call<BoardPass>(`/share/${encodeURIComponent(linkToken)}/password/verify`, {
+    method: 'POST',
+    body: JSON.stringify({ password }),
   })
 }
 

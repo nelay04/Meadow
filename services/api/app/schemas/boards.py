@@ -6,6 +6,8 @@ from datetime import datetime
 from pydantic import BaseModel, EmailStr, Field
 
 from app.services.board_kinds import DEFAULT_BOARD_KIND, BoardKind
+from app.services.board_password import MAX_LENGTH as PASSWORD_MAX_LENGTH
+from app.services.board_password import MIN_LENGTH as PASSWORD_MIN_LENGTH
 from app.services.permissions import BoardRole, WorkspaceRole
 from app.services.sharing import ShareMode
 
@@ -82,6 +84,10 @@ class BoardOut(BaseModel):
     is_locked: bool
     locked_by: uuid.UUID | None = None
     can_write: bool
+    # Whether a password stands in front of this board. Never the password, and never
+    # anything derived from it: this is the one bit the client needs to know it must
+    # ask before it connects, and to badge the board in the list.
+    has_password: bool = False
 
 
 class BoardMemberAdd(BaseModel):
@@ -95,6 +101,21 @@ class WsTokenRequest(BaseModel):
     # rather than only when membership fails, because it can *raise* the answer: an
     # editor link opens an editor connection for somebody whose membership is viewer.
     link_token: str | None = None
+    # The receipt for having typed the board's password, from
+    # `POST /boards/{id}/password/verify`. Absent on every board that has none, and the
+    # reason the password is typed once a day rather than on every reconnect.
+    pass_token: str | None = Field(default=None, max_length=512)
+
+
+class GuestWsTokenRequest(BaseModel):
+    """What an anonymous link visitor may send with a ws-token mint.
+
+    Optional in every sense - the route took no body at all before board passwords, and
+    still answers without one - because a public board with no password is the common
+    case and a required empty object would be ceremony.
+    """
+
+    pass_token: str | None = Field(default=None, max_length=512)
 
 
 class WsTokenOut(BaseModel):
@@ -202,6 +223,10 @@ class ShareState(BaseModel):
     #: because an owner who switches back on wants to know it is the same link.
     link_url: str | None
     is_locked: bool
+    #: Whether a password stands in front of the board. The dialog says so beside the
+    #: link, because "anyone with the link" stops being true the moment one is set and
+    #: an owner reading that sentence deserves to know.
+    has_password: bool = False
     members: list[MemberOut]
     invitations: list[InvitationOut]
     #: People who have asked to be let in and are still waiting. Part of the same
@@ -246,6 +271,10 @@ class PublicBoardOut(BaseModel):
     role: BoardRole
     is_locked: bool
     can_write: bool
+    #: Whether the link visitor will be asked for a password before anything opens. The
+    #: title is still shown, and that is deliberate: the address they were given is
+    #: real, and "wrong link" and "right link, locked" are different things to be told.
+    has_password: bool = False
 
 
 class JoinInvitationOut(BaseModel):
@@ -267,3 +296,41 @@ class JoinInvitationOut(BaseModel):
     status: str
     #: The display name of whoever sent it, when the account still exists.
     invited_by: str | None = None
+
+
+# --- the board's password ---
+
+
+class BoardPasswordSet(BaseModel):
+    """Put a password on a board, or replace the one it has.
+
+    No `current` field. The route is owner-only, and an owner proves who they are with
+    their session; asking them for a password they may have forgotten would turn the one
+    control that can undo a forgotten password into another thing it locks.
+    """
+
+    password: str = Field(min_length=PASSWORD_MIN_LENGTH, max_length=PASSWORD_MAX_LENGTH)
+
+
+class BoardPasswordVerify(BaseModel):
+    """One attempt at a board's password."""
+
+    # Not length-validated against the minimum: a wrong answer is a wrong answer, and
+    # a 422 for a short one would tell somebody guessing how long the real one is.
+    password: str = Field(max_length=PASSWORD_MAX_LENGTH)
+    #: The share link the browser arrived with, for a signed-in caller who reaches the
+    #: board through one. It is what gives them the standing to be asked at all - see
+    #: the route.
+    link_token: str | None = Field(default=None, max_length=128)
+
+
+class BoardPassOut(BaseModel):
+    """The receipt for a correct answer.
+
+    A pass, not a session and not a role: it names one board, carries no identity, and
+    stops working the moment the password changes. The client keeps it for the tab and
+    presents it at every ws-token mint.
+    """
+
+    pass_token: str
+    expires_in: int
