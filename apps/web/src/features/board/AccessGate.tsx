@@ -142,7 +142,7 @@ export function AccessGate({ boardId, noun, reason, onBack }: Props) {
               request to stand.
             </p>
             <button type="button" className="link" onClick={onBack}>
-              Go to my glades
+              Go to Meadow
             </button>
           </>
         ) : (
@@ -175,7 +175,7 @@ export function AccessGate({ boardId, noun, reason, onBack }: Props) {
               </button>
             </div>
             <button type="button" className="link" onClick={onBack}>
-              Back to my glades
+              Go to Meadow
             </button>
           </>
         )}

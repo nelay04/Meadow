@@ -174,7 +174,7 @@ export default function JoinPage({ token, onDone }: Props) {
                   you are using.
                 </p>
                 <button type="button" className="ghost" onClick={onDone}>
-                  Go to my glades
+                  Go to Meadow
                 </button>
               </>
             )}
