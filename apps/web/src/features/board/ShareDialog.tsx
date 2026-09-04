@@ -68,6 +68,16 @@ type Props = {
   onChanged: (state: ShareState) => void
 }
 
+/**
+ * How often the open dialog re-reads who is waiting.
+ *
+ * Faster than the badge behind it, and for a reason that is about attention rather than
+ * about cost: the badge is glanced at, this is stared at. Somebody with this dialog
+ * open has it open *because* they are dealing with access right now, so it is the one
+ * screen in the app where a stale list is the thing they are looking straight at.
+ */
+const REFRESH_MS = 6_000
+
 /** The two roles a link or an invitation may carry. Owner is never one of them. */
 const SHAREABLE: { id: BoardRole; label: string; hint: string; Icon: typeof IconEye }[] = [
   { id: 'viewer', label: 'Can view', hint: 'Read and follow along. No edits.', Icon: IconEye },
@@ -374,8 +384,23 @@ export function ShareDialog({ boardId, title, noun, onClose, onChanged }: Props)
 
   const [share, setShare] = useState<ShareState | null>(null)
   const [failed, setFailed] = useState(false)
+  const failedRef = useRef(false)
   /** Set while a request is in flight, so the controls cannot be double-fired. */
-  const [busy, setBusy] = useState(false)
+  const [busy, setBusyState] = useState(false)
+  /*
+   * The same flag the refresh reads, as a ref.
+   *
+   * The refresh is set up once and cannot see later renders' `busy`, and reading a
+   * stale `false` there is the one way this dialog could go backwards: a poll answered
+   * from before a removal, applied after it, putting the person back in the list. The
+   * ref is written on the same line as the state rather than in an effect, so it is
+   * true from the instant the work starts rather than from the next commit.
+   */
+  const busyRef = useRef(false)
+  const setBusy = useCallback((value: boolean) => {
+    busyRef.current = value
+    setBusyState(value)
+  }, [])
 
   const [email, setEmail] = useState('')
   const [inviteRole, setInviteRole] = useState<BoardRole>('editor')
@@ -393,26 +418,79 @@ export function ShareDialog({ boardId, title, noun, onClose, onChanged }: Props)
     if (dialog !== null && !dialog.open) dialog.showModal()
   }, [])
 
-  const apply = useCallback(
-    (next: ShareState) => {
-      setShare(next)
-      onChanged(next)
-    },
-    [onChanged],
-  )
+  /*
+   * `onChanged`, held still.
+   *
+   * The board passes an inline arrow, so it is a new function on every render of a view
+   * that re-renders on zoom, on presence, on connection state - and `apply` depended on
+   * it, and the read below depends on `apply`. That chain meant the effect tore itself
+   * down and set itself up again constantly, which as a single fetch was merely a
+   * wasted request per render, and as an interval is worse: a timer cleared before it
+   * ever fires is a refresh that never happens. Through a ref the callback is always
+   * the latest one and `apply` never changes identity, so the interval is created once
+   * and survives.
+   */
+  const changed = useRef(onChanged)
+  useEffect(() => {
+    changed.current = onChanged
+  })
 
+  const apply = useCallback((next: ShareState) => {
+    setShare(next)
+    changed.current(next)
+  }, [])
+
+  /*
+   * The state, read on open and kept current while the dialog stands.
+   *
+   * The re-read is the whole point of the interval. This dialog was a snapshot taken at
+   * the moment it opened, which is wrong for exactly one of the things it shows: the
+   * asking-to-join queue is the only list here that a *stranger* adds to, without the
+   * owner doing anything. So the one case where somebody sits watching this dialog -
+   * they have told a colleague to ask, and they are waiting to say yes - was the case
+   * where it never updated, and the only way to see the request was to close the dialog
+   * and open it again.
+   *
+   * Skipped while a request of ours is in flight and while the tab is hidden. The first
+   * is what stops a poll landing on top of a half-finished decision and putting the row
+   * back; the second is the same bargain the badge makes - ask often, but only when
+   * there is somebody there to see the answer.
+   */
   useEffect(() => {
     let cancelled = false
-    api
-      .getShare(boardId)
-      .then((state) => {
-        if (!cancelled) apply(state)
-      })
-      .catch(() => {
-        if (!cancelled) setFailed(true)
-      })
+
+    const read = (fresh: boolean): void => {
+      // `failedRef` and not `failed`: this effect never re-runs, so it would be reading
+      // the value from the render that set it up, which is always false. Without it a
+      // non-owner who reached this dialog would sit here asking a question the server
+      // has already answered 403, six seconds apart, for as long as it stayed open.
+      if (!fresh && (busyRef.current || failedRef.current || document.hidden)) return
+      api
+        .getShare(boardId)
+        .then((state) => {
+          if (!cancelled && !busyRef.current) apply(state)
+        })
+        .catch(() => {
+          // Only the first read decides the dialog cannot be shown. A poll that fails
+          // later is a blip on a dialog that is already working, and turning it into
+          // the "owner only" message would throw away a screen the owner is using.
+          if (!cancelled && fresh) {
+            failedRef.current = true
+            setFailed(true)
+          }
+        })
+    }
+
+    read(true)
+    const timer = window.setInterval(() => read(false), REFRESH_MS)
+    const wake = (): void => read(false)
+    document.addEventListener('visibilitychange', wake)
+    window.addEventListener('focus', wake)
     return () => {
       cancelled = true
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', wake)
+      window.removeEventListener('focus', wake)
     }
   }, [boardId, apply])
 

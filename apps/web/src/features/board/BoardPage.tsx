@@ -302,6 +302,17 @@ const MARK_BUTTONS: Record<TextMark, { label: string; hint: string; Icon: typeof
 /** Sizes offered in the text bar. Enough of a range to be useful, short enough to scan. */
 const TEXT_SIZES = [12, 14, 16, 20, 24, 32, 48, 64]
 
+/**
+ * How often an owner's client asks whether anybody is waiting to be let in.
+ *
+ * Fifteen seconds, and only while the tab is visible - see the effect that uses it for
+ * why the two numbers go together. It is deliberately close to the eight the person on
+ * the other side of the request is polling at (`AccessGate`), because the two waits are
+ * one wait: the asker sees an answer within eight seconds of it being given, and the
+ * owner sees the question within fifteen of it being asked.
+ */
+const WAITING_POLL_MS = 15_000
+
 /** What the status pill says, so a raw state name never reaches the user. */
 const CONNECTION_LABEL: Record<ConnectionState, string> = {
   connecting: 'Connecting',
@@ -809,11 +820,20 @@ export default function BoardPage({ boardId, onBack }: Props) {
   /*
    * Poll for people asking to be let in.
    *
-   * A minute is deliberately slow. Nobody is watching this number, it becomes news
-   * through the mail or through opening the dialog, and the badge is here so that
-   * somebody who did open the glade for another reason cannot miss it. Owners only -
-   * for everyone else the endpoint answers 403, and asking would be a request per
-   * minute per reader for an answer they may not have.
+   * A minute was the first answer here, on the reasoning that nobody watches this
+   * number and the mail is the real notification. Both halves turned out to be wrong.
+   * The mail is the half that gets filtered, which is the case the badge exists for;
+   * and somebody who has just been asked for access on a call - which is when this
+   * actually happens - is watching, and a minute of nothing reads as the feature being
+   * broken rather than slow.
+   *
+   * So: often, but only while somebody can see the result. A hidden tab asks nothing at
+   * all, and the check on the way back to visible is what makes the number right the
+   * moment it can be read. That trade pays for the faster interval outright - a tab
+   * left open all afternoon now costs no requests instead of one a minute.
+   *
+   * Owners only - for everyone else the endpoint answers 403, and asking would be a
+   * request per reader for an answer they may not have.
    */
   useEffect(() => {
     if (role !== 'owner') {
@@ -823,6 +843,7 @@ export default function BoardPage({ boardId, onBack }: Props) {
     let cancelled = false
 
     const count = (): void => {
+      if (document.hidden) return
       api
         .listAccessRequests(boardId)
         .then((requests) => {
@@ -834,10 +855,17 @@ export default function BoardPage({ boardId, onBack }: Props) {
     }
 
     count()
-    const timer = window.setInterval(count, 60_000)
+    const timer = window.setInterval(count, WAITING_POLL_MS)
+    // Both events, not one. `visibilitychange` covers a backgrounded tab coming
+    // forward; `focus` covers the window itself being switched back to, which on a
+    // desktop with the tab already frontmost is the only one of the two that fires.
+    document.addEventListener('visibilitychange', count)
+    window.addEventListener('focus', count)
     return () => {
       cancelled = true
       clearInterval(timer)
+      document.removeEventListener('visibilitychange', count)
+      window.removeEventListener('focus', count)
     }
   }, [boardId, role])
 
