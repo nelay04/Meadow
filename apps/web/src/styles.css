@@ -5060,9 +5060,39 @@ dialog.modal[open] .modal-card {
   flex-wrap: wrap;
 }
 
+/*
+ * The address on the first line with its withdraw button beside it, and the link on the
+ * second - which is the reverse of the source order, so it is done with `order` rather
+ * than by moving the markup. Left alone, the full-width link pushed the button onto a
+ * third line of its own, where a bare can floating under a URL belonged to nothing in
+ * particular. Every other row in this list ends in that button at the end of the name,
+ * and this one now does too.
+ */
+.person.pending .person-who {
+  order: 1;
+}
+
+.person.pending .icon.ghost {
+  order: 2;
+}
+
 .person.pending .copy-row {
+  order: 3;
   flex-basis: 100%;
   margin-top: 0.35rem;
+}
+
+/*
+ * The one destructive control on a row, in the colour of what it does.
+ *
+ * Quiet at rest - a row full of red is a row that looks like an error - and red only
+ * under the pointer, the same treatment the tear-out button gets on a lea's contents
+ * list, so removing a person and removing a page announce themselves the same way.
+ */
+.person .icon.ghost:hover:not(:disabled) {
+  background: var(--danger-soft);
+  border-color: transparent;
+  color: var(--danger);
 }
 
 /* --- the board bar's overflow menu ------------------------------------------- */

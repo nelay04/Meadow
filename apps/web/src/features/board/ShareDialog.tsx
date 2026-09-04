@@ -317,7 +317,11 @@ function RequestRow({
         aria-label={`Turn down ${request.display_name}`}
         onClick={() => onDecide(request.id, false)}
       >
-        <IconX size={15} />
+        {/* A trash can, not a cross. Every other row in this dialog ends in the same
+            can - remove a member, withdraw an invitation - and turning somebody down
+            is the same kind of act: it takes the row away. A cross here read as
+            "dismiss this dialog" rather than "dismiss this person". */}
+        <IconTrash size={15} />
       </button>
     </li>
   )
