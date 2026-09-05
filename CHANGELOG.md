@@ -14,6 +14,48 @@ away getting there.
 The infrastructure to run the thing. Not deployed yet.
 
 ### Added
+- **A trash, so deleting is not the one irreversible click.** Deleting a glade or a lea
+  removed the row and cascaded its update log, its snapshots, its grants and its share
+  link away with it, immediately and for good. That was the single most destructive
+  action in the app, on the one thing the app exists to hold, and it was one click and a
+  confirm away from the board list.
+
+  Deleting now moves a board to the trash and nothing else happens: the row keeps its
+  place and everything hanging off it is untouched, so restoring is one column going
+  back to null rather than a rebuild. A board waits there for
+  `MEADOW_TRASH_RETENTION_HOURS` - 720, thirty days, by default, and in hours so a
+  deployment can set a window short enough to watch work - and then the worker's hourly
+  sweep does the hard delete that `DELETE /boards/{id}` used to do inline. The owner can
+  bring it back at any point before that, or empty it early from the trash view.
+
+  **A board in the trash is unreachable, not hidden.** `resolve_role` refuses a row with
+  a `deleted_at`, which is what makes that true everywhere at once: every router and the
+  websocket handshake already resolve through it, per ARCHITECTURE 7, so none of them
+  needed a filter of its own and none of them can forget one. The one way in that does
+  not resolve a role - a public share link, which answers callers with no account - says
+  it once more in `resolve_link`. Sockets are evicted on the delete exactly as they were
+  before, because people typing into a board nobody can open afterwards is the same
+  failure whether the row is gone or merely suspended. The link is suspended rather than
+  revoked, so a restore gives back the same address rather than breaking every copy of
+  one that was only ever going to be away for a week.
+
+  Lea pages got the same treatment, and they had to get it a different way. A page torn
+  out took its writing with it and could not be undone - deliberately outside the undo
+  stack, because an undo scoped to `objects` would have brought the writing back onto a
+  page that stayed gone. A torn-out page now keeps its entry and its rows exactly where
+  both were, marked with a `deletedAt` in `meta.pages`, and comes back to its own place
+  in the diary rather than to the end of it. Nothing can reach it meanwhile: the camera
+  is fenced to the open page's slot, and slots are still never reused. These pages live
+  inside the CRDT document, which the server stores as opaque updates and never reads,
+  so the sweep for them runs on the client when somebody who can write opens the lea -
+  against the window the server serves at `GET /config`, and never against a guess, so a
+  failed read leaves the trash alone rather than emptying it early.
+
+  The board trash is owner-only, both the list and the two actions on it: restoring and
+  purging are owner powers, so a row anybody else could see would be somebody else's
+  discards with nothing on it they could do. It sits at the foot of the sidebar, and a
+  lea's torn-out pages fold away at the foot of its page panel, absent entirely until
+  there is something in one.
 - **The stack: seeing and setting what is in front of what.** Depth has been a document
   fact since M2 - `order` is a `Y.Array` of ids and index is depth - with no face on it
   beyond four keyboard chords. A chord is not a feature to anybody who has not been told

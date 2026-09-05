@@ -11,7 +11,14 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import delete, or_, select
 
-from app.auth.deps import CurrentUser, Session, board_editor, board_owner, board_viewer
+from app.auth.deps import (
+    CurrentUser,
+    Session,
+    board_editor,
+    board_owner,
+    board_owner_trashed,
+    board_viewer,
+)
 from app.config import settings
 from app.models import (
     Board,
@@ -39,8 +46,9 @@ from app.schemas.boards import (
     ShareSettings,
     ShareState,
     TitleSuggestion,
+    TrashedBoardOut,
 )
-from app.services import access_requests, sharing
+from app.services import access_requests, sharing, trash
 from app.services.board_kinds import BoardKind
 from app.services.naming import DEFAULT_TITLE, generate_unique_board_title
 from app.services.permissions import BoardRole, at_least, can_write, rank, resolve_role
@@ -125,6 +133,10 @@ async def list_boards(
         .where(
             or_(WorkspaceMember.user_id.is_not(None), BoardMember.user_id.is_not(None)),
             Board.is_archived == archived,
+            # The trash is its own view, at `/boards/trash`. A deleted board would be
+            # filtered out by `resolve_role` below anyway - this is the query saying
+            # the same thing, so the list does not fetch rows it is about to drop.
+            Board.deleted_at.is_(None),
         )
         .order_by(Board.updated_at.desc())
     )
@@ -137,6 +149,67 @@ async def list_boards(
         role = await resolve_role(session, user_id=user.id, board_id=board.id)
         if role is not None:
             out.append(_out(board, role))
+    return out
+
+
+# Before `/{board_id}`, for the reason the note below `suggested-title` gives: a
+# literal path segment declared after the parameterised one never matches.
+@router.get("/trash", response_model=list[TrashedBoardOut])
+async def list_trash(
+    user: CurrentUser,
+    session: Session,
+    workspace_id: Annotated[uuid.UUID | None, Query()] = None,
+) -> list[TrashedBoardOut]:
+    """Boards in the trash that this caller may act on.
+
+    Owners only, and that is not the same filter the board list uses. Restore and
+    permanent delete are both owner actions, so a trash entry an editor could see would
+    be a row with nothing on it they could do - and, worse, a list of what somebody else
+    threw away. The reachability rule is unchanged underneath: `resolve_role` is still
+    what says whether this person has a role here at all.
+    """
+    query = (
+        select(Board)
+        .outerjoin(
+            WorkspaceMember,
+            (WorkspaceMember.workspace_id == Board.workspace_id)
+            & (WorkspaceMember.user_id == user.id),
+        )
+        .outerjoin(
+            BoardMember, (BoardMember.board_id == Board.id) & (BoardMember.user_id == user.id)
+        )
+        .where(
+            or_(WorkspaceMember.user_id.is_not(None), BoardMember.user_id.is_not(None)),
+            Board.deleted_at.is_not(None),
+        )
+        # Most recently thrown away first: the thing you are looking for in a trash is
+        # almost always the thing you just did.
+        .order_by(Board.deleted_at.desc())
+    )
+    if workspace_id is not None:
+        query = query.where(Board.workspace_id == workspace_id)
+
+    out = []
+    for board in (await session.execute(query)).scalars():
+        role = await resolve_role(
+            session, user_id=user.id, board_id=board.id, include_deleted=True
+        )
+        if role is not BoardRole.owner or board.deleted_at is None:
+            continue
+        out.append(
+            TrashedBoardOut(
+                id=board.id,
+                workspace_id=board.workspace_id,
+                title=board.title,
+                kind=BoardKind(board.kind),
+                role=role,
+                created_at=board.created_at,
+                updated_at=board.updated_at,
+                deleted_at=board.deleted_at,
+                deleted_by=board.deleted_by,
+                purge_after=trash.purge_after(board.deleted_at),
+            )
+        )
     return out
 
 
@@ -258,19 +331,87 @@ async def patch_board(
 async def delete_board(
     board_id: uuid.UUID,
     request: Request,
+    user: CurrentUser,
     session: Session,
     role: Annotated[BoardRole, Depends(board_owner)],
 ) -> None:
-    """Hard delete. board_updates and board_snapshots cascade away with it.
+    """Move a board to the trash. Recoverable until the window runs out.
 
-    The sockets go with it. Leaving them to the watchdog meant up to fifteen minutes of
-    people typing into a board that no longer exists - accepted, relayed between them,
-    and written to a store whose rows had been cascaded away - and then finding the work
-    gone with no account of where. Closing now makes their next reconnect resolve to no
-    access, which is the truth and says so.
+    This used to be the hard delete, and the hard delete is still what eventually
+    happens - it is `DELETE /{board_id}/purge` now, reached from the trash by the owner
+    or by the worker's sweep. What changed is that the irreversible half no longer
+    happens on the same click as the reversible one. Nothing is taken apart here: the
+    update log, the snapshots, the members and the share link stay exactly where they
+    are, and restoring is one column going back to null.
+
+    The sockets still go, and for the same reason they always did. Leaving them to the
+    watchdog meant up to fifteen minutes of people typing into a board that is no longer
+    reachable - accepted, relayed between them, and written to a document nobody can
+    open - and then finding the work gone with no account of where. Closing now makes
+    their next reconnect resolve to no access, which is the truth and says so.
     """
-    await session.execute(delete(Board).where(Board.id == board_id))
+    board = await session.get(Board, board_id)
+    if board is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="no access")
+
+    board.deleted_at = datetime.now(UTC)
+    board.deleted_by = user.id
     await session.commit()
+    await _evict(request, board_id, "glade deleted")
+
+
+@router.post("/{board_id}/restore", response_model=BoardOut)
+async def restore_board(
+    board_id: uuid.UUID,
+    session: Session,
+    role: Annotated[BoardRole, Depends(board_owner_trashed)],
+) -> BoardOut:
+    """Take a board back out of the trash.
+
+    Returns the ordinary board, because that is what it is again: the row never moved,
+    so its content, its history and everybody's access come back with it rather than
+    being rebuilt. Restoring something that is not in the trash is not an error - it is
+    the state the caller asked for, most likely from a second tab.
+    """
+    board = await session.get(Board, board_id)
+    if board is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="no access")
+
+    if board.deleted_at is not None:
+        board.deleted_at = None
+        board.deleted_by = None
+        await session.commit()
+        await session.refresh(board)
+
+    return _out(board, role)
+
+
+@router.delete("/{board_id}/purge", status_code=status.HTTP_204_NO_CONTENT)
+async def purge_board(
+    board_id: uuid.UUID,
+    request: Request,
+    session: Session,
+    role: Annotated[BoardRole, Depends(board_owner_trashed)],
+) -> None:
+    """Delete a board for good. board_updates and board_snapshots cascade away with it.
+
+    Only from the trash: a board that is still in the list has to be deleted first,
+    which is what makes "delete" a click you can take back and this one a click you
+    cannot. The sweep in `app/workers/compaction.py` does exactly this, to boards whose
+    window has passed.
+    """
+    board = await session.get(Board, board_id)
+    if board is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="no access")
+    if board.deleted_at is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="board is not in the trash"
+        )
+
+    await trash.purge_board(session, board_id)
+    await session.commit()
+    # Belt and braces: the delete evicted everybody, but a socket that joined in the
+    # window between is holding a room for a board that no longer exists.
     await _evict(request, board_id, "glade deleted")
 
 

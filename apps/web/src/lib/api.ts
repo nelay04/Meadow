@@ -98,6 +98,33 @@ export type Board = {
   can_write: boolean
 }
 
+/**
+ * A board in the trash.
+ *
+ * Not a `Board` with a flag. Everything on a board that is about opening it - the
+ * lock, `can_write`, what its link hands out - is meaningless here, because a board in
+ * the trash cannot be opened by anybody including its owner. What it has instead is
+ * when it went and when it stops being recoverable, both decided by the server.
+ */
+export type TrashedBoard = {
+  id: string
+  workspace_id: string
+  title: string
+  kind: BoardKind
+  role: BoardRole
+  created_at: string
+  updated_at: string
+  deleted_at: string
+  deleted_by: string | null
+  /** When it goes for good, as an ISO timestamp. The server's arithmetic, not ours. */
+  purge_after: string
+}
+
+/** Deployment settings the client is allowed to know. Public; read before sign-in. */
+export type AppConfig = {
+  trash_retention_hours: number
+}
+
 export type WsToken = {
   token: string
   expires_in: number
@@ -475,8 +502,41 @@ export function renameBoard(boardId: string, title: string): Promise<Board> {
   })
 }
 
+/**
+ * Move a board to the trash. Owner only, and it is not the end of it.
+ *
+ * The name is unchanged because the gesture is: this is what the delete button has
+ * always called. What changed is on the server, where the board is now recoverable
+ * until its window runs out. `purgeBoard` is the one that cannot be taken back.
+ */
 export function deleteBoard(boardId: string): Promise<void> {
   return call<void>(`/boards/${boardId}`, { method: 'DELETE' })
+}
+
+/** Everything of yours in the trash, most recently deleted first. Owner only. */
+export function listTrash(): Promise<TrashedBoard[]> {
+  return call<TrashedBoard[]>('/boards/trash')
+}
+
+/** Take one back out. Answers with the board, which is what it is again. */
+export function restoreBoard(boardId: string): Promise<Board> {
+  return call<Board>(`/boards/${boardId}/restore`, { method: 'POST' })
+}
+
+/** Delete for good. Only works on a board that is already in the trash. */
+export function purgeBoard(boardId: string): Promise<void> {
+  return call<void>(`/boards/${boardId}/purge`, { method: 'DELETE' })
+}
+
+/**
+ * How this deployment is configured, in the small part that concerns the client.
+ *
+ * Read once and shared, because it is the same answer for the whole session and two
+ * views want it: the trash, which says how long things are kept, and a lea, whose own
+ * page trash is swept against the same window.
+ */
+export function getAppConfig(): Promise<AppConfig> {
+  return call<AppConfig>('/config')
 }
 
 export function getBoard(boardId: string): Promise<Board> {

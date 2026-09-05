@@ -15,6 +15,7 @@ from arq.cron import cron
 
 from app.config import settings
 from app.workers.compaction import compact_board_job, on_shutdown, on_startup, sweep_boards
+from app.workers.trash import sweep_trash
 
 logger = getLogger("meadow.worker")
 
@@ -32,6 +33,11 @@ class WorkerSettings:
         # never accumulates a log worth worrying about, rare enough that an idle
         # deployment is doing nothing almost all of the time.
         cron(sweep_boards, minute={3, 13, 23, 33, 43, 53}, run_at_startup=False),
+        # Hourly, and off the compaction minutes so the two never contend for the
+        # pool. The retention window is configured in hours, so nothing finer than
+        # this could be acted on anyway: a board is purged within the hour after it
+        # expires, never before it.
+        cron(sweep_trash, minute={37}, run_at_startup=False),
     ]
     on_startup = _startup
     on_shutdown = on_shutdown

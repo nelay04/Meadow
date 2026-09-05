@@ -290,6 +290,20 @@ class Board(Base):
     locked_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    # In the trash since. Null is every board that is simply there, which is what the
+    # whole app means by a board existing: `resolve_role` refuses a row with a value
+    # here, so one deleted board is invisible to every router and to the websocket
+    # handshake through the same single check rather than through a filter each of them
+    # remembers. Only the trash endpoints ask to see them, and they say so.
+    #
+    # A soft delete rather than a copy into a second table: the CRDT log, the snapshots,
+    # the members and the share links all hang off this row by foreign key, and moving
+    # it would mean moving all of them and moving them back intact. Restoring is one
+    # column going null.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
@@ -297,6 +311,14 @@ class Board(Base):
 
     __table_args__ = (
         Index("ix_boards_workspace_id_is_archived", "workspace_id", "is_archived"),
+        # The trash sweep's query: everything deleted before a cutoff, across every
+        # workspace. Partial, because the column is null on all but a handful of rows
+        # and an index over the whole table would be mostly empty entries.
+        Index(
+            "ix_boards_deleted_at",
+            "deleted_at",
+            postgresql_where=text("deleted_at is not null"),
+        ),
         CheckConstraint(
             "kind in (" + ", ".join(f"'{k}'" for k in BOARD_KINDS) + ")",
             name="ck_boards_kind",

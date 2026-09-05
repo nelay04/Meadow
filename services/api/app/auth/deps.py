@@ -52,10 +52,15 @@ class BoardAccess:
 
     Routers declare the minimum role they need and get the resolved one back, so no
     router ever reimplements the rule - `resolve_role` stays the only place it lives.
+
+    `include_deleted` opens the dependency to boards in the trash, and only the trash
+    routes set it. Everywhere else the default keeps a deleted board answering 403,
+    which is `resolve_role`'s doing rather than this class's - see the note there.
     """
 
-    def __init__(self, minimum: BoardRole) -> None:
+    def __init__(self, minimum: BoardRole, *, include_deleted: bool = False) -> None:
         self.minimum = minimum
+        self.include_deleted = include_deleted
 
     async def __call__(
         self,
@@ -63,7 +68,12 @@ class BoardAccess:
         session: Session,
         board_id: Annotated[uuid.UUID, Path()],
     ) -> BoardRole:
-        role = await resolve_role(session, user_id=user.id, board_id=board_id)
+        role = await resolve_role(
+            session,
+            user_id=user.id,
+            board_id=board_id,
+            include_deleted=self.include_deleted,
+        )
         # 403 and not 404 even when the board does not exist: a different status for
         # "no such board" would let anyone probe which board ids are real.
         if role is None:
@@ -79,3 +89,7 @@ class BoardAccess:
 board_viewer = BoardAccess(BoardRole.viewer)
 board_editor = BoardAccess(BoardRole.editor)
 board_owner = BoardAccess(BoardRole.owner)
+#: Owner of a board that is in the trash. Restore and permanent delete, and nothing
+#: else: a board here is not open, not editable and not shareable, so every other route
+#: keeps the ordinary dependency and keeps answering 403 for it.
+board_owner_trashed = BoardAccess(BoardRole.owner, include_deleted=True)

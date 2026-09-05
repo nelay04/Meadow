@@ -86,6 +86,7 @@ import { useToast } from '../../ui/Toaster'
 import { createDocSession, roleCanWrite } from '../../doc/mutations'
 import type { BoardKind, BoardRole, ShareMode } from '../../lib/api'
 import * as api from '../../lib/api'
+import { useTrashRetentionHours } from '../../lib/appConfig'
 import { clearShareToken, shareToken } from '../../lib/shareLink'
 import { boardKind, boardPath } from '../boards/kinds'
 import { type PresenceHandle, colorFor, trackPresence } from '../../sync/awareness'
@@ -507,6 +508,10 @@ export default function BoardPage({ boardId, onBack }: Props) {
 
   const { user } = useAuth()
   const toast = useToast()
+  // For the wording in the page panel only: how long a torn-out page is kept. The
+  // sweep that acts on it reads the same setting through useCanvas, and waits for the
+  // server rather than falling back the way this does.
+  const trashRetentionHours = useTrashRetentionHours()
   const [wanderers, setWanderers] = useState<Wanderer[]>([])
   const presence = useRef<PresenceHandle | null>(null)
 
@@ -2194,10 +2199,23 @@ export default function BoardPage({ boardId, onBack }: Props) {
               if (created >= 0) toast.success(`Started page ${created + 1}.`)
             }}
             onRemove={(index) => {
-              // Torn out, not achieved: the news is that writing is gone, so it reads
-              // in the same colour a failure would. Same choice as the boards list.
-              if (canvas.removePage(index)) toast.error(`Tore out page ${index + 1}.`)
+              // Torn out, not achieved: the news is that writing has left the diary,
+              // so it reads in the same colour a failure would even though the page is
+              // recoverable. Same choice as the boards list.
+              if (canvas.removePage(index)) {
+                toast.error(`Tore out page ${index + 1}. It is under "Torn out" below.`)
+              }
             }}
+            trashed={canvas.trashedPages}
+            onRestore={(pageId) => {
+              // The one green message in this panel, and it earns it: something that
+              // was gone is back.
+              if (canvas.restorePage(pageId)) toast.success('Put the page back.')
+            }}
+            onPurge={(pageId) => {
+              if (canvas.purgePage(pageId)) toast.error('Deleted that page for good.')
+            }}
+            retentionHours={trashRetentionHours}
             onCollapse={() => {
               writePagesPreference(false)
               setPagesOpen(false)

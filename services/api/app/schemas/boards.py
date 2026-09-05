@@ -84,6 +84,47 @@ class BoardOut(BaseModel):
     can_write: bool
 
 
+class TrashedBoardOut(BaseModel):
+    """A board in the trash, as the trash view draws it.
+
+    Deliberately not `BoardOut`. Half of that model is about a board you can open -
+    the lock, whether you may write, what the share link hands out - and none of it
+    means anything here: a board in the trash is not open to anybody, including its
+    owner. What is left is what it was, when it went, and when it stops being
+    recoverable.
+    """
+
+    id: uuid.UUID
+    workspace_id: uuid.UUID
+    title: str
+    kind: BoardKind
+    role: BoardRole
+    created_at: datetime
+    updated_at: datetime
+    #: When it was thrown away.
+    deleted_at: datetime
+    #: Who threw it away, when that account still exists.
+    deleted_by: uuid.UUID | None = None
+    #: When it goes for good. Computed from `deleted_at` and the deployment's window
+    #: on the server, so the countdown on a card and the sweep that ends it are the
+    #: same arithmetic rather than two guesses about the retention setting.
+    purge_after: datetime
+
+
+class AppConfigOut(BaseModel):
+    """The handful of deployment settings the client has to know.
+
+    Public and unauthenticated: none of it is a secret, and it is read before the
+    board list is, on a page that may still be resolving a session.
+    """
+
+    #: How long anything deleted stays recoverable. The trash view says so on the
+    #: page, and a lea's page trash - which lives in the CRDT document and is swept by
+    #: the client - uses it as the window it sweeps against, so one number configures
+    #: both trashes.
+    trash_retention_hours: int
+
+
 class BoardMemberAdd(BaseModel):
     user_id: uuid.UUID
     role: BoardRole

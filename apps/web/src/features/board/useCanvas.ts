@@ -42,12 +42,17 @@ import { DocEngineHost, observeDocument } from '../../doc/engineHost'
 import {
   type DocSession,
   type PageMeta,
+  type TrashedPage,
   addPage,
   addPageLines,
   observePageMeta,
+  purgePage,
   readLeaPaper,
   readPages,
+  readTrashedPages,
   removePage,
+  restorePage,
+  sweepPageTrash,
   setLeaPaper,
   setPageDate,
   setPageSubject,
@@ -55,6 +60,11 @@ import {
   reconcileOrder,
   reseatWritingRows,
 } from '../../doc/mutations'
+import {
+  readAppConfig,
+  subscribeAppConfig,
+  trashRetentionMs as readTrashRetentionMs,
+} from '../../lib/appConfig'
 import { createTextEditor } from '../../overlay/textEditor'
 import { THEME_EVENT } from '../../ui/theme'
 
@@ -190,8 +200,27 @@ export type CanvasHandle = {
    * added - the role cannot write, or the diary is at its limit.
    */
   addPage(): number
-  /** Tear a page out, and the writing on it. Refuses the last page; false if it did. */
+  /**
+   * Tear a page out. It goes to this lea's trash with its writing still on it, and can
+   * be put back until the retention window passes. Refuses the last page you can turn
+   * to; false if it did.
+   */
   removePage(index: number): boolean
+  /**
+   * Pages torn out of this lea and not yet gone for good, newest first.
+   *
+   * Empty on a free canvas, like `pages`, and empty on a lea nobody has torn a page
+   * out of. Read from the document rather than held in state, so a page a peer tears
+   * out turns up here without a reload.
+   */
+  trashedPages: readonly TrashedPage[]
+  /** Put a torn-out page back where it was, by its id. False if it was not there. */
+  restorePage(pageId: string): boolean
+  /**
+   * Delete a torn-out page and its writing for good. Only works on a page that is
+   * already in the trash, and cannot be taken back.
+   */
+  purgePage(pageId: string): boolean
   /** How many rules the open page has, on a writing surface. Zero on a free canvas. */
   pageLines: number
   /** Lengthen the open page by one step. Returns how many rules were added, 0 if none. */
@@ -345,6 +374,17 @@ function samePages(a: readonly PageMeta[], b: readonly PageMeta[]): boolean {
       page.date === other.date &&
       page.lines === other.lines
     )
+  })
+}
+
+/** As above, for the lea's trash. */
+const EMPTY_TRASH: readonly TrashedPage[] = []
+
+function sameTrash(a: readonly TrashedPage[], b: readonly TrashedPage[]): boolean {
+  if (a.length !== b.length) return false
+  return a.every((page, index) => {
+    const other = b[index]
+    return other !== undefined && page.id === other.id && page.deletedAt === other.deletedAt
   })
 }
 
@@ -533,6 +573,22 @@ export function useCanvas(
     return lastPages.current
   }, [session])
   const pages = useSyncExternalStore(subscribeMeta, readPagesStable)
+
+  // The same treatment for the trash, off the same subscription: a page a peer tears
+  // out is a change to `meta` and lands here without a reload.
+  const lastTrash = useRef<readonly TrashedPage[]>(EMPTY_TRASH)
+  const readTrashStable = useCallback((): readonly TrashedPage[] => {
+    const next = readTrashedPages(session, DEFAULT_PAGE_LINES)
+    if (!sameTrash(next, lastTrash.current)) lastTrash.current = next
+    return lastTrash.current
+  }, [session])
+  const trashedPages = useSyncExternalStore(subscribeMeta, readTrashStable)
+
+  // Null until the server has said. The sweep below waits for it rather than assuming
+  // a window, because assuming a longer one than the deployment has is a trash that
+  // empties itself early. See lib/appConfig.ts.
+  useSyncExternalStore(subscribeAppConfig, readAppConfig)
+  const trashRetentionMs = readTrashRetentionMs()
   const paper = useSyncExternalStore(subscribeMeta, () => readLeaPaper(session))
 
   /*
@@ -669,21 +725,62 @@ export function useCanvas(
     return created
   }, [])
 
-  const tearOutPage = useCallback(
-    (index: number) => {
-      if (width === null) return false
-      const target = readPages(sessionRef.current, DEFAULT_PAGE_LINES)[index]
-      if (target === undefined) return false
+  const tearOutPage = useCallback((index: number) => {
+    if (!removePage(sessionRef.current, index)) return false
+    // Stay where you were in the diary rather than jumping to the end: removing page
+    // three should leave you looking at what is now page three.
+    setWantedIndex((current) => (current > index ? current - 1 : current))
+    return true
+  }, [])
 
-      const span = pageSpan({ width, fontSize, lineHeight }, target.slot)
-      if (!removePage(sessionRef.current, index, span)) return false
-      // Stay where you were in the diary rather than jumping to the end: removing page
-      // three should leave you looking at what is now page three.
-      setWantedIndex((current) => (current > index ? current - 1 : current))
-      return true
-    },
+  /*
+   * The lea's trash, and the two things that empty it.
+   *
+   * A page's strip of the world depends on the measure this client is laying the
+   * column out at, which is why every one of these needs `width` and refuses without
+   * it: purging a page means deleting the rows inside its span, and a span computed
+   * against a measure the rows were never laid out at would take the wrong writing.
+   */
+  const spanOf = useCallback(
+    (slot: number) => (width === null ? null : pageSpan({ width, fontSize, lineHeight }, slot)),
     [width, fontSize, lineHeight],
   )
+
+  const putPageBack = useCallback((pageId: string) => {
+    return restorePage(sessionRef.current, pageId)
+  }, [])
+
+  const burnPage = useCallback(
+    (pageId: string) => {
+      const target = readTrashedPages(sessionRef.current, DEFAULT_PAGE_LINES).find(
+        (page) => page.id === pageId,
+      )
+      if (target === undefined) return false
+      const span = spanOf(target.slot)
+      if (span === null) return false
+      return purgePage(sessionRef.current, pageId, span)
+    },
+    [spanOf],
+  )
+
+  /*
+   * Sweep what has outlived the window, once, when the lea opens.
+   *
+   * On the client because these pages live in the CRDT document, which the server
+   * keeps as opaque updates and never reads - so nothing on the server can see them to
+   * sweep. Only somebody who can write does it, and only once the measure is known.
+   * A page that outlives its window because nobody opened the diary has harmed
+   * nothing: it has been invisible the whole time.
+   */
+  const swept = useRef(false)
+  useEffect(() => {
+    if (swept.current || width === null || trashRetentionMs === null) return
+    if (!sessionRef.current.canWrite) return
+    swept.current = true
+    sweepPageTrash(sessionRef.current, trashRetentionMs, (slot) =>
+      pageSpan({ width, fontSize, lineHeight }, slot),
+    )
+  }, [width, fontSize, lineHeight, trashRetentionMs])
 
   // The stock decides the ink, and the ink is the one colour WebGL cannot re-resolve
   // for itself. Same call the theme toggle makes, for the same reason.
@@ -793,6 +890,10 @@ export function useCanvas(
     turnToPage,
     addPage: startPage,
     removePage: tearOutPage,
+    trashedPages:
+      options.column === null || options.column === undefined ? EMPTY_TRASH : trashedPages,
+    restorePage: putPageBack,
+    purgePage: burnPage,
     pageLines: options.column === null || options.column === undefined ? 0 : pageLines,
     addLines,
     pageDate,

@@ -799,6 +799,23 @@ export function IconRotate(props: IconProps) {
 }
 
 /**
+ * Put it back: the arc arrow, turned the other way.
+ *
+ * It was a bin with an arrow coming out of it, and beside the bin that deletes for
+ * good the two were one shape at 15px - a row offering the same button twice. Whatever
+ * a restore icon draws, it has to be *not a bin*, so this is `IconRotate` mirrored:
+ * the same arc everything reversible in this app uses, pointing anticlockwise.
+ */
+export function IconRestore(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M4 12a8 8 0 1 0 2.6-5.9" />
+      <path d="M4 4v4.5h4.5" />
+    </Svg>
+  )
+}
+
+/**
  * The overflow button on the board bar.
  *
  * Three dots and not a hamburger. A hamburger says "the navigation is behind here",

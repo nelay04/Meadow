@@ -277,8 +277,11 @@ boards
   share_role      text not null default 'viewer'      -- check in ('viewer','editor')
   locked_at       timestamptz            -- the owner's board-wide edit lock
   locked_by       uuid fk -> users on delete set null
+  deleted_at      timestamptz            -- in the trash since; null is every live board
+  deleted_by      uuid fk -> users on delete set null
   created_at, updated_at
   index (workspace_id, is_archived)
+  index (deleted_at) where deleted_at is not null   -- the trash sweep's query
 
 board_members                            -- per-board override of workspace role
   board_id, user_id, role enum(owner|editor|viewer|commenter)
@@ -1199,10 +1202,13 @@ POST   /workspaces/{id}/members
 DELETE /workspaces/{id}/members/{user_id}
 
 GET    /boards?workspace_id=&archived=
+GET    /boards/trash                  owner-only; what is recoverable, and until when
 POST   /boards
 GET    /boards/{id}                   metadata only, not content
 PATCH  /boards/{id}                   title, archive, lock (lock is owner-only)
-DELETE /boards/{id}
+DELETE /boards/{id}                   to the trash, not gone; owner only
+POST   /boards/{id}/restore           back out of the trash, whole
+DELETE /boards/{id}/purge             for good; only from the trash
 POST   /boards/{id}/duplicate
 GET    /boards/{id}/members
 POST   /boards/{id}/members           also the demote path; inviting never lowers
@@ -1222,7 +1228,8 @@ GET    /boards/{id}/access-requests/mine      status + whether the board opens n
 GET    /boards/{id}/access-requests           owner: who is waiting
 POST   /boards/{id}/access-requests/{req}     owner: { approve, role? } -> share state
 
--- unauthenticated, on purpose. See app/api/v1/share.py.
+-- unauthenticated, on purpose. See app/api/v1/share.py and app/api/v1/config.py.
+GET    /config                        the retention window; read before a session exists
 GET    /share/{token}                 what a public link opens, for a caller with nothing
 POST   /share/{token}/ws-token        a ws credential for an anonymous guest
 GET    /invites/{token}               what a #/join/ link says, before registering

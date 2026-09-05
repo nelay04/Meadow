@@ -147,6 +147,9 @@ services:
       MEADOW_SMTP_STARTTLS: ${MEADOW_SMTP_STARTTLS:-true}
       MEADOW_SMTP_SSL: ${MEADOW_SMTP_SSL:-false}
       MEADOW_ACTIVATION_TTL_HOURS: ${MEADOW_ACTIVATION_TTL_HOURS:-24}
+      # The trash. Worth turning down to an hour or two in here: the sweep runs on the
+      # worker every hour, so a 720-hour window means nothing observable ever happens.
+      MEADOW_TRASH_RETENTION_HOURS: ${MEADOW_TRASH_RETENTION_HOURS:-720}
       # So `exec api pytest` works without arguments. conftest reads both, creates and
       # migrates meadow_test, and uses Redis db 1, so a run in here cannot touch the
       # dev data sitting in the same containers.
@@ -189,6 +192,9 @@ services:
     environment:
       MEADOW_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-meadow}:${POSTGRES_PASSWORD:-meadow}@postgres:5432/${POSTGRES_DB:-meadow}
       MEADOW_REDIS_URL: redis://redis:6379/0
+      # The trash. The worker needs it as much as the API does: the API only reports
+      # when a board will go, and this is the process that makes it go.
+      MEADOW_TRASH_RETENTION_HOURS: ${MEADOW_TRASH_RETENTION_HOURS:-720}
       WATCHFILES_FORCE_POLLING: ${MEADOW_WATCH_POLL:-false}
     volumes:
       - ./services/api/app:/srv/meadow/api/app

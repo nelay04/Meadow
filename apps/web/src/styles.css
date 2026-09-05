@@ -1372,8 +1372,20 @@ label {
  * link, and neither belonged: the theme is a setting and lives on the profile page
  * now, and signing out reads as an action rather than as a link once it has an edge.
  */
-.sidebar-foot {
+/*
+ * The trash sits at the foot of the menu, and it is what pushes the account down.
+ *
+ * `margin-top: auto` moves here from `.sidebar-foot`, which keeps its own top border
+ * and now simply follows this. One auto margin in a flex column is what pins a tail to
+ * the bottom; two would split the free space between them and leave the trash floating
+ * in the middle of the sidebar.
+ */
+.sidebar-trash {
   margin-top: auto;
+  padding-top: 0.55rem;
+}
+
+.sidebar-foot {
   display: flex;
   align-items: center;
   gap: 0.4rem;
@@ -1906,6 +1918,53 @@ label {
   background: var(--danger-soft);
   border-color: transparent;
   color: var(--danger);
+}
+
+.board-card .card-restore:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/*
+ * A card for something that is in the trash.
+ *
+ * Quieter than a live one and, more to the point, not pretending to be openable: no
+ * lift on hover and no pointer over the body, because there is nothing behind it to
+ * open. Its two buttons are always visible rather than appearing on hover - this is a
+ * view you went to in order to act on something, and a row of cards with no visible
+ * controls would read as a list of things you can only watch expire.
+ */
+.board-card.trashed {
+  opacity: 0.82;
+}
+
+.board-card.trashed:hover {
+  border-color: var(--line);
+  box-shadow: var(--shadow-sm);
+  transform: none;
+  opacity: 1;
+}
+
+.board-card.trashed .board-open.static {
+  cursor: default;
+}
+
+.board-card.trashed .card-action {
+  opacity: 1;
+}
+
+/*
+ * What the trash says about itself, once.
+ *
+ * Above the cards rather than repeated on each: every card in this list is under the
+ * same rule, and printing "you can put this back" fifteen times is the same sentence
+ * fifteen times. What the cards carry is the only thing that differs between them,
+ * which is how long each one has left.
+ */
+.trash-note {
+  margin: 0 0 0.9rem;
+  font-size: 0.85rem;
+  color: var(--muted);
 }
 
 .role {
@@ -4383,6 +4442,131 @@ dialog.modal[open] .modal-card {
   /* Restated, because the app's button hover lifts by a pixel and this one's transform
      is what centres it on the row. */
   transform: translateY(-50%);
+}
+
+/*
+ * The lea's trash, at the foot of its contents.
+ *
+ * Below the list and below the way to start a new page, because it is the least of
+ * the three things this panel is for and the only one that is about what is not in
+ * the diary. Folded away by default and absent entirely while it is empty: see the
+ * note in LeaPages.tsx.
+ */
+.lea-trash {
+  margin: 0 0.6rem 0.6rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.4rem;
+}
+
+.lea-trash-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.4rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  text-align: left;
+}
+
+.lea-trash-head:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: transparent;
+  color: var(--fg-strong);
+  transform: none;
+}
+
+.lea-trash-label {
+  margin-right: auto;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Points down once the section is open, the way every disclosure in the app does. */
+.lea-trash-caret {
+  transition: transform var(--fast);
+}
+
+.lea-trash.open .lea-trash-caret {
+  transform: rotate(90deg);
+}
+
+.lea-trash-list {
+  margin: 0.25rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  /* Its own scroll rather than the panel's: a diary with thirty discarded pages
+     should not push its own contents out of reach. */
+  max-height: 11rem;
+  overflow-y: auto;
+}
+
+.lea-trash-slot {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.3rem 0.15rem 0.3rem 0.5rem;
+  border-radius: var(--radius-sm);
+}
+
+.lea-trash-slot:hover {
+  background: var(--surface-2);
+}
+
+.lea-trash-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+}
+
+/*
+ * Both buttons are always visible here, where the one in the page list is not.
+ *
+ * Opening a section called Torn out is already the deliberate act; hiding its controls
+ * behind a hover as well would make a row you have gone looking for look inert. The
+ * page list hides its trash can because that row is somewhere you are every time you
+ * turn a page.
+ */
+.lea-page-restore {
+  flex: none;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+}
+
+.lea-page-restore:hover:not(:disabled) {
+  background: var(--accent-soft);
+  border-color: transparent;
+  color: var(--accent);
+  transform: none;
+}
+
+/* The trash row's own delete button sits in the flow, so it drops the page-list
+   button's absolute placement and its hover reveal. */
+.lea-trash-slot .lea-page-remove {
+  position: static;
+  flex: none;
+  transform: none;
+  opacity: 1;
+}
+
+.lea-trash-slot .lea-page-remove:hover:not(:disabled) {
+  transform: none;
 }
 
 .lea-pages-add {

@@ -848,6 +848,22 @@ const META_PAGES = 'pages'
  * list. Dual-writing these afterwards would leave two copies of one number to keep in
  * agreement, which is the class of bug this file exists to make impossible.
  */
+/**
+ * When a page was torn out, as epoch milliseconds, or absent on a page that is simply
+ * there. The lea's own trash, and the counterpart of `boards.deleted_at` on the server.
+ *
+ * A torn-out page keeps its entry and keeps its writing, exactly where both were. That
+ * is what makes putting it back one field going away rather than a restore: its rows
+ * are identified by the strip of world they sit in, so nothing has to be found and
+ * moved back, and nothing can come back to the wrong page. They are unreachable
+ * meanwhile because the camera is fenced to the open page's slot - see `applyFence` in
+ * canvas/engine.ts - so a page in the trash cannot be seen, scrolled to or typed on.
+ *
+ * Slots are still never reused, so a page torn out and a page added afterwards can
+ * never end up sharing one.
+ */
+const PAGE_DELETED_AT = 'deletedAt'
+
 const META_PAGE_LINES = 'pageLines'
 const META_PAGE_DATE = 'pageDate'
 const META_PAGE_SUBJECT = 'pageSubject'
@@ -893,21 +909,87 @@ function storedPages(session: DocSession): Y.Array<Y.Map<unknown>> | null {
   return stored instanceof Y.Array ? (stored as Y.Array<Y.Map<unknown>>) : null
 }
 
+/** A page in a lea, with where it sits in the stored list and whether it is torn out. */
+type PageEntry = {
+  page: PageMeta
+  /** Epoch milliseconds, or 0 for a page that is simply there. */
+  deletedAt: number
+  /** Its index in the stored array, which is not its index in either list. */
+  at: number
+}
+
 /**
- * Every page of this lea, in order. Never empty: a diary with no pages is not a state
- * the surface can be in, so a document that has none reads as the one page it is.
+ * `fallbackLines` defaults because the trash operations below do not look at a page's
+ * length: they work on its id, its slot and whether it is torn out, none of which the
+ * fallback can affect. Only the two read paths that hand a page to the surface pass a
+ * real one.
+ */
+function entries(session: DocSession, fallbackLines = 1): PageEntry[] {
+  const pages = storedPages(session)
+  if (pages === null) return []
+  return pages.toArray().map((map, at) => {
+    if (!(map instanceof Y.Map)) {
+      return { page: legacyPage(session, fallbackLines), deletedAt: 0, at }
+    }
+    const stamp = map.get(PAGE_DELETED_AT)
+    return {
+      page: readPageMap(map, at, fallbackLines),
+      deletedAt: typeof stamp === 'number' && Number.isFinite(stamp) && stamp > 0 ? stamp : 0,
+      at,
+    }
+  })
+}
+
+/**
+ * The pages you can turn to, in order.
+ *
+ * Never empty, and that is the invariant the whole surface rests on: a diary with no
+ * pages is a state with nothing to click to start writing again. A document with no
+ * stored list reads as the one page it is. A document whose every page is in the trash
+ * should not be reachable - `removePage` refuses to tear out the last one standing -
+ * but two clients tearing out the last two at once can produce it, so the oldest entry
+ * is read as live rather than leaving the reader with nothing. Read-only: the page is
+ * not quietly restored, it is only shown, and tearing it out again is still refused.
  */
 export function readPages(session: DocSession, fallbackLines: number): PageMeta[] {
-  const pages = storedPages(session)
-  if (pages === null || pages.length === 0) return [legacyPage(session, fallbackLines)]
+  const all = entries(session, fallbackLines)
+  if (all.length === 0) return [legacyPage(session, fallbackLines)]
 
-  return pages
-    .toArray()
-    .map((map, index) =>
-      map instanceof Y.Map
-        ? readPageMap(map, index, fallbackLines)
-        : legacyPage(session, fallbackLines),
-    )
+  const live = all.filter((entry) => entry.deletedAt === 0)
+  if (live.length === 0) return [all[0]!.page]
+  return live.map((entry) => entry.page)
+}
+
+/** One page in the lea's trash, and when it went there. Newest first in the list. */
+export type TrashedPage = PageMeta & { deletedAt: number }
+
+/**
+ * Pages torn out and not yet gone for good.
+ *
+ * Their writing is still in the document, in the strip of world it was always in. What
+ * ends that is `purgePage`, by hand or through `sweepPageTrash` once the deployment's
+ * retention window has passed.
+ */
+export function readTrashedPages(session: DocSession, fallbackLines: number): TrashedPage[] {
+  return entries(session, fallbackLines)
+    .filter((entry) => entry.deletedAt > 0)
+    .sort((a, b) => b.deletedAt - a.deletedAt)
+    .map((entry) => ({ ...entry.page, deletedAt: entry.deletedAt }))
+}
+
+/**
+ * Where a page of the live list sits in the stored array.
+ *
+ * Everything outside this file counts pages the way the page list draws them, so a
+ * subject written to "page 2" means the second page you can turn to and not the second
+ * row of the array - which are different numbers the moment anything is in the trash.
+ * -1 for an index that is not a live page, and every caller treats that as "do
+ * nothing" rather than clamping, for the reason `writePage` gives.
+ */
+function storedIndex(session: DocSession, fallbackLines: number, liveIndex: number): number {
+  if (liveIndex < 0) return -1
+  const live = entries(session, fallbackLines).filter((entry) => entry.deletedAt === 0)
+  return live[liveIndex]?.at ?? -1
 }
 
 function pageMap(page: PageMeta): Y.Map<unknown> {
@@ -953,8 +1035,12 @@ function writePage(
   if (!session.canWrite) return
   session.doc.transact(() => {
     const pages = ensurePages(session, fallbackLines)
-    if (index < 0 || index >= pages.length) return
-    const page = pages.get(index)
+    // The caller counted pages the way the page list draws them, which is the live
+    // ones. Resolved here rather than at every call site, so nothing outside this file
+    // has to know that the trash shares the array.
+    const at = storedIndex(session, fallbackLines, index)
+    if (at < 0 || at >= pages.length) return
+    const page = pages.get(at)
     if (page instanceof Y.Map) patch(page)
   }, LOCAL_ORIGIN)
 }
@@ -1030,29 +1116,108 @@ export function addPage(session: DocSession, fallbackLines: number): number {
         lines: fallbackLines,
       }),
     ])
-    created = pages.length - 1
+    // The live index, not the array one: the new page is appended and is not in the
+    // trash, so it is the last page anybody can turn to.
+    created = pages.toArray().filter((page) => {
+      if (!(page instanceof Y.Map)) return true
+      const stamp = page.get(PAGE_DELETED_AT)
+      return !(typeof stamp === 'number' && stamp > 0)
+    }).length - 1
   }, LOCAL_ORIGIN)
 
   return created
 }
 
 /**
- * Tear a page out, and the writing on it with it.
+ * Tear a page out. It goes to the lea's trash, with its writing still on it.
  *
- * Never the last one. A lea is a diary, and a diary with no pages is a state with no
- * way back out of it: there would be nothing to click to start writing again.
+ * Never the last one you can turn to. A lea is a diary, and a diary with no pages is a
+ * state with no way back out of it: there would be nothing to click to start writing
+ * again. Pages in the trash do not count towards that - a lea whose every other page
+ * has been torn out has one page, and the trash beside it.
  *
- * Outside undo on purpose, and the one place in this file where that is a loss rather
- * than a relief. Undo is scoped to `objects`, so an undo could bring the writing back
- * while the page it was written on stayed gone - rows in a strip of the world nothing
- * can scroll to, which is worse than the delete being final. Since it is final, the
- * page list asks first.
+ * This used to take the writing with it, and be final. It is neither now: the entry
+ * keeps its place in the array and its rows keep theirs in the world, and putting the
+ * page back is one field going away. What is still true is that it is outside undo -
+ * `PAGE_ORIGIN` is not a root `Y.UndoManager` is scoped to - and that is no longer the
+ * loss it was, because the way back is the trash rather than Ctrl+Z. `purgePage` is
+ * the one that cannot be taken back.
  */
-export function removePage(session: DocSession, index: number, span: PageSpan): boolean {
+export function removePage(session: DocSession, index: number): boolean {
   if (!session.canWrite) return false
 
   const pages = storedPages(session)
-  if (pages === null || pages.length <= 1 || index < 0 || index >= pages.length) return false
+  if (pages === null) return false
+
+  const live = entries(session).filter(
+    (entry) => entry.deletedAt === 0,
+  )
+  if (live.length <= 1) return false
+
+  const target = live[index]
+  if (target === undefined) return false
+
+  const page = pages.get(target.at)
+  if (!(page instanceof Y.Map)) return false
+
+  session.doc.transact(() => {
+    page.set(PAGE_DELETED_AT, Date.now())
+  }, PAGE_ORIGIN)
+
+  return true
+}
+
+/**
+ * Put a torn-out page back, by its id.
+ *
+ * By id and not by position, because the position it is being restored from is a row
+ * in the trash list and the position it comes back to is its place in the diary. It
+ * lands where it always was: the entry never moved, so page four goes back to being
+ * page four rather than to the end of the book.
+ */
+export function restorePage(session: DocSession, pageId: string): boolean {
+  if (!session.canWrite) return false
+
+  const pages = storedPages(session)
+  if (pages === null) return false
+
+  const target = entries(session).find(
+    (entry) => entry.page.id === pageId && entry.deletedAt > 0,
+  )
+  if (target === undefined) return false
+
+  const page = pages.get(target.at)
+  if (!(page instanceof Y.Map)) return false
+
+  session.doc.transact(() => {
+    page.delete(PAGE_DELETED_AT)
+  }, PAGE_ORIGIN)
+
+  return true
+}
+
+/**
+ * Delete a torn-out page for good, and the writing on it with it.
+ *
+ * What `removePage` used to do, reached from the trash rather than from the page list.
+ * Only ever applied to a page that is already in the trash: a page you can turn to has
+ * to be torn out first, which is what makes tearing out a gesture you can take back
+ * and this one a gesture you cannot.
+ *
+ * `span` is the strip of world the page's rows sit in, from `pageSpan` in
+ * canvas/engine.ts. It has to be handed in because it depends on the measure the
+ * reader's own client is laying the column out at, which this file has no view of.
+ */
+export function purgePage(session: DocSession, pageId: string, span: PageSpan): boolean {
+  if (!session.canWrite) return false
+
+  const pages = storedPages(session)
+  if (pages === null) return false
+
+  const target = entries(session).find(
+    (entry) => entry.page.id === pageId && entry.deletedAt > 0,
+  )
+  if (target === undefined) return false
 
   const doomed = new Set<string>()
   for (const id of session.objects.keys()) {
@@ -1066,10 +1231,43 @@ export function removePage(session: DocSession, index: number, span: PageSpan): 
 
   session.doc.transact(() => {
     purgeObjects(session, doomed)
-    pages.delete(index, 1)
+    pages.delete(target.at, 1)
   }, PAGE_ORIGIN)
 
   return true
+}
+
+/**
+ * Empty everything whose window has passed. Returns how many pages went.
+ *
+ * The client does this because it is the only thing that can: these pages are inside
+ * the CRDT document, which the server stores as opaque updates and does not read.
+ * Running it when a lea is opened by somebody who can write is enough - the window is
+ * measured in hours, nothing is visible meanwhile, and a page that outlives it by an
+ * afternoon because nobody opened the diary has harmed nothing.
+ *
+ * `spanOf` turns a page's slot into its strip of world, for the same reason `purgePage`
+ * is handed one.
+ */
+export function sweepPageTrash(
+  session: DocSession,
+  retentionMs: number,
+  spanOf: (slot: number) => PageSpan,
+): number {
+  if (!session.canWrite || retentionMs < 0) return 0
+
+  const cutoff = Date.now() - retentionMs
+  // Collected before any of it is applied: purging removes entries from the array, so
+  // walking and deleting in one pass would work off indices that have moved.
+  const expired = entries(session).filter(
+    (entry) => entry.deletedAt > 0 && entry.deletedAt <= cutoff,
+  )
+
+  let gone = 0
+  for (const entry of expired) {
+    if (purgePage(session, entry.page.id, spanOf(entry.page.slot))) gone += 1
+  }
+  return gone
 }
 
 /**

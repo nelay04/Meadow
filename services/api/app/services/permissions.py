@@ -80,13 +80,28 @@ def can_manage(role: BoardRole) -> bool:
 
 
 async def resolve_role(
-    session: AsyncSession, *, user_id: uuid.UUID, board_id: uuid.UUID
+    session: AsyncSession,
+    *,
+    user_id: uuid.UUID,
+    board_id: uuid.UUID,
+    include_deleted: bool = False,
 ) -> BoardRole | None:
     """Return the user's effective role on a board, or None for no access.
 
     None also covers "no such board". Callers must not distinguish the two in a
     response: telling an unauthorised caller that a board id exists is a leak, and it
     is the same 403 either way.
+
+    A board in the trash is one more thing None covers, and that is deliberately here
+    rather than in each router. A deleted board must be unreachable from the board
+    routes, the share routes, the ws-token mint and the socket handshake alike, and the
+    only way to get that without four filters that can each be forgotten is for the
+    function they all already call to answer no.
+
+    `include_deleted` is for the trash itself - listing it, restoring from it, emptying
+    it - and nothing else. It is a keyword with a False default so that every existing
+    caller keeps refusing deleted boards without being edited, which is the property
+    worth having: forgetting to pass it fails closed.
     """
     from app.models import Board, BoardMember, WorkspaceMember
 
@@ -106,6 +121,10 @@ async def resolve_role(
                 and_(BoardMember.board_id == Board.id, BoardMember.user_id == user_id),
             )
             .where(Board.id == board_id)
+            # A board in the trash resolves to no access at all, at every role
+            # including its owner's. The owner reaches it through the trash routes,
+            # which ask for it by name.
+            .where(*([] if include_deleted else [Board.deleted_at.is_(None)]))
         )
     ).first()
 
@@ -178,6 +197,11 @@ async def resolve_access(
 
     board = await session.get(Board, board_id)
     if board is None:
+        return None
+    # The trash, again in one place. A public share link is a capability on a board
+    # that exists; deleting the board suspends it along with everything else, and
+    # restoring gives it back rather than minting a new one.
+    if board.deleted_at is not None:
         return None
 
     granted: list[BoardRole] = []

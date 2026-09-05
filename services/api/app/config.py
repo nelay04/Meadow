@@ -46,6 +46,14 @@ class Settings(BaseSettings):
     # so a socket can never outlive the session that authorised it.
     ws_revalidate_interval_seconds: int = 15 * 60
 
+    # --- trash (see app/api/v1/boards.py) ---
+    # How long a deleted glade or lea, and a torn-out lea page, stays recoverable.
+    # In hours rather than days so a deployment can set it to something short enough
+    # to watch happen, and so the tests do not have to wait a month. 720 is 30 days.
+    # Zero means a delete is final at once, which is the behaviour before there was a
+    # trash and is left reachable on purpose.
+    trash_retention_hours: int = 720
+
     # ARCHITECTURE 6: reject a room join beyond this many concurrent clients.
     max_clients_per_room: int = 50
 
