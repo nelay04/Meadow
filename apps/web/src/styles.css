@@ -1156,7 +1156,7 @@ label {
   background: var(--accent);
   color: var(--accent-ink);
   font-size: 0.7rem;
-  font-weight: 600;
+  font-weight: 500;
   letter-spacing: 0.02em;
   white-space: nowrap;
 }
