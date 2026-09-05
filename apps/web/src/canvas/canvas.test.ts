@@ -9,7 +9,7 @@
 import type { ObjectData } from '@meadow/schema'
 import { describe, expect, it } from 'vitest'
 
-import { Camera, MAX_ZOOM, MIN_ZOOM, projectPoint, viewTransform } from './camera'
+import { Camera, type CameraFence, MAX_ZOOM, MIN_ZOOM, projectPoint, viewTransform } from './camera'
 import { containedBy, hitsObject, pickTop, toLocal, unionBounds } from './hitTest'
 import { SNAP_THRESHOLD_PX, snapMove } from './snapping'
 import { splitAroundBox } from './renderers/arrowPass'
@@ -144,6 +144,140 @@ describe('Camera', () => {
       camera.y = 0
       camera.reveal(1000, 1030, 10)
       expect(camera.y).toBe(0)
+    })
+  })
+
+  /*
+   * The fence, and the one case where its zoom band gives way.
+   *
+   * A lea's measure is a property of the document: 860 world units of writing plus a
+   * margin either side, and `minZoom` of 0.5 is the point below which the page has
+   * stopped being a page. That holds on any window wide enough to draw the measure at
+   * that zoom, and a phone is not one - 390px cannot show 932 units at 0.5, so the
+   * floor and the window disagreed and the window won by cropping. The result was a
+   * diary you read two pans at a time, per line.
+   *
+   * The floor gives way to the window, and only to the window: everything below is as
+   * much about what must not move as about what does.
+   */
+  describe('fence', () => {
+    /** A lea page: the measure, the paper either side of it, and the zoom band. */
+    const PAGE: CameraFence = {
+      left: 0,
+      right: 860,
+      top: -100,
+      bottom: 4000,
+      minZoom: 0.5,
+      maxZoom: 2,
+      fitWidth: 932,
+    }
+
+    const fenced = (width: number, height = 800): Camera => {
+      const camera = new Camera()
+      camera.setViewport(width, height)
+      camera.setFence(PAGE)
+      return camera
+    }
+
+    it('opens a page at 1:1 on a window with room for the measure', () => {
+      expect(fenced(1400).zoom).toBe(1)
+    })
+
+    it('holds the documented floor on a window that can show the measure at it', () => {
+      // 932 at 0.5 wants 466px, and this window has more, so the floor still means
+      // what it says.
+      const camera = fenced(700)
+      camera.zoomAt(0, 0, 0.1)
+      expect(camera.zoom).toBe(0.5)
+    })
+
+    it('opens a tablet at the zoom that fits, though the floor would allow more', () => {
+      // 768px can show the page at 0.82, which is above the floor of 0.5. The floor
+      // was never the thing stopping it - the opening zoom of 1:1 was.
+      expect(fenced(768).zoom).toBeCloseTo(768 / 932, 6)
+    })
+
+    it('never zooms a page in to fill a window with room to spare', () => {
+      // 1400px could show the page at 1.5. The measure is set at the size it was
+      // written for, and blowing it up is not fitting it.
+      expect(fenced(1400).zoom).toBe(1)
+    })
+
+    it('shows the whole page again after turning to another one', () => {
+      const camera = fenced(768)
+      camera.zoomAt(0, 0, 2)
+      expect(camera.zoom).toBe(2)
+      camera.setFence({ ...PAGE, top: -100, bottom: 9000 })
+      expect(camera.zoom).toBeCloseTo(768 / 932, 6)
+    })
+
+    it('opens a phone at the zoom that fits the page, not at the floor', () => {
+      const camera = fenced(390)
+      expect(camera.zoom).toBeCloseTo(390 / 932, 6)
+      expect(camera.zoom).toBeLessThan(PAGE.minZoom)
+    })
+
+    it('brings the whole measure on screen once it has fitted', () => {
+      const camera = fenced(390)
+      const visible = 390 / camera.zoom
+      expect(visible).toBeGreaterThanOrEqual(PAGE.right - PAGE.left)
+    })
+
+    it('still refuses to go below the fitting zoom', () => {
+      const camera = fenced(390)
+      camera.zoomAt(0, 0, 0.01)
+      expect(camera.zoom).toBeCloseTo(390 / 932, 6)
+    })
+
+    it('lets a phone zoom in afterwards, all the way to the ceiling', () => {
+      const camera = fenced(390)
+      camera.zoomAt(0, 0, 50)
+      expect(camera.zoom).toBe(PAGE.maxZoom)
+    })
+
+    it('refits when a phone is turned on its side', () => {
+      const camera = fenced(390, 800)
+      camera.setViewport(800, 390)
+      // 800px can show the page at the floor, so the floor is back in charge and the
+      // fitted zoom it was on is pulled up to it.
+      expect(camera.zoom).toBe(PAGE.minZoom)
+    })
+
+    it('leaves a zoomed-in reader alone when the window is merely resized', () => {
+      const camera = fenced(1400)
+      camera.zoomAt(0, 0, 2)
+      expect(camera.zoom).toBe(2)
+      camera.setViewport(1100, 800)
+      // Narrower, and still wide enough to show the paper at the floor. Somebody who
+      // zoomed in to read their own handwriting is still reading; refitting here would
+      // throw away the zoom they chose. Opening a page is the moment to fit, and a
+      // window being dragged is not that moment.
+      expect(camera.zoom).toBe(2)
+    })
+
+    it('falls back to the column when a fence names no fit width', () => {
+      const camera = new Camera()
+      camera.setViewport(390, 800)
+      const { fitWidth: _unused, ...noFit } = PAGE
+      camera.setFence(noFit)
+      expect(camera.zoom).toBeCloseTo(390 / 860, 6)
+    })
+
+    it('centres the column and keeps the vertical stop, fitted or not', () => {
+      for (const width of [1400, 390]) {
+        const camera = fenced(width)
+        const visible = width / camera.zoom
+        expect(camera.x).toBeCloseTo(PAGE.left - (visible - (PAGE.right - PAGE.left)) / 2, 6)
+        camera.scrollTo(99999)
+        expect(camera.y).toBeCloseTo(PAGE.bottom - 800 / camera.zoom, 6)
+      }
+    })
+
+    it('leaves an unfenced camera own limits untouched', () => {
+      const camera = new Camera()
+      camera.setViewport(390, 800)
+      camera.zoomAt(0, 0, 0.0001)
+      expect(camera.zoom).toBe(MIN_ZOOM)
     })
   })
 })

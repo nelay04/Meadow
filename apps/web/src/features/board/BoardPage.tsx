@@ -82,6 +82,7 @@ import {
   IconUnlock,
 } from '../../ui/icons'
 import { Avatar } from '../../ui/Avatar'
+import { isPhone, usePhone } from '../../ui/viewport'
 import { useToast } from '../../ui/Toaster'
 import { createDocSession, roleCanWrite } from '../../doc/mutations'
 import type { BoardKind, BoardRole, ShareMode } from '../../lib/api'
@@ -337,6 +338,18 @@ const CONNECTION_LABEL: Record<ConnectionState, string> = {
 const PAGES_KEY = 'meadow.pages'
 
 function readPagesPreference(): boolean {
+  /*
+   * A phone opens the list closed, and a remembered "on" does not follow the layout
+   * down here.
+   *
+   * The same reasoning the stylesheet already applies to the workspace sidebar: below
+   * this width the list is a drawer over the paper rather than a column beside it, and
+   * a drawer that is open before you have asked for it is a drawer covering the thing
+   * you came to read. Opening it on a phone still writes `on`, so a desktop that opens
+   * the same account afterwards gets the column it had - the preference is honoured,
+   * it just does not decide this.
+   */
+  if (isPhone()) return false
   try {
     return localStorage.getItem(PAGES_KEY) !== 'off'
   } catch {
@@ -481,6 +494,9 @@ export default function BoardPage({ boardId, onBack }: Props) {
   const lockRoot = useRef<HTMLDivElement>(null)
   const [detail, setDetail] = useState('')
   /** Whether the diary's page list is beside the paper. Only a lea has one. */
+  /* Whether the page list and the stack are drawers over the board or columns beside
+     it. Only the drawer needs a scrim, and only a phone has drawers. */
+  const phone = usePhone()
   const [pagesOpen, setPagesOpen] = useState(readPagesPreference)
   const [stackOpen, setStackOpen] = useState(readStackPreference)
   /** The text-size menu, the same `.menu` popup as the paper picker rather than a native `<select>`. */
@@ -2186,6 +2202,27 @@ export default function BoardPage({ boardId, onBack }: Props) {
             <IconPanel size={17} />
             <span className="lea-pages-tab-count">{canvas.pages.length}</span>
           </button>
+        )}
+
+        {/*
+          The drawer's scrim, on a phone only.
+
+          The list is a column beside the paper on a desktop and a drawer over it on a
+          phone, and a drawer over what you are writing on needs to say so: without
+          this, a press meant for "put the list away" lands on the page underneath and
+          starts a line. `--rail-clearance` is only set at phone width, so the media
+          query that makes it a drawer is the same one that gives the scrim its size,
+          and the two cannot come apart.
+        */}
+        {spec.column !== null && pagesOpen && phone && (
+          <div
+            className="lea-pages-scrim"
+            aria-hidden="true"
+            onClick={() => {
+              writePagesPreference(false)
+              setPagesOpen(false)
+            }}
+          />
         )}
 
         {spec.column !== null && pagesOpen && (

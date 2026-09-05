@@ -2259,6 +2259,17 @@ label {
   display: flex;
   flex-direction: column;
   background: var(--canvas-bg);
+  /*
+   * A drag that begins on the board is a drawing, never a page gesture.
+   *
+   * Pixi already sets `touch-action: none` on its own canvas, which stops the browser
+   * panning and double-tap zooming the surface. It does not stop the overscroll chain:
+   * a downward drag near the top of the screen still reached the browser as a
+   * pull-to-refresh on Android, so an upstroke drawn there could reload the board and
+   * take the stroke with it. There is nothing in here to scroll, so there is nothing
+   * to hand upwards either.
+   */
+  overscroll-behavior: none;
 }
 
 .board-bar {
@@ -4105,404 +4116,6 @@ dialog.modal[open] .modal-card {
   }
 }
 
-/* --- small screens -----------------------------------------------------------
- *
- * Everything below is additive: one `pointer: coarse` block for input that has no
- * hover, and two width breakpoints. Nothing here changes the desktop layout, which is
- * the point. A canvas tool's desktop form is the one it was designed as, and a phone
- * gets the same product rearranged rather than a reduced one: every tool, every
- * control, and the same board.
- *
- * The two widths are chosen from what actually breaks rather than from a device list.
- * At 860px the 15rem sidebar stops leaving room for a useful grid of cards, and at
- * 560px a vertical tool rail is taller than the canvas beside it.
- */
-
-/* --- touch, at any width --- */
-@media (pointer: coarse) {
-  /*
-   * Hover tooltips are dead weight on a touch device: there is no hover, so they only
-   * ever appear on the tap that already did the thing they were explaining. The
-   * accessible name is on `aria-label` and is unaffected.
-   */
-  .tool .tip {
-    display: none;
-  }
-
-  /*
-   * A card's delete button is revealed on hover, which on a touch device means never.
-   * It is the only way to delete a glade, so it is always visible here. The
-   * confirmation dialog is what stops that being dangerous, and on a phone the button
-   * is also further from the thumb's resting position than the card itself.
-   */
-  .board-card .card-delete {
-    opacity: 1;
-  }
-
-  /* 44px is the smallest target most people can hit reliably while walking. */
-  .tool,
-  button.icon {
-    min-width: 2.75rem;
-    min-height: 2.75rem;
-  }
-
-  .board-card .card-delete {
-    width: 2.4rem;
-    height: 2.4rem;
-  }
-
-  /* The drawer's footer is the only route to either of these on a phone. */
-  .sidebar-foot .btn-row button {
-    min-height: 2.75rem;
-  }
-}
-
-/* The menu button is a phone control. On a desktop the sidebar is always on screen -
-   as a column or as a rail - and its own toggle is the control for that. */
-.nav-toggle {
-  flex: 0 0 auto;
-  margin-right: 0.1rem;
-}
-
-/* --- tablet and below: the sidebar becomes a drawer --- */
-@media (max-width: 860px) {
-  /*
-   * `dvh`, not `vh`. On a phone `100vh` is the viewport with the browser's address bar
-   * hidden, which is not the viewport you have while it is showing: the sidebar ends
-   * up taller than the screen and its footer sits under the chrome.
-   */
-  .workspace {
-    min-height: 100dvh;
-  }
-
-  .nav-toggle {
-    display: inline-flex;
-  }
-
-  .sidebar {
-    position: fixed;
-    inset: 0 auto 0 0;
-    z-index: 40;
-    flex: 0 0 auto;
-    width: min(17rem, 82vw);
-    height: 100dvh;
-    transform: translateX(-100%);
-    transition: transform 180ms cubic-bezier(0.2, 0, 0.2, 1);
-    box-shadow: none;
-  }
-
-  .sidebar.open {
-    transform: none;
-    box-shadow: var(--shadow-lg);
-  }
-
-  /*
-   * A drawer is never a rail. It is already a narrow overlay that is dismissed rather
-   * than narrowed, so a remembered desktop collapse must not follow the layout down
-   * here and leave a phone with a strip of unlabelled icons over its board list.
-   */
-  .sidebar.collapsed {
-    flex-basis: auto;
-    padding-left: 0.75rem;
-    padding-right: 0.75rem;
-  }
-
-  .sidebar.collapsed .wordmark,
-  .sidebar.collapsed .nav-heading,
-  .sidebar.collapsed .nav-label,
-  .sidebar.collapsed .nav-count,
-  .sidebar.collapsed .sidebar-foot .name,
-  .sidebar.collapsed .sign-out {
-    display: revert;
-  }
-
-  .sidebar.collapsed .sidebar-search input {
-    padding-left: 2rem;
-    color: inherit;
-    cursor: auto;
-  }
-
-  .sidebar.collapsed .sidebar-search input::placeholder {
-    color: revert;
-  }
-
-  .sidebar.collapsed .sidebar-search svg {
-    left: 0.6rem;
-    transform: none;
-  }
-
-  .sidebar-search-expand,
-  .sidebar-collapse {
-    display: none;
-  }
-
-  .sidebar.collapsed .nav-item,
-  .sidebar.collapsed .sidebar-foot .user-chip {
-    justify-content: flex-start;
-  }
-
-  .sidebar.collapsed .nav-item {
-    gap: 0.6rem;
-    padding-left: 0.6rem;
-    padding-right: 0.6rem;
-  }
-
-  .sidebar.collapsed .sidebar-foot .user-chip {
-    gap: 0.55rem;
-    padding-left: 0.5rem;
-    padding-right: 0.5rem;
-  }
-
-  .sidebar.collapsed .sidebar-foot,
-  .sidebar.collapsed .sidebar-brand {
-    justify-content: flex-start;
-  }
-
-  .sidebar-scrim {
-    position: fixed;
-    inset: 0;
-    z-index: 39;
-    background: #0b0d1066;
-    backdrop-filter: blur(2px);
-  }
-
-  /*
-   * The drawer's footer is the only place the theme control and the sign-out live, so
-   * on a phone it is the only way to reach either. They get the full width of the
-   * drawer and a proper target rather than the desktop's tucked-away row.
-   */
-  .sidebar-foot .btn-row {
-    gap: 0.4rem;
-  }
-
-  /* The theme control keeps its square; the sign-out takes the rest of the row and
-     reads from the left like everything above it. */
-  .sidebar-foot .btn-row .ghost:not(.icon) {
-    flex: 1;
-    justify-content: flex-start;
-  }
-
-  .workspace-main {
-    padding: 1rem 1rem 4rem;
-  }
-
-  .board-grid {
-    grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
-  }
-
-  /* The glade title gives up its fixed ceiling and takes whatever the bar has left. */
-  .board-bar h1 {
-    max-width: none;
-    min-width: 0;
-    flex: 0 1 auto;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .sidebar {
-    transition: none;
-  }
-}
-
-/* --- phone --- */
-@media (max-width: 560px) {
-  .workspace-head {
-    gap: 0.4rem;
-  }
-
-  .workspace-head h1 {
-    font-size: 1.15rem;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  /* Name and button stack: side by side, the field is too narrow to read what you
-     typed and the button is too narrow to read at all. */
-  .composer-row {
-    flex-wrap: wrap;
-  }
-
-  .composer-row input {
-    flex: 1 0 100%;
-    order: -1;
-  }
-
-  .composer-row .primary {
-    flex: 1;
-    justify-content: center;
-  }
-
-  /* A menu wider than the screen is a menu with a word missing off each line. */
-  .menu {
-    min-width: 0;
-    width: min(20rem, calc(100vw - 1.5rem));
-  }
-
-  .board-grid {
-    grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
-    gap: 0.7rem;
-  }
-
-  /* --- the board --- */
-  .board-bar {
-    gap: 0.3rem;
-    padding: 0.4rem 0.5rem;
-  }
-
-  .board-bar h1 {
-    font-size: 0.95rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  /* Separators are the first thing to go when the bar is the scarce resource. */
-  .board-bar .divider {
-    display: none;
-  }
-
-  /*
-   * The bar's fixed passengers, in the order they stop earning their place.
-   *
-   * The role pill goes first: the avatar beside it already carries a pencil or an eye,
-   * so it was saying the same thing twice. Then the flexible spacer, because the title
-   * can do that job and a title squeezed to nothing is worse than a bar with no slack.
-   * Then the word beside the fit icon.
-   */
-  .board-bar .role {
-    display: none;
-  }
-
-  /* Except the one inside a face's card, which is the entire reason that card opened. */
-  .board-bar .face-card .role {
-    display: inline-block;
-  }
-
-  .board-bar .spacer {
-    display: none;
-  }
-
-  .board-bar h1 {
-    flex: 1 1 auto;
-  }
-
-  .zoom .label {
-    display: none;
-  }
-
-  .zoom button {
-    padding: 0.25rem 0.45rem;
-  }
-
-  .zoom .readout {
-    min-width: 0;
-    padding: 0.25rem 0.4rem;
-  }
-
-  /* Four faces is already more than the bar can spare; the canvas shows the rest as
-     wanderers, which is where they matter. */
-  .wanderers .avatar:nth-child(n + 4) {
-    display: none;
-  }
-
-  /*
-   * The tool rail turns from a column into a bar along the bottom.
-   *
-   * Vertically it was taller than the canvas it floats over, and horizontally it lands
-   * where a thumb already is. It scrolls, so adding a tool never pushes one off the
-   * screen with no way to reach it.
-   */
-  .toolbar {
-    left: 0.5rem;
-    right: 0.5rem;
-    top: auto;
-    bottom: 0.6rem;
-    transform: none;
-    flex-direction: row;
-    align-items: center;
-    justify-content: safe center;
-    gap: 0.1rem;
-    overflow-x: auto;
-    overscroll-behavior-x: contain;
-    scrollbar-width: none;
-  }
-
-  .toolbar::-webkit-scrollbar {
-    display: none;
-  }
-
-  /* The rule between the tools and the delete button turns with the rail. */
-  .toolbar > hr {
-    border-top: 0;
-    border-left: 1px solid var(--line);
-    width: 0;
-    height: 1.6rem;
-    margin: 0 0.25rem;
-    align-self: center;
-    flex: 0 0 auto;
-  }
-
-  .toolbar .tool {
-    flex: 0 0 auto;
-  }
-
-  /* The arrow-shape flyout opens upward, because the rail it belongs to is now at the
-     bottom of the screen and to the right of it is off the edge. */
-  .tool-submenu {
-    left: 50%;
-    right: auto;
-    top: auto;
-    bottom: calc(100% + 0.55rem);
-    transform: translateX(-50%);
-  }
-
-  /* Clear of the rail, both of them. */
-  .board-notices {
-    bottom: 4.6rem;
-    width: calc(100% - 1.5rem);
-  }
-
-  .board-notices > * {
-    text-align: center;
-  }
-
-  .text-bar {
-    max-width: calc(100% - 1rem);
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-
-  .statusbar {
-    padding: 0.25rem 0.6rem;
-    font-size: 0.72rem;
-  }
-
-  /*
-   * `:has()` rather than lifting every toast on every page: the rail only exists while
-   * a glade is open, and on the list behind it there is nothing down there to clear.
-   */
-  body:has(.board) .toaster {
-    bottom: 4.6rem;
-  }
-
-  .toaster {
-    right: 0.5rem;
-    left: 0.5rem;
-    width: auto;
-  }
-}
-
-/*
- * The keyboard hints go by input device, not by width: a small window on a laptop
- * still has a keyboard, and a large tablet does not.
- */
-@media (pointer: coarse) {
-  .statusbar .hints {
-    display: none;
-  }
-}
 
 /*
  * The page list of a lea.
@@ -6122,5 +5735,874 @@ dialog.modal[open] .modal-card {
 
   .board-body.with-stack {
     --board-aside: 0px;
+  }
+}
+
+
+/* =============================================================================
+ * SMALL SCREENS
+ *
+ * This section is last in the file, and that is load-bearing rather than tidy.
+ *
+ * A media query adds no specificity. A rule inside `@media (max-width: 560px)` and a
+ * plain rule with the same selector are equally specific, so the one written later
+ * wins - and while this section sat in the middle of the stylesheet, every phone rule
+ * it held for a component defined below it was silently dead. The page list of a lea
+ * was the case that showed it: the drawer was written here to be 20rem wide and above
+ * its scrim, the base `.lea-pages` rule three hundred lines further down said 13.5rem
+ * and `z-index: 3`, and the base rule won. The drawer came out too narrow and painted
+ * *underneath* the scrim that was meant to sit behind it, so opening the pages on a
+ * phone greyed out the pages.
+ *
+ * Nothing here needs to be read in the middle of the file, and everything here needs
+ * to beat what came before it. So it goes at the end, and a component added later goes
+ * above this line rather than below it.
+ * ============================================================================= */
+
+/* --- small screens -----------------------------------------------------------
+ *
+ * Everything below is additive: one `pointer: coarse` block for input that has no
+ * hover, and two width breakpoints. Nothing here changes the desktop layout, which is
+ * the point. A canvas tool's desktop form is the one it was designed as, and a phone
+ * gets the same product rearranged rather than a reduced one: every tool, every
+ * control, and the same board.
+ *
+ * The two widths are chosen from what actually breaks rather than from a device list.
+ * At 860px the 15rem sidebar stops leaving room for a useful grid of cards, and at
+ * 560px a vertical tool rail is taller than the canvas beside it.
+ */
+
+/* --- touch, at any width --- */
+@media (pointer: coarse) {
+  /*
+   * Hover tooltips are dead weight on a touch device: there is no hover, so they only
+   * ever appear on the tap that already did the thing they were explaining. The
+   * accessible name is on `aria-label` and is unaffected.
+   */
+  .tool .tip {
+    display: none;
+  }
+
+  /*
+   * A card's delete button is revealed on hover, which on a touch device means never.
+   * It is the only way to delete a glade, so it is always visible here. The
+   * confirmation dialog is what stops that being dangerous, and on a phone the button
+   * is also further from the thumb's resting position than the card itself.
+   */
+  .board-card .card-delete {
+    opacity: 1;
+  }
+
+  /* 44px is the smallest target most people can hit reliably while walking. */
+  .tool,
+  button.icon {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+  }
+
+  .board-card .card-delete {
+    width: 2.4rem;
+    height: 2.4rem;
+  }
+
+  /* The drawer's footer is the only route to either of these on a phone. */
+  .sidebar-foot .btn-row button {
+    min-height: 2.75rem;
+  }
+
+  /*
+   * Everything else that is pressed.
+   *
+   * The two rules above were the whole of this block, so every other control in the
+   * app was still sized for a cursor: the sidebar's views were 39px tall, a card's
+   * rename button 32x32, the zoom readout 27px, the script picker 18px *wide*, and a
+   * menu row 32px. A pointer lands within a pixel of where it is aimed and a fingertip
+   * lands within about ten, which is what 44px is for.
+   *
+   * `min-height` rather than `height`, so a row that wraps to two lines still grows
+   * instead of overflowing its own box.
+   */
+  .menu-item,
+  .nav-item,
+  .dropdown-button,
+  .sign-out,
+  .segmented button,
+  .lea-page,
+  .lea-pages-add,
+  .lea-add-lines,
+  .lea-trash-row button {
+    min-height: 2.75rem;
+  }
+
+  /* A group of small buttons in a row: each one gets the height, and the group keeps
+     its shape rather than each button becoming a square. */
+  .zoom button,
+  .text-bar button,
+  .shape-sides button {
+    min-width: 2.5rem;
+    min-height: 2.5rem;
+  }
+
+  /* The profile page's row actions - Connect, Change, and the Terminate on every
+     signed-in browser. They sit at the end of a row of facts, so they take the height
+     and leave the row's shape alone. */
+  .profile-connect {
+    min-height: 2.5rem;
+  }
+
+  /*
+   * A face in the presence row opens a card with the person's name and role.
+   *
+   * The avatars overlap by a negative margin, so making the circles bigger would
+   * redraw the row rather than make it easier to hit. The padding grows the target
+   * above and below the circle instead, where there is nothing to disturb.
+   */
+  .board-bar .face {
+    padding-block: 0.55rem;
+  }
+
+  /* Square ones, where width is as easy to miss as height. */
+  .card-action,
+  .social,
+  .lea-pages-collapse,
+  .dropdown.input-language > button {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+  }
+
+  /*
+   * Renaming is not a hover-only action on a device with no hover.
+   *
+   * The delete button was already made permanent here and rename was not, so on a
+   * phone a board could be thrown away but never retitled - the only control that
+   * would have done it was revealed by a gesture the device does not have.
+   */
+  .board-card .card-rename {
+    opacity: 1;
+  }
+
+  /* The board's own title, which is a field pretending to be a label. Pretending
+     costs nothing on a desktop and costs the tap target here. */
+  .board-name {
+    min-height: 2.5rem;
+  }
+
+  /* A word set as a link inside a sentence - "Forgot password?", "Try again". It
+     cannot take a box without reading as a button, so it takes the padding instead. */
+  .label-action,
+  .link {
+    padding-block: 0.72rem;
+  }
+
+  /* The tab that brings a closed page list or stack back. It is a narrow upright chip
+     by design - an icon over a count - so it takes the width rather than the height. */
+  .lea-pages-tab {
+    min-width: 2.75rem;
+  }
+
+  /*
+   * --- what a touch device does not have -------------------------------------
+   *
+   * Three things are missing here that the rest of the app is written for, and each
+   * one leaves something on screen that is now only clutter: there is no keyboard, so
+   * a shortcut is an instruction that cannot be followed; no scrollbar, so a gutter
+   * reserved for one is a stripe of nothing; and no hover, so every affordance that
+   * waits to be hovered is one that never arrives.
+   *
+   * The statusbar's hint line was already handled this way. These are the same rule
+   * applied everywhere else it holds.
+   */
+
+  /* A shortcut beside a menu row - "Show the stack   Ctrl+L" - is half a row of width
+     spent telling a phone to press a key it does not have. The row's label is
+     untouched, so nothing about what it does is lost. */
+  .menu-hint,
+  kbd {
+    display: none;
+  }
+
+  /*
+   * Lists scroll by dragging them, so nothing has to be drawn to say so.
+   *
+   * `overscroll-behavior` matters more than the bar: without it a menu scrolled to its
+   * end hands the rest of the gesture to whatever is behind it, which on the board is
+   * the canvas - so flicking to the bottom of the language list panned the board.
+   */
+  .menu,
+  .lea-pages,
+  .sidebar {
+    scrollbar-width: none;
+    overscroll-behavior: contain;
+  }
+
+  .menu::-webkit-scrollbar,
+  .lea-pages::-webkit-scrollbar,
+  .sidebar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /*
+   * Pressed, not hovered.
+   *
+   * A hover state is this app's whole answer to "did that register", and a finger
+   * never produces one: the style fires on the tap that already did the thing, so the
+   * first feedback you get is the result. The browser's own tap highlight is not a
+   * substitute - it is a grey rectangle around the element's box, which on a rounded
+   * pill or a circular icon button is visibly the wrong shape.
+   *
+   * So it goes, and a pressed state takes its place: the surface darkens for as long
+   * as the finger is down, in the element's own shape.
+   */
+  a,
+  button,
+  .tool,
+  .nav-item,
+  .menu-item,
+  .board-card,
+  .card-action {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .primary:active:not(:disabled),
+  .ghost:active:not(:disabled),
+  button.icon:active:not(:disabled),
+  .tool:active:not(:disabled),
+  .nav-item:active,
+  .menu-item:active:not(:disabled),
+  .dropdown-button:active:not(:disabled),
+  .card-action:active,
+  .segmented button:active {
+    /* No lift and no shadow: a transform on press reads as a wobble under a finger
+       that is already covering the control. Colour alone is the signal. */
+    transform: none;
+    filter: brightness(0.94);
+  }
+
+  .board-card:active {
+    filter: brightness(0.97);
+  }
+}
+
+/* The menu button is a phone control. On a desktop the sidebar is always on screen -
+   as a column or as a rail - and its own toggle is the control for that. */
+.nav-toggle {
+  flex: 0 0 auto;
+  margin-right: 0.1rem;
+}
+
+/* --- tablet and below: the sidebar becomes a drawer --- */
+@media (max-width: 860px) {
+  /*
+   * `dvh`, not `vh`. On a phone `100vh` is the viewport with the browser's address bar
+   * hidden, which is not the viewport you have while it is showing: the sidebar ends
+   * up taller than the screen and its footer sits under the chrome.
+   */
+  .workspace {
+    min-height: 100dvh;
+  }
+
+  .nav-toggle {
+    display: inline-flex;
+  }
+
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 40;
+    flex: 0 0 auto;
+    width: min(17rem, 82vw);
+    height: 100dvh;
+    transform: translateX(-100%);
+    transition: transform 180ms cubic-bezier(0.2, 0, 0.2, 1);
+    box-shadow: none;
+  }
+
+  .sidebar.open {
+    transform: none;
+    box-shadow: var(--shadow-lg);
+  }
+
+  /*
+   * A drawer is never a rail. It is already a narrow overlay that is dismissed rather
+   * than narrowed, so a remembered desktop collapse must not follow the layout down
+   * here and leave a phone with a strip of unlabelled icons over its board list.
+   */
+  .sidebar.collapsed {
+    flex-basis: auto;
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+
+  .sidebar.collapsed .wordmark,
+  .sidebar.collapsed .nav-heading,
+  .sidebar.collapsed .nav-label,
+  .sidebar.collapsed .nav-count,
+  .sidebar.collapsed .sidebar-foot .name,
+  .sidebar.collapsed .sign-out {
+    display: revert;
+  }
+
+  .sidebar.collapsed .sidebar-search input {
+    padding-left: 2rem;
+    color: inherit;
+    cursor: auto;
+  }
+
+  .sidebar.collapsed .sidebar-search input::placeholder {
+    color: revert;
+  }
+
+  .sidebar.collapsed .sidebar-search svg {
+    left: 0.6rem;
+    transform: none;
+  }
+
+  .sidebar-search-expand,
+  .sidebar-collapse {
+    display: none;
+  }
+
+  .sidebar.collapsed .nav-item,
+  .sidebar.collapsed .sidebar-foot .user-chip {
+    justify-content: flex-start;
+  }
+
+  .sidebar.collapsed .nav-item {
+    gap: 0.6rem;
+    padding-left: 0.6rem;
+    padding-right: 0.6rem;
+  }
+
+  .sidebar.collapsed .sidebar-foot .user-chip {
+    gap: 0.55rem;
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
+
+  .sidebar.collapsed .sidebar-foot,
+  .sidebar.collapsed .sidebar-brand {
+    justify-content: flex-start;
+  }
+
+  .sidebar-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 39;
+    background: #0b0d1066;
+    backdrop-filter: blur(2px);
+  }
+
+  /*
+   * The drawer's footer is the only place the theme control and the sign-out live, so
+   * on a phone it is the only way to reach either. They get the full width of the
+   * drawer and a proper target rather than the desktop's tucked-away row.
+   */
+  .sidebar-foot .btn-row {
+    gap: 0.4rem;
+  }
+
+  /* The theme control keeps its square; the sign-out takes the rest of the row and
+     reads from the left like everything above it. */
+  .sidebar-foot .btn-row .ghost:not(.icon) {
+    flex: 1;
+    justify-content: flex-start;
+  }
+
+  .workspace-main {
+    padding: 1rem 1rem 4rem;
+  }
+
+  .board-grid {
+    grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+  }
+
+  /* The glade title gives up its fixed ceiling and takes whatever the bar has left. */
+  .board-bar h1 {
+    max-width: none;
+    min-width: 0;
+    flex: 0 1 auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar {
+    transition: none;
+  }
+}
+
+/* --- phone --- */
+@media (max-width: 560px) {
+  /*
+   * The head wraps instead of truncating.
+   *
+   * One row could not hold a heading and two filter dropdowns: "Everything" came out
+   * as "Everyt..." while "Anyone" and "Last modified" kept every letter, which is the
+   * wrong way round - the heading says which list you are looking at and the filters
+   * say so themselves when you open them. Wrapping gives the heading the first line
+   * whole and puts the filters on the second, where they still fit side by side.
+   */
+  .workspace-head {
+    gap: 0.4rem 0.5rem;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .workspace-head h1 {
+    font-size: 1.15rem;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* The spacer's job was to push the filters to the far end of one row. With two rows
+     it would push them onto a third. */
+  .workspace-head .spacer {
+    display: none;
+  }
+
+  /* The filters take the second row and share it. */
+  .workspace-head .dropdown {
+    flex: 1 1 8rem;
+  }
+
+  .workspace-head .dropdown-button {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  /* Name and button stack: side by side, the field is too narrow to read what you
+     typed and the button is too narrow to read at all. */
+  .composer-row {
+    flex-wrap: wrap;
+  }
+
+  .composer-row input {
+    flex: 1 0 100%;
+    order: -1;
+  }
+
+  .composer-row .primary {
+    flex: 1;
+    justify-content: center;
+  }
+
+  /*
+   * Menus anchor to the bar they belong to, not to the button that opened them.
+   *
+   * Capping the width was not enough and could not be. A `.menu` is positioned against
+   * its own `.dropdown`, and the button that opens the language picker sits near the
+   * right edge of the board bar, so a 366px menu hung off it started at x=-23: every
+   * English label in the list - Bengali, Hindi, Assamese - was cut off down its left
+   * side. Clamping the width only decides how much of a menu is off the screen, not
+   * whether any of it is, because the anchor is what put it there.
+   *
+   * Taking the anchor out of the `.dropdown` and giving it to the bar fixes it at the
+   * cause: the bar spans the screen, so a menu measured from its right edge is on the
+   * screen whatever opened it. The menu still hangs below the bar, so it still reads as
+   * belonging to the control that opened it, and every dismissal - the outside press,
+   * Escape - is untouched, which a bottom sheet would have broken: those handlers ask
+   * whether the press landed inside the dropdown, and a full-screen scrim of our own
+   * would have answered yes.
+   */
+  .board-bar,
+  .workspace-head {
+    position: relative;
+  }
+
+  .board-bar .dropdown,
+  .workspace-head .dropdown {
+    position: static;
+  }
+
+  .board-bar .menu,
+  .workspace-head .menu {
+    right: 0.5rem;
+    left: auto;
+    min-width: 0;
+    width: max-content;
+    max-width: calc(100vw - 1rem);
+  }
+
+  /*
+   * The menus themselves: wider rows, tighter chrome.
+   *
+   * "Compact" and "finger-sized" pull in opposite directions only if you spend the
+   * space in the same place. A menu on a phone wants *less* of everything that is
+   * decoration - the gap between rows, the padding around the list, the width it
+   * reserves for a shortcut nobody can press - and *more* of the one dimension a
+   * finger actually needs, which is the height of a row. So the list closes up and
+   * the rows open out, and the result is shorter overall than what it replaced.
+   */
+  .menu {
+    min-width: 0;
+    max-width: calc(100vw - 1rem);
+    max-height: min(65vh, 28rem);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    gap: 0;
+    padding: 0.25rem;
+  }
+
+  /* Edge to edge inside the menu, so the row a finger lands on is the row that
+     lights up rather than a smaller box inside it. */
+  .menu-item {
+    padding: 0.55rem 0.7rem;
+    border-radius: calc(var(--radius) - 0.2rem);
+  }
+
+  /* A menu that is a list of choices reads as one list. The rule between groups is
+     the only separation it needs, and gaps between every row were competing with it. */
+  .menu-rule {
+    margin-block: 0.25rem;
+  }
+
+  /* The submenu of a row that opens one. Indented, and no more than that: a second
+     inset on a 390px screen starts eating the labels. */
+  .menu-options {
+    padding-left: 0.6rem;
+  }
+
+  /*
+   * A dropdown's own button, which on a phone is a field rather than a chip.
+   *
+   * They sit in a wrapped row where each takes half the width, so the label goes to
+   * the left edge and the caret to the right, the way every select on this device
+   * looks. Centred text with a caret trailing it reads as a button that has been
+   * stretched, which is what it would be.
+   */
+  .dropdown-button {
+    justify-content: space-between;
+    padding: 0.5rem 0.7rem;
+  }
+
+  .board-grid {
+    grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+    gap: 0.7rem;
+  }
+
+  /*
+   * A card's foot stacks instead of competing for one row.
+   *
+   * The title, the kind badge, "Edited 4 minutes ago" and the role pill shared 160px,
+   * and the one that lost was the only one carrying a fact you cannot get anywhere
+   * else: the time came out as "E...". The pill is short, fixed, and says the same
+   * thing on nearly every card in a personal workspace, so it gives up the row.
+   */
+  .board-meta {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 0.25rem 0.5rem;
+    padding: 0.55rem 0.6rem;
+  }
+
+  .board-meta > .role {
+    order: 1;
+    flex: 0 0 auto;
+  }
+
+  .board-sub {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    row-gap: 0.15rem;
+    white-space: normal;
+  }
+
+  /* --- the board --- */
+  /*
+   * The board is full-bleed and `viewport-fit=cover` means full-bleed now includes the
+   * notch and the home indicator. The canvas is glad of it - a drawing surface running
+   * under the rounded corners is the point - but nothing you have to read or press may
+   * sit there, so each panel pads itself back out by whatever the device says it needs.
+   * `env()` is 0px everywhere else, so this costs a desktop nothing.
+   */
+  .board-bar {
+    padding-top: max(0.4rem, env(safe-area-inset-top, 0px));
+  }
+
+  .statusbar {
+    padding-bottom: max(0.25rem, env(safe-area-inset-bottom, 0px));
+  }
+
+  .workspace-main {
+    padding-left: max(1rem, env(safe-area-inset-left, 0px));
+    padding-right: max(1rem, env(safe-area-inset-right, 0px));
+  }
+
+  /*
+   * The bar wraps to two rows rather than pushing its last control off the screen.
+   *
+   * It has eight passengers and 390px, and it was overrunning its own right edge by
+   * 13px: the overflow menu, last in the row, hung off the edge with a third of it
+   * unreachable. Shaving gaps and letting the title shrink bought that back and no
+   * more - the fixed items alone very nearly fill the bar, so any control that grew
+   * afterwards put it back over the edge, which is what a fit held together by a
+   * handful of spare pixels does.
+   *
+   * Wrapping settles it instead of postponing it. The title takes the first line and
+   * the controls take the second, so nothing is off the screen and nothing is behind
+   * a gesture. It costs a row of height on the one screen with height to spare - the
+   * board is a fixed full-height column, so the canvas simply starts lower.
+   */
+  .board-bar {
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    padding: 0.4rem;
+  }
+
+  /* Takes the whole of the first line, which is what pushes the controls onto the
+     second. Its own floor is 3.4rem, set for a desktop bar with room to spare. */
+  .board-bar h1,
+  .board-bar .board-name {
+    flex: 1 1 60%;
+    min-width: 2.5rem;
+  }
+
+  /*
+   * The controls pack from the left of whichever line they land on.
+   *
+   * They were pushed to the far end with `margin-left: auto`, which put whatever
+   * happened to be last on line one - the presence row on a glade, the zoom pill on a
+   * lea - hard against the screen edge with its rounded corner touching the bezel. A
+   * bar that wraps has slack by definition, so there is nothing to push against.
+   */
+  .board-bar {
+    padding-left: max(0.55rem, env(safe-area-inset-left, 0px));
+    padding-right: max(0.55rem, env(safe-area-inset-right, 0px));
+  }
+
+  .board-bar h1 {
+    font-size: 0.95rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Separators are the first thing to go when the bar is the scarce resource. */
+  .board-bar .divider {
+    display: none;
+  }
+
+  /*
+   * The bar's fixed passengers, in the order they stop earning their place.
+   *
+   * The role pill goes first: the avatar beside it already carries a pencil or an eye,
+   * so it was saying the same thing twice. Then the flexible spacer, because the title
+   * can do that job and a title squeezed to nothing is worse than a bar with no slack.
+   * Then the word beside the fit icon.
+   */
+  .board-bar .role {
+    display: none;
+  }
+
+  /* Except the one inside a face's card, which is the entire reason that card opened. */
+  .board-bar .face-card .role {
+    display: inline-block;
+  }
+
+  .board-bar .spacer {
+    display: none;
+  }
+
+  .board-bar h1 {
+    flex: 1 1 auto;
+  }
+
+  .zoom .label {
+    display: none;
+  }
+
+  .zoom button {
+    padding: 0.25rem 0.45rem;
+  }
+
+  .zoom .readout {
+    min-width: 0;
+    padding: 0.25rem 0.4rem;
+  }
+
+  /* Four faces is already more than the bar can spare; the canvas shows the rest as
+     wanderers, which is where they matter. */
+  .wanderers .avatar:nth-child(n + 4) {
+    display: none;
+  }
+
+  /*
+   * The tool rail turns from a column into a bar along the bottom.
+   *
+   * Vertically it was taller than the canvas it floats over, and horizontally it lands
+   * where a thumb already is.
+   *
+   * It wraps rather than scrolls, and that is a correction rather than a preference.
+   * The rail used to be `overflow-x: auto`, which is the whole of a bug worth naming:
+   * a non-visible `overflow-x` forces `overflow-y` to `auto` as well, so the rail
+   * became a scroll container in *both* axes, and every flyout that opens upward out
+   * of it - the shapes, the pen's rows, the arrow ends - was clipped away. The
+   * elements were still painted and still had a box, so nothing looked wrong; they
+   * simply were not there to be pressed, and `elementFromPoint` over one returned the
+   * canvas underneath. On a phone that meant no shape could be chosen at all.
+   *
+   * Wrapping fixes it at the cause: the rail is no longer a scrollport, so there is
+   * nothing to clip. It also fixes what the scroll was papering over - eleven tools in
+   * 374px meant half of them were off-screen behind a gesture with no affordance
+   * saying so. Two rows show every tool at once.
+   */
+  .toolbar {
+    left: 0.5rem;
+    right: 0.5rem;
+    top: auto;
+    bottom: calc(0.6rem + env(safe-area-inset-bottom, 0px));
+    transform: none;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 0.1rem;
+  }
+
+  /*
+   * The flyouts anchor to the rail, not to their tool.
+   *
+   * A flyout hung off a button near either end of a 374px rail runs off that end -
+   * the shape grid measured 145px wide from a tool 38px from the right edge. Making
+   * the slot static hands the positioning to `.toolbar`, which is the nearest
+   * positioned ancestor and is already inset from both edges, so the flyout spans the
+   * rail and cannot leave the screen whichever tool opened it. It costs the flyout its
+   * alignment with its own button, which on a rail this narrow was never doing much
+   * work anyway.
+   */
+  .tool-slot {
+    position: static;
+  }
+
+  .tool-submenu {
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: calc(100% + 0.5rem);
+    transform: none;
+    /* The insets are a fence, not a size. Left as a full-width box the flyout is a
+       rail-wide plate around eight small buttons, which reads as a second toolbar
+       rather than as one tool's options; sizing it to its contents and centring it
+       inside those insets keeps the plate tight and still cannot leave the screen. */
+    width: fit-content;
+    max-width: 100%;
+    margin-inline: auto;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  /* The rule between the tools and the delete button turns with the rail. */
+  .toolbar > hr {
+    border-top: 0;
+    border-left: 1px solid var(--line);
+    width: 0;
+    height: 1.6rem;
+    margin: 0 0.25rem;
+    align-self: center;
+    flex: 0 0 auto;
+  }
+
+  .toolbar .tool {
+    flex: 0 0 auto;
+  }
+
+  /*
+   * Clear of the rail, both of them.
+   *
+   * A wrapping rail is two rows on a phone rather than one, so the old 4.6rem left
+   * notices and toasts sitting on top of the tools. `--rail-clearance` is the one
+   * place that height is written down, so the two rules below cannot drift apart.
+   */
+  .board {
+    --rail-clearance: calc(8rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  .board-notices {
+    bottom: var(--rail-clearance);
+    width: calc(100% - 1.5rem);
+  }
+
+  .board-notices > * {
+    text-align: center;
+  }
+
+  .text-bar {
+    max-width: calc(100% - 1rem);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .statusbar {
+    padding: 0.25rem 0.6rem;
+    font-size: 0.72rem;
+  }
+
+  /*
+   * `:has()` rather than lifting every toast on every page: the rail only exists while
+   * a glade is open, and on the list behind it there is nothing down there to clear.
+   */
+  body:has(.board) .toaster {
+    bottom: var(--rail-clearance, 8rem);
+  }
+
+  .toaster {
+    right: 0.5rem;
+    left: 0.5rem;
+    width: auto;
+  }
+
+  /*
+   * The page list of a lea, as a drawer over the paper rather than a column beside it.
+   *
+   * At 900px it already floats instead of taking width out of the body, which is the
+   * right move and is not enough at 390px: 13.5rem of it left the paper 174px of
+   * screen, so the page was a strip with the writing running off both edges, the
+   * subject and date fields ran to x=860, and the tool rail was half underneath the
+   * list. It is the same drawer the workspace sidebar is on a phone, so it behaves
+   * like one: it comes over the top, it takes a comfortable width, and the scrim says
+   * the paper is not what you are pressing on.
+   */
+  .lea-pages {
+    z-index: 41;
+    width: min(20rem, 86vw);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .lea-pages-scrim {
+    position: absolute;
+    inset: 0;
+    z-index: 40;
+    background: #0b0d1040;
+  }
+
+  /*
+   * The tab that opens it moves above the rail's two rows, out of the thumb's way.
+   *
+   * `height` is stated rather than left to the content, and it has to be: with `top`
+   * auto, `height` auto and `bottom` set, CSS solves for the height rather than for
+   * the top, so the tab stretched from its old middle-of-the-screen position all the
+   * way down to the rail - a 33x54 button became 33x153 of mostly empty surface.
+   */
+  .lea-pages-tab {
+    top: auto;
+    bottom: calc(var(--rail-clearance) + 0.5rem);
+    height: max-content;
+    transform: none;
+  }
+
+  .lea-pages-tab:hover:not(:disabled) {
+    transform: none;
+  }
+}
+
+/*
+ * The keyboard hints go by input device, not by width: a small window on a laptop
+ * still has a keyboard, and a large tablet does not.
+ */
+@media (pointer: coarse) {
+  .statusbar .hints {
+    display: none;
   }
 }

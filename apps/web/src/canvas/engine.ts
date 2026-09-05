@@ -1236,6 +1236,12 @@ export class CanvasEngine {
             bottom: this.pageBottom + COLUMN_TOP_MARGIN,
             minZoom: PAGE_MIN_ZOOM,
             maxZoom: PAGE_MAX_ZOOM,
+            // The paper, not the writing. `left`/`right` above are the column, which
+            // is what the camera may pan within; this is what it must be able to show
+            // on a window too narrow for the column at `PAGE_MIN_ZOOM`. Fitting the
+            // column exactly would put the first and last letter of every line hard
+            // against the edge of the screen.
+            fitWidth: column.width + 2 * PAGE_MARGIN,
           },
     )
     // The ruling is a function of the type and of where the page ends, so both have to
