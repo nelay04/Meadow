@@ -10,6 +10,7 @@ import {
   IconMenu,
   IconPlus,
   IconSearch,
+  IconSidebar,
   IconPencil,
   IconRestore,
   IconTrash,
@@ -54,6 +55,32 @@ function readView(): string {
 function writeView(id: string): void {
   try {
     localStorage.setItem(VIEW_KEY, id)
+  } catch {
+    // As above: it still applies for this session.
+  }
+}
+
+const COLLAPSED_KEY = 'meadow.sidebar.collapsed'
+
+/**
+ * Whether the sidebar is a rail rather than a column, remembered per browser.
+ *
+ * A layout preference rather than a piece of session state: somebody who works on a
+ * small laptop wants the rail every time they open the app, and having to collapse it
+ * again on every visit is the whole reason a toggle like this gets ignored.
+ */
+function readCollapsed(): boolean {
+  try {
+    return localStorage.getItem(COLLAPSED_KEY) === '1'
+  } catch {
+    // Private-mode Safari throws. A remembered layout is not worth a crash.
+    return false
+  }
+}
+
+function writeCollapsed(collapsed: boolean): void {
+  try {
+    localStorage.setItem(COLLAPSED_KEY, collapsed ? '1' : '0')
   } catch {
     // As above: it still applies for this session.
   }
@@ -297,6 +324,13 @@ export default function BoardsPage({ onOpen }: Props) {
    * part of that the JSX has to know about. Which of the two it is at any width is CSS.
    */
   const [navOpen, setNavOpen] = useState(false)
+  /*
+   * Collapsed is a desktop state and open is a phone one, and they are deliberately
+   * separate. The drawer is either over the page or not; the rail is a narrower version
+   * of a column that is always there. Folding them into one flag would mean opening the
+   * drawer on a phone silently un-collapsing the desktop layout underneath it.
+   */
+  const [navCollapsed, setNavCollapsed] = useState(readCollapsed)
 
   /*
    * A failed load is the only one of the three that stays on the page.
@@ -535,6 +569,11 @@ export default function BoardsPage({ onOpen }: Props) {
           type="button"
           className={view === filter.id ? 'nav-item active' : 'nav-item'}
           aria-current={view === filter.id ? 'page' : undefined}
+          // The label is hidden in the rail, so the icon needs to be able to say what
+          // it is. Unconditional, because a title on a row that already shows its name
+          // costs nothing and a title that appears only in one state is a thing to
+          // forget when the row changes.
+          title={filter.label}
           onClick={() => {
             setView(filter.id)
             writeView(filter.id)
@@ -560,11 +599,46 @@ export default function BoardsPage({ onOpen }: Props) {
         <div className="sidebar-scrim" aria-hidden="true" onClick={() => setNavOpen(false)} />
       )}
 
-      <aside className={navOpen ? 'sidebar open' : 'sidebar'}>
+      <aside
+        className={[
+          'sidebar',
+          navOpen ? 'open' : '',
+          // Only on a desktop. The drawer is already a narrow overlay, and a collapsed
+          // drawer would be a rail of icons floating over the list it filters.
+          navCollapsed ? 'collapsed' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+      >
         <div className="sidebar-brand">
           <Wordmark />
+          {/*
+            The toggle lives with the mark rather than in the page header, because what
+            it moves is this column and it has to stay reachable from the rail it
+            leaves behind. In the rail the mark is hidden and this is what is left.
+          */}
+          <button
+            type="button"
+            className="icon ghost sidebar-collapse"
+            aria-label={navCollapsed ? 'Expand the sidebar' : 'Collapse the sidebar'}
+            aria-expanded={!navCollapsed}
+            title={navCollapsed ? 'Expand the sidebar' : 'Collapse the sidebar'}
+            onClick={() => {
+              setNavCollapsed((collapsed) => {
+                writeCollapsed(!collapsed)
+                return !collapsed
+              })
+            }}
+          >
+            <IconSidebar size={17} />
+          </button>
         </div>
 
+        {/*
+          In the rail this is the one control that cannot shrink to an icon and still
+          work, so it becomes a button that expands the sidebar and puts the cursor in
+          the field: searching is why most people open it again.
+        */}
         <div className="sidebar-search">
           <IconSearch size={16} />
           <input
@@ -573,6 +647,18 @@ export default function BoardsPage({ onOpen }: Props) {
             aria-label="Search glades"
             onChange={(event) => setQuery(event.target.value)}
           />
+          {navCollapsed && (
+            <button
+              type="button"
+              className="sidebar-search-expand"
+              aria-label="Search glades"
+              title="Search glades"
+              onClick={() => {
+                setNavCollapsed(false)
+                writeCollapsed(false)
+              }}
+            />
+          )}
         </div>
 
         <div className="sidebar-groups">
@@ -594,6 +680,7 @@ export default function BoardsPage({ onOpen }: Props) {
             type="button"
             className={showingTrash ? 'nav-item active' : 'nav-item'}
             aria-current={showingTrash ? 'page' : undefined}
+            title="Trash"
             onClick={() => {
               setView(TRASH_VIEW)
               writeView(TRASH_VIEW)
@@ -614,6 +701,7 @@ export default function BoardsPage({ onOpen }: Props) {
           <button
             type="button"
             className="user-chip"
+            title={user?.display_name ?? 'Profile'}
             onClick={() => {
               location.hash = '#/profile'
             }}
@@ -621,7 +709,14 @@ export default function BoardsPage({ onOpen }: Props) {
             <Avatar name={user?.display_name ?? '?'} url={user?.avatar_url} />
             <span className="name">{user?.display_name}</span>
           </button>
-          <button type="button" className="sign-out" onClick={() => void logout()}>
+          {/* Hidden in the rail, where there is no room for it beside the avatar.
+              Logging out is on the profile page, which the avatar opens. */}
+          <button
+            type="button"
+            className="sign-out"
+            title="Log out"
+            onClick={() => void logout()}
+          >
             Log out
           </button>
         </div>

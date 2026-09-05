@@ -1377,7 +1377,25 @@ label {
 .sidebar-brand {
   display: flex;
   align-items: center;
+  gap: 0.4rem;
   padding: 0.25rem 0.4rem 0.15rem;
+}
+
+/* Pushed to the right edge of the brand row while the mark is there, and centred on
+   its own once the mark is gone. `margin-left: auto` does both. */
+.sidebar-collapse {
+  margin-left: auto;
+  color: var(--faint);
+}
+
+.sidebar-collapse:hover:not(:disabled) {
+  color: var(--text);
+}
+
+/* The menu button on a phone and this one on a desktop are the same gesture, so only
+   one of them is ever on screen. */
+.nav-toggle {
+  display: none;
 }
 
 /* Search. The icon sits inside the field rather than beside it, so the control
@@ -1553,6 +1571,94 @@ label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/*
+ * The rail.
+ *
+ * The collapsed sidebar is the same sidebar narrowed to its icon column, not a
+ * different component: every row keeps its place, its order and its active state, and
+ * only the text goes. That is what makes expanding it again land you exactly where you
+ * were, and it is why this is a handful of overrides rather than a second tree in the
+ * JSX. Widths are transitioned so the main column slides rather than jumps.
+ */
+.sidebar {
+  transition: flex-basis 160ms cubic-bezier(0.2, 0, 0.2, 1);
+}
+
+.sidebar.collapsed {
+  flex-basis: 3.6rem;
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+}
+
+/* Everything that is a word rather than a mark. The counts go too: a number with no
+   label beside it is a number nobody can read the meaning of. */
+.sidebar.collapsed .wordmark,
+.sidebar.collapsed .nav-heading,
+.sidebar.collapsed .nav-label,
+.sidebar.collapsed .nav-count,
+.sidebar.collapsed .sidebar-foot .name,
+.sidebar.collapsed .sign-out {
+  display: none;
+}
+
+.sidebar.collapsed .sidebar-brand {
+  padding: 0.25rem 0;
+  justify-content: center;
+}
+
+.sidebar.collapsed .sidebar-collapse {
+  margin-left: 0;
+}
+
+/*
+ * The search field with no room to type in.
+ *
+ * Kept in the layout rather than hidden, because the magnifier is the row people look
+ * for and a rail that drops it looks like a rail with a missing icon. The input is
+ * made invisible and an overlaid button takes the click, which expands the column and
+ * gives back the real field.
+ */
+.sidebar.collapsed .sidebar-search input {
+  padding: 0;
+  width: 100%;
+  color: transparent;
+  cursor: pointer;
+}
+
+/* The placeholder does not take the colour above - it has its own - and left alone it
+   printed "Search glades" straight through the magnifier. */
+.sidebar.collapsed .sidebar-search input::placeholder {
+  color: transparent;
+}
+
+.sidebar.collapsed .sidebar-search svg {
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.sidebar-search-expand {
+  position: absolute;
+  inset: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+/* One centred icon per row. The gap goes with the label, or the icon sits off-centre
+   by half a gap on every row in the column. */
+.sidebar.collapsed .nav-item,
+.sidebar.collapsed .sidebar-foot .user-chip {
+  justify-content: center;
+  gap: 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.sidebar.collapsed .sidebar-foot {
+  justify-content: center;
 }
 
 .workspace-main {
@@ -4051,10 +4157,9 @@ dialog.modal[open] .modal-card {
   }
 }
 
-/* The menu button is a phone control that would be a second way to do nothing on a
-   desktop, where the sidebar is always on screen. */
+/* The menu button is a phone control. On a desktop the sidebar is always on screen -
+   as a column or as a rail - and its own toggle is the control for that. */
 .nav-toggle {
-  display: none;
   flex: 0 0 auto;
   margin-right: 0.1rem;
 }
@@ -4089,6 +4194,68 @@ dialog.modal[open] .modal-card {
   .sidebar.open {
     transform: none;
     box-shadow: var(--shadow-lg);
+  }
+
+  /*
+   * A drawer is never a rail. It is already a narrow overlay that is dismissed rather
+   * than narrowed, so a remembered desktop collapse must not follow the layout down
+   * here and leave a phone with a strip of unlabelled icons over its board list.
+   */
+  .sidebar.collapsed {
+    flex-basis: auto;
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+
+  .sidebar.collapsed .wordmark,
+  .sidebar.collapsed .nav-heading,
+  .sidebar.collapsed .nav-label,
+  .sidebar.collapsed .nav-count,
+  .sidebar.collapsed .sidebar-foot .name,
+  .sidebar.collapsed .sign-out {
+    display: revert;
+  }
+
+  .sidebar.collapsed .sidebar-search input {
+    padding-left: 2rem;
+    color: inherit;
+    cursor: auto;
+  }
+
+  .sidebar.collapsed .sidebar-search input::placeholder {
+    color: revert;
+  }
+
+  .sidebar.collapsed .sidebar-search svg {
+    left: 0.6rem;
+    transform: none;
+  }
+
+  .sidebar-search-expand,
+  .sidebar-collapse {
+    display: none;
+  }
+
+  .sidebar.collapsed .nav-item,
+  .sidebar.collapsed .sidebar-foot .user-chip {
+    justify-content: flex-start;
+  }
+
+  .sidebar.collapsed .nav-item {
+    gap: 0.6rem;
+    padding-left: 0.6rem;
+    padding-right: 0.6rem;
+  }
+
+  .sidebar.collapsed .sidebar-foot .user-chip {
+    gap: 0.55rem;
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
+
+  .sidebar.collapsed .sidebar-foot,
+  .sidebar.collapsed .sidebar-brand {
+    justify-content: flex-start;
   }
 
   .sidebar-scrim {

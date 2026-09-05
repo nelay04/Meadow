@@ -1084,3 +1084,20 @@ export function IconUnknownDevice(props: IconProps) {
     </Svg>
   )
 }
+
+/**
+ * Collapse or expand the workspace sidebar.
+ *
+ * A panel with the rail down its left, which is the shape the sidebar collapses to
+ * rather than a chevron pointing at where it went. A chevron would have to reverse
+ * with the state and would say "back" as loudly as it says "collapse"; this mark is
+ * the same in both directions because the button is one toggle, not two actions.
+ */
+export function IconSidebar(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="3" y="4.5" width="18" height="15" rx="2" />
+      <path d="M9.5 4.5v15" />
+    </Svg>
+  )
+}

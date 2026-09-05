@@ -14,6 +14,21 @@ away getting there.
 The infrastructure to run the thing. Not deployed yet.
 
 ### Added
+- **The sidebar collapses to a rail.** It was a fixed 15rem column with no way to get
+  it back, which on a small laptop is a fifth of the width spent on five filters that
+  do not change. A button beside the wordmark narrows it to its icon column and widens
+  it again, and the choice is remembered per browser.
+
+  It is the same sidebar narrowed, not a second one: every row keeps its place, its
+  order and its active state, and only the words go, so expanding it lands you exactly
+  where you were. Search is the one control that cannot survive as an icon, so in the
+  rail the magnifier becomes a button that expands the column and gives back the field.
+
+  A drawer is never a rail. Below the tablet breakpoint the sidebar is already a narrow
+  overlay that is dismissed rather than narrowed, so a remembered desktop collapse is
+  overridden there instead of leaving a phone with a strip of unlabelled icons over its
+  board list.
+
 - **A sessions log, so "where am I signed in?" has an answer.** The account could be
   signed in on any number of browsers and there was nowhere to see them. Logging out
   ended the one in front of you; a laptop left signed in at a library stayed signed in
