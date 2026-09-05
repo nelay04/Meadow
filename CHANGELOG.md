@@ -38,6 +38,12 @@ The infrastructure to run the thing. Not deployed yet.
   nothing to send upstream, and the app's own socket is board-scoped - a signed-in user
   with no board open has no connection at all.
 
+  A terminated browser says why. Dropping to a login form with no explanation reads as
+  the app having crashed and lost the session, so it raises a red toast - "You were
+  signed out. This session was terminated from another device." - and holds it longer
+  than an ordinary error, because it arrives at a tab nobody was looking at and is the
+  only account of what happened that anyone will get.
+
   Access tokens now stop working too, which is what makes the claim true rather than
   cooperative. A terminated family goes on a Redis denylist for one access-token
   lifetime and `current_user` refuses a token minted for it, so a client that ignores

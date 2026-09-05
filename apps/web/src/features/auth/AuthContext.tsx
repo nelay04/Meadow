@@ -1,6 +1,7 @@
 import { createContext, use, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 
+import { useToast } from '../../ui/Toaster'
 import * as api from '../../lib/api'
 import type { AuthSession, ProfilePatch, RegistrationPending, User } from '../../lib/api'
 import { providerLabel } from './providers'
@@ -160,7 +161,18 @@ function takeCallbackMarkers(): {
   }
 }
 
+/**
+ * How long a "you were signed out" toast stays up.
+ *
+ * Longer than the 7s an ordinary error gets. Every other toast in the app comments on
+ * something the reader just did and is already looking at; this one arrives at a tab
+ * nobody has touched, explains why the screen in front of them has changed to a login
+ * form, and is the only account of it they will get.
+ */
+const SIGNED_OUT_TOAST_MS = 12000
+
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const toast = useToast()
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
   const [justRegistered, setJustRegistered] = useState(false)
@@ -228,7 +240,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       api.clearAccessToken()
       setSessions(null)
       setUser(null)
-      setSignInNotice('This browser was signed out from another device.')
+      /*
+       * Red, and said out loud rather than left on the login screen.
+       *
+       * This is not a notice about something the reader chose. Their tab was open and
+       * untouched and the page under them has just become a login form; without an
+       * explanation that reads as the app having crashed and dropped the session. Error
+       * rather than info because somebody else ended this session, which is either
+       * something the reader did from their own other device a moment ago - in which
+       * case the sentence confirms it - or something they need to know about.
+       */
+      toast.error('You were signed out. This session was terminated from another device.', {
+        life: SIGNED_OUT_TOAST_MS,
+      })
     })
 
     source.onerror = () => {
@@ -248,6 +272,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         api.clearAccessToken()
         setSessions(null)
         setUser(null)
+        // Deliberately vaguer than the message above. Arriving here means the session
+        // ended while this browser was not connected, and the reason is not knowable
+        // from here: terminated, logged out on this device in another tab, or simply
+        // expired. Naming the wrong one would be worse than naming none.
+        toast.error('You were signed out. This session is no longer active.', {
+          life: SIGNED_OUT_TOAST_MS,
+        })
       })
     }
 
@@ -256,8 +287,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       streamRef.current = null
     }
     // Keyed on the id, not the object: editing a display name replaces `user` and must
-    // not drop and reopen the connection.
-  }, [user?.id])
+    // not drop and reopen the connection. `toast` is a stable value from its provider.
+  }, [user?.id, toast])
 
   /** The list, asked for directly. The fallback for a browser with no working stream. */
   const refreshSessions = useCallback(async () => {

@@ -187,6 +187,23 @@ try {
 }
 check('a terminated browser drops to the login screen on its own', kicked)
 
+// The login form on its own is not an explanation. A tab that was untouched and is
+// suddenly asking for a password reads as the app having crashed, so it has to say
+// what happened, and say it in the colour the app uses for things that went wrong.
+let told = ''
+try {
+  const toast = doomed.page.locator('.toast-error').first()
+  await toast.waitFor({ timeout: 10000 })
+  told = await toast.innerText()
+} catch {
+  /* left empty, and the check below says so */
+}
+check(
+  'it is told why, in a red toast',
+  told.includes('terminated from another device'),
+  told === '' ? 'no error toast appeared' : told.replace(/\s+/g, ' '),
+)
+
 // --- 3. the access token stops working, not just the refresh token ----------------
 
 // A polite client throws its token away when the feed tells it to. This is the check
