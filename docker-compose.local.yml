@@ -216,6 +216,7 @@ services:
       MEADOW_WEB_HOST: "0.0.0.0"
       MEADOW_WATCH_POLL: ${MEADOW_WATCH_POLL:-false}
       WEB_PORT: ${WEB_PORT:-3012}
+      MEADOW_WEB_ALLOWED_HOSTS: ${MEADOW_WEB_ALLOWED_HOSTS:-}
     volumes:
       - ./apps/web:/build/apps/web
       - ./packages/schema:/build/packages/schema
