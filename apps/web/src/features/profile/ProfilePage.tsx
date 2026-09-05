@@ -604,9 +604,13 @@ export default function ProfilePage({ onBack }: Props) {
           )}
 
           {sessions !== null && sessions.length > 1 && (
+            /* Red, like the log out button at the foot of this page, because it is
+               the same weight of action seen from the other end: that one ends the
+               session you are in, this one ends every session you are not. A ghost
+               button understated the only irreversible control on the card. */
             <button
               type="button"
-              className="ghost profile-inline-action"
+              className="danger profile-terminate-all"
               disabled={endingOthers}
               onClick={() => void endOtherSessions()}
             >

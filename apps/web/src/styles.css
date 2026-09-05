@@ -1165,6 +1165,12 @@ label {
   font-size: 0.75rem;
 }
 
+/* Its own margin, because it is no longer the borderless inline action it was and a
+   red button flush against the last row of the list reads as part of that row. */
+.profile-terminate-all {
+  margin-top: 0.9rem;
+}
+
 @media (max-width: 40rem) {
   .profile-identity,
   .profile-signout {
