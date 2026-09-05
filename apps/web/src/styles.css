@@ -5859,6 +5859,10 @@ dialog.modal[open] .modal-card {
    */
   .board-bar .face {
     padding-block: 0.55rem;
+    /* Sideways as well as up and down. It widens the target, which was 28px - the bare
+       width of the circle - and it stops the first avatar's badge sitting against the
+       very edge of the screen now that the people are the first thing on their row. */
+    padding-inline: 0.25rem;
   }
 
   /* Square ones, where width is as easy to miss as height. */
@@ -6097,6 +6101,29 @@ dialog.modal[open] .modal-card {
    * on a phone it is the only way to reach either. They get the full width of the
    * drawer and a proper target rather than the desktop's tucked-away row.
    */
+  /*
+   * The account chip is the last thing in the drawer and it was falling off the end.
+   *
+   * Two things pushed it there and it needs both fixed. The views grew from 39px to a
+   * 44px touch target, which is five items x 5px of extra column; and `100dvh` on a
+   * phone includes the home indicator, so the last 34px of the drawer are underneath
+   * it. Together that is about the height of the chip, which is why it vanished
+   * completely rather than half.
+   *
+   * The padding gives the indicator its strip back. `flex: 1` is the part that stops
+   * this recurring: the list of views takes the slack and scrolls what will not fit,
+   * so the footer is pinned to the bottom of the drawer by construction rather than by
+   * there happening to be room for it. Add a sixth view, or open this on a shorter
+   * phone, and the list scrolls instead of the account disappearing.
+   */
+  .sidebar {
+    padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  .sidebar-groups {
+    flex: 1;
+  }
+
   .sidebar-foot .btn-row {
     gap: 0.4rem;
   }
@@ -6155,15 +6182,28 @@ dialog.modal[open] .modal-card {
     white-space: nowrap;
   }
 
-  /* The spacer's job was to push the filters to the far end of one row. With two rows
-     it would push them onto a third. */
+  /*
+   * The spacer becomes the line break here too, for the same reason it does on the
+   * board bar: so the split is decided rather than discovered.
+   *
+   * Left to wrap on its own the head put the heading and the first filter on one line
+   * and pushed the second filter onto a line of its own, which reads as two unrelated
+   * controls rather than as the pair they are. Breaking at the spacer keeps the
+   * heading on the first line and the two filters together on the second, sharing it
+   * equally.
+   */
   .workspace-head .spacer {
-    display: none;
+    display: block;
+    flex: 0 0 100%;
+    width: 100%;
+    height: 0;
+    margin: 0;
   }
 
   /* The filters take the second row and share it. */
   .workspace-head .dropdown {
-    flex: 1 1 8rem;
+    flex: 1 1 0;
+    min-width: 0;
   }
 
   .workspace-head .dropdown-button {
@@ -6205,23 +6245,45 @@ dialog.modal[open] .modal-card {
    * whether the press landed inside the dropdown, and a full-screen scrim of our own
    * would have answered yes.
    */
-  .board-bar,
-  .workspace-head {
+  .board-bar {
     position: relative;
   }
 
-  .board-bar .dropdown,
-  .workspace-head .dropdown {
+  .board-bar .dropdown {
     position: static;
   }
 
-  .board-bar .menu,
-  .workspace-head .menu {
+  .board-bar .menu {
     right: 0.5rem;
     left: auto;
     min-width: 0;
     width: max-content;
     max-width: calc(100vw - 1rem);
+  }
+
+  /*
+   * The boards list's own two filters are the other case, and they need the opposite
+   * treatment.
+   *
+   * Anchoring these to the bar was wrong: they sit side by side, each taking half the
+   * row, so "measured from the right edge of the head" put *both* their menus over on
+   * the right - the Show filter opened a menu that started under the Sort button
+   * beside it and covered it. A menu has to point at the control it belongs to, and
+   * with two of them on one row the bar is no longer that control.
+   *
+   * They keep their own anchor and take their button's width instead. Each button is
+   * already half the screen, so a menu the same width is wide enough to read and, being
+   * bounded by a button that is on the screen, cannot leave it.
+   */
+  .workspace-head .dropdown {
+    position: relative;
+  }
+
+  .workspace-head .menu {
+    left: 0;
+    right: 0;
+    min-width: 0;
+    width: auto;
   }
 
   /*
@@ -6301,12 +6363,35 @@ dialog.modal[open] .modal-card {
     flex: 0 0 auto;
   }
 
+  /*
+   * The line flows as text rather than as a flex row.
+   *
+   * Making it a wrapping flex container was the wrong instrument: the date is a bare
+   * text node, so it became an anonymous flex item that could not share a line with
+   * the badge and broke inside itself instead - "Edited 1 hour" on one line and "ago"
+   * on the next, in a card with room for the whole phrase. As inline text the badge
+   * and the date flow together and only wrap if they genuinely do not fit.
+   */
   .board-sub {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    row-gap: 0.15rem;
     white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
+
+  /*
+   * The badge takes a line and the date takes the next one, whole.
+   *
+   * Two columns of cards on a phone leaves about 180px of card, and a badge and
+   * "Edited 1 hour ago" do not both fit on one line of it. Left to flow they broke
+   * wherever they ran out - "Lea  Edited" then "1 hour ago", a phrase split across
+   * lines by arithmetic rather than by sense. Giving the badge a line of its own puts
+   * the whole width under the date, which is more than it needs, so it stays in one
+   * piece. It reads as two facts stacked instead of one sentence torn.
+   */
+  .board-sub .kind-badge {
+    display: flex;
+    width: fit-content;
+    margin: 0 0 0.2rem;
   }
 
   /* --- the board --- */
@@ -6351,11 +6436,11 @@ dialog.modal[open] .modal-card {
     padding: 0.4rem;
   }
 
-  /* Takes the whole of the first line, which is what pushes the controls onto the
-     second. Its own floor is 3.4rem, set for a desktop bar with room to spare. */
+  /* The spacer below decides where the line breaks, so the title only has to fill the
+     line it is on. Its own floor is 3.4rem, set for a desktop bar with room to spare. */
   .board-bar h1,
   .board-bar .board-name {
-    flex: 1 1 60%;
+    flex: 1 1 auto;
     min-width: 2.5rem;
   }
 
@@ -6401,8 +6486,26 @@ dialog.modal[open] .modal-card {
     display: inline-block;
   }
 
+  /*
+   * The spacer stops being slack and becomes the line break.
+   *
+   * A bar that wraps wherever it runs out of room is a bar that rearranges itself as
+   * its contents change width, and one of them changes on every zoom: pressing Fit
+   * turned "100%" into "44%", which freed just enough room for the zoom group to climb
+   * onto the first line, and the whole bar jumped up a row under the reader's finger.
+   *
+   * Zero width and a full-width basis makes this an empty flex line-break, so the
+   * split is always in the same place - the title and the connection pill above, the
+   * people and every control below - whatever any of them happen to measure. It is the
+   * same element that was doing the pushing on a desktop, doing the same job by the
+   * only means a wrapped row has.
+   */
   .board-bar .spacer {
-    display: none;
+    display: block;
+    flex: 0 0 100%;
+    width: 100%;
+    height: 0;
+    margin: 0;
   }
 
   .board-bar h1 {
@@ -6417,8 +6520,11 @@ dialog.modal[open] .modal-card {
     padding: 0.25rem 0.45rem;
   }
 
+  /* Wide enough for "100%" whatever it currently says, so the pill does not change
+     size as you zoom. Tabular figures alone only hold the digits still, not the
+     count of them. */
   .zoom .readout {
-    min-width: 0;
+    min-width: 3.1rem;
     padding: 0.25rem 0.4rem;
   }
 
