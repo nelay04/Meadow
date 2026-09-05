@@ -602,7 +602,7 @@ export default function ProfilePage({ onBack }: Props) {
                     ) : (
                       <button
                         type="button"
-                        className="ghost profile-connect"
+                        className="danger profile-connect"
                         disabled={endingSession === session.id || endingOthers}
                         onClick={() => void endSession(session)}
                       >
