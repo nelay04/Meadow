@@ -1041,3 +1041,46 @@ export function IconInk(props: IconProps) {
     </Svg>
   )
 }
+
+/*
+ * Devices, for the sessions log. Three silhouettes rather than three drawings of
+ * hardware: the list is read by shape at a glance, and what has to be distinguishable
+ * is a laptop from a phone, not one phone from another.
+ */
+
+export function IconDesktop(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="2.5" y="4" width="19" height="12.5" rx="1.6" />
+      <path d="M8.5 20.5h7M12 16.5v4" />
+    </Svg>
+  )
+}
+
+export function IconMobile(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="6.5" y="2.5" width="11" height="19" rx="2.2" />
+      <path d="M10.75 5.5h2.5M12 18.5h.01" />
+    </Svg>
+  )
+}
+
+export function IconTablet(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="4" y="2.5" width="16" height="19" rx="2.2" />
+      <path d="M12 18.5h.01" />
+    </Svg>
+  )
+}
+
+/** An unrecognised client. Deliberately a question, not a warning: it is only unknown. */
+export function IconUnknownDevice(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M9.6 9.4a2.5 2.5 0 1 1 3.3 2.4c-.6.2-.9.7-.9 1.3v.4M12 16.6h.01" />
+    </Svg>
+  )
+}

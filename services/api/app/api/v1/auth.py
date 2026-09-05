@@ -31,10 +31,13 @@ from app.schemas.auth import (
     RegisterRequest,
     RegistrationPending,
     ResendActivation,
+    SessionOut,
+    SessionsRevoked,
     TokenPair,
     UserOut,
 )
 from app.services import accounts, activation
+from app.services import sessions as session_log
 from app.services.mail import MailError
 from app.services.oauth import PROVIDERS
 from app.services.ratelimit import check as rate_limit_check
@@ -459,7 +462,11 @@ async def refresh(
 
     # Mark spent rather than delete: reuse detection needs the evidence to survive.
     row.revoked_at = now
-    return await issue_session(session, response, request, user, row.family_id)
+    # The family's start comes off the row being replaced, so the sessions list keeps
+    # saying when this browser signed in rather than when it last renewed.
+    return await issue_session(
+        session, response, request, user, row.family_id, row.family_started_at
+    )
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
@@ -485,6 +492,59 @@ async def logout(
             )
             await session.commit()
     clear_refresh_cookie(response)
+
+
+@router.get("/sessions", response_model=list[SessionOut])
+async def list_sessions(request: Request, user: CurrentUser, session: Session) -> list[SessionOut]:
+    """Every browser signed in to this account, most recently active first.
+
+    A session is a refresh-token family, which is the thing that already decides access
+    - see `app/services/sessions.py` for why no second notion of one was invented. The
+    caller's own is marked from the refresh cookie, which reaches this route because
+    the cookie is scoped to `/api/v1/auth` and this route lives there.
+    """
+    return await session_log.list_for_user(
+        session, user.id, await session_log.current_family_id(session, request)
+    )
+
+
+@router.delete("/sessions", response_model=SessionsRevoked)
+async def revoke_other_sessions(
+    request: Request, user: CurrentUser, session: Session
+) -> SessionsRevoked:
+    """Sign out everywhere else, keeping this browser signed in.
+
+    The one action worth having on this screen: somebody looking at a session they do
+    not recognise wants all of them gone in one press, not one delete per row. This
+    browser is kept because ending it too would log the user out of the page they are
+    reading the list on, which reads as the app breaking rather than as a security
+    action succeeding.
+    """
+    keep = await session_log.current_family_id(session, request)
+    return SessionsRevoked(revoked=await session_log.revoke_others(session, user.id, keep))
+
+
+@router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_session(
+    session_id: uuid.UUID, request: Request, user: CurrentUser, session: Session
+) -> None:
+    """End one other session. Refuses the caller's own.
+
+    Not squeamishness about self-harm: ending the current session from here would
+    revoke the cookie without clearing it or the access token, leaving the client
+    holding credentials it thinks are good. Logging out is that action, it is one
+    button away, and it does the rest of the work.
+    """
+    if session_id == await session_log.current_family_id(session, request):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="that is this session - log out instead",
+        )
+    if not await session_log.revoke(session, user.id, session_id):
+        # 404 rather than 403 for somebody else's id: the statement is scoped to the
+        # caller, so a row that did not match is indistinguishable here from one that
+        # never existed, and saying "forbidden" would claim knowledge this does not have.
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no such session")
 
 
 @router.get("/me", response_model=UserOut)

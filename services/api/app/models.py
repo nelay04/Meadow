@@ -207,17 +207,39 @@ class RefreshToken(Base):
     )
     # sha256 of the raw token. A database leak must not yield usable sessions.
     token_hash: Mapped[str] = mapped_column(String, nullable=False, unique=True)
-    # Rotation lineage. Reusing any token in a family revokes the whole family.
+    # Rotation lineage. Reusing any token in a family revokes the whole family, and a
+    # family is also what the profile page calls a session: one browser, signed in once.
     family_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    # When the family's *first* token was issued, carried forward onto every rotation.
+    # Denormalised on purpose: it makes a live row a self-contained account of one
+    # session, so listing them needs no grouping and pruning spent rows loses nothing.
+    #
+    # Defaulted by the database, like `created_at`, and for the reason those two have to
+    # agree: a login sets both, and reading one off Python's clock and the other off
+    # Postgres's made every fresh session claim to have signed in a moment *after* it
+    # was last active. A rotation overrides it with the value from the token it replaces.
+    family_started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # What the browser said it was, verbatim. Shown parsed, kept raw: the parse is a
+    # guess about a string nobody validates, and the original is the only honest record.
     user_agent: Mapped[str | None] = mapped_column(String, nullable=True)
     ip: Mapped[str | None] = mapped_column(INET, nullable=True)
+    # Rewritten by every rotation, so on the live row this is when the session was last
+    # active - the last time that browser presented its cookie for a new access token.
     created_at: Mapped[datetime] = _created_at()
 
     __table_args__ = (
         Index("ix_refresh_tokens_user_id", "user_id"),
         Index("ix_refresh_tokens_family_id", "family_id"),
+        Index(
+            "ix_refresh_tokens_live",
+            "user_id",
+            "expires_at",
+            postgresql_where=text("revoked_at is null"),
+        ),
     )
 
 

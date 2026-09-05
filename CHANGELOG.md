@@ -14,6 +14,41 @@ away getting there.
 The infrastructure to run the thing. Not deployed yet.
 
 ### Added
+- **A sessions log, so "where am I signed in?" has an answer.** The account could be
+  signed in on any number of browsers and there was nowhere to see them. Logging out
+  ended the one in front of you; a laptop left signed in at a library stayed signed in
+  for thirty days and nobody could say so.
+
+  The profile page now lists every browser holding a live session: what it is
+  ("Firefox on Windows"), on what kind of device, from what address, when it signed in
+  and when it was last active. The browser reading the list is marked, and each of the
+  others has a button that terminates it immediately, plus one that terminates all of
+  them at once. Every row is two lines: the rows are compared at a glance rather than
+  read one at a time, so the four facts sit on one line under the name.
+
+  **No new notion of a session was invented for it.** A session here is a refresh-token
+  family, which is already what decides access: one browser signs in once, gets a
+  family, and rotates within it until it logs out or the family is revoked. So the list
+  is the live sessions themselves rather than a log written beside them, and revoking a
+  row really does lock that browser out on its next call - the same mechanism reuse
+  detection and the password reset have always used. What it needed was one column:
+  `refresh_tokens.family_started_at`, carried forward by every rotation, so a live row
+  is a self-contained account of one session and the login time survives both rotation
+  and any future pruning of spent rows.
+
+  The current session is identified from the refresh cookie, which is already scoped to
+  `/api/v1/auth` and so arrives at these routes on its own. The access token stays
+  deliberately blind to which session issued it: putting a session identifier into the
+  credential handed to every endpoint would be the wrong trade for saving one lookup.
+  It cannot terminate itself either - that would revoke the cookie without clearing it,
+  leaving the client holding credentials it thinks are good - so it answers 409 and
+  points at the log out button one card below.
+
+  "Last active" is when that browser last renewed its access token, which is the closest
+  thing to activity the server actually witnesses, and an idle tab is honestly reported
+  as idle. There is no geolocation: the address is shown as an address, because a
+  guessed city on a security screen is worse than no city.
+
 - **A trash, so deleting is not the one irreversible click.** Deleting a glade or a lea
   removed the row and cascaded its update log, its snapshots, its grants and its share
   link away with it, immediately and for good. That was the single most destructive

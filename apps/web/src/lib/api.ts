@@ -254,6 +254,38 @@ export type JoinInvitation = {
   invited_by: string | null
 }
 
+/**
+ * One browser signed in to this account.
+ *
+ * A session is a refresh-token family on the server, which is the same thing that
+ * decides access - so this list is the live sessions themselves rather than a log
+ * written beside them, and revoking a row really does lock that browser out.
+ */
+export type AuthSession = {
+  id: string
+  /** The browser reading this list. Exactly one row has it, and it cannot be revoked. */
+  current: boolean
+  browser: string | null
+  os: string | null
+  device: 'desktop' | 'mobile' | 'tablet' | 'unknown'
+  /** "Firefox on Windows". Composed on the server so every screen words it the same. */
+  label: string
+  /** The raw header, for when the parse above is wrong about an unusual client. */
+  user_agent: string | null
+  ip: string | null
+  /** When this browser signed in. Survives every token rotation since. */
+  signed_in_at: string
+  /**
+   * When it last renewed its access token.
+   *
+   * The closest thing to activity the server actually witnesses: a browser sitting on
+   * an open tab doing nothing never renews, and is honestly reported as idle.
+   */
+  last_active_at: string
+  /** When it gets signed out for doing nothing, unless it renews first. */
+  expires_at: string
+}
+
 type AuthResponse = {
   access_token: string
   expires_in: number
@@ -445,6 +477,27 @@ export function resendActivation(email: string): Promise<void> {
     method: 'POST',
     body: JSON.stringify({ email }),
   })
+}
+
+/**
+ * Every browser signed in to this account, most recently active first.
+ *
+ * The current one is marked by the server from the refresh cookie, which this call
+ * cannot see and must not try to guess: the access token is deliberately blind to
+ * which session issued it.
+ */
+export function listSessions(): Promise<AuthSession[]> {
+  return call<AuthSession[]>('/auth/sessions')
+}
+
+/** End one other session. The server refuses the caller's own - log out instead. */
+export function revokeSession(sessionId: string): Promise<void> {
+  return call<void>(`/auth/sessions/${sessionId}`, { method: 'DELETE' })
+}
+
+/** Sign out everywhere else, keeping this browser. Answers with how many ended. */
+export function revokeOtherSessions(): Promise<{ revoked: number }> {
+  return call<{ revoked: number }>('/auth/sessions', { method: 'DELETE' })
 }
 
 export function updateProfile(patch: ProfilePatch): Promise<User> {

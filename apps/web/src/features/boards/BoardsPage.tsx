@@ -17,6 +17,7 @@ import {
 import { useConfirm } from '../../ui/ConfirmDialog'
 import { usePrompt } from '../../ui/PromptDialog'
 import { useToast } from '../../ui/Toaster'
+import { relativeTime } from '../../ui/time'
 import { roleCanWrite } from '../../doc/mutations'
 import * as api from '../../lib/api'
 import type { Board, BoardKind, TrashedBoard } from '../../lib/api'
@@ -146,39 +147,6 @@ const SORTS: { id: SortId; label: string }[] = [
   { id: 'created', label: 'Date created' },
   { id: 'title', label: 'Name' },
 ]
-
-/** "Edited 3 days ago", the way every file browser says it. */
-function relativeTime(iso: string): string {
-  const then = new Date(iso).getTime()
-  if (!Number.isFinite(then)) return ''
-
-  const seconds = Math.max(0, (Date.now() - then) / 1000)
-  if (seconds < 90) return 'just now'
-
-  const units: [number, Intl.RelativeTimeFormatUnit][] = [
-    [60, 'minute'],
-    [3600, 'hour'],
-    [86400, 'day'],
-    [604800, 'week'],
-    [2592000, 'month'],
-    [31536000, 'year'],
-  ]
-
-  let unit: Intl.RelativeTimeFormatUnit = 'minute'
-  let divisor = 60
-  for (const [size, name] of units) {
-    if (seconds < size * 60 || name === 'year') {
-      unit = name
-      divisor = size
-      break
-    }
-  }
-
-  return new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' }).format(
-    -Math.round(seconds / divisor),
-    unit,
-  )
-}
 
 /**
  * A board's preview image.

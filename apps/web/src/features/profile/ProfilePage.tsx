@@ -3,7 +3,17 @@ import type { FormEvent } from 'react'
 
 import { Wordmark } from '../../ui/Brand'
 import { Avatar } from '../../ui/Avatar'
-import { IconAuto, IconBack, IconCheck, IconMoon, IconSun } from '../../ui/icons'
+import {
+  IconAuto,
+  IconBack,
+  IconCheck,
+  IconDesktop,
+  IconMobile,
+  IconMoon,
+  IconSun,
+  IconTablet,
+  IconUnknownDevice,
+} from '../../ui/icons'
 import {
   PAPERS,
   PAPER_EVENT,
@@ -13,10 +23,12 @@ import {
   writePaperPreference,
 } from '../../ui/paper'
 import { THEME_EVENT, type Theme, applyTheme, readTheme } from '../../ui/theme'
+import { absoluteTime, relativeTime } from '../../ui/time'
+import { useConfirm } from '../../ui/ConfirmDialog'
 import { useToast } from '../../ui/Toaster'
 import * as api from '../../lib/api'
 import { ApiError } from '../../lib/api'
-import type { Identity, OAuthProvider, Providers } from '../../lib/api'
+import type { AuthSession, Identity, OAuthProvider, Providers } from '../../lib/api'
 import { useAuth } from '../auth/AuthContext'
 import { OAUTH_PROVIDERS } from '../auth/providers'
 
@@ -29,6 +41,25 @@ const THEME_CHOICES: { id: Theme; label: string; Icon: typeof IconSun }[] = [
   { id: 'light', label: 'Light', Icon: IconSun },
   { id: 'dark', label: 'Dark', Icon: IconMoon },
 ]
+
+const DEVICE_ICONS = {
+  desktop: IconDesktop,
+  mobile: IconMobile,
+  tablet: IconTablet,
+  unknown: IconUnknownDevice,
+} as const
+
+/**
+ * Which browser sits where in the list.
+ *
+ * This one first, then the rest by how recently they were active. Sorting purely by
+ * activity would move the reader's own row around as the others refresh, and the row
+ * they need to recognise before judging any of the others is their own.
+ */
+function bySessionOrder(a: AuthSession, b: AuthSession): number {
+  if (a.current !== b.current) return a.current ? -1 : 1
+  return Date.parse(b.last_active_at) - Date.parse(a.last_active_at)
+}
 
 function linkedOn(iso: string): string {
   const when = new Date(iso)
@@ -50,6 +81,7 @@ export default function ProfilePage({ onBack }: Props) {
   const { user, updateProfile, logout, signInError, clearSignInError, signInNotice, clearSignInNotice } =
     useAuth()
   const toast = useToast()
+  const confirm = useConfirm()
   const [name, setName] = useState(user?.display_name ?? '')
   const [busy, setBusy] = useState(false)
   // Its own flag rather than the shared `busy`: this request waits on a mail relay,
@@ -57,6 +89,16 @@ export default function ProfilePage({ onBack }: Props) {
   const [sendingPassword, setSendingPassword] = useState(false)
   const [passwordLinkSent, setPasswordLinkSent] = useState(false)
   const [providers, setProviders] = useState<Providers | null>(null)
+  // `null` while the first load is in flight, so the card can say "loading" rather
+  // than "no other sessions" - which would be a claim, and briefly a false one.
+  const [sessions, setSessions] = useState<AuthSession[] | null>(null)
+  const [sessionsFailed, setSessionsFailed] = useState(false)
+  // The id being revoked, so only that row's button shows the pending state.
+  const [endingSession, setEndingSession] = useState<string | null>(null)
+  const [endingOthers, setEndingOthers] = useState(false)
+  // Bumped to re-run the load. The list is a snapshot of server state, so every action
+  // on it ends by asking the server again rather than editing the copy on this side.
+  const [sessionsRevision, setSessionsRevision] = useState(0)
   // Read once, from the same place the toggle used to read it, so a theme chosen in an
   // earlier session is the one shown as chosen here.
   const [theme, setTheme] = useState<Theme>(readTheme)
@@ -117,6 +159,33 @@ export default function ProfilePage({ onBack }: Props) {
       cancelled = true
     }
   }, [])
+
+  /*
+   * The sessions list, reloaded after anything that changes it.
+   *
+   * A plain fetch on a counter rather than a subscription: sessions change when this
+   * page acts on them, or when another browser signs in, and neither is worth a socket.
+   * A failure is shown as a failure and not as an empty list - "you are signed in
+   * nowhere" is exactly the wrong thing to tell somebody checking for an intruder.
+   */
+  useEffect(() => {
+    let cancelled = false
+    void api
+      .listSessions()
+      .then((rows) => {
+        if (cancelled) return
+        setSessions([...rows].sort(bySessionOrder))
+        setSessionsFailed(false)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setSessions([])
+        setSessionsFailed(true)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [sessionsRevision])
 
   if (user === null) return null
 
@@ -179,6 +248,60 @@ export default function ProfilePage({ onBack }: Props) {
       }
     } finally {
       setSendingPassword(false)
+    }
+  }
+
+  const endSession = async (session: AuthSession) => {
+    const ok = await confirm({
+      title: `Terminate ${session.label}?`,
+      body:
+        'That browser is signed out straight away and has to sign in again. ' +
+        'Nothing on your glades changes.',
+      confirmLabel: 'Terminate',
+      tone: 'danger',
+    })
+    if (!ok) return
+
+    setEndingSession(session.id)
+    try {
+      await api.revokeSession(session.id)
+      toast.success(`${session.label} was terminated.`)
+    } catch (caught) {
+      // 404 means it had already gone - another tab ended it, or it simply expired.
+      // Not an error to report: the list was stale, and reloading is the whole fix.
+      if (!(caught instanceof ApiError && caught.status === 404)) {
+        toast.error('Could not terminate that session.')
+      }
+    } finally {
+      setEndingSession(null)
+      setSessionsRevision((n) => n + 1)
+    }
+  }
+
+  const endOtherSessions = async () => {
+    const ok = await confirm({
+      title: 'Terminate all other sessions?',
+      body:
+        'Every other browser signed in to this account is signed out straight away. ' +
+        'This one stays signed in.',
+      confirmLabel: 'Terminate all',
+      tone: 'danger',
+    })
+    if (!ok) return
+
+    setEndingOthers(true)
+    try {
+      const { revoked } = await api.revokeOtherSessions()
+      toast.success(
+        revoked === 0
+          ? 'There was nothing else signed in.'
+          : `Terminated ${revoked} other ${revoked === 1 ? 'session' : 'sessions'}.`,
+      )
+    } catch {
+      toast.error('Could not terminate the other sessions.')
+    } finally {
+      setEndingOthers(false)
+      setSessionsRevision((n) => n + 1)
     }
   }
 
@@ -393,6 +516,108 @@ export default function ProfilePage({ onBack }: Props) {
               Connecting uses the email as the key: sign in with an account whose verified
               email is {user.email}. A different address is refused rather than linked, and
               you stay signed in as yourself either way.
+            </p>
+          )}
+        </section>
+
+        {/*
+          Where this account is signed in.
+          Directly under Sign-in, because it is the same subject seen from the other
+          end: that card is how the account can be got into, and this one is who is
+          actually in it. Nothing here is a log of past sessions - every row is a
+          browser that can use this account right now, which is what makes the sign-out
+          button a real action rather than a tidy-up of history.
+        */}
+        <section className="card">
+          <h2>Sessions</h2>
+          <p className="hint">
+            Every browser signed in to this account. Terminating one ends it
+            immediately, and that browser has to sign in again.
+          </p>
+
+          {sessions === null ? (
+            <p className="faint">Loading...</p>
+          ) : sessionsFailed ? (
+            <p className="faint">
+              Could not load your sessions. Reload the page to try again.
+            </p>
+          ) : (
+            <ul className="session-list">
+              {sessions.map((session) => {
+                const DeviceIcon = DEVICE_ICONS[session.device]
+                return (
+                  <li key={session.id} className={session.current ? 'session current' : 'session'}>
+                    <span className="session-icon" aria-hidden="true">
+                      <DeviceIcon size={20} />
+                    </span>
+                    <span className="session-text">
+                      <span className="session-title">{session.label}</span>
+                      {/*
+                        Three facts on one line, in the order somebody checking an
+                        unfamiliar row needs them: is it live, where from, and since
+                        when. They were three stacked lines, which gave a four-row list
+                        the height of a page and made scanning it a scroll.
+
+                        The exact timestamps stay on the title attributes: "2 weeks ago"
+                        is what a list is read by, and the precise moment is what settles
+                        it once a row looks wrong.
+                      */}
+                      <span className="session-meta faint">
+                        <span title={absoluteTime(session.last_active_at)}>
+                          {session.current
+                            ? 'Active now'
+                            : `Active ${relativeTime(session.last_active_at)}`}
+                        </span>
+                        {session.ip !== null && <span>{session.ip}</span>}
+                        <span title={absoluteTime(session.signed_in_at)}>
+                          Signed in {relativeTime(session.signed_in_at)}
+                        </span>
+                      </span>
+                    </span>
+                    {/*
+                      The end of the row says what can be done with it, and the current
+                      one is where the badge goes rather than an extra mark beside the
+                      name. One column, one question - "what happens to this session?" -
+                      answered by a button on every row that has an answer and by the
+                      reason there is none on the row that does not.
+
+                      The current row has no button because terminating it from here
+                      would revoke the cookie this page is holding without clearing it.
+                      Logging out is that action, at the bottom of this page.
+                    */}
+                    {session.current ? (
+                      <span className="session-badge">This browser</span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="ghost profile-connect"
+                        disabled={endingSession === session.id || endingOthers}
+                        onClick={() => void endSession(session)}
+                      >
+                        {endingSession === session.id ? 'Terminating...' : 'Terminate'}
+                      </button>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+
+          {sessions !== null && sessions.length > 1 && (
+            <button
+              type="button"
+              className="ghost profile-inline-action"
+              disabled={endingOthers}
+              onClick={() => void endOtherSessions()}
+            >
+              {endingOthers ? 'Terminating...' : 'Terminate all other sessions'}
+            </button>
+          )}
+
+          {sessions !== null && !sessionsFailed && sessions.length === 1 && (
+            <p className="hint">
+              This is the only browser signed in. A session ends by logging out, by being
+              terminated, or on its own after a month of doing nothing.
             </p>
           )}
         </section>

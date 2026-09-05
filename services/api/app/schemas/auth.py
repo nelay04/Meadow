@@ -118,6 +118,49 @@ class PasswordReset(BaseModel):
     password: str = Field(min_length=12, max_length=256)
 
 
+class SessionOut(BaseModel):
+    """One browser signed in to this account.
+
+    `id` is the refresh-token family, which is what a session has always been here -
+    see `app/services/sessions.py`. It is safe to hand out: knowing it grants nothing,
+    because every use of a session requires the token itself, and the only thing it can
+    be passed back to is the delete route, which is scoped to the caller's own rows.
+
+    Both the parse and the raw header go out. The parse is what the list is read by;
+    the raw string is what settles it when the parse is wrong about an unusual client,
+    and it is the user's own header either way.
+    """
+
+    id: uuid.UUID
+    #: The browser asking. Exactly one session is ever marked, and it cannot be ended
+    #: from the list - logging out is its own, clearer button.
+    current: bool
+    browser: str | None = None
+    os: str | None = None
+    device: Literal["desktop", "mobile", "tablet", "unknown"] = "unknown"
+    #: "Firefox on Windows", or as much of it as the header supports. Composed on the
+    #: server so the list reads the same everywhere it is shown.
+    label: str
+    user_agent: str | None = None
+    #: The address the session was last seen from, or null where the peer was not a
+    #: parseable IP. Never a location: this deployment does no geolocation, and a
+    #: guessed city on a security screen is worse than an address.
+    ip: str | None = None
+    #: When this browser signed in. The family's first token, carried forward.
+    signed_in_at: datetime
+    #: When it last renewed its access token, which is the closest thing to activity
+    #: the server actually witnesses. A browser sitting idle does not renew.
+    last_active_at: datetime
+    #: When it will be signed out for doing nothing, unless it renews before then.
+    expires_at: datetime
+
+
+class SessionsRevoked(BaseModel):
+    """How many other sessions "sign out everywhere else" ended. Zero is a fine answer."""
+
+    revoked: int
+
+
 class TokenPair(BaseModel):
     """The refresh token is absent on purpose - it goes back as an httpOnly cookie.
 

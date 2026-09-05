@@ -1067,6 +1067,104 @@ label {
   font-size: 0.8rem;
 }
 
+/* One signed-in browser per row: a device silhouette, three lines of fact, and the
+   button that ends it. Read down the icon column first, which is why the icon is the
+   only thing at a fixed position on every row. */
+/* Tight on purpose. Every row carries the same four facts in the same places, so the
+   list is scanned rather than read, and a scanned list wants rows close enough to
+   compare at a glance instead of cards to page through. */
+.session-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.7rem;
+}
+
+.session {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--surface-2);
+}
+
+/* The reader's own row, marked by the same accent the app marks every current choice
+   with, so it needs no explaining. Tinted as well as outlined: at one pixel against a
+   surface this close to the page, the border alone was not the difference between "this
+   is me" and "this is someone else", which is the one distinction the card exists for. */
+.session.current {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.session-icon {
+  display: flex;
+  flex: 0 0 auto;
+  color: var(--faint);
+}
+
+.session.current .session-icon {
+  color: var(--accent);
+}
+
+.session-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.session-title {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+/* Activity, address and sign-in date on one line, separated by a dot rather than by
+   line breaks. The separator is drawn by the stylesheet so the markup stays a list of
+   facts, and so a missing one - a session with no parseable address - takes its
+   separator with it instead of leaving a stray dot. */
+.session-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 0.45rem;
+  line-height: 1.35;
+}
+
+.session-meta > span + span::before {
+  content: '·';
+  margin-right: 0.45rem;
+  opacity: 0.7;
+}
+
+/* Sits in the action column, where every other row has its Terminate button, so the
+   right edge of the list reads as one column rather than as a badge floating beside a
+   name on one row and a button on the rest. Padded to that button's height for the
+   same reason: two different shapes at two different sizes do not line up. */
+.session-badge {
+  flex: 0 0 auto;
+  padding: 0.25rem 0.6rem;
+  border-radius: 0.4rem;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.session-text .faint {
+  font-size: 0.75rem;
+}
+
 @media (max-width: 40rem) {
   .profile-identity,
   .profile-signout {
@@ -1076,6 +1174,18 @@ label {
 
   .profile-row {
     flex-direction: column;
+  }
+
+  /* The button drops under the text rather than squeezing it: a user agent label is
+     the longest string on this page and it must not be truncated to keep a button
+     on the same line. */
+  .session {
+    flex-wrap: wrap;
+  }
+
+  .session .profile-connect,
+  .session .session-badge {
+    margin-left: auto;
   }
 }
 
