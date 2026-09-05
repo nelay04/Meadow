@@ -3,19 +3,21 @@
 import uuid
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, Path, status
+from fastapi import Depends, HTTPException, Path, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.tokens import AccessTokenError, decode_access_token
 from app.db import get_session
 from app.models import User
+from app.services import session_events
 from app.services.permissions import BoardRole, resolve_role
 
 _bearer = HTTPBearer(auto_error=False)
 
 
 async def current_user(
+    request: Request,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> User:
@@ -34,6 +36,21 @@ async def current_user(
             detail="invalid access token",
             headers={"WWW-Authenticate": "Bearer"},
         ) from exc
+
+    # Terminated since this token was minted. The signature is still good and the
+    # expiry has not passed, which is exactly the window the sessions screen promises
+    # to close: without this, ending a session you do not recognise leaves it holding a
+    # working credential for the rest of its fifteen minutes.
+    #
+    # One Redis key lookup on a path that already makes a Postgres round trip below,
+    # and it fails open - see `session_events.is_revoked` for why an unreachable Redis
+    # must not sign everybody out.
+    if claims.session_id != "" and await session_events.is_revoked(
+        request.app.state.redis, claims.session_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="session was terminated"
+        )
 
     user = await session.get(User, claims.user_id)
     if user is None:

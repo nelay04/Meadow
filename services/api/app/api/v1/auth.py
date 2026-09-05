@@ -5,21 +5,25 @@ for issuing a session and `app/services/accounts.py` for everything about an acc
 so neither flow has its own copy of either.
 """
 
+import json
 import uuid
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from logging import getLogger
 from typing import Annotated
 
 from fastapi import APIRouter, Cookie, HTTPException, Query, Request, Response, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
+from redis.asyncio import Redis
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
 from app.auth import password as passwords
 from app.auth.deps import CurrentUser, Session
-from app.auth.session import clear_refresh_cookie, issue_session
+from app.auth.session import clear_refresh_cookie, issue_session, session_user
 from app.auth.tokens import hash_refresh_token
 from app.config import settings
+from app.db import SessionLocal
 from app.models import RefreshToken, User
 from app.schemas.auth import (
     AuthResponse,
@@ -36,7 +40,7 @@ from app.schemas.auth import (
     TokenPair,
     UserOut,
 )
-from app.services import accounts, activation
+from app.services import accounts, activation, session_events
 from app.services import sessions as session_log
 from app.services.mail import MailError
 from app.services.oauth import PROVIDERS
@@ -397,12 +401,29 @@ async def reset_password(body: PasswordReset, request: Request, session: Session
         )
 
     user.password_hash = passwords.hash_password(body.password)
+    # Read before the update, because after it there is nothing left to read: these are
+    # the families whose access tokens have to be refused as well as whose refresh
+    # tokens are being spent. Somebody resetting a password they think has been stolen
+    # is the last person who should be told to wait fifteen minutes.
+    families = set(
+        (
+            await session.execute(
+                select(RefreshToken.family_id).where(
+                    RefreshToken.user_id == user.id, RefreshToken.revoked_at.is_(None)
+                )
+            )
+        ).scalars()
+    )
     await session.execute(
         update(RefreshToken)
         .where(RefreshToken.user_id == user.id, RefreshToken.revoked_at.is_(None))
         .values(revoked_at=datetime.now(UTC))
     )
     await session.commit()
+
+    redis = request.app.state.redis
+    await session_events.mark_revoked(redis, families)
+    await session_events.publish(redis, user.id)
     logger.info("password set for user %s", user.id)
 
 
@@ -471,6 +492,7 @@ async def refresh(
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(
+    request: Request,
     response: Response,
     session: Session,
     meadow_refresh: Annotated[str | None, Cookie()] = None,
@@ -491,6 +513,12 @@ async def logout(
                 .values(revoked_at=datetime.now(UTC))
             )
             await session.commit()
+            # This browser is throwing its own token away, so denying it is belt and
+            # braces. The publish is not: it takes the row off the sessions list open
+            # on every other browser this account has, without any of them asking.
+            redis = request.app.state.redis
+            await session_events.mark_revoked(redis, [row.family_id])
+            await session_events.publish(redis, row.user_id)
     clear_refresh_cookie(response)
 
 
@@ -508,6 +536,105 @@ async def list_sessions(request: Request, user: CurrentUser, session: Session) -
     )
 
 
+#: How long the stream waits in silence before sending a comment frame.
+#:
+#: Not a poll: nothing is re-read on a heartbeat. It is there so an idle connection
+#: keeps proving it is alive - to proxies that close quiet upstreams, and to the browser,
+#: whose EventSource only notices a dead link when a read fails.
+_HEARTBEAT_SECONDS = 20.0
+
+#: Sent once, to a browser whose own session has gone, immediately before the stream
+#: closes. The client clears its access token and shows the login screen on this.
+_TERMINATED_FRAME = "event: terminated\ndata: {}\n\n"
+
+
+async def _sessions_frame(user_id: uuid.UUID, family_id: uuid.UUID) -> str | None:
+    """The current sessions list as one SSE frame, or None if the reader's own is gone.
+
+    Opens its own short-lived database session rather than taking the request's. A
+    stream lives for as long as a tab is open, and a dependency-injected session would
+    be checked out of the pool for exactly that long - a handful of idle tabs would
+    exhaust it.
+    """
+    async with SessionLocal() as db:
+        rows = await session_log.list_for_user(db, user_id, family_id)
+
+    # The reader's own row is absent, so this browser has been terminated, logged out
+    # elsewhere, or had its session expire. Whichever it was, it is not signed in.
+    if not any(row.current for row in rows):
+        return None
+
+    payload = json.dumps([row.model_dump(mode="json") for row in rows])
+    return f"event: sessions\ndata: {payload}\n\n"
+
+
+async def _sessions_stream(
+    redis: Redis, user_id: uuid.UUID, family_id: uuid.UUID
+) -> AsyncIterator[str]:
+    """Push the sessions list on every change, until the reader goes or is ended."""
+    async with session_events.listen(redis, user_id) as pubsub:
+        # Sent before waiting on anything: a client that has just connected needs the
+        # current answer, not the next change to it.
+        frame = await _sessions_frame(user_id, family_id)
+        if frame is None:
+            yield _TERMINATED_FRAME
+            return
+        yield frame
+
+        while True:
+            message = await pubsub.get_message(
+                ignore_subscribe_messages=True, timeout=_HEARTBEAT_SECONDS
+            )
+            if message is None:
+                yield ": ping\n\n"
+                continue
+
+            frame = await _sessions_frame(user_id, family_id)
+            if frame is None:
+                yield _TERMINATED_FRAME
+                return
+            yield frame
+
+
+@router.get("/sessions/stream")
+async def stream_sessions(request: Request) -> StreamingResponse:
+    """Live session changes for this account, as server-sent events.
+
+    Server-sent events rather than a websocket or a poll. There is nothing to send
+    upstream, so half of a websocket would go unused, and the app's socket is
+    board-scoped - a signed-in user with no board open has no connection at all. A poll
+    fast enough to feel immediate is a request every second or two, per open tab, for a
+    page that changes a few times a year.
+
+    Authenticated by the refresh cookie, which is the only credential an `EventSource`
+    can present: it cannot set an Authorization header. That is not a workaround here,
+    it is the better answer anyway, because the cookie also says *which* session is
+    reading, which is exactly what the stream has to know to tell it that it has been
+    terminated.
+
+    Deliberately not `Session`-dependent. The request lives as long as the tab, and a
+    dependency-injected database session would hold a pooled connection for all of it.
+    """
+    async with SessionLocal() as db:
+        user = await session_user(db, request)
+        family_id = None if user is None else await session_log.current_family_id(db, request)
+
+    if user is None or family_id is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="no session")
+
+    return StreamingResponse(
+        _sessions_stream(request.app.state.redis, user.id, family_id),
+        media_type="text/event-stream",
+        headers={
+            "cache-control": "no-store",
+            # nginx buffers proxied responses by default, which for a stream means the
+            # events arrive in a batch whenever the buffer fills. This turns it off for
+            # this response even where the server config has not.
+            "x-accel-buffering": "no",
+        },
+    )
+
+
 @router.delete("/sessions", response_model=SessionsRevoked)
 async def revoke_other_sessions(
     request: Request, user: CurrentUser, session: Session
@@ -521,7 +648,8 @@ async def revoke_other_sessions(
     action succeeding.
     """
     keep = await session_log.current_family_id(session, request)
-    return SessionsRevoked(revoked=await session_log.revoke_others(session, user.id, keep))
+    revoked = await session_log.revoke_others(session, request.app.state.redis, user.id, keep)
+    return SessionsRevoked(revoked=revoked)
 
 
 @router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -540,7 +668,7 @@ async def revoke_session(
             status_code=status.HTTP_409_CONFLICT,
             detail="that is this session - log out instead",
         )
-    if not await session_log.revoke(session, user.id, session_id):
+    if not await session_log.revoke(session, request.app.state.redis, user.id, session_id):
         # 404 rather than 403 for somebody else's id: the statement is scoped to the
         # caller, so a row that did not match is indistinguishable here from one that
         # never existed, and saying "forbidden" would claim knowledge this does not have.

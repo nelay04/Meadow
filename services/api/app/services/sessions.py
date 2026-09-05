@@ -16,6 +16,7 @@ import uuid
 from datetime import UTC, datetime
 
 from fastapi import Request
+from redis.asyncio import Redis
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +24,7 @@ from app.auth.tokens import hash_refresh_token
 from app.config import settings
 from app.models import RefreshToken
 from app.schemas.auth import SessionOut
+from app.services import session_events
 from app.services.useragent import parse as parse_user_agent
 
 
@@ -98,12 +100,20 @@ async def list_for_user(
     return out
 
 
-async def revoke(db: AsyncSession, user_id: uuid.UUID, family_id: uuid.UUID) -> bool:
+async def revoke(
+    db: AsyncSession, redis: Redis, user_id: uuid.UUID, family_id: uuid.UUID
+) -> bool:
     """End one session. False if the caller does not own a live one with that id.
 
     Scoped to `user_id` in the statement rather than checked first: this is the one
     place a user names somebody else's identifier, so the ownership test belongs in the
     same query as the write and not in a branch above it.
+
+    Three things end a session and all three are needed. The refresh token is revoked,
+    so no new access token can be minted; the family is deny-listed, so the access token
+    already in that browser stops working now rather than in fifteen minutes; and the
+    change is published, so the browser hears about it and drops to the login screen
+    instead of sitting on a tab that looks signed in until somebody touches it.
     """
     revoked = (
         (
@@ -124,10 +134,17 @@ async def revoke(db: AsyncSession, user_id: uuid.UUID, family_id: uuid.UUID) -> 
         .all()
     )
     await db.commit()
-    return len(revoked) > 0
+    if not revoked:
+        return False
+
+    await session_events.mark_revoked(redis, [family_id])
+    await session_events.publish(redis, user_id)
+    return True
 
 
-async def revoke_others(db: AsyncSession, user_id: uuid.UUID, keep: uuid.UUID | None) -> int:
+async def revoke_others(
+    db: AsyncSession, redis: Redis, user_id: uuid.UUID, keep: uuid.UUID | None
+) -> int:
     """Sign out everywhere else. Returns how many sessions ended.
 
     The count is of families, not tokens: a family has one live token, but saying "3
@@ -156,4 +173,7 @@ async def revoke_others(db: AsyncSession, user_id: uuid.UUID, keep: uuid.UUID | 
         .values(revoked_at=now)
     )
     await db.commit()
+
+    await session_events.mark_revoked(redis, families)
+    await session_events.publish(redis, user_id)
     return len(families)

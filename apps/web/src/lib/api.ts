@@ -500,6 +500,21 @@ export function revokeOtherSessions(): Promise<{ revoked: number }> {
   return call<{ revoked: number }>('/auth/sessions', { method: 'DELETE' })
 }
 
+/**
+ * Where the live sessions feed lives.
+ *
+ * An `EventSource` cannot set an Authorization header, so this one endpoint
+ * authenticates by the refresh cookie the browser attaches on its own. Same-origin, so
+ * the cookie goes without any CORS credentials handling; the server refuses the request
+ * outright when it is missing.
+ */
+export const SESSIONS_STREAM_URL = `${BASE}/auth/sessions/stream`
+
+/** Throw away the in-memory access token, without telling the server anything. */
+export function clearAccessToken(): void {
+  accessToken = null
+}
+
 export function updateProfile(patch: ProfilePatch): Promise<User> {
   return call<User>('/auth/me', { method: 'PATCH', body: JSON.stringify(patch) })
 }

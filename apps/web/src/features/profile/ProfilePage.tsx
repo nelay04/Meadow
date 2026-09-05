@@ -78,8 +78,17 @@ function linkedOn(iso: string): string {
  * apart is the clearest way to say so.
  */
 export default function ProfilePage({ onBack }: Props) {
-  const { user, updateProfile, logout, signInError, clearSignInError, signInNotice, clearSignInNotice } =
-    useAuth()
+  const {
+    user,
+    updateProfile,
+    logout,
+    signInError,
+    clearSignInError,
+    signInNotice,
+    clearSignInNotice,
+    sessions: liveSessions,
+    refreshSessions,
+  } = useAuth()
   const toast = useToast()
   const confirm = useConfirm()
   const [name, setName] = useState(user?.display_name ?? '')
@@ -89,16 +98,10 @@ export default function ProfilePage({ onBack }: Props) {
   const [sendingPassword, setSendingPassword] = useState(false)
   const [passwordLinkSent, setPasswordLinkSent] = useState(false)
   const [providers, setProviders] = useState<Providers | null>(null)
-  // `null` while the first load is in flight, so the card can say "loading" rather
-  // than "no other sessions" - which would be a claim, and briefly a false one.
-  const [sessions, setSessions] = useState<AuthSession[] | null>(null)
   const [sessionsFailed, setSessionsFailed] = useState(false)
   // The id being revoked, so only that row's button shows the pending state.
   const [endingSession, setEndingSession] = useState<string | null>(null)
   const [endingOthers, setEndingOthers] = useState(false)
-  // Bumped to re-run the load. The list is a snapshot of server state, so every action
-  // on it ends by asking the server again rather than editing the copy on this side.
-  const [sessionsRevision, setSessionsRevision] = useState(0)
   // Read once, from the same place the toggle used to read it, so a theme chosen in an
   // earlier session is the one shown as chosen here.
   const [theme, setTheme] = useState<Theme>(readTheme)
@@ -161,33 +164,40 @@ export default function ProfilePage({ onBack }: Props) {
   }, [])
 
   /*
-   * The sessions list, reloaded after anything that changes it.
+   * The list arrives on its own.
    *
-   * A plain fetch on a counter rather than a subscription: sessions change when this
-   * page acts on them, or when another browser signs in, and neither is worth a socket.
-   * A failure is shown as a failure and not as an empty list - "you are signed in
-   * nowhere" is exactly the wrong thing to tell somebody checking for an intruder.
+   * `AuthContext` holds a live feed of it, so a login or a logout on another browser
+   * shows up here without this page asking for anything, and terminating a row updates
+   * every open copy of this screen at once. This effect is only the fallback for the
+   * feed not being up yet - a browser that has just opened the page, or one whose
+   * connection was refused - and it asks exactly once.
+   *
+   * A failure is shown as a failure and not as an empty list: "you are signed in
+   * nowhere" is precisely the wrong thing to tell somebody checking for an intruder.
    */
   useEffect(() => {
+    if (liveSessions !== null) {
+      setSessionsFailed(false)
+      return
+    }
     let cancelled = false
-    void api
-      .listSessions()
-      .then((rows) => {
-        if (cancelled) return
-        setSessions([...rows].sort(bySessionOrder))
-        setSessionsFailed(false)
-      })
-      .catch(() => {
-        if (cancelled) return
-        setSessions([])
-        setSessionsFailed(true)
-      })
+    void refreshSessions().catch(() => {
+      if (!cancelled) setSessionsFailed(true)
+    })
     return () => {
       cancelled = true
     }
-  }, [sessionsRevision])
+  }, [liveSessions, refreshSessions])
 
   if (user === null) return null
+
+  /*
+   * Sorted here rather than by the server. Order is a property of how this list is
+   * read, not of what it is: the feed sends the same rows to every open copy of this
+   * page, and each one puts its own session at the top - which is a different row in
+   * each browser.
+   */
+  const sessions = liveSessions === null ? null : [...liveSessions].sort(bySessionOrder)
 
   const identities = user.identities
   const linked = OAUTH_PROVIDERS.map((provider) => ({
@@ -274,7 +284,9 @@ export default function ProfilePage({ onBack }: Props) {
       }
     } finally {
       setEndingSession(null)
-      setSessionsRevision((n) => n + 1)
+      // No reload. The server publishes the change, so it comes back down the feed to
+      // this browser on the same path it takes to every other one.
+      if (liveSessions === null) void refreshSessions().catch(() => setSessionsFailed(true))
     }
   }
 
@@ -301,7 +313,7 @@ export default function ProfilePage({ onBack }: Props) {
       toast.error('Could not terminate the other sessions.')
     } finally {
       setEndingOthers(false)
-      setSessionsRevision((n) => n + 1)
+      if (liveSessions === null) void refreshSessions().catch(() => setSessionsFailed(true))
     }
   }
 

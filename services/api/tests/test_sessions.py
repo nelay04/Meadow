@@ -164,6 +164,70 @@ def test_revoking_a_session_signs_that_browser_out(
     assert client.post("/api/v1/auth/refresh").status_code == 401
 
 
+def test_terminating_a_session_refuses_its_access_token_at_once(
+    client: TestClient, account: tuple[str, str]
+) -> None:
+    """The half that makes "terminated immediately" true rather than cooperative.
+
+    Revoking the refresh token only stops the *next* access token being minted. The one
+    already in the terminated browser stayed good for the rest of its fifteen minutes,
+    so the button ended a session the browser could keep using. Written before the fix,
+    per the working agreement on anything auth-related.
+    """
+    email, password = account
+    laptop = _sign_in(client, email, password, CHROME_ON_WINDOWS)
+    phone = _sign_in(client, email, password, SAFARI_ON_IPHONE)
+
+    # The phone's token works right up until the moment it does not.
+    phone.speak()
+    assert client.get("/api/v1/auth/me", headers=phone.auth).status_code == 200
+
+    stranger = next(row for row in laptop.sessions() if not row["current"])
+    laptop.speak()
+    assert (
+        client.delete(f"/api/v1/auth/sessions/{stranger['id']}", headers=laptop.auth).status_code
+        == 204
+    )
+
+    phone.speak()
+    refused = client.get("/api/v1/auth/me", headers=phone.auth)
+    assert refused.status_code == 401, "a terminated session must not keep its access token"
+    # And the browser that did the terminating is untouched.
+    laptop.speak()
+    assert client.get("/api/v1/auth/me", headers=laptop.auth).status_code == 200
+
+
+def test_signing_out_everywhere_else_refuses_their_access_tokens(
+    client: TestClient, account: tuple[str, str]
+) -> None:
+    email, password = account
+    laptop = _sign_in(client, email, password, CHROME_ON_WINDOWS)
+    phone = _sign_in(client, email, password, SAFARI_ON_IPHONE)
+
+    laptop.speak()
+    assert client.delete("/api/v1/auth/sessions", headers=laptop.auth).json() == {"revoked": 1}
+
+    phone.speak()
+    assert client.get("/api/v1/auth/me", headers=phone.auth).status_code == 401
+    laptop.speak()
+    assert client.get("/api/v1/auth/me", headers=laptop.auth).status_code == 200
+
+
+def test_the_stream_refuses_a_browser_with_no_session(client: TestClient) -> None:
+    """No cookie, no stream. It is authenticated by the refresh cookie and nothing else.
+
+    The only part of the stream this suite can assert. Starlette's TestClient runs the
+    application to completion before handing back a response, so a request that is
+    *meant* never to finish hangs it - a refusal returns, and a live stream does not.
+    What the stream sends once it is open is covered by `scripts/sessions-e2e.mjs`,
+    against a real server over a real socket, which is where the rest of this project's
+    genuinely-asynchronous behaviour is tested too.
+    """
+    client.cookies.clear()
+    with client.stream("GET", "/api/v1/auth/sessions/stream") as response:
+        assert response.status_code == 401
+
+
 def test_a_session_cannot_end_itself(client: TestClient, account: tuple[str, str]) -> None:
     """409, not 204: it would revoke the cookie without clearing it. Logout does that."""
     email, password = account

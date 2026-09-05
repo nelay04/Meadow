@@ -18,6 +18,7 @@ from app.auth.tokens import create_access_token, hash_refresh_token, new_refresh
 from app.config import settings
 from app.models import RefreshToken, User
 from app.schemas.auth import TokenPair
+from app.services import session_events
 
 # The cookie is scoped to the auth routes: it is only ever presented to /refresh and
 # /logout, so no other endpoint has any reason to receive the long-lived credential.
@@ -118,7 +119,14 @@ async def issue_session(
     session.add(token)
     await session.commit()
 
-    access_token, expires_at = create_access_token(user.id)
+    # Every browser this account has open is watching the sessions stream, so a login
+    # elsewhere appears in the list without anybody reloading anything. A rotation
+    # publishes too: it moves the "last active" on a row somebody may be reading.
+    await session_events.publish(request.app.state.redis, user.id)
+
+    # Minted against the family, so terminating the session can refuse this token
+    # rather than only refusing to mint the next one. See `auth/tokens.py`.
+    access_token, expires_at = create_access_token(user.id, family_id)
     set_refresh_cookie(response, raw_refresh)
     return TokenPair(
         access_token=access_token, expires_in=expires_at - int(datetime.now(UTC).timestamp())

@@ -14,6 +14,35 @@ away getting there.
 The infrastructure to run the thing. Not deployed yet.
 
 ### Added
+- **Sessions are live, and terminating one actually terminates it.** The list was a
+  snapshot: a sign-in on another device showed up only if you reloaded, which on a
+  security screen is worse than useless - you check it, see nothing new, and cannot
+  tell whether that was true a second ago or an hour ago. And the button under it
+  revoked a refresh token, which meant no *new* access token could be minted while the
+  one already in the terminated browser kept opening every endpoint for up to fifteen
+  minutes. The tab looked signed in for as long as nobody touched it.
+
+  Both halves are fixed by the same mechanism. A change to an account's sessions is
+  published on a Redis channel for that user, and every open browser holds a
+  server-sent-events connection to `GET /auth/sessions/stream`. A login, a logout, a
+  termination or a token rotation anywhere lands on every open copy of the profile page
+  without anything asking for it, and a browser that has been terminated is told so
+  directly and drops to the login screen while sitting idle - which is the case that
+  matters, because a browser doing nothing is a browser that would never otherwise ask
+  the server a question.
+
+  The stream is authenticated by the refresh cookie, because an `EventSource` cannot
+  set an Authorization header. That is not a workaround: the cookie also says which
+  session is reading, which is exactly what the stream needs in order to tell that
+  session it is over. Server-sent events rather than a websocket because there is
+  nothing to send upstream, and the app's own socket is board-scoped - a signed-in user
+  with no board open has no connection at all.
+
+  Access tokens now stop working too, which is what makes the claim true rather than
+  cooperative. A terminated family goes on a Redis denylist for one access-token
+  lifetime and `current_user` refuses a token minted for it, so a client that ignores
+  the stream - a stolen token, a script, a tab with no feed - is refused anyway.
+
 - **The sidebar collapses to a rail.** It was a fixed 15rem column with no way to get
   it back, which on a small laptop is a fifth of the width spent on five filters that
   do not change. A button beside the wordmark narrows it to its icon column and widens
@@ -987,6 +1016,18 @@ The infrastructure to run the thing. Not deployed yet.
   screen, since the person was never logged out.
 
 ### Reversed
+- **The access token now names its session.** `app/auth/tokens.py` argued that the
+  access token carries an identity and nothing else: no memberships, no roles, nothing
+  a client could assert instead of the server resolving it live. It now carries `sid`,
+  the refresh-token family it was minted for.
+
+  What that reasoning was actually protecting against is a token carrying an *answer* -
+  authorisation data that goes stale the moment it is signed. `sid` is not that. It
+  asserts nothing about what the caller may do; it names which session asked, so the
+  answer can be looked up live on every request. Without it, terminating a session was
+  a statement about the future - no new access tokens - while the one already in the
+  terminated browser kept working, and a screen whose entire purpose is ending a
+  session you do not recognise cannot afford fifteen minutes of continued access.
 - **A tidy mode that kept the ink and only smoothed it.** *Tidy up* first meant a
   low-pass over the stroke: straight runs pulled onto their chords, curved ones
   smoothed, a nearly-closed loop closed, and the result still freehand ink. It worked,
