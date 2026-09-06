@@ -373,10 +373,16 @@ development one, which is the reverse of the usual arrangement. The file that ru
 unattended on a server is the one that should not need a flag to select.
 
 ```bash
-cp .env.prod.example .env.prod     # fill in the passwords and the JWT secret
-docker compose --env-file .env.prod up -d --wait
+mkdir -p /srv/meadow-backups && chmod 700 /srv/meadow-backups
+cp .env.prod.example .env.prod && chmod 600 .env.prod   # fill in the blanks
+docker compose --env-file .env.prod up -d --build --wait
 node scripts/stack-check.mjs       # WEB_PUBLIC_PORT is read from the environment
 ```
+
+Images are built on the server rather than pulled from a registry, which is what
+`--build` is for. That keeps a deploy to one ssh session and one compose file, and
+costs a few minutes of build time. The `release` workflow does exactly the above, from
+`main` only, after taking a verified database dump.
 
 That brings up postgres, redis, a one-shot migration, the API, the arq worker, nginx
 with the SPA baked in, and a backup sidecar. Postgres and Redis publish no host ports.

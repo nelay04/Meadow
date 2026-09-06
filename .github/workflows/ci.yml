@@ -204,6 +204,11 @@ jobs:
             echo "MEADOW_REFRESH_COOKIE_SECURE=false"
             echo "WEB_BIND=127.0.0.1"
             echo "WEB_PUBLIC_PORT=8080"
+            # Into the workspace, not the absolute path the example carries for the
+            # VPS. The dump check below looks for ./backups, and a runner has no
+            # /srv/meadow-backups to bind. Later definitions win in an env file, so
+            # this overrides the example rather than fighting it.
+            echo "BACKUP_DIR=./backups"
             echo "BACKUP_UID=$(id -u)"
             echo "BACKUP_GID=$(id -g)"
           } >> .env.prod
