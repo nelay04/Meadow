@@ -8,7 +8,7 @@ so neither flow has its own copy of either.
 import json
 import uuid
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from logging import getLogger
 from typing import Annotated
 
@@ -21,7 +21,7 @@ from sqlalchemy.exc import IntegrityError
 from app.auth import password as passwords
 from app.auth.deps import CurrentUser, Session
 from app.auth.session import clear_refresh_cookie, issue_session, session_user
-from app.auth.tokens import hash_refresh_token
+from app.auth.tokens import create_access_token, hash_refresh_token
 from app.config import settings
 from app.db import SessionLocal
 from app.models import RefreshToken, User
@@ -461,6 +461,37 @@ async def refresh(
     now = datetime.now(UTC)
 
     if row.revoked_at is not None:
+        # One browser asking twice at the same moment looks exactly like a replay, and
+        # is not one. See `settings.refresh_rotation_grace_seconds` for why that
+        # happens at all. Inside the window, and only while some token in the family is
+        # still live, answer with an access token and rotate nothing: the cookie the
+        # winning request set is left in place, so the two callers converge on one
+        # lineage instead of racing to replace each other's.
+        grace = timedelta(seconds=settings.refresh_rotation_grace_seconds)
+        family_is_live = grace > timedelta(0) and (
+            await session.execute(
+                select(RefreshToken.id)
+                .where(
+                    RefreshToken.family_id == row.family_id,
+                    RefreshToken.revoked_at.is_(None),
+                    RefreshToken.expires_at > now,
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none() is not None
+
+        if family_is_live and now - row.revoked_at <= grace:
+            user = await session.get(User, row.user_id)
+            if user is None:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED, detail="unknown user"
+                )
+            access_token, expires_at = create_access_token(user.id, row.family_id)
+            return TokenPair(
+                access_token=access_token,
+                expires_in=expires_at - int(datetime.now(UTC).timestamp()),
+            )
+
         await session.execute(
             update(RefreshToken)
             .where(RefreshToken.family_id == row.family_id, RefreshToken.revoked_at.is_(None))
