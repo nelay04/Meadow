@@ -9,6 +9,12 @@
 #
 # Because nothing gates this on ci any more, run ci first and read it. The `deploy`
 # input exists so publishing images and shipping them can be two separate decisions.
+#
+# Main only. workflow_dispatch offers every branch and tag in the ref picker, and the
+# deploy step force-resets the VPS checkout to whatever it is handed, so without the
+# guard on each job below a mis-click in that dropdown publishes `:latest` from a
+# feature branch and ships it. The guard is on both jobs rather than on the workflow,
+# because `on:` has no ref filter for a manual run.
 
 name: release
 
@@ -31,6 +37,9 @@ env:
 
 jobs:
   build:
+    # See the note at the top. A run started from any other ref stops here, before it
+    # has pushed an image, rather than after.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -103,8 +112,11 @@ jobs:
   deploy:
     needs: build
     # Skipped unless the run asked for it, so the default press of the button
-    # publishes images and stops there.
-    if: inputs.deploy
+    # publishes images and stops there. The ref is checked again rather than left to
+    # `needs`: a skipped dependency would skip this too today, but that is a property
+    # of the graph, and the job that force-resets the production checkout should say
+    # out loud which branch it is willing to do that from.
+    if: inputs.deploy && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     # Gate the secrets behind an environment so a deploy can require approval, and so
     # the VPS credentials are not readable by every workflow in the repo.
@@ -121,7 +133,43 @@ jobs:
             set -euo pipefail
             cd ${{ secrets.VPS_PATH }}
 
+            # A verified dump of the schema this deploy is about to migrate away from,
+            # taken before anything else moves.
+            #
+            # The sidecar already dumps nightly, but the gap between that and a deploy
+            # can be most of a day, and `up -d` runs `alembic upgrade head` against the
+            # live database with no way back: alembic downgrades are written here, but
+            # a downgrade that drops a column does not put the data back. Losing an
+            # afternoon of edits to a bad migration is the failure this prevents.
+            #
+            # It reuses the backup image rather than reimplementing the dump, with the
+            # entrypoint overridden because the image's own is an infinite loop. The
+            # filename matches the sidecar's meadow-*.dump glob on purpose, so ordinary
+            # retention prunes these too instead of growing a second set forever.
+            #
+            # This runs before `git reset --hard` so a failure here leaves the checkout
+            # untouched, and `script_stop` plus `set -e` mean a deploy that could not
+            # take a backup does not migrate. That is the right way round: refusing to
+            # deploy costs a few minutes, and the alternative costs the database.
+            # No --no-deps. The service depends on postgres being healthy, so compose
+            # starts it and waits when it is not already up. That is a no-op on every
+            # deploy after the first, and on the first it is the difference between
+            # this working and the initial deploy aborting because there was nothing
+            # to dump from yet. An empty database dumps fine.
+            docker compose --env-file .env.prod run --rm \
+              --entrypoint sh backup -c '
+                set -eu
+                target="/backups/meadow-predeploy-$(date -u +%Y%m%dT%H%M%SZ).dump"
+                pg_dump --format=custom --compress=6 --file="$target.partial"
+                pg_restore --list "$target.partial" > /dev/null
+                mv "$target.partial" "$target"
+                echo "pre-deploy dump: $target, $(wc -c < "$target") bytes, verified"
+              '
+
             git fetch --prune origin main
+            # Discards anything committed or staged on the VPS checkout. Untracked
+            # files survive, which is what keeps .env.prod and ./backups here, and is
+            # also why nothing in this repo may ever add `git clean` to this script.
             git reset --hard origin/main
 
             # The images come from the registry; nothing is built on the VPS. A build

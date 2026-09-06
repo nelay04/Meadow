@@ -228,4 +228,9 @@ jobs:
         run: docker compose --env-file .env.prod logs --tail 200
       - name: down
         if: always() && hashFiles('.env.prod') != ''
+        # `-v` is correct here and nowhere else. This is a throwaway runner whose
+        # volumes hold a stack that existed for one job. The same line typed on the
+        # VPS deletes meadow_prod_pgdata, which is the database. If you are copying
+        # a compose invocation out of this file to run against production, this is
+        # the one to leave behind.
         run: docker compose --env-file .env.prod down -v
