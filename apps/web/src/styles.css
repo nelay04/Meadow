@@ -5520,6 +5520,9 @@ dialog.modal[open] .modal-card {
 
 .stack-list {
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
   min-height: 0;
   overflow-y: auto;
   margin: 0;
@@ -5539,6 +5542,7 @@ dialog.modal[open] .modal-card {
 
 .stack-row {
   display: flex;
+  flex: none;
   align-items: center;
   gap: 0.15rem;
   padding: 0 0.15rem;
