@@ -13,7 +13,7 @@
 # whole deploy to one ssh session and one compose file, at the cost of a few minutes of
 # build time and the memory it takes while it runs.
 
-name: release
+name: Deploy
 
 on:
   workflow_dispatch:

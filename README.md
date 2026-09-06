@@ -407,7 +407,7 @@ offsite push: the dumps sit on the same disk as the database they protect, which
 a bad migration and does not cover a lost VPS.
 
 CI runs lint, both test suites, the e2e scripts, and the stack check on every push.
-`release.yml` publishes three images to GHCR and deploys over ssh, gated on ci passing
+`deploy.yml` publishes three images to GHCR and deploys over ssh, gated on ci passing
 and on a `production` environment so the VPS credentials are not readable by every
 workflow in the repo.
 
