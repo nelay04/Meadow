@@ -38,7 +38,11 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          script_stop: true
+          # No `script_stop`. It was removed from the action, and passing it is a
+          # warning rather than an error, so it fails quietly in the direction that
+          # matters: the run keeps going. `set -euo pipefail` on the first line of the
+          # script does the same job and is owned by this file rather than by the
+          # action's input schema.
           script: |
             set -euo pipefail
             cd /root/Projects/Python/Meadow
@@ -57,8 +61,8 @@ jobs:
             # retention prunes these too instead of growing a second set forever.
             #
             # Runs before `git reset --hard`, so a failure leaves the checkout
-            # untouched, and `script_stop` plus `set -e` mean a deploy that could not
-            # take a backup does not migrate. Refusing to deploy costs a few minutes.
+            # untouched, and `set -e` means a deploy that could not take a backup does
+            # not migrate. Refusing to deploy costs a few minutes.
             # The alternative costs the database.
             #
             # No --no-deps: the service depends on postgres being healthy, so compose
