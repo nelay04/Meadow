@@ -31,12 +31,18 @@ ENV UV_COMPILE_BYTECODE=1 \
 # Dependencies first, and without the project, so editing app code does not reinstall
 # asyncpg and pycrdt on every build.
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev --no-install-project
+# --locked, not --frozen. `--frozen` uses uv.lock as it stands without checking it
+# still agrees with pyproject.toml, so a dependency added to pyproject and never
+# re-locked is simply absent from the image. That is not a build failure: it is a
+# working build that dies at import time in production, which is exactly how httpx
+# reached the VPS as a runtime dependency that had only ever been locked as a dev one.
+# `--locked` fails the build instead, here, where it is cheap to notice.
+RUN uv sync --locked --no-dev --no-install-project
 
 COPY app ./app
 COPY alembic ./alembic
 COPY alembic.ini ./
-RUN uv sync --frozen --no-dev
+RUN uv sync --locked --no-dev
 
 
 FROM python:3.13-slim-bookworm AS runtime
@@ -89,7 +95,7 @@ FROM build AS dev
 
 # The dev group brings pytest, ruff and mypy, so the same container can run the checks
 # instead of needing a second Python toolchain on the host.
-RUN uv sync --frozen
+RUN uv sync --locked
 
 ENV PYTHONUNBUFFERED=1 \
     PATH=/srv/meadow/api/.venv/bin:$PATH
