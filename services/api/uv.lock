@@ -628,13 +628,14 @@ wheels = [
 [[package]]
 name = "meadow-api"
 version = "0.0.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "alembic" },
     { name = "argon2-cffi" },
     { name = "arq" },
     { name = "asyncpg" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "pycrdt" },
     { name = "pycrdt-websocket" },
     { name = "pydantic", extra = ["email"] },
@@ -647,7 +648,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -661,6 +661,7 @@ requires-dist = [
     { name = "arq", specifier = ">=0.26" },
     { name = "asyncpg", specifier = ">=0.30" },
     { name = "fastapi", specifier = ">=0.115" },
+    { name = "httpx", specifier = ">=0.28" },
     { name = "pycrdt", specifier = ">=0.14" },
     { name = "pycrdt-websocket", specifier = ">=0.16" },
     { name = "pydantic", extras = ["email"], specifier = ">=2.9" },
@@ -673,7 +674,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "httpx", specifier = ">=0.28" },
     { name = "mypy", specifier = ">=1.13" },
     { name = "pytest", specifier = ">=8.3" },
     { name = "pytest-asyncio", specifier = ">=0.24" },

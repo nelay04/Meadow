@@ -192,6 +192,12 @@ async def resolve_link(
     unshare, share again" not invalidate the link somebody already has - so *the mode
     is the switch*, and any path that resolved a token without consulting it would keep
     a board readable after its owner had closed it.
+
+    A board in the trash opens for nobody, and that is checked here for exactly the same
+    reason. This is the one way into a board that does not go through `resolve_role`:
+    it answers a caller who may have no account at all, so there is no role to resolve.
+    Every other route inherits the rule from that function; this one has to state it,
+    and it states it once, at the bottom, rather than in each of the routes above.
     """
     from app.models import Board, ShareLink
 
@@ -207,6 +213,11 @@ async def resolve_link(
 
     board, _link = row
     if board.share_mode != ShareMode.public:
+        return None
+    # Suspended along with everything else about the board, and given back by a
+    # restore. Not revoked: a link somebody was only ever going to lose for a week
+    # should be the same link when the board comes back.
+    if board.deleted_at is not None:
         return None
     return board, BoardRole(board.share_role)
 

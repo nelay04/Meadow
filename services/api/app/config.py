@@ -39,6 +39,24 @@ class Settings(BaseSettings):
     refresh_cookie_name: str = "meadow_refresh"
     refresh_cookie_secure: bool = False
 
+    # How long a refresh token that has just been rotated away is still honoured.
+    #
+    # Reuse of a spent token is theft detection and revokes the whole family, which is
+    # right for a token replayed later and wrong for the one case that looks identical:
+    # a single browser asking twice at the same moment. A reload has two page contexts
+    # alive at once, and two tabs never share state at all, so both send the cookie they
+    # hold, one rotation wins, and the loser arrives a few milliseconds late holding a
+    # token that is by then already spent. Strictly read, that is a replay; in practice
+    # it logged people out on every reload once there was real latency in front of the
+    # API.
+    #
+    # Inside this window, and only while the family is otherwise healthy, such a request
+    # is answered with a fresh access token and no rotation. An attacker replaying a
+    # stolen token seconds after it was spent gains an access token that dies with the
+    # window; replayed any later, the family still dies. Zero disables the grace
+    # entirely and restores the strict reading, which is what the theft tests use.
+    refresh_rotation_grace_seconds: int = 10
+
     ws_token_ttl_seconds: int = 60
 
     # How long a board password stays proved for, once somebody has typed it.
@@ -54,6 +72,14 @@ class Settings(BaseSettings):
     # watchdog also wakes early when the access token behind the connection expires,
     # so a socket can never outlive the session that authorised it.
     ws_revalidate_interval_seconds: int = 15 * 60
+
+    # --- trash (see app/api/v1/boards.py) ---
+    # How long a deleted glade or lea, and a torn-out lea page, stays recoverable.
+    # In hours rather than days so a deployment can set it to something short enough
+    # to watch happen, and so the tests do not have to wait a month. 720 is 30 days.
+    # Zero means a delete is final at once, which is the behaviour before there was a
+    # trash and is left reachable on purpose.
+    trash_retention_hours: int = 720
 
     # ARCHITECTURE 6: reject a room join beyond this many concurrent clients.
     max_clients_per_room: int = 50

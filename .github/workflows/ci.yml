@@ -204,6 +204,11 @@ jobs:
             echo "MEADOW_REFRESH_COOKIE_SECURE=false"
             echo "WEB_BIND=127.0.0.1"
             echo "WEB_PUBLIC_PORT=8080"
+            # Into the workspace, not the absolute path the example carries for the
+            # VPS. The dump check below looks for ./backups, and a runner has no
+            # /srv/meadow-backups to bind. Later definitions win in an env file, so
+            # this overrides the example rather than fighting it.
+            echo "BACKUP_DIR=./backups"
             echo "BACKUP_UID=$(id -u)"
             echo "BACKUP_GID=$(id -g)"
           } >> .env.prod
@@ -228,4 +233,9 @@ jobs:
         run: docker compose --env-file .env.prod logs --tail 200
       - name: down
         if: always() && hashFiles('.env.prod') != ''
+        # `-v` is correct here and nowhere else. This is a throwaway runner whose
+        # volumes hold a stack that existed for one job. The same line typed on the
+        # VPS deletes meadow_prod_pgdata, which is the database. If you are copying
+        # a compose invocation out of this file to run against production, this is
+        # the one to leave behind.
         run: docker compose --env-file .env.prod down -v

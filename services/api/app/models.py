@@ -208,17 +208,39 @@ class RefreshToken(Base):
     )
     # sha256 of the raw token. A database leak must not yield usable sessions.
     token_hash: Mapped[str] = mapped_column(String, nullable=False, unique=True)
-    # Rotation lineage. Reusing any token in a family revokes the whole family.
+    # Rotation lineage. Reusing any token in a family revokes the whole family, and a
+    # family is also what the profile page calls a session: one browser, signed in once.
     family_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    # When the family's *first* token was issued, carried forward onto every rotation.
+    # Denormalised on purpose: it makes a live row a self-contained account of one
+    # session, so listing them needs no grouping and pruning spent rows loses nothing.
+    #
+    # Defaulted by the database, like `created_at`, and for the reason those two have to
+    # agree: a login sets both, and reading one off Python's clock and the other off
+    # Postgres's made every fresh session claim to have signed in a moment *after* it
+    # was last active. A rotation overrides it with the value from the token it replaces.
+    family_started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # What the browser said it was, verbatim. Shown parsed, kept raw: the parse is a
+    # guess about a string nobody validates, and the original is the only honest record.
     user_agent: Mapped[str | None] = mapped_column(String, nullable=True)
     ip: Mapped[str | None] = mapped_column(INET, nullable=True)
+    # Rewritten by every rotation, so on the live row this is when the session was last
+    # active - the last time that browser presented its cookie for a new access token.
     created_at: Mapped[datetime] = _created_at()
 
     __table_args__ = (
         Index("ix_refresh_tokens_user_id", "user_id"),
         Index("ix_refresh_tokens_family_id", "family_id"),
+        Index(
+            "ix_refresh_tokens_live",
+            "user_id",
+            "expires_at",
+            postgresql_where=text("revoked_at is null"),
+        ),
     )
 
 
@@ -310,6 +332,20 @@ class Board(Base):
     password_version: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
+    # In the trash since. Null is every board that is simply there, which is what the
+    # whole app means by a board existing: `resolve_role` refuses a row with a value
+    # here, so one deleted board is invisible to every router and to the websocket
+    # handshake through the same single check rather than through a filter each of them
+    # remembers. Only the trash endpoints ask to see them, and they say so.
+    #
+    # A soft delete rather than a copy into a second table: the CRDT log, the snapshots,
+    # the members and the share links all hang off this row by foreign key, and moving
+    # it would mean moving all of them and moving them back intact. Restoring is one
+    # column going null.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
@@ -317,6 +353,14 @@ class Board(Base):
 
     __table_args__ = (
         Index("ix_boards_workspace_id_is_archived", "workspace_id", "is_archived"),
+        # The trash sweep's query: everything deleted before a cutoff, across every
+        # workspace. Partial, because the column is null on all but a handful of rows
+        # and an index over the whole table would be mostly empty entries.
+        Index(
+            "ix_boards_deleted_at",
+            "deleted_at",
+            postgresql_where=text("deleted_at is not null"),
+        ),
         CheckConstraint(
             "kind in (" + ", ".join(f"'{k}'" for k in BOARD_KINDS) + ")",
             name="ck_boards_kind",

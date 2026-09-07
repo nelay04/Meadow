@@ -14,6 +14,133 @@ away getting there.
 The infrastructure to run the thing. Not deployed yet.
 
 ### Added
+- **Sessions are live, and terminating one actually terminates it.** The list was a
+  snapshot: a sign-in on another device showed up only if you reloaded, which on a
+  security screen is worse than useless - you check it, see nothing new, and cannot
+  tell whether that was true a second ago or an hour ago. And the button under it
+  revoked a refresh token, which meant no *new* access token could be minted while the
+  one already in the terminated browser kept opening every endpoint for up to fifteen
+  minutes. The tab looked signed in for as long as nobody touched it.
+
+  Both halves are fixed by the same mechanism. A change to an account's sessions is
+  published on a Redis channel for that user, and every open browser holds a
+  server-sent-events connection to `GET /auth/sessions/stream`. A login, a logout, a
+  termination or a token rotation anywhere lands on every open copy of the profile page
+  without anything asking for it, and a browser that has been terminated is told so
+  directly and drops to the login screen while sitting idle - which is the case that
+  matters, because a browser doing nothing is a browser that would never otherwise ask
+  the server a question.
+
+  The stream is authenticated by the refresh cookie, because an `EventSource` cannot
+  set an Authorization header. That is not a workaround: the cookie also says which
+  session is reading, which is exactly what the stream needs in order to tell that
+  session it is over. Server-sent events rather than a websocket because there is
+  nothing to send upstream, and the app's own socket is board-scoped - a signed-in user
+  with no board open has no connection at all.
+
+  A terminated browser says why. Dropping to a login form with no explanation reads as
+  the app having crashed and lost the session, so it raises a red toast - "You were
+  signed out. This session was terminated from another device." - and holds it longer
+  than an ordinary error, because it arrives at a tab nobody was looking at and is the
+  only account of what happened that anyone will get.
+
+  Access tokens now stop working too, which is what makes the claim true rather than
+  cooperative. A terminated family goes on a Redis denylist for one access-token
+  lifetime and `current_user` refuses a token minted for it, so a client that ignores
+  the stream - a stolen token, a script, a tab with no feed - is refused anyway.
+
+- **The sidebar collapses to a rail.** It was a fixed 15rem column with no way to get
+  it back, which on a small laptop is a fifth of the width spent on five filters that
+  do not change. A button beside the wordmark narrows it to its icon column and widens
+  it again, and the choice is remembered per browser.
+
+  It is the same sidebar narrowed, not a second one: every row keeps its place, its
+  order and its active state, and only the words go, so expanding it lands you exactly
+  where you were. Search is the one control that cannot survive as an icon, so in the
+  rail the magnifier becomes a button that expands the column and gives back the field.
+
+  A drawer is never a rail. Below the tablet breakpoint the sidebar is already a narrow
+  overlay that is dismissed rather than narrowed, so a remembered desktop collapse is
+  overridden there instead of leaving a phone with a strip of unlabelled icons over its
+  board list.
+
+- **A sessions log, so "where am I signed in?" has an answer.** The account could be
+  signed in on any number of browsers and there was nowhere to see them. Logging out
+  ended the one in front of you; a laptop left signed in at a library stayed signed in
+  for thirty days and nobody could say so.
+
+  The profile page now lists every browser holding a live session: what it is
+  ("Firefox on Windows"), on what kind of device, from what address, when it signed in
+  and when it was last active. The browser reading the list is marked, and each of the
+  others has a button that terminates it immediately, plus one that terminates all of
+  them at once. Every row is two lines: the rows are compared at a glance rather than
+  read one at a time, so the four facts sit on one line under the name.
+
+  **No new notion of a session was invented for it.** A session here is a refresh-token
+  family, which is already what decides access: one browser signs in once, gets a
+  family, and rotates within it until it logs out or the family is revoked. So the list
+  is the live sessions themselves rather than a log written beside them, and revoking a
+  row really does lock that browser out on its next call - the same mechanism reuse
+  detection and the password reset have always used. What it needed was one column:
+  `refresh_tokens.family_started_at`, carried forward by every rotation, so a live row
+  is a self-contained account of one session and the login time survives both rotation
+  and any future pruning of spent rows.
+
+  The current session is identified from the refresh cookie, which is already scoped to
+  `/api/v1/auth` and so arrives at these routes on its own. The access token stays
+  deliberately blind to which session issued it: putting a session identifier into the
+  credential handed to every endpoint would be the wrong trade for saving one lookup.
+  It cannot terminate itself either - that would revoke the cookie without clearing it,
+  leaving the client holding credentials it thinks are good - so it answers 409 and
+  points at the log out button one card below.
+
+  "Last active" is when that browser last renewed its access token, which is the closest
+  thing to activity the server actually witnesses, and an idle tab is honestly reported
+  as idle. There is no geolocation: the address is shown as an address, because a
+  guessed city on a security screen is worse than no city.
+
+- **A trash, so deleting is not the one irreversible click.** Deleting a glade or a lea
+  removed the row and cascaded its update log, its snapshots, its grants and its share
+  link away with it, immediately and for good. That was the single most destructive
+  action in the app, on the one thing the app exists to hold, and it was one click and a
+  confirm away from the board list.
+
+  Deleting now moves a board to the trash and nothing else happens: the row keeps its
+  place and everything hanging off it is untouched, so restoring is one column going
+  back to null rather than a rebuild. A board waits there for
+  `MEADOW_TRASH_RETENTION_HOURS` - 720, thirty days, by default, and in hours so a
+  deployment can set a window short enough to watch work - and then the worker's hourly
+  sweep does the hard delete that `DELETE /boards/{id}` used to do inline. The owner can
+  bring it back at any point before that, or empty it early from the trash view.
+
+  **A board in the trash is unreachable, not hidden.** `resolve_role` refuses a row with
+  a `deleted_at`, which is what makes that true everywhere at once: every router and the
+  websocket handshake already resolve through it, per ARCHITECTURE 7, so none of them
+  needed a filter of its own and none of them can forget one. The one way in that does
+  not resolve a role - a public share link, which answers callers with no account - says
+  it once more in `resolve_link`. Sockets are evicted on the delete exactly as they were
+  before, because people typing into a board nobody can open afterwards is the same
+  failure whether the row is gone or merely suspended. The link is suspended rather than
+  revoked, so a restore gives back the same address rather than breaking every copy of
+  one that was only ever going to be away for a week.
+
+  Lea pages got the same treatment, and they had to get it a different way. A page torn
+  out took its writing with it and could not be undone - deliberately outside the undo
+  stack, because an undo scoped to `objects` would have brought the writing back onto a
+  page that stayed gone. A torn-out page now keeps its entry and its rows exactly where
+  both were, marked with a `deletedAt` in `meta.pages`, and comes back to its own place
+  in the diary rather than to the end of it. Nothing can reach it meanwhile: the camera
+  is fenced to the open page's slot, and slots are still never reused. These pages live
+  inside the CRDT document, which the server stores as opaque updates and never reads,
+  so the sweep for them runs on the client when somebody who can write opens the lea -
+  against the window the server serves at `GET /config`, and never against a guess, so a
+  failed read leaves the trash alone rather than emptying it early.
+
+  The board trash is owner-only, both the list and the two actions on it: restoring and
+  purging are owner powers, so a row anybody else could see would be somebody else's
+  discards with nothing on it they could do. It sits at the foot of the sidebar, and a
+  lea's torn-out pages fold away at the foot of its page panel, absent entirely until
+  there is something in one.
 - **A password on a glade or a lea, and it outranks everything else.** Sharing could
   answer "who may open this" three ways - a workspace seat, a board grant, the public
   link - and every one of them is about who somebody *is*. None of them was any use for
@@ -939,6 +1066,18 @@ The infrastructure to run the thing. Not deployed yet.
   screen, since the person was never logged out.
 
 ### Reversed
+- **The access token now names its session.** `app/auth/tokens.py` argued that the
+  access token carries an identity and nothing else: no memberships, no roles, nothing
+  a client could assert instead of the server resolving it live. It now carries `sid`,
+  the refresh-token family it was minted for.
+
+  What that reasoning was actually protecting against is a token carrying an *answer* -
+  authorisation data that goes stale the moment it is signed. `sid` is not that. It
+  asserts nothing about what the caller may do; it names which session asked, so the
+  answer can be looked up live on every request. Without it, terminating a session was
+  a statement about the future - no new access tokens - while the one already in the
+  terminated browser kept working, and a screen whose entire purpose is ending a
+  session you do not recognise cannot afford fifteen minutes of continued access.
 - **A tidy mode that kept the ink and only smoothed it.** *Tidy up* first meant a
   low-pass over the stroke: straight runs pulled onto their chords, curved ones
   smoothed, a nearly-closed loop closed, and the result still freehand ink. It worked,

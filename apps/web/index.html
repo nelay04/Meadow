@@ -2,7 +2,14 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- `viewport-fit=cover` so the board can paint under a notch and a home indicator;
+         the panels that float over it pad themselves back out with `env(safe-area-inset-*)`.
+         `interactive-widget` keeps the on-screen keyboard resizing the layout rather than
+         sliding a fixed-position board out from under itself. -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+    />
     <meta name="theme-color" content="#f4f1ec" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#0f1318" media="(prefers-color-scheme: dark)" />
     <meta name="description" content="Think Beyond the horizon..." />

@@ -16,8 +16,8 @@ verification mints a short-lived signed pass carrying the version it was minted 
 that version is compared against this column on every websocket handshake and every
 revalidation - so a change retires every pass in existence without a table to sweep.
 
-Revision ID: 0010_board_passwords
-Revises: 0009_access_requests
+Revision ID: 0012_board_passwords
+Revises: 0011_session_log
 Create Date: 2026-09-04
 """
 
@@ -27,8 +27,8 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision: str = "0010_board_passwords"
-down_revision: str | None = "0009_access_requests"
+revision: str = "0012_board_passwords"
+down_revision: str | None = "0011_session_log"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

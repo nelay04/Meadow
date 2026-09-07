@@ -87,6 +87,27 @@ export type CameraFence = {
    */
   minZoom: number
   maxZoom: number
+  /**
+   * How much has to be brought on screen when `minZoom` cannot manage it.
+   *
+   * `minZoom` is a typographic floor: below it a page has stopped being the page and
+   * become a thumbnail of one. That reasoning holds on every window wide enough to
+   * draw the measure at that zoom, and a phone is not one - a lea is 860 units of
+   * writing inside 932 units of paper, which at 0.5 wants 466px, and a phone has 390.
+   * Where the floor and the window disagree the window wins by cropping, so the floor
+   * was not protecting the measure there; it was only deciding how much of each line
+   * went off the right edge. Reading a diary took two pans per line and two back.
+   *
+   * So on those windows the floor gives way to this width, and to no less. The measure
+   * itself does not move - it is a property of the document and stays where it is -
+   * only how large it is drawn, which is what a zoom is.
+   *
+   * Wider than `right - left` on purpose: that is the writing, and this is the paper
+   * it is written on. Fitting the writing exactly would put the first and last letter
+   * of every line against the bezel. Optional, and a fence that omits it is fitted to
+   * its column, which is the honest answer when nobody has said what the paper is.
+   */
+  fitWidth?: number
 }
 
 export class Camera {
@@ -112,6 +133,8 @@ export class Camera {
     if (width === this.viewW && height === this.viewH) return
     this.viewW = width
     this.viewH = height
+    // Turning a phone on its side changes which side of that width it is on.
+    this.fitToWindow('resize')
     this.constrain()
   }
 
@@ -123,11 +146,69 @@ export class Camera {
     // somebody has already scrolled does not throw their place away.
     if (fence !== null && this.y === 0) this.y = fence.top
     this.fence = fence
+    this.fitToWindow('open')
     this.constrain()
   }
 
   get fenced(): boolean {
     return this.fence !== null
+  }
+
+  /**
+   * The lowest zoom this camera may take, which is not always the fence's own floor.
+   *
+   * One function rather than two comparisons, because the floor is asked for from two
+   * places that must not disagree: `constrain` clamps to it after every move, and
+   * `fitToWindow` puts the camera on it when a page opens. If those two ever
+   * answered differently, a page would open at a zoom the very next clamp pulled it
+   * off, which is a page that jumps as you touch it.
+   */
+  private zoomFloor(fence: CameraFence): number {
+    const fitWidth = fence.fitWidth ?? fence.right - fence.left
+    if (fitWidth <= 0 || this.viewW <= 0) return fence.minZoom
+    return Math.min(fence.minZoom, this.viewW / fitWidth)
+  }
+
+  /**
+   * A page opens showing the whole of itself.
+   *
+   * `zoomFloor` lets a narrow window *reach* a fitting zoom; something still has to put
+   * it there, or a diary opens at 1:1 with half of every line off the edge and a pinch
+   * to do before it can be read.
+   *
+   * Deliberately not part of `constrain`, which runs after every move: a rule that
+   * refits on each frame is a rule that undoes a pinch as fast as it is made. Zooming
+   * in on a page still works normally afterwards, and the sideways pan in `constrain`
+   * is there for exactly that case.
+   *
+   * Only ever outward. A window with room to spare does not blow the page up to fill
+   * it: the measure is set at the size it was written for, and 1:1 is that size.
+   *
+   * `reason` is the whole of the difference between the two callers, and it is not a
+   * detail:
+   *
+   * - Opening a page, or turning to another one, is the moment to show it whole. There
+   *   is no place in it yet to lose.
+   * - A window merely changing size is not. Somebody who zoomed to 2x to read their own
+   *   handwriting and then dragged their window narrower is still reading, and refitting
+   *   would throw away the zoom they chose. So a resize acts only where the window has
+   *   become too narrow to show the paper at the fence's own floor - a case the camera
+   *   cannot honour any other way, and in practice a phone being turned on its side
+   *   rather than a window being dragged.
+   */
+  private fitToWindow(reason: 'open' | 'resize'): void {
+    const fence = this.fence
+    if (fence === null || this.viewW <= 0) return
+
+    const fitWidth = fence.fitWidth ?? fence.right - fence.left
+    if (fitWidth <= 0) return
+
+    const fit = this.viewW / fitWidth
+    if (reason === 'resize' && fit >= fence.minZoom) return
+    if (this.zoom <= fit) return
+
+    this.zoom = fit
+    this.version += 1
   }
 
   /**
@@ -143,7 +224,7 @@ export class Camera {
     if (fence === null || this.viewW <= 0) return
 
     const before = `${this.x}|${this.y}|${this.zoom}`
-    this.zoom = Math.min(fence.maxZoom, Math.max(fence.minZoom, this.zoom))
+    this.zoom = Math.min(fence.maxZoom, Math.max(this.zoomFloor(fence), this.zoom))
 
     const column = fence.right - fence.left
     const visible = this.viewW / this.zoom

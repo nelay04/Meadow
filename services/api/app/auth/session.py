@@ -18,6 +18,7 @@ from app.auth.tokens import create_access_token, hash_refresh_token, new_refresh
 from app.config import settings
 from app.models import RefreshToken, User
 from app.schemas.auth import TokenPair
+from app.services import session_events
 
 # The cookie is scoped to the auth routes: it is only ever presented to /refresh and
 # /logout, so no other endpoint has any reason to receive the long-lived credential.
@@ -86,22 +87,46 @@ async def issue_session(
     request: Request,
     user: User,
     family_id: uuid.UUID,
+    family_started_at: datetime | None = None,
 ) -> TokenPair:
-    """Mint an access token and a fresh refresh token in `family_id`'s lineage."""
+    """Mint an access token and a fresh refresh token in `family_id`'s lineage.
+
+    `family_started_at` is when this browser signed in, and a rotation must pass the
+    one off the token it is replacing. Omitting it leaves the column to its database
+    default, which is right for a login and wrong for a refresh - a refresh that let it
+    default would make every session look like it began fifteen minutes ago.
+
+    Left to the default rather than set to `now` here on purpose: `created_at` is
+    defaulted by the database too, and the sessions list compares the two. Timing one
+    in Python and the other in Postgres made a session that had just signed in read as
+    having done so after it was last active.
+    """
+    now = datetime.now(UTC)
     raw_refresh, token_hash = new_refresh_token()
-    session.add(
-        RefreshToken(
-            user_id=user.id,
-            token_hash=token_hash,
-            family_id=family_id,
-            expires_at=datetime.now(UTC) + timedelta(days=settings.refresh_token_ttl_days),
-            user_agent=request.headers.get("user-agent"),
-            ip=client_ip(request),
-        )
+    token = RefreshToken(
+        user_id=user.id,
+        token_hash=token_hash,
+        family_id=family_id,
+        expires_at=now + timedelta(days=settings.refresh_token_ttl_days),
+        # Rewritten on every rotation rather than fixed at login: a browser that
+        # updates itself is the same session, and the sessions list should say what it
+        # is now rather than what it was a month ago.
+        user_agent=request.headers.get("user-agent"),
+        ip=client_ip(request),
     )
+    if family_started_at is not None:
+        token.family_started_at = family_started_at
+    session.add(token)
     await session.commit()
 
-    access_token, expires_at = create_access_token(user.id)
+    # Every browser this account has open is watching the sessions stream, so a login
+    # elsewhere appears in the list without anybody reloading anything. A rotation
+    # publishes too: it moves the "last active" on a row somebody may be reading.
+    await session_events.publish(request.app.state.redis, user.id)
+
+    # Minted against the family, so terminating the session can refuse this token
+    # rather than only refusing to mint the next one. See `auth/tokens.py`.
+    access_token, expires_at = create_access_token(user.id, family_id)
     set_refresh_cookie(response, raw_refresh)
     return TokenPair(
         access_token=access_token, expires_in=expires_at - int(datetime.now(UTC).timestamp())

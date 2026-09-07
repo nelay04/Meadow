@@ -1,8 +1,9 @@
-import { createContext, use, useCallback, useEffect, useMemo, useState } from 'react'
+import { createContext, use, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 
+import { useToast } from '../../ui/Toaster'
 import * as api from '../../lib/api'
-import type { ProfilePatch, RegistrationPending, User } from '../../lib/api'
+import type { AuthSession, ProfilePatch, RegistrationPending, User } from '../../lib/api'
 import { providerLabel } from './providers'
 
 type AuthState = {
@@ -30,6 +31,16 @@ type AuthState = {
    */
   signInNotice: string | null
   clearSignInNotice: () => void
+  /**
+   * Every browser signed in to this account, or null before the first frame arrives.
+   *
+   * Lives here rather than on the profile page because the feed it comes from is not
+   * a page's concern: it is also how this browser finds out it has been terminated,
+   * which has to work whatever is on screen.
+   */
+  sessions: AuthSession[] | null
+  /** Ask for the list once, for when the stream is not connected. */
+  refreshSessions: () => Promise<void>
   login: (email: string, password: string) => Promise<void>
   /** Resolves with what the server said about the mail. Never signs in: see api.register. */
   register: (
@@ -150,12 +161,27 @@ function takeCallbackMarkers(): {
   }
 }
 
+/**
+ * How long a "you were signed out" toast stays up.
+ *
+ * Longer than the 7s an ordinary error gets. Every other toast in the app comments on
+ * something the reader just did and is already looking at; this one arrives at a tab
+ * nobody has touched, explains why the screen in front of them has changed to a login
+ * form, and is the only account of it they will get.
+ */
+const SIGNED_OUT_TOAST_MS = 12000
+
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const toast = useToast()
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
   const [justRegistered, setJustRegistered] = useState(false)
   const [signInError, setSignInError] = useState<string | null>(null)
   const [signInNotice, setSignInNotice] = useState<string | null>(null)
+  const [sessions, setSessions] = useState<AuthSession[] | null>(null)
+  // Held in a ref so `logout` can close the feed without the effect that owns it
+  // having to re-run, which would tear down and rebuild the connection on every render.
+  const streamRef = useRef<EventSource | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -182,6 +208,93 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  /*
+   * The live sessions feed.
+   *
+   * Open for as long as somebody is signed in, whatever page they are on. Two things
+   * arrive on it and only one of them is about the profile screen: `sessions` is the
+   * list, and `terminated` is this browser being told its own session has been ended
+   * somewhere else. The second is why this is in the provider rather than in
+   * `ProfilePage` - a browser signed out from another device has to find out while it
+   * is sitting on a board doing nothing, which is exactly the case where nothing else
+   * would ever ask the server a question.
+   */
+  useEffect(() => {
+    if (user === null) {
+      setSessions(null)
+      return
+    }
+
+    const source = new EventSource(api.SESSIONS_STREAM_URL, { withCredentials: true })
+    streamRef.current = source
+
+    source.addEventListener('sessions', (event) => {
+      setSessions(JSON.parse((event as MessageEvent<string>).data) as AuthSession[])
+    })
+
+    source.addEventListener('terminated', () => {
+      // Closed first. The server has already refused this browser's credentials, so a
+      // reconnect would be a retry loop against a door that is shut.
+      source.close()
+      streamRef.current = null
+      api.clearAccessToken()
+      setSessions(null)
+      setUser(null)
+      /*
+       * Red, and said out loud rather than left on the login screen.
+       *
+       * This is not a notice about something the reader chose. Their tab was open and
+       * untouched and the page under them has just become a login form; without an
+       * explanation that reads as the app having crashed and dropped the session. Error
+       * rather than info because somebody else ended this session, which is either
+       * something the reader did from their own other device a moment ago - in which
+       * case the sentence confirms it - or something they need to know about.
+       */
+      toast.error('You were signed out. This session was terminated from another device.', {
+        life: SIGNED_OUT_TOAST_MS,
+      })
+    })
+
+    source.onerror = () => {
+      /*
+       * Two very different things arrive here. A dropped connection leaves the source
+       * in CONNECTING and the browser retries on its own, which is the whole reason to
+       * use `EventSource` - nothing to do. CLOSED means the browser gave up, which per
+       * the spec is what a non-200 does, and the likeliest non-200 is the session
+       * having ended while the connection was down. So ask: if the refresh cookie
+       * still buys a session, this was a blip; if it does not, this browser is signed
+       * out and has simply missed being told.
+       */
+      if (source.readyState !== EventSource.CLOSED) return
+      streamRef.current = null
+      void api.restoreSession().then((restored) => {
+        if (restored !== null) return
+        api.clearAccessToken()
+        setSessions(null)
+        setUser(null)
+        // Deliberately vaguer than the message above. Arriving here means the session
+        // ended while this browser was not connected, and the reason is not knowable
+        // from here: terminated, logged out on this device in another tab, or simply
+        // expired. Naming the wrong one would be worse than naming none.
+        toast.error('You were signed out. This session is no longer active.', {
+          life: SIGNED_OUT_TOAST_MS,
+        })
+      })
+    }
+
+    return () => {
+      source.close()
+      streamRef.current = null
+    }
+    // Keyed on the id, not the object: editing a display name replaces `user` and must
+    // not drop and reopen the connection. `toast` is a stable value from its provider.
+  }, [user?.id, toast])
+
+  /** The list, asked for directly. The fallback for a browser with no working stream. */
+  const refreshSessions = useCallback(async () => {
+    setSessions(await api.listSessions())
+  }, [])
+
   const login = useCallback(async (email: string, password: string) => {
     setUser(await api.login(email, password))
   }, [])
@@ -205,7 +318,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const clearSignInNotice = useCallback(() => setSignInNotice(null), [])
 
   const logout = useCallback(async () => {
+    // Before the request, not after. Logging out revokes this session, so the server
+    // ends the stream from its side; closing first means the client never sees that as
+    // an error worth investigating.
+    streamRef.current?.close()
+    streamRef.current = null
     await api.logout()
+    setSessions(null)
     setUser(null)
     setJustRegistered(false)
   }, [])
@@ -220,6 +339,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearSignInError,
       signInNotice,
       clearSignInNotice,
+      sessions,
+      refreshSessions,
       login,
       register,
       updateProfile,
@@ -234,6 +355,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearSignInError,
       signInNotice,
       clearSignInNotice,
+      sessions,
+      refreshSessions,
       login,
       register,
       updateProfile,

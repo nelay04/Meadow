@@ -19,9 +19,11 @@
  * contents page is one line per entry.
  */
 
-import { IconChevronRight, IconPlus, IconTrash } from '../../ui/icons'
+import { useState } from 'react'
+
+import { IconChevronRight, IconPlus, IconRestore, IconTrash } from '../../ui/icons'
 import { useConfirm } from '../../ui/ConfirmDialog'
-import type { PageMeta } from '../../doc/mutations'
+import type { PageMeta, TrashedPage } from '../../doc/mutations'
 import { formatDiaryDate, formatDiaryDateShort } from './LeaDate'
 
 export type LeaPagesProps = {
@@ -32,8 +34,26 @@ export type LeaPagesProps = {
   onTurn(index: number): void
   onAdd(): void
   onRemove(index: number): void
+  /** Pages torn out and not yet gone for good, newest first. */
+  trashed: readonly TrashedPage[]
+  onRestore(pageId: string): void
+  onPurge(pageId: string): void
+  /** How long a torn-out page is kept, in hours. For the wording, not for deciding. */
+  retentionHours: number
   /** Close the list. The board bar's own button is what opens it again. */
   onCollapse(): void
+}
+
+/** "in 3 days", "in 5 hours" - what is left of a page's stay in the trash. */
+function timeLeft(deletedAt: number, retentionHours: number): string {
+  const ms = deletedAt + retentionHours * 3600_000 - Date.now()
+  if (ms <= 0) return 'any moment now'
+
+  const hours = ms / 3600_000
+  const format = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
+  if (hours < 1) return format.format(Math.max(1, Math.round(ms / 60_000)), 'minute')
+  if (hours < 48) return format.format(Math.round(hours), 'hour')
+  return format.format(Math.round(hours / 24), 'day')
 }
 
 export function LeaPages({
@@ -43,13 +63,28 @@ export function LeaPages({
   onTurn,
   onAdd,
   onRemove,
+  trashed,
+  onRestore,
+  onPurge,
+  retentionHours,
   onCollapse,
 }: LeaPagesProps) {
   /*
-   * Removing a page takes the writing on it and cannot be undone - see `removePage` in
-   * doc/mutations.ts - so it asks first, in the same modal the board list asks with.
-   * One way of asking a destructive question in the app, and it is the one that puts
-   * the question in the middle of the screen rather than inside the row being deleted.
+   * The trash is folded away, and it is the only thing in this panel that is.
+   *
+   * A contents page is the pages you have. What you tore out is a second, smaller
+   * question you ask occasionally, and a diary with a dozen discarded pages would
+   * otherwise push its own contents off the top of the panel. It opens on a click and
+   * stays open for as long as you are looking at it, which is all the state it needs.
+   */
+  const [trashOpen, setTrashOpen] = useState(false)
+  /*
+   * Tearing a page out still asks first, even though it is no longer final - see
+   * `removePage` in doc/mutations.ts, which moves the page to the trash below. It asks
+   * because the page and its writing leave the diary either way, and being able to
+   * get something back is not the same as not having lost it. The same modal the board
+   * list asks with: one way of asking a destructive question in the app, and it is the
+   * one that puts the question in the middle of the screen rather than inside the row.
    */
   const confirm = useConfirm()
 
@@ -57,11 +92,30 @@ export function LeaPages({
     const named = page.subject.trim()
     const agreed = await confirm({
       title: named === '' ? `Tear out page ${position + 1}?` : `Tear out "${named}"?`,
-      body: 'The page and everything written on it goes. This cannot be undone.',
+      body:
+        'The page and everything written on it leaves the diary and goes to the trash ' +
+        `below, where you can put it back for the next ${retentionHours} hours.`,
       confirmLabel: 'Tear it out',
       tone: 'danger',
     })
     if (agreed) onRemove(position)
+  }
+
+  /*
+   * The one gesture here that is actually final, so it is the one that says so.
+   *
+   * Tearing out asks because the page leaves the diary; this asks because there is
+   * nothing after it. Same modal, and the difference is entirely in the words.
+   */
+  const burn = async (page: TrashedPage): Promise<void> => {
+    const named = page.subject.trim()
+    const agreed = await confirm({
+      title: named === '' ? 'Delete this page for good?' : `Delete "${named}" for good?`,
+      body: 'The page and everything written on it goes now, rather than when its time is up. This cannot be undone.',
+      confirmLabel: 'Delete it for good',
+      tone: 'danger',
+    })
+    if (agreed) onPurge(page.id)
   }
 
   return (
@@ -142,6 +196,77 @@ export function LeaPages({
           <IconPlus size={15} />
           New page
         </button>
+      )}
+
+      {/* Only where there is something in it. An empty trash is a heading explaining
+          a feature to somebody who has not used it, on a panel whose whole job is to
+          list what is actually in this diary. */}
+      {trashed.length > 0 && (
+        <div className={trashOpen ? 'lea-trash open' : 'lea-trash'}>
+          <button
+            type="button"
+            className="lea-trash-head"
+            aria-expanded={trashOpen}
+            onClick={() => setTrashOpen((open) => !open)}
+          >
+            <IconTrash size={14} />
+            <span className="lea-trash-label">Torn out</span>
+            <span className="lea-pages-count">{trashed.length}</span>
+            <IconChevronRight size={14} className="lea-trash-caret" />
+          </button>
+
+          {trashOpen && (
+            <ol className="lea-trash-list">
+              {trashed.map((page) => {
+                const named = page.subject.trim()
+                return (
+                  <li key={page.id} className="lea-trash-slot">
+                    <span className="lea-trash-text">
+                      <span className={named === '' ? 'lea-page-title untitled' : 'lea-page-title'}>
+                        {named === '' ? 'Untitled page' : named}
+                      </span>
+                      {/* What is left of its stay, not when it went. "Deleted 2 days
+                          ago" is a fact about the past; the only thing anybody
+                          actually wants from this row is how long they have. */}
+                      <span className="lea-page-meta">
+                        Goes {timeLeft(page.deletedAt, retentionHours)}
+                      </span>
+                    </span>
+
+                    {editable && (
+                      <>
+                        <button
+                          type="button"
+                          className="lea-page-restore"
+                          title="Put this page back"
+                          aria-label={
+                            named === '' ? 'Put this page back' : `Put "${named}" back`
+                          }
+                          onClick={() => onRestore(page.id)}
+                        >
+                          <IconRestore size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          className="lea-page-remove"
+                          title="Delete this page for good"
+                          aria-label={
+                            named === ''
+                              ? 'Delete this page for good'
+                              : `Delete "${named}" for good`
+                          }
+                          onClick={() => void burn(page)}
+                        >
+                          <IconTrash size={14} />
+                        </button>
+                      </>
+                    )}
+                  </li>
+                )
+              })}
+            </ol>
+          )}
+        </div>
       )}
     </aside>
   )

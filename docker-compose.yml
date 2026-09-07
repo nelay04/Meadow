@@ -110,6 +110,11 @@ services:
       MEADOW_WS_TOKEN_TTL_SECONDS: ${MEADOW_WS_TOKEN_TTL_SECONDS:-60}
       MEADOW_WS_REVALIDATE_INTERVAL_SECONDS: ${MEADOW_WS_REVALIDATE_INTERVAL_SECONDS:-900}
       MEADOW_MAX_CLIENTS_PER_ROOM: ${MEADOW_MAX_CLIENTS_PER_ROOM:-50}
+      # How long a deleted glade or lea stays recoverable. 720 hours is 30 days; 0
+      # makes a delete final at once. The worker below takes the same value, and a
+      # deployment that sets it here and not there would count down twice at two
+      # different rates.
+      MEADOW_TRASH_RETENTION_HOURS: ${MEADOW_TRASH_RETENTION_HOURS:-720}
       MEADOW_RATE_LIMIT_ENABLED: ${MEADOW_RATE_LIMIT_ENABLED:-true}
       # Third-party sign-in. Unset on purpose in the defaults, and independent per
       # provider: with no client id the API reports that provider as unavailable and
@@ -168,6 +173,9 @@ services:
       MEADOW_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-meadow}
       MEADOW_REDIS_URL: redis://redis:6379/0
       MEADOW_JWT_SECRET: ${MEADOW_JWT_SECRET}
+      # The trash. The worker needs it as much as the API does: the API only reports
+      # when a board will go, and this is the process that makes it go.
+      MEADOW_TRASH_RETENTION_HOURS: ${MEADOW_TRASH_RETENTION_HOURS:-720}
     # Overrides the image's, which GETs /healthz. The worker serves no HTTP, so the
     # inherited check can only ever fail, and a permanently-unhealthy container is
     # worse than none: it trains you to ignore the column. `arq --check` reads the

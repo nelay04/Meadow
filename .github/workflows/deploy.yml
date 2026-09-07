@@ -1,0 +1,109 @@
+# Deploy to the VPS.
+#
+# Manual only, and deliberately so. This is the workflow that changes what the world
+# sees, and it is worth typing. Nothing about a green test run means the moment is
+# right to deploy, so run ci first and read it.
+#
+# Main only. workflow_dispatch offers every branch and tag in the ref picker, and the
+# script below force-resets the server checkout to whatever it is handed, so without
+# the guard a mis-click in that dropdown ships a feature branch. `on:` has no ref
+# filter for a manual run, which is why the check is on the job.
+#
+# Images are built on the server rather than pushed through a registry. That keeps the
+# whole deploy to one ssh session and one compose file, at the cost of a few minutes of
+# build time and the memory it takes while it runs.
+
+name: Deploy
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  # Never two deploys at once. The second would race the first's `up -d` and could
+  # leave the stack half on each build.
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # Gate the credentials behind an environment so a deploy can require approval, and
+    # so they are not readable by every workflow in the repo.
+    environment: production
+    steps:
+      - name: ship it
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          # No `script_stop`. It was removed from the action, and passing it is a
+          # warning rather than an error, so it fails quietly in the direction that
+          # matters: the run keeps going. `set -euo pipefail` on the first line of the
+          # script does the same job and is owned by this file rather than by the
+          # action's input schema.
+          script: |
+            set -euo pipefail
+            cd /root/Projects/Python/Meadow
+
+            # A verified dump of the schema this deploy is about to migrate away from,
+            # taken before anything else moves.
+            #
+            # The sidecar already dumps nightly, but the gap between that and a deploy
+            # can be most of a day, and `up -d` runs `alembic upgrade head` against the
+            # live database. Alembic downgrades are written here, but a downgrade that
+            # drops a column does not put the data back.
+            #
+            # It reuses the backup image rather than reimplementing the dump, with the
+            # entrypoint overridden because the image's own is an infinite loop. The
+            # filename matches the sidecar's meadow-*.dump glob on purpose, so ordinary
+            # retention prunes these too instead of growing a second set forever.
+            #
+            # Runs before `git reset --hard`, so a failure leaves the checkout
+            # untouched, and `set -e` means a deploy that could not take a backup does
+            # not migrate. Refusing to deploy costs a few minutes.
+            # The alternative costs the database.
+            #
+            # No --no-deps: the service depends on postgres being healthy, so compose
+            # starts it and waits when it is not already up. That is a no-op on every
+            # deploy after the first, and on the first it is the difference between
+            # this working and the initial deploy aborting with nothing to dump from.
+            docker compose --env-file .env.prod run --rm --entrypoint sh backup -c '
+              set -eu
+              target="/backups/meadow-predeploy-$(date -u +%Y%m%dT%H%M%SZ).dump"
+              pg_dump --format=custom --compress=6 --file="$target.partial"
+              pg_restore --list "$target.partial" > /dev/null
+              mv "$target.partial" "$target"
+              echo "pre-deploy dump: $target, $(wc -c < "$target") bytes, verified"
+            '
+
+            git fetch --prune origin main
+            # Discards anything committed or staged on the server checkout. Untracked
+            # files survive, which is what keeps .env.prod here, and is also why nothing in
+            # this repo may ever add `git clean` to this script.
+            git reset --hard origin/main
+
+            # --wait holds until every container is healthy rather than merely started,
+            # which for the API means it answered /healthz. The one-shot migrate service
+            # has run to completion by then, or the API never started at all.
+            docker compose --env-file .env.prod up -d --build --wait --remove-orphans
+            docker compose --env-file .env.prod ps
+
+            # Old image layers accumulate faster than the disk enjoys.
+            docker image prune -f
+
+      - name: it is actually serving
+        # Against the public URL, not through the ssh session. A deploy that leaves
+        # nginx unable to reach the API produces healthy containers and a broken site.
+        run: |
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if curl -fsS --max-time 10 "${{ secrets.PUBLIC_URL }}/healthz" | grep -q '"ok"'; then
+              echo "healthy"
+              exit 0
+            fi
+            echo "attempt ${attempt}: not yet"
+            sleep 6
+          done
+          echo "the site did not come back healthy"
+          exit 1

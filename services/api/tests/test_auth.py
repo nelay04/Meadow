@@ -156,13 +156,24 @@ def test_refresh_rotates_the_token(client: TestClient) -> None:
     client.cookies.clear()
 
 
-def test_reusing_a_rotated_refresh_token_revokes_the_whole_family(client: TestClient) -> None:
+def test_reusing_a_rotated_refresh_token_revokes_the_whole_family(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Theft detection, per ARCHITECTURE 7.
 
     Whoever presents an already-rotated token proves a copy of the lineage exists.
     The correct response is to kill the family, which logs the real user out too -
     strictly better than leaving an attacker with an indefinitely renewing session.
+
+    The grace window is closed here on purpose. A replay that arrives within it is a
+    browser asking twice at once rather than an attacker, and is covered by
+    `test_a_refresh_racing_its_own_rotation_is_not_theft` below. This test is about
+    the replay that arrives later, which is the one the defence exists for.
     """
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "refresh_rotation_grace_seconds", 0)
+
     email = f"{uuid.uuid4().hex[:12]}@meadow-tests.dev"
     _sign_up(client, email)
     stolen = client.cookies[REFRESH_COOKIE]
@@ -179,6 +190,43 @@ def test_reusing_a_rotated_refresh_token_revokes_the_whole_family(client: TestCl
     # And the legitimate holder's token is dead too - that is the point.
     client.cookies.set(REFRESH_COOKIE, current)
     assert client.post("/api/v1/auth/refresh").status_code == 401
+    client.cookies.clear()
+
+
+def test_a_refresh_racing_its_own_rotation_is_not_theft(client: TestClient) -> None:
+    """One browser, two refreshes, same cookie. The session has to survive it.
+
+    A reload has two page contexts alive at once - the old one tearing down and the
+    new one booting - and the client's single-flight guard is a module variable, so it
+    cannot see across them. Two tabs cannot see each other either. Both send the cookie
+    they have, one rotation wins, and the loser arrives holding a token that is by then
+    already spent.
+
+    Read strictly that is indistinguishable from a replay, and the strict reading logged
+    people out of working sessions on every reload once there was real latency in front
+    of the API. The grace window says a token rotated a moment ago, in a family that is
+    still healthy, is the same browser asking twice. A stolen token replayed later still
+    kills the family: see the test above.
+    """
+    email = f"{uuid.uuid4().hex[:12]}@meadow-tests.dev"
+    _sign_up(client, email)
+    original = client.cookies[REFRESH_COOKIE]
+
+    winner = client.post("/api/v1/auth/refresh")
+    assert winner.status_code == 200
+    rotated = client.cookies[REFRESH_COOKIE]
+    assert rotated != original
+
+    # The loser, still holding the pre-rotation cookie.
+    client.cookies.set(REFRESH_COOKIE, original)
+    loser = client.post("/api/v1/auth/refresh")
+    assert loser.status_code == 200, "a refresh racing its own rotation must not be theft"
+    assert loser.json()["access_token"]
+
+    # The grace path mints an access token and leaves the cookie alone, so the winner's
+    # token is still the live one and the family was never revoked.
+    client.cookies.set(REFRESH_COOKIE, rotated)
+    assert client.post("/api/v1/auth/refresh").status_code == 200
     client.cookies.clear()
 
 

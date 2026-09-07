@@ -9,6 +9,15 @@ removed from a workspace keeps access until their token expires. Every path that
 a role already resolves it live through `app/services/permissions.py`, so the claim
 would be either unused or a bug waiting to be written. `sub` is the identity; roles are
 resolved, never asserted by the client.
+
+`sid` - the refresh-token family the token was minted for - is a deliberate reversal of
+that reasoning, and it is not the same kind of claim. It asserts nothing about what the
+caller may do; it names *which session asked*, so that `current_user` can look up
+whether that session has since been terminated. Without it, terminating a session was a
+statement about the future - no new access tokens - while the one already in the
+terminated browser kept working for the rest of its fifteen minutes. The rule the
+paragraph above is really making is that a token must not carry an *answer*; naming the
+session so the answer can be looked up live is the opposite of that.
 """
 
 import hashlib
@@ -34,9 +43,12 @@ class AccessClaims:
     user_id: uuid.UUID
     jti: str
     expires_at: int
+    #: The refresh-token family this token was minted for. Empty for a token issued
+    #: before the claim existed, which is simply one that cannot be denied early.
+    session_id: str = ""
 
 
-def create_access_token(user_id: uuid.UUID) -> tuple[str, int]:
+def create_access_token(user_id: uuid.UUID, family_id: uuid.UUID | None = None) -> tuple[str, int]:
     """Return (token, expires_at as a unix timestamp)."""
     issued_at = int(time.time())
     expires_at = issued_at + settings.access_token_ttl_seconds
@@ -47,6 +59,8 @@ def create_access_token(user_id: uuid.UUID) -> tuple[str, int]:
         "exp": expires_at,
         "typ": TOKEN_TYPE_ACCESS,
     }
+    if family_id is not None:
+        payload["sid"] = str(family_id)
     return jwt.encode(payload, settings.jwt_secret, algorithm=_ALGORITHM), expires_at
 
 
@@ -66,7 +80,12 @@ def decode_access_token(token: str) -> AccessClaims:
     except (KeyError, ValueError) as exc:
         raise AccessTokenError("bad subject") from exc
 
-    return AccessClaims(user_id=user_id, jti=payload.get("jti", ""), expires_at=int(payload["exp"]))
+    return AccessClaims(
+        user_id=user_id,
+        jti=payload.get("jti", ""),
+        expires_at=int(payload["exp"]),
+        session_id=str(payload.get("sid", "")),
+    )
 
 
 def new_refresh_token() -> tuple[str, str]:

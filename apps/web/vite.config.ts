@@ -20,6 +20,13 @@ export default defineConfig(({ mode }) => {
   const apiOrigin = env.MEADOW_API_ORIGIN ?? `http://localhost:${apiPort}`
   const wsOrigin = apiOrigin.replace(/^http/, 'ws')
 
+  // Hostnames a tunnel (ngrok, cloudflared) presents the dev server under. Vite rejects
+  // any Host header it does not know, so a tunnel is a blank page until it is listed.
+  const allowedHosts = (env.MEADOW_WEB_ALLOWED_HOSTS ?? '')
+    .split(',')
+    .map((h) => h.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, ''))
+    .filter(Boolean)
+
   return {
     plugins: [react()],
     envDir: repoRoot,
@@ -30,6 +37,7 @@ export default defineConfig(({ mode }) => {
       // a container is unreachable from the host, and the failure looks like a port
       // mapping problem rather than a bind address one.
       host: env.MEADOW_WEB_HOST ?? 'localhost',
+      ...(allowedHosts.length > 0 ? { allowedHosts } : {}),
       // Bind mounts on some filesystems, WSL and docker-on-mac included, do not deliver
       // inotify events to the container. Polling is slower and always works; it stays
       // off unless asked for, because on a native filesystem it is pure wasted CPU.

@@ -24,13 +24,17 @@ import {
   endGesture,
   moveBehind,
   moveToDepth,
+  purgePage,
   readObjectById,
   readPages,
+  readTrashedPages,
   reconcileOrder,
   removePage,
   reseatWritingRows,
+  restorePage,
   sendBackward,
   setPageSubject,
+  sweepPageTrash,
   sendToBack,
   updateObject,
   updateObjects,
@@ -485,7 +489,7 @@ describe('pages', () => {
     addPage(doc, LINES)
     expect(readPages(doc, LINES).map((page) => page.slot)).toEqual([0, 1, 2])
 
-    removePage(doc, 1, span(1))
+    removePage(doc, 1)
     addPage(doc, LINES)
     // Not 1 again: writing left in that strip by a client that never saw the removal
     // would otherwise turn up on the new page.
@@ -502,28 +506,99 @@ describe('pages', () => {
   it('does nothing when the page it was given is no longer there', () => {
     const doc = session()
     addPage(doc, LINES)
-    removePage(doc, 1, span(1))
+    removePage(doc, 1)
     setPageSubject(doc, 1, 'Tuesday', LINES)
     expect(readPages(doc, LINES).map((page) => page.subject)).toEqual([''])
   })
 
-  it('takes the writing on a page out with it, and leaves every other page alone', () => {
+  it('keeps the writing on a torn-out page, so putting it back puts it back', () => {
     const doc = session()
     addPage(doc, LINES)
     const kept = addObject(doc, { type: 'text', x: 0, y: 30, w: 760, h: 30 })
     const torn = addObject(doc, { type: 'text', x: 2760, y: 30, w: 760, h: 30 })
 
-    expect(removePage(doc, 1, span(1))).toBe(true)
+    expect(removePage(doc, 1)).toBe(true)
+    // Out of the diary and into its trash, with everything on it still in the
+    // document. Nothing can reach the writing meanwhile: the camera is fenced to the
+    // open page's slot.
+    expect(readPages(doc, LINES)).toHaveLength(1)
+    expect(doc.objects.has(kept)).toBe(true)
+    expect(doc.objects.has(torn)).toBe(true)
+
+    const trashed = readTrashedPages(doc, LINES)
+    expect(trashed).toHaveLength(1)
+    expect(restorePage(doc, trashed[0]!.id)).toBe(true)
+
+    // Back in its own place, not at the end, and still holding its own writing.
+    expect(readPages(doc, LINES).map((page) => page.slot)).toEqual([0, 1])
+    expect(readTrashedPages(doc, LINES)).toHaveLength(0)
+    expect(doc.objects.has(torn)).toBe(true)
+  })
+
+  it('takes the writing with it when the page is purged, and leaves every other page alone', () => {
+    const doc = session()
+    addPage(doc, LINES)
+    const kept = addObject(doc, { type: 'text', x: 0, y: 30, w: 760, h: 30 })
+    const torn = addObject(doc, { type: 'text', x: 2760, y: 30, w: 760, h: 30 })
+
+    expect(removePage(doc, 1)).toBe(true)
+    const trashed = readTrashedPages(doc, LINES)[0]!
+    expect(purgePage(doc, trashed.id, span(trashed.slot))).toBe(true)
+
     expect(doc.objects.has(kept)).toBe(true)
     expect(doc.objects.has(torn)).toBe(false)
     expect(doc.order.toArray()).toEqual([kept])
+    expect(readTrashedPages(doc, LINES)).toHaveLength(0)
+  })
+
+  it('will not purge a page that is still in the diary', () => {
+    const doc = session()
+    addPage(doc, LINES)
+    const written = addObject(doc, { type: 'text', x: 2760, y: 30, w: 760, h: 30 })
+
+    const open = readPages(doc, LINES)[1]!
+    expect(purgePage(doc, open.id, span(open.slot))).toBe(false)
+    expect(doc.objects.has(written)).toBe(true)
+  })
+
+  it('sweeps only what has outlived the window', () => {
+    const doc = session()
+    addPage(doc, LINES)
+    addPage(doc, LINES)
+    const old = addObject(doc, { type: 'text', x: 2760, y: 30, w: 760, h: 30 })
+    const recent = addObject(doc, { type: 'text', x: 5520, y: 30, w: 760, h: 30 })
+
+    // Torn out an hour ago and just now. The first is past a ten-minute window and
+    // the second is not.
+    removePage(doc, 1)
+    removePage(doc, 1)
+    const stored = doc.meta.get('pages') as Y.Array<Y.Map<unknown>>
+    ;(stored.get(1) as Y.Map<unknown>).set('deletedAt', Date.now() - 3600_000)
+
+    expect(sweepPageTrash(doc, 10 * 60_000, span)).toBe(1)
+    expect(doc.objects.has(old)).toBe(false)
+    expect(doc.objects.has(recent)).toBe(true)
+    expect(readTrashedPages(doc, LINES)).toHaveLength(1)
+  })
+
+  it('counts pages the way the list draws them while something is in the trash', () => {
+    const doc = session()
+    addPage(doc, LINES)
+    addPage(doc, LINES)
+    setPageSubject(doc, 1, 'Tuesday', LINES)
+
+    // Tear out page one. "Page two" now means Tuesday's, which has moved up a place,
+    // and a write to index 1 must land on the third page rather than back on Tuesday.
+    expect(removePage(doc, 0)).toBe(true)
+    setPageSubject(doc, 1, 'Wednesday', LINES)
+    expect(readPages(doc, LINES).map((page) => page.subject)).toEqual(['Tuesday', 'Wednesday'])
   })
 
   it('refuses to remove the last page', () => {
     const doc = session()
     addPage(doc, LINES)
-    expect(removePage(doc, 0, span(0))).toBe(true)
-    expect(removePage(doc, 0, span(1))).toBe(false)
+    expect(removePage(doc, 0)).toBe(true)
+    expect(removePage(doc, 0)).toBe(false)
     expect(readPages(doc, LINES)).toHaveLength(1)
   })
 

@@ -12,15 +12,19 @@ import {
   IconMenu,
   IconPlus,
   IconSearch,
+  IconSidebar,
   IconPencil,
+  IconRestore,
   IconTrash,
 } from '../../ui/icons'
 import { useConfirm } from '../../ui/ConfirmDialog'
 import { usePrompt } from '../../ui/PromptDialog'
 import { useToast } from '../../ui/Toaster'
+import { relativeTime } from '../../ui/time'
 import { roleCanWrite } from '../../doc/mutations'
 import * as api from '../../lib/api'
-import type { Board, BoardKind } from '../../lib/api'
+import type { Board, BoardKind, TrashedBoard } from '../../lib/api'
+import { useTrashRetentionHours } from '../../lib/appConfig'
 import { useAuth } from '../auth/AuthContext'
 import { BOARD_KINDS, boardKind } from './kinds'
 
@@ -53,6 +57,32 @@ function readView(): string {
 function writeView(id: string): void {
   try {
     localStorage.setItem(VIEW_KEY, id)
+  } catch {
+    // As above: it still applies for this session.
+  }
+}
+
+const COLLAPSED_KEY = 'meadow.sidebar.collapsed'
+
+/**
+ * Whether the sidebar is a rail rather than a column, remembered per browser.
+ *
+ * A layout preference rather than a piece of session state: somebody who works on a
+ * small laptop wants the rail every time they open the app, and having to collapse it
+ * again on every visit is the whole reason a toggle like this gets ignored.
+ */
+function readCollapsed(): boolean {
+  try {
+    return localStorage.getItem(COLLAPSED_KEY) === '1'
+  } catch {
+    // Private-mode Safari throws. A remembered layout is not worth a crash.
+    return false
+  }
+}
+
+function writeCollapsed(collapsed: boolean): void {
+  try {
+    localStorage.setItem(COLLAPSED_KEY, collapsed ? '1' : '0')
   } catch {
     // As above: it still applies for this session.
   }
@@ -99,6 +129,37 @@ const KIND_VIEWS: readonly Filter[] = BOARD_KINDS.map((kind) => ({
 
 const FILTERS: readonly Filter[] = [...VIEWS, ...KIND_VIEWS]
 
+/**
+ * The trash, which is a place and not a filter.
+ *
+ * Deliberately outside `FILTERS`: every entry there is a predicate over the list of
+ * boards, and this one is a different list entirely - a different request, different
+ * cards, and two actions no board card has. Keeping it out of that array is what stops
+ * a filter's predicate ever being asked about a board that has been deleted.
+ */
+const TRASH_VIEW = 'trash'
+
+/** "30 days", "6 hours" - the retention window, said the way a person would say it. */
+function windowLabel(hours: number): string {
+  if (hours <= 0) return 'no time at all'
+  if (hours < 48) return `${hours} hour${hours === 1 ? '' : 's'}`
+  const days = Math.round(hours / 24)
+  return `${days} day${days === 1 ? '' : 's'}`
+}
+
+/** "in 3 days" - what is left before a board in the trash goes for good. */
+function timeLeft(purgeAfter: string): string {
+  const ms = new Date(purgeAfter).getTime() - Date.now()
+  if (!Number.isFinite(ms)) return ''
+  if (ms <= 0) return 'any moment now'
+
+  const hours = ms / 3600_000
+  const format = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
+  if (hours < 1) return format.format(Math.max(1, Math.round(ms / 60_000)), 'minute')
+  if (hours < 48) return format.format(Math.round(hours), 'hour')
+  return format.format(Math.round(hours / 24), 'day')
+}
+
 /** Whose it is. A header control, because it narrows whatever the sidebar selected. */
 type OwnerId = 'anyone' | 'mine' | 'shared'
 
@@ -115,39 +176,6 @@ const SORTS: { id: SortId; label: string }[] = [
   { id: 'created', label: 'Date created' },
   { id: 'title', label: 'Name' },
 ]
-
-/** "Edited 3 days ago", the way every file browser says it. */
-function relativeTime(iso: string): string {
-  const then = new Date(iso).getTime()
-  if (!Number.isFinite(then)) return ''
-
-  const seconds = Math.max(0, (Date.now() - then) / 1000)
-  if (seconds < 90) return 'just now'
-
-  const units: [number, Intl.RelativeTimeFormatUnit][] = [
-    [60, 'minute'],
-    [3600, 'hour'],
-    [86400, 'day'],
-    [604800, 'week'],
-    [2592000, 'month'],
-    [31536000, 'year'],
-  ]
-
-  let unit: Intl.RelativeTimeFormatUnit = 'minute'
-  let divisor = 60
-  for (const [size, name] of units) {
-    if (seconds < size * 60 || name === 'year') {
-      unit = name
-      divisor = size
-      break
-    }
-  }
-
-  return new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' }).format(
-    -Math.round(seconds / divisor),
-    unit,
-  )
-}
 
 /**
  * A board's preview image.
@@ -282,8 +310,12 @@ export default function BoardsPage({ onOpen }: Props) {
   const prompt = usePrompt()
   const toast = useToast()
   const [boards, setBoards] = useState<Board[]>([])
+  const [trashed, setTrashed] = useState<TrashedBoard[]>([])
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  // How long this deployment keeps things. For the sentence under the heading; the
+  // countdown on each card is the server's own arithmetic, off `purge_after`.
+  const retentionHours = useTrashRetentionHours()
   const [view, setView] = useState(readView)
   const [title, setTitle] = useState('')
   const [owner, setOwner] = useState<OwnerId>('anyone')
@@ -294,6 +326,13 @@ export default function BoardsPage({ onOpen }: Props) {
    * part of that the JSX has to know about. Which of the two it is at any width is CSS.
    */
   const [navOpen, setNavOpen] = useState(false)
+  /*
+   * Collapsed is a desktop state and open is a phone one, and they are deliberately
+   * separate. The drawer is either over the page or not; the rail is a narrower version
+   * of a column that is always there. Folding them into one flag would mean opening the
+   * drawer on a phone silently un-collapsing the desktop layout underneath it.
+   */
+  const [navCollapsed, setNavCollapsed] = useState(readCollapsed)
 
   /*
    * A failed load is the only one of the three that stays on the page.
@@ -313,9 +352,27 @@ export default function BoardsPage({ onOpen }: Props) {
     }
   }, [])
 
+  /*
+   * The trash, which is its own request.
+   *
+   * Loaded whenever it is looked at rather than with the board list, because it is a
+   * list most people never open and a second query on every visit to pay for a view
+   * nobody asked for. Refreshed after a delete too, so the count beside it is right
+   * without having to go and look.
+   */
+  const reloadTrash = useCallback(async () => {
+    try {
+      setTrashed(await api.listTrash())
+    } catch {
+      // Quiet: the trash is a place you go, and the empty state below says what it
+      // says. A toast here would fire on a page nobody navigated to.
+    }
+  }, [])
+
   useEffect(() => {
     void reload()
-  }, [reload])
+    void reloadTrash()
+  }, [reload, reloadTrash])
 
   useEffect(() => {
     if (!navOpen) return
@@ -413,7 +470,9 @@ export default function BoardsPage({ onOpen }: Props) {
     const kind = boardKind(board.kind).label.toLowerCase()
     const agreed = await confirm({
       title: `Delete "${board.title}"?`,
-      body: `The ${kind} and everything on it goes. This cannot be undone.`,
+      body:
+        `The ${kind} and everything on it leaves your list and goes to the trash, ` +
+        `where you can put it back for ${windowLabel(retentionHours)}.`,
       confirmLabel: 'Delete',
       tone: 'danger',
     })
@@ -421,10 +480,43 @@ export default function BoardsPage({ onOpen }: Props) {
 
     try {
       await api.deleteBoard(board.id)
-      await reload()
-      // Deliberately not a success toast. Nothing green happened: something is gone,
-      // and the card should read the way the news does.
-      toast.error(`Deleted the ${kind} "${board.title}".`)
+      await Promise.all([reload(), reloadTrash()])
+      // Deliberately not a success toast, even now that it can be undone. Nothing
+      // green happened: something left, and the message should read the way the news
+      // does. What it adds is where the thing went.
+      toast.error(`Deleted the ${kind} "${board.title}". It is in the trash.`)
+    } catch {
+      toast.error(`Could not delete that ${kind}.`)
+    }
+  }
+
+  const restore = async (board: TrashedBoard) => {
+    const kind = boardKind(board.kind).label.toLowerCase()
+    try {
+      await api.restoreBoard(board.id)
+      await Promise.all([reload(), reloadTrash()])
+      // The one green message in this view, and it earns it: something that was gone
+      // is back, with everything that was on it.
+      toast.success(`Put "${board.title}" back.`)
+    } catch {
+      toast.error(`Could not restore that ${kind}.`)
+    }
+  }
+
+  const purge = async (board: TrashedBoard) => {
+    const kind = boardKind(board.kind).label.toLowerCase()
+    const agreed = await confirm({
+      title: `Delete "${board.title}" for good?`,
+      body: `The ${kind} and everything on it goes now, rather than when its time is up. This cannot be undone.`,
+      confirmLabel: 'Delete for good',
+      tone: 'danger',
+    })
+    if (!agreed) return
+
+    try {
+      await api.purgeBoard(board.id)
+      await reloadTrash()
+      toast.error(`Deleted "${board.title}" for good.`)
     } catch {
       toast.error(`Could not delete that ${kind}.`)
     }
@@ -438,6 +530,10 @@ export default function BoardsPage({ onOpen }: Props) {
     return out
   }, [boards])
 
+  // The trash is not one of `FILTERS`, so `active` falls back to Everything while it
+  // is open. That fallback is only ever read by the board list, which is not what is
+  // on screen then; the heading and the body both branch on this instead.
+  const showingTrash = view === TRASH_VIEW
   const active = FILTERS.find((filter) => filter.id === view) ?? VIEWS[0]
   /*
    * The kind this page is about, or null on the mixed views.
@@ -475,6 +571,11 @@ export default function BoardsPage({ onOpen }: Props) {
           type="button"
           className={view === filter.id ? 'nav-item active' : 'nav-item'}
           aria-current={view === filter.id ? 'page' : undefined}
+          // The label is hidden in the rail, so the icon needs to be able to say what
+          // it is. Unconditional, because a title on a row that already shows its name
+          // costs nothing and a title that appears only in one state is a thing to
+          // forget when the row changes.
+          title={filter.label}
           onClick={() => {
             setView(filter.id)
             writeView(filter.id)
@@ -500,11 +601,46 @@ export default function BoardsPage({ onOpen }: Props) {
         <div className="sidebar-scrim" aria-hidden="true" onClick={() => setNavOpen(false)} />
       )}
 
-      <aside className={navOpen ? 'sidebar open' : 'sidebar'}>
+      <aside
+        className={[
+          'sidebar',
+          navOpen ? 'open' : '',
+          // Only on a desktop. The drawer is already a narrow overlay, and a collapsed
+          // drawer would be a rail of icons floating over the list it filters.
+          navCollapsed ? 'collapsed' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+      >
         <div className="sidebar-brand">
           <Wordmark />
+          {/*
+            The toggle lives with the mark rather than in the page header, because what
+            it moves is this column and it has to stay reachable from the rail it
+            leaves behind. In the rail the mark is hidden and this is what is left.
+          */}
+          <button
+            type="button"
+            className="icon ghost sidebar-collapse"
+            aria-label={navCollapsed ? 'Expand the sidebar' : 'Collapse the sidebar'}
+            aria-expanded={!navCollapsed}
+            title={navCollapsed ? 'Expand the sidebar' : 'Collapse the sidebar'}
+            onClick={() => {
+              setNavCollapsed((collapsed) => {
+                writeCollapsed(!collapsed)
+                return !collapsed
+              })
+            }}
+          >
+            <IconSidebar size={17} />
+          </button>
         </div>
 
+        {/*
+          In the rail this is the one control that cannot shrink to an icon and still
+          work, so it becomes a button that expands the sidebar and puts the cursor in
+          the field: searching is why most people open it again.
+        */}
         <div className="sidebar-search">
           <IconSearch size={16} />
           <input
@@ -513,12 +649,52 @@ export default function BoardsPage({ onOpen }: Props) {
             aria-label="Search glades"
             onChange={(event) => setQuery(event.target.value)}
           />
+          {navCollapsed && (
+            <button
+              type="button"
+              className="sidebar-search-expand"
+              aria-label="Search glades"
+              title="Search glades"
+              onClick={() => {
+                setNavCollapsed(false)
+                writeCollapsed(false)
+              }}
+            />
+          )}
         </div>
 
         <div className="sidebar-groups">
           {group(null, VIEWS)}
           {group('Kinds', KIND_VIEWS)}
         </div>
+
+        {/*
+          * The trash, pinned to the foot of the menu above the account.
+          *
+          * Not one of the groups. Those are ways of looking at what you have, and this
+          * is a different list entirely - a different request and different cards - so
+          * putting it among them would make it read as a fourth filter. It sits at the
+          * bottom because that is where a trash is in every app that has one, and it
+          * stays there whatever the kinds list grows to.
+          */}
+        <nav className="sidebar-nav sidebar-trash" aria-label="Trash">
+          <button
+            type="button"
+            className={showingTrash ? 'nav-item active' : 'nav-item'}
+            aria-current={showingTrash ? 'page' : undefined}
+            title="Trash"
+            onClick={() => {
+              setView(TRASH_VIEW)
+              writeView(TRASH_VIEW)
+              setNavOpen(false)
+              void reloadTrash()
+            }}
+          >
+            <IconTrash size={17} />
+            <span className="nav-label">Trash</span>
+            <span className="nav-count">{trashed.length}</span>
+          </button>
+        </nav>
 
         {/* The account, and the one action that is about the account. The theme
             control used to live here too; it is a setting rather than a place, and it
@@ -527,6 +703,7 @@ export default function BoardsPage({ onOpen }: Props) {
           <button
             type="button"
             className="user-chip"
+            title={user?.display_name ?? 'Profile'}
             onClick={() => {
               location.hash = '#/profile'
             }}
@@ -534,7 +711,14 @@ export default function BoardsPage({ onOpen }: Props) {
             <Avatar name={user?.display_name ?? '?'} url={user?.avatar_url} />
             <span className="name">{user?.display_name}</span>
           </button>
-          <button type="button" className="sign-out" onClick={() => void logout()}>
+          {/* Hidden in the rail, where there is no room for it beside the avatar.
+              Logging out is on the profile page, which the avatar opens. */}
+          <button
+            type="button"
+            className="sign-out"
+            title="Log out"
+            onClick={() => void logout()}
+          >
             Log out
           </button>
         </div>
@@ -551,8 +735,8 @@ export default function BoardsPage({ onOpen }: Props) {
           >
             <IconMenu />
           </button>
-          <h1>{active.label}</h1>
-          <span className="faint">{visible.length}</span>
+          <h1>{showingTrash ? 'Trash' : active.label}</h1>
+          <span className="faint">{showingTrash ? trashed.length : visible.length}</span>
           <div className="spacer" />
 
           {/*
@@ -561,11 +745,18 @@ export default function BoardsPage({ onOpen }: Props) {
             knows what it is making. A New button here would be a third place to start
             one and the only one that has to ask an extra question first.
           */}
-          <Dropdown label="Show" value={owner} options={OWNERS} onChange={setOwner} />
-          <Dropdown label="Sort by" value={sort} options={SORTS} onChange={setSort} />
+          {/* Neither narrows the trash. Everything in it is yours - it is the one
+              list only an owner can see a row of - and it is ordered by when things
+              were thrown away, which is the only order anybody looks for here. */}
+          {!showingTrash && (
+            <>
+              <Dropdown label="Show" value={owner} options={OWNERS} onChange={setOwner} />
+              <Dropdown label="Sort by" value={sort} options={SORTS} onChange={setSort} />
+            </>
+          )}
         </header>
 
-        {composing !== null && (
+        {composing !== null && !showingTrash && (
           <div className={`composer kind-${composing.id}`}>
             <div className="composer-row">
               {/* The kind, stated rather than offered. The page has already chosen it,
@@ -607,7 +798,83 @@ export default function BoardsPage({ onOpen }: Props) {
           </p>
         )}
 
-        {loading ? (
+        {showingTrash ? (
+          trashed.length === 0 ? (
+            <div className="empty-state">
+              <Mark className="mark empty-mark" />
+              <p>The trash is empty.</p>
+              <p className="faint">
+                A glade or lea you delete waits here for {windowLabel(retentionHours)} before it
+                goes for good.
+              </p>
+            </div>
+          ) : (
+            <>
+              <p className="trash-note">
+                Anything here can be put back until its time is up. After that it is deleted for
+                good, with everything on it.
+              </p>
+
+              <ul className="board-grid">
+                {trashed.map((board) => {
+                  const spec = boardKind(board.kind)
+                  return (
+                    <li key={board.id} className={`board-card trashed kind-${spec.id}`}>
+                      {/*
+                        * Not a button. Every other card in this app opens what it
+                        * shows, and a board in the trash cannot be opened by anybody -
+                        * the server refuses it at the same place it refuses a stranger.
+                        * A card that looked clickable and did nothing would be a worse
+                        * answer than one that plainly is not.
+                        */}
+                      <div className="board-open static">
+                        {/* The kind's mark rather than a preview. A thumbnail is a
+                            picture of a board you are about to open, and this is not
+                            one you can open. */}
+                        <span className="board-thumb" aria-hidden="true">
+                          <spec.Icon size={26} className="placeholder" />
+                        </span>
+                        <span className="board-meta">
+                          <span className="board-text">
+                            <span className="board-title">{board.title}</span>
+                            <span className="board-sub">
+                              <span className="kind-badge">
+                                <spec.Icon size={12} />
+                                {spec.label}
+                              </span>
+                              Goes {timeLeft(board.purge_after)}
+                            </span>
+                          </span>
+                        </span>
+                      </div>
+
+                      <div className="card-actions">
+                        <button
+                          type="button"
+                          className="card-action card-restore"
+                          title={`Put ${board.title} back`}
+                          aria-label={`Put ${board.title} back`}
+                          onClick={() => void restore(board)}
+                        >
+                          <IconRestore size={15} />
+                        </button>
+                        <button
+                          type="button"
+                          className="card-action card-delete"
+                          title={`Delete ${board.title} for good`}
+                          aria-label={`Delete ${board.title} for good`}
+                          onClick={() => void purge(board)}
+                        >
+                          <IconTrash size={15} />
+                        </button>
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+            </>
+          )
+        ) : loading ? (
           <ul className="board-grid">
             {[0, 1, 2, 3].map((slot) => (
               <li key={slot} className="skeleton" aria-hidden="true" />

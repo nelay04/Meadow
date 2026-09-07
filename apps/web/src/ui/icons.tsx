@@ -818,6 +818,23 @@ export function IconRotate(props: IconProps) {
 }
 
 /**
+ * Put it back: the arc arrow, turned the other way.
+ *
+ * It was a bin with an arrow coming out of it, and beside the bin that deletes for
+ * good the two were one shape at 15px - a row offering the same button twice. Whatever
+ * a restore icon draws, it has to be *not a bin*, so this is `IconRotate` mirrored:
+ * the same arc everything reversible in this app uses, pointing anticlockwise.
+ */
+export function IconRestore(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M4 12a8 8 0 1 0 2.6-5.9" />
+      <path d="M4 4v4.5h4.5" />
+    </Svg>
+  )
+}
+
+/**
  * The overflow button on the board bar.
  *
  * Three dots and not a hamburger. A hamburger says "the navigation is behind here",
@@ -1040,6 +1057,66 @@ export function IconInk(props: IconProps) {
   return (
     <Svg {...props}>
       <path d="M3.5 16.5c3-6 5-8 6.5-6s-1.5 8 .5 8.5 4.5-4.5 6-8 3-4 4-3.5" />
+    </Svg>
+  )
+}
+
+/*
+ * Devices, for the sessions log. Three silhouettes rather than three drawings of
+ * hardware: the list is read by shape at a glance, and what has to be distinguishable
+ * is a laptop from a phone, not one phone from another.
+ */
+
+export function IconDesktop(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="2.5" y="4" width="19" height="12.5" rx="1.6" />
+      <path d="M8.5 20.5h7M12 16.5v4" />
+    </Svg>
+  )
+}
+
+export function IconMobile(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="6.5" y="2.5" width="11" height="19" rx="2.2" />
+      <path d="M10.75 5.5h2.5M12 18.5h.01" />
+    </Svg>
+  )
+}
+
+export function IconTablet(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="4" y="2.5" width="16" height="19" rx="2.2" />
+      <path d="M12 18.5h.01" />
+    </Svg>
+  )
+}
+
+/** An unrecognised client. Deliberately a question, not a warning: it is only unknown. */
+export function IconUnknownDevice(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M9.6 9.4a2.5 2.5 0 1 1 3.3 2.4c-.6.2-.9.7-.9 1.3v.4M12 16.6h.01" />
+    </Svg>
+  )
+}
+
+/**
+ * Collapse or expand the workspace sidebar.
+ *
+ * A panel with the rail down its left, which is the shape the sidebar collapses to
+ * rather than a chevron pointing at where it went. A chevron would have to reverse
+ * with the state and would say "back" as loudly as it says "collapse"; this mark is
+ * the same in both directions because the button is one toggle, not two actions.
+ */
+export function IconSidebar(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="3" y="4.5" width="18" height="15" rx="2" />
+      <path d="M9.5 4.5v15" />
     </Svg>
   )
 }

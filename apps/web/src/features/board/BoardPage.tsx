@@ -85,10 +85,12 @@ import {
 import { Avatar } from '../../ui/Avatar'
 import { useConfirm } from '../../ui/ConfirmDialog'
 import { usePrompt } from '../../ui/PromptDialog'
+import { isPhone, usePhone } from '../../ui/viewport'
 import { useToast } from '../../ui/Toaster'
 import { createDocSession, roleCanWrite } from '../../doc/mutations'
 import type { BoardKind, BoardRole, ShareMode } from '../../lib/api'
 import * as api from '../../lib/api'
+import { useTrashRetentionHours } from '../../lib/appConfig'
 import { clearShareToken, shareToken } from '../../lib/shareLink'
 import { boardKind, boardPath } from '../boards/kinds'
 import { type PresenceHandle, colorFor, trackPresence } from '../../sync/awareness'
@@ -344,6 +346,18 @@ const CONNECTION_LABEL: Record<ConnectionState, string> = {
 const PAGES_KEY = 'meadow.pages'
 
 function readPagesPreference(): boolean {
+  /*
+   * A phone opens the list closed, and a remembered "on" does not follow the layout
+   * down here.
+   *
+   * The same reasoning the stylesheet already applies to the workspace sidebar: below
+   * this width the list is a drawer over the paper rather than a column beside it, and
+   * a drawer that is open before you have asked for it is a drawer covering the thing
+   * you came to read. Opening it on a phone still writes `on`, so a desktop that opens
+   * the same account afterwards gets the column it had - the preference is honoured,
+   * it just does not decide this.
+   */
+  if (isPhone()) return false
   try {
     return localStorage.getItem(PAGES_KEY) !== 'off'
   } catch {
@@ -498,6 +512,9 @@ export default function BoardPage({ boardId, onBack }: Props) {
   const lockRoot = useRef<HTMLDivElement>(null)
   const [detail, setDetail] = useState('')
   /** Whether the diary's page list is beside the paper. Only a lea has one. */
+  /* Whether the page list and the stack are drawers over the board or columns beside
+     it. Only the drawer needs a scrim, and only a phone has drawers. */
+  const phone = usePhone()
   const [pagesOpen, setPagesOpen] = useState(readPagesPreference)
   const [stackOpen, setStackOpen] = useState(readStackPreference)
   /** The text-size menu, the same `.menu` popup as the paper picker rather than a native `<select>`. */
@@ -527,6 +544,10 @@ export default function BoardPage({ boardId, onBack }: Props) {
   const toast = useToast()
   const prompt = usePrompt()
   const confirm = useConfirm()
+  // For the wording in the page panel only: how long a torn-out page is kept. The
+  // sweep that acts on it reads the same setting through useCanvas, and waits for the
+  // server rather than falling back the way this does.
+  const trashRetentionHours = useTrashRetentionHours()
   const [wanderers, setWanderers] = useState<Wanderer[]>([])
   const presence = useRef<PresenceHandle | null>(null)
 
@@ -2333,6 +2354,27 @@ export default function BoardPage({ boardId, onBack }: Props) {
           </button>
         )}
 
+        {/*
+          The drawer's scrim, on a phone only.
+
+          The list is a column beside the paper on a desktop and a drawer over it on a
+          phone, and a drawer over what you are writing on needs to say so: without
+          this, a press meant for "put the list away" lands on the page underneath and
+          starts a line. `--rail-clearance` is only set at phone width, so the media
+          query that makes it a drawer is the same one that gives the scrim its size,
+          and the two cannot come apart.
+        */}
+        {spec.column !== null && pagesOpen && phone && (
+          <div
+            className="lea-pages-scrim"
+            aria-hidden="true"
+            onClick={() => {
+              writePagesPreference(false)
+              setPagesOpen(false)
+            }}
+          />
+        )}
+
         {spec.column !== null && pagesOpen && (
           <LeaPages
             pages={canvas.pages}
@@ -2344,10 +2386,23 @@ export default function BoardPage({ boardId, onBack }: Props) {
               if (created >= 0) toast.success(`Started page ${created + 1}.`)
             }}
             onRemove={(index) => {
-              // Torn out, not achieved: the news is that writing is gone, so it reads
-              // in the same colour a failure would. Same choice as the boards list.
-              if (canvas.removePage(index)) toast.error(`Tore out page ${index + 1}.`)
+              // Torn out, not achieved: the news is that writing has left the diary,
+              // so it reads in the same colour a failure would even though the page is
+              // recoverable. Same choice as the boards list.
+              if (canvas.removePage(index)) {
+                toast.error(`Tore out page ${index + 1}. It is under "Torn out" below.`)
+              }
             }}
+            trashed={canvas.trashedPages}
+            onRestore={(pageId) => {
+              // The one green message in this panel, and it earns it: something that
+              // was gone is back.
+              if (canvas.restorePage(pageId)) toast.success('Put the page back.')
+            }}
+            onPurge={(pageId) => {
+              if (canvas.purgePage(pageId)) toast.error('Deleted that page for good.')
+            }}
+            retentionHours={trashRetentionHours}
             onCollapse={() => {
               writePagesPreference(false)
               setPagesOpen(false)
