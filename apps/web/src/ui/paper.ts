@@ -10,7 +10,9 @@
  *
  * `system` is the one that follows the app: it is not a fifth palette, it is the light
  * and dark ones selected by `light-dark()`, so it changes with the theme toggle with
- * nothing listening.
+ * nothing listening. It is also the default, so a reader who has never opened the menu
+ * gets a page that matches the app they are already in; kraft is a choice you make
+ * rather than one made for you.
  *
  * The colours themselves are not here. They are `[data-paper]` blocks in the
  * stylesheet, so adding a stock is a block of CSS and a name in this list.
@@ -27,7 +29,7 @@ export const PAPER_LABEL: Record<Paper, string> = {
   system: 'Match theme',
 }
 
-export const DEFAULT_PAPER: Paper = 'vintage'
+export const DEFAULT_PAPER: Paper = 'system'
 
 const STORAGE_KEY = 'meadow.lea.paper'
 
