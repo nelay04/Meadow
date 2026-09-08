@@ -532,8 +532,17 @@ label {
 }
 
 .auth .password-gate .row {
-  align-items: center;
+  align-items: stretch;
   gap: 0.75rem;
+}
+
+/* One question with two answers, so the two answers are the same size: same padding,
+   and half the row each rather than each shrinking to the width of its own label. The
+   submit's `.auth form` padding would otherwise make it the taller of the pair. */
+.auth .password-gate .row button {
+  flex: 1;
+  margin-top: 0;
+  padding: 0.62rem 0.9rem;
 }
 
 /* A label with an action at its far end. The label text keeps its own styling; this only
