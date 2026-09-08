@@ -93,11 +93,10 @@ export function PasswordGate({ boardId, noun, linkToken, onUnlocked, onBack }: P
         </h1>
 
         <p className="join-body">
-          {/* Said plainly, because the person most likely to be confused by this screen
-              is somebody who knows perfectly well they have access to this board - and
-              the answer to their confusion is that the password is not about that. */}
-          Whoever owns it put a password on it, and it is asked of everybody who opens
-          it. Ask them for it if you have not been given it.
+          {/* Short on purpose: the one thing worth saying is that having access is not
+              the same as having the password, and a paragraph saying it twice reads as
+              an apology. */}
+          Everybody who opens it is asked. Ask the owner for it.
         </p>
 
         <form className="password-gate" onSubmit={(event) => void submit(event)}>
@@ -127,7 +126,7 @@ export function PasswordGate({ boardId, noun, linkToken, onUnlocked, onBack }: P
               {busy ? 'Checking…' : 'Open'}
             </button>
             <button type="button" className="link" onClick={onBack}>
-              {user === null ? 'Go to Meadow' : 'Back to your glades'}
+              {user === null ? 'Go to Meadow' : `Back to your ${noun}s`}
             </button>
           </div>
         </form>

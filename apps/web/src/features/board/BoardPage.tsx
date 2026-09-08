@@ -1419,13 +1419,14 @@ export default function BoardPage({ boardId, onBack }: Props) {
       <header className="board-bar">
         {/* A link visitor has no glades to go back to, so the button offers them the
             app itself. Same destination either way; the sentence is the only thing that
-            would be wrong. */}
+            would be wrong - including the noun, since backing out of a lea lands on
+            Leas. */}
         <button
           type="button"
           className="icon ghost"
           onClick={onBack}
-          title={user === null ? 'Go to Meadow' : 'Back to your glades'}
-          aria-label={user === null ? 'Go to Meadow' : 'Back to your glades'}
+          title={user === null ? 'Go to Meadow' : `Back to your ${noun}s`}
+          aria-label={user === null ? 'Go to Meadow' : `Back to your ${noun}s`}
         >
           <IconBack />
         </button>
