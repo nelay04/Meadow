@@ -93,10 +93,10 @@ export function PasswordGate({ boardId, noun, linkToken, onUnlocked, onBack }: P
         </h1>
 
         <p className="join-body">
-          {/* Short on purpose: the one thing worth saying is that having access is not
-              the same as having the password, and a paragraph saying it twice reads as
-              an apology. */}
-          Everybody who opens it is asked. Ask the owner for it.
+          {/* One line on purpose: the only thing worth saying is that having access is
+              not the same as having the password. Telling somebody to go ask is a second
+              sentence for something they were already going to do. */}
+          Everybody who opens it is asked.
         </p>
 
         <form className="password-gate" onSubmit={(event) => void submit(event)}>

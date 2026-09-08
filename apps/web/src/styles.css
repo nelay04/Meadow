@@ -521,14 +521,17 @@ label {
  * button, nothing else on the page - and building a second card for it would be a
  * second set of paddings to keep in step with the first.
  */
-.password-gate {
+.auth .password-gate {
   display: flex;
   flex-direction: column;
   gap: 0.9rem;
-  margin-top: 0.25rem;
+  /* Overrides the `.auth form` margin further down. That margin is sized for a form
+     that follows a wordmark; here it follows a line of body text that already carries
+     its own bottom margin, and the two together open a hole in the middle of the card. */
+  margin: 0.25rem 0 0;
 }
 
-.password-gate .row {
+.auth .password-gate .row {
   align-items: center;
   gap: 0.75rem;
 }
