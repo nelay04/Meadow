@@ -43,6 +43,7 @@ import {
   type ResizeHandle,
   applyRectToObject,
   handleAt,
+  moveObject,
   resizeRect,
   rotateAbout,
   rotationFor,
@@ -600,7 +601,7 @@ export function createSelectTool(context: ToolContext): Tool {
         context.applyPatches(
           gesture.start.map((object) => ({
             id: object.id,
-            patch: { x: object.x + dx, y: object.y + dy },
+            patch: moveObject(object, dx, dy),
           })),
         )
         gesture.moved = true

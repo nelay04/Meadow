@@ -8,7 +8,9 @@
 
 import {
   type ObjectData,
+  isArrowLike,
   isFreedraw,
+  resolveArrowProps,
   resolveFreedrawProps,
   scaleInk,
   scaleNib,
@@ -253,6 +255,40 @@ export function resizeRect(
   }
 
   return { minX, minY, maxX, maxY }
+}
+
+/**
+ * The patch that moves one object by a delta, given how it looked when the drag began.
+ *
+ * For almost everything this is `x` and `y`, because every other coordinate an object
+ * holds is relative to those two. An arrow is the exception, and the exception is a
+ * bug worth writing down rather than a quirk.
+ *
+ * An arrow's points are relative too, so a translate looks like it needs nothing more.
+ * But a bound arrow is re-solved after every write: the bound end is pulled back onto
+ * its target while the free end stays where the drag left it, and that rewrites the
+ * arrow's origin, bounds *and* relative points. So the next frame's patch - computed
+ * from the pointer-down snapshot, which is what makes a drag idempotent for everything
+ * else - lands its absolute `x` on a shape that has since been stretched, and stretches
+ * it again from there. The free end gains the whole accumulated delta on every frame,
+ * so a small drag on the body of an arrow attached to a shape sends its far end into
+ * the next county within about a second.
+ *
+ * Restating the snapshot's geometry, not just its origin, is what closes the loop.
+ * Every frame starts from the same points, the solver pins the bound end again, and
+ * what the user sees is the free end following the pointer while the attached end
+ * stays glued - which is the behaviour the attachment was for.
+ */
+export function moveObject(object: ObjectData, dx: number, dy: number): Partial<ObjectData> {
+  const patch: Partial<ObjectData> = { x: object.x + dx, y: object.y + dy }
+  if (!isArrowLike(object.type)) return patch
+
+  return {
+    ...patch,
+    w: object.w,
+    h: object.h,
+    props: { points: resolveArrowProps(object).points },
+  }
 }
 
 /**

@@ -20,6 +20,7 @@ import { describe, expect, it } from 'vitest'
 import * as Y from 'yjs'
 
 import { hitsObject } from '../canvas/hitTest'
+import { moveObject } from '../canvas/transform'
 import {
   type DocSession,
   addObject,
@@ -30,6 +31,7 @@ import {
   readObjectById,
   setArrowPoints,
   updateObject,
+  updateObjects,
 } from './mutations'
 
 function session(): DocSession {
@@ -403,6 +405,39 @@ describe('bindings in the document', () => {
     expect(after[0]).toBeCloseTo(100, 6)
     expect(after[1]).toBeGreaterThan(before[1])
     expect(after[1]).toBeLessThanOrEqual(100)
+  })
+
+  it('does not grow while its body is dragged frame by frame', () => {
+    const { doc, arrowId } = scene()
+
+    /*
+     * The drag that used to send the free end into orbit.
+     *
+     * A pointer drag is many frames, and each one patches from the same pointer-down
+     * snapshot - that is what keeps a drag idempotent, and it is why moving anything
+     * else this way is stable. A bound arrow is re-solved after every one of those
+     * writes, which rewrites the very geometry the next frame's patch is applied to,
+     * so the free end used to gain the whole accumulated delta on every frame and the
+     * arrow grew without bound. One frame looked fine, which is why this walks a
+     * realistic number of them.
+     */
+    const start = readObjectById(doc, arrowId)
+    if (start === undefined) throw new Error('no arrow')
+
+    for (let frame = 1; frame <= 40; frame += 1) {
+      updateObjects(doc, [{ id: arrowId, patch: moveObject(start, 0, frame) }])
+    }
+
+    const after = points(doc, arrowId)
+
+    // The free end has travelled exactly as far as the pointer, once.
+    expect(after[3]).toBeCloseTo(50 + 40, 6)
+    // And the bound end is still on the box, not somewhere off the board.
+    expect(after[0]).toBeCloseTo(100, 6)
+    expect(after[1]).toBeLessThanOrEqual(100)
+
+    const arrow = readObjectById(doc, arrowId)
+    expect(arrow?.w).toBeLessThan(500)
   })
 
   it('survives its target being deleted, as a loose end', () => {
