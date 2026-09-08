@@ -14,7 +14,7 @@
 import { type ObjectType, arrowGeometry, routeOrthogonal } from '@meadow/schema'
 
 import type { Point } from '../camera'
-import { attachArrowEnd, bindTarget } from './binding'
+import { attachArrowEnd, bindTarget, previewBind } from './binding'
 import type { CanvasPointerEvent, Tool, ToolContext, ToolId } from './types'
 
 /** Below this drag distance in world units, the gesture is a click and creates nothing. */
@@ -54,13 +54,20 @@ export function createArrowTool(context: ToolContext, type: ObjectType & ToolId)
         Math.abs(event.world.y - origin.y) > DRAG_THRESHOLD
       if (!dragged) return
 
+      // The head settles onto the outline of whatever it is over, while the drag is
+      // still running, rather than trailing the pointer and snapping into place on
+      // release. Attaching is the point of the gesture, so it should be visible during
+      // it.
+      const preview = previewBind(context, event.world, arrowId, origin)
+      const head = preview.point
+
       // Routed as it is drawn, not on release. An elbow that renders as a straight
       // line for the whole drag and snaps into shape at the end is the tool lying
       // about what it is making, and it is impossible to aim.
       const absolute =
         context.arrowRouting === 'orthogonal'
-          ? routeOrthogonal(origin, event.world)
-          : [origin.x, origin.y, event.world.x, event.world.y]
+          ? routeOrthogonal(origin, head)
+          : [origin.x, origin.y, head.x, head.y]
 
       if (arrowId === null) {
         // Created on the first real movement, like the shape tool, so a click that
@@ -82,7 +89,7 @@ export function createArrowTool(context: ToolContext, type: ObjectType & ToolId)
         context.setArrowPoints(arrowId, absolute)
       }
 
-      context.setHoverTarget(bindTarget(context, event.world, arrowId))
+      context.setHoverTarget(preview.targetId)
       context.requestRender()
     },
 

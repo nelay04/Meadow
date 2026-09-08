@@ -48,6 +48,7 @@ import {
   rotationFor,
 } from '../transform'
 import { ARROW_HANDLE_GRAB_PX, arrowHandleAt, arrowHandles } from '../arrowHandles'
+import { BIND_GAP, bindTarget, previewBind } from './binding'
 import type { CanvasPointerEvent, Tool, ToolContext } from './types'
 
 const HANDLE_GRAB_PX = 6
@@ -189,29 +190,6 @@ export function createSelectTool(context: ToolContext): Tool {
     if (hovered === null) return null
     const object = context.object(hovered)
     return connectable(object) ? object : null
-  }
-
-  /** The shape under a point that a dragged arrow end would bind to. */
-  const targetAt = (point: Point, exclude: string | null): string | null => {
-    const tolerance = context.camera.toWorldDistance(HIT_TOLERANCE_PX)
-    const candidates = new Set(
-      context.query({
-        minX: point.x - tolerance,
-        minY: point.y - tolerance,
-        maxX: point.x + tolerance,
-        maxY: point.y + tolerance,
-      }),
-    )
-    const order = context.order()
-    for (let index = order.length - 1; index >= 0; index -= 1) {
-      const id = order[index]
-      if (id === exclude || !candidates.has(id)) continue
-      const object = context.object(id)
-      if (!connectable(object)) continue
-      // No tolerance: an arrow attaches when dropped *on* a shape, not near it.
-      if (hitsObject(object, point)) return id
-    }
-    return null
   }
 
   const hitAt = (world: Point): string | null => {
@@ -456,11 +434,15 @@ export function createSelectTool(context: ToolContext): Tool {
 
       if (gesture.kind === 'endpoint') {
         const active = gesture
-        const moving = event.world
+        // The end is drawn where it would land, not where the pointer is, so an
+        // attachment is something you watch happen rather than something you find out
+        // about on release.
+        const preview = previewBind(context, event.world, active.arrowId, active.anchorPoint)
+        const moving = preview.point
         if (active.end === 'start') writeEnds(active.arrowId, moving, active.anchorPoint)
         else writeEnds(active.arrowId, active.anchorPoint, moving)
 
-        context.setHoverTarget(targetAt(moving, active.arrowId))
+        context.setHoverTarget(preview.targetId)
         context.requestRender()
         return
       }
@@ -515,7 +497,10 @@ export function createSelectTool(context: ToolContext): Tool {
         const from = context.object(gesture.fromId)
         if (from === undefined) return
 
-        const absolute = [gesture.origin.x, gesture.origin.y, event.world.x, event.world.y]
+        // Same live attachment as an endpoint drag: the head settles on the outline
+        // of whatever it is over while the drag is still running.
+        const preview = previewBind(context, event.world, gesture.arrowId, gesture.origin)
+        const absolute = [gesture.origin.x, gesture.origin.y, preview.point.x, preview.point.y]
 
         if (gesture.arrowId === null) {
           const moved =
@@ -540,6 +525,7 @@ export function createSelectTool(context: ToolContext): Tool {
           if (arrowId === null) return
 
           gesture = { ...gesture, arrowId }
+
           // Bound immediately, so the tail tracks the shape from the first frame
           // rather than snapping onto it when the drag ends.
           context.bindArrow({
@@ -547,13 +533,13 @@ export function createSelectTool(context: ToolContext): Tool {
             end: 'start',
             targetId: gesture.fromId,
             anchor: anchorForSide(gesture.side),
-            gap: 4,
+            gap: BIND_GAP,
           })
         } else {
           context.setArrowPoints(gesture.arrowId, absolute)
         }
 
-        context.setHoverTarget(targetAt(event.world, gesture.arrowId))
+        context.setHoverTarget(preview.targetId)
         context.requestRender()
         return
       }
@@ -677,7 +663,7 @@ export function createSelectTool(context: ToolContext): Tool {
         gesture = { kind: 'none' }
         context.setHoverTarget(null)
 
-        const targetId = targetAt(event.world, arrowId)
+        const targetId = bindTarget(context, event.world, arrowId)
         const target = targetId === null ? undefined : context.object(targetId)
 
         // Written either way. Dropping an end on empty canvas has to *clear* the
@@ -688,7 +674,7 @@ export function createSelectTool(context: ToolContext): Tool {
           end,
           targetId: targetId,
           anchor: target === undefined ? { nx: 0.5, ny: 0.5 } : anchorFor(target, event.world),
-          gap: 4,
+          gap: BIND_GAP,
         })
 
         context.commit()
@@ -708,7 +694,7 @@ export function createSelectTool(context: ToolContext): Tool {
           return
         }
 
-        const targetId = targetAt(event.world, arrowId)
+        const targetId = bindTarget(context, event.world, arrowId)
         const target = targetId === null ? undefined : context.object(targetId)
         if (targetId !== null && target !== undefined) {
           // `anchorFor`, not `anchorForSide`: the far end was aimed by hand, so where
@@ -719,7 +705,7 @@ export function createSelectTool(context: ToolContext): Tool {
             end: 'end',
             targetId,
             anchor: anchorFor(target, event.world),
-            gap: 4,
+            gap: BIND_GAP,
           })
         }
 
