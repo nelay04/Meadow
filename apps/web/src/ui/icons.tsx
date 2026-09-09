@@ -526,6 +526,27 @@ export function IconUnderline(props: IconProps) {
   )
 }
 
+/**
+ * Spellcheck: a letter over the wavy rule a browser draws under a misspelling.
+ *
+ * The squiggle is the whole icon, really - it is the mark the setting is about, and the
+ * one thing a reader will recognise without reading the row. The `A` above it is there
+ * so it reads as being about words rather than about drawing a wavy line.
+ */
+export function IconSpellcheck(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M4.5 13 8.5 4l4 9" />
+      <path d="M5.9 10.2h5.2" />
+      <path d="M15 4.8h2.8a2.3 2.3 0 0 1 0 4.6H15V4.8h3" />
+      <path d="M15 9.4h3a2.3 2.3 0 0 1 0 4.6h-3V9.4" />
+      {/* Two full periods of the squiggle, so it reads as a repeating rule rather than
+          as a single tick. */}
+      <path d="M3.5 18.6c1-1.3 2-1.3 3 0s2 1.3 3 0 2-1.3 3 0 2 1.3 3 0 2-1.3 3 0" />
+    </Svg>
+  )
+}
+
 export function IconStrike(props: IconProps) {
   return (
     <Svg {...props}>

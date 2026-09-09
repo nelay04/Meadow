@@ -9,7 +9,14 @@
  * component once.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react'
 import {
   type ArrowRouting,
   type FreedrawTip,
@@ -69,6 +76,7 @@ import {
   IconRouteStraight,
   IconShapes,
   IconShare,
+  IconSpellcheck,
   IconSquare,
   IconStack,
   IconStrike,
@@ -109,8 +117,17 @@ import {
 import { LeaDate } from './LeaDate'
 import { LeaPages } from './LeaPages'
 import { StackPanel } from './StackPanel'
-import { toggleInputLanguage } from '../../text/imeStore'
+import {
+  inputLanguageId,
+  subscribeInputLanguage,
+  toggleInputLanguage,
+} from '../../text/imeStore'
 import { inputLanguage } from '../../text/inputLanguages'
+import {
+  setSpellcheckEnabled,
+  spellcheckEnabled,
+  subscribeSpellcheck,
+} from '../../text/spellcheckStore'
 import { InputLanguage } from './InputLanguage'
 import { BoardGrid } from './BoardGrid'
 import { LeaPaper } from './LeaPaper'
@@ -1165,6 +1182,24 @@ export default function BoardPage({ boardId, onBack }: Props) {
   }, [openFace])
 
   /*
+   * The reader's spellcheck switch, shared with the live editor.
+   *
+   * `useSyncExternalStore` over the same store the editor subscribes to, rather than
+   * React state with the store written alongside it. The editor is not a React
+   * component and it is the other reader of this, so a second copy here is a second
+   * thing that can disagree - and it would, the moment another tab changed it.
+   */
+  const spellcheck = useSyncExternalStore(subscribeSpellcheck, spellcheckEnabled)
+  /*
+   * The script the phonetic keyboard is writing in, or null.
+   *
+   * Named here for the same reason `spellcheckLanguage` in the editor names it: when
+   * the writer has said which language they are in, say so, and when they have not,
+   * say nothing and let the browser check against every dictionary it has.
+   */
+  const writingLanguage = useSyncExternalStore(subscribeInputLanguage, inputLanguageId)
+
+  /*
    * The stock this page is on: the reader's own default, and nothing else.
    *
    * It is this browser's setting rather than the document's, so it is read here and
@@ -1790,6 +1825,30 @@ export default function BoardPage({ boardId, onBack }: Props) {
               )}
 
               {/*
+                Only on a writing page, which is the only surface that asks the browser
+                to check anything - see `spellcheckSurface` in the engine. Offering the
+                switch on a glade would be a control that does nothing.
+
+                A checkbox rather than a pair of radios: there is one thing it can be,
+                on or off, and the row says which by being checked. The label names the
+                mark rather than the feature, because "spelling" is a word for a
+                setting and "the red underlines" is what the reader is actually looking
+                at when they come here to turn it off.
+              */}
+              {spec.column !== null && (
+                <button
+                  type="button"
+                  role="menuitemcheckbox"
+                  aria-checked={spellcheck}
+                  className={spellcheck ? 'menu-item checked' : 'menu-item'}
+                  onClick={() => setSpellcheckEnabled(!spellcheck)}
+                >
+                  <IconSpellcheck size={16} />
+                  <span>{spellcheck ? 'Hide the red underlines' : 'Check my spelling'}</span>
+                </button>
+              )}
+
+              {/*
                 A glade picks its paper out of three; a lea only says whether its rules
                 show.
 
@@ -2292,6 +2351,10 @@ export default function BoardPage({ boardId, onBack }: Props) {
                     className="lea-subject"
                     aria-label="Subject of this page"
                     placeholder="What is in your mind today?"
+                    // The subject is a sentence on the page like any other, so it
+                    // follows the same switch as the rules below it.
+                    spellCheck={spellcheck}
+                    lang={writingLanguage ?? undefined}
                     maxLength={120}
                     value={canvas.pageSubject}
                     disabled={!canWrite}

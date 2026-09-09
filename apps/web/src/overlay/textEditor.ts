@@ -28,6 +28,8 @@ import type * as Y from 'yjs'
 
 import { applyContentStyle } from '../canvas/text/textStyle'
 import { TEXT_MARKS, type TextMark } from '../doc/richText'
+import { inputLanguageId, subscribeInputLanguage } from '../text/imeStore'
+import { spellcheckEnabled, subscribeSpellcheck } from '../text/spellcheckStore'
 import { PhoneticComposing, attachPhoneticIme } from './phoneticIme'
 
 export type TextEditorHandle = {
@@ -46,6 +48,15 @@ export type TextEditorOptions = {
   props: TextProps
   /** True when the role may write; a viewer gets a caret and selection but no edits. */
   editable: boolean
+  /**
+   * Whether this surface is one the browser should mark misspellings on.
+   *
+   * The surface's half of the answer, not the reader's: a writing page says yes and a
+   * canvas says no, and the reader's own switch in `text/spellcheckStore.ts` is ANDed
+   * with it below. Both have to agree, so turning the preference on does not put
+   * underlines under the label of a shape.
+   */
+  spellcheck: boolean
   /** Escape, or focus leaving the editor. */
   onExit(): void
   /**
@@ -97,7 +108,55 @@ function extensions(fragment: Y.XmlFragment) {
   ]
 }
 
+/**
+ * Which language the browser should mark misspellings in, or null to let it choose.
+ *
+ * Null is not "no spellcheck" - it is the more useful of the two answers, and it is what
+ * "every available language" actually means on the web. A page cannot install
+ * dictionaries or enumerate the ones a reader has; all it can do is either name one
+ * language or say nothing. Chrome, told nothing, checks against every dictionary the
+ * reader has enabled at once, so saying nothing is what gets a bilingual writer
+ * underlines in both of their languages.
+ *
+ * So the only time it is worth naming one is when the writer has already said which
+ * script they are in, by turning the phonetic keyboard on. Then it is named, which is
+ * what lets Firefox - which checks one language at a time - pick that one rather than
+ * whatever was last used.
+ *
+ * The honest limit, worth being plain about: browsers ship no dictionaries for most of
+ * the scripts in `inputLanguages.ts`. A Bengali lea will show no underlines on any
+ * browser we know of, and this is the whole of what a web page is permitted to do about
+ * that. Nothing here is broken when that happens - there is simply no dictionary to ask.
+ */
+function spellcheckLanguage(): string | null {
+  return inputLanguageId()
+}
+
+/** The `spellcheck` and `lang` attributes the ProseMirror node should be carrying now. */
+function spellcheckAttributes(on: boolean): Record<string, string> {
+  // Written out even when off, rather than left absent. A contenteditable with no
+  // `spellcheck` attribute inherits one, and the answer to "should this be checked"
+  // must not depend on what happens to be above the overlay in the DOM.
+  if (!on) return { spellcheck: 'false' }
+
+  const attributes: Record<string, string> = { spellcheck: 'true' }
+  const language = spellcheckLanguage()
+  // Absent rather than empty. `lang=""` is "unknown language", which stops the check
+  // in some browsers - the opposite of leaving the choice open.
+  if (language !== null) attributes.lang = language
+  return attributes
+}
+
 export function createTextEditor(options: TextEditorOptions): TextEditorHandle {
+  /*
+   * Both halves of the answer, read fresh every time the attributes are computed.
+   *
+   * The surface's half is fixed for the life of this editor - a lea does not become a
+   * glade while you are typing on it - so it is read from `options`. The reader's half
+   * can move underneath us, which is what the subscriptions below are for.
+   */
+  const spellcheckOn = (): boolean => options.spellcheck && spellcheckEnabled()
+
   // Assigned below, after the editor exists, and read from inside its own key handler.
   // The handler cannot run before construction returns, so the hole is never observed.
   let ime: ReturnType<typeof attachPhoneticIme> | null = null
@@ -110,6 +169,17 @@ export function createTextEditor(options: TextEditorOptions): TextEditorHandle {
     // a second time on every mount.
     injectCSS: false,
     editorProps: {
+      /*
+       * The browser's own spellchecker, and what language to run it in.
+       *
+       * A function rather than an object because both halves move while the editor is
+       * open: ProseMirror re-reads this on every update and rebuilds the node
+       * decoration that carries the attributes, so a switch flipped mid-sentence takes
+       * effect without remounting the editor. It is also why these cannot simply be set
+       * on `view.dom` - the same decoration pass would strip them off again.
+       */
+      attributes: () => spellcheckAttributes(spellcheckOn()),
+
       handleKeyDown: (view, event) => {
         /*
          * The input method looks at every key first, and that ordering is the whole of
@@ -159,6 +229,27 @@ export function createTextEditor(options: TextEditorOptions): TextEditorHandle {
   // text does not shift by a pixel at the moment the user double-clicks.
   applyContentStyle(editor.view.dom as HTMLElement, options.props)
 
+  /*
+   * Recompute the attributes when either half of the answer moves.
+   *
+   * An empty transaction, which is the cheapest way to ask ProseMirror to run its
+   * decoration pass again: it carries no steps, so Yjs sees nothing to send and the
+   * undo stack gains nothing, but the view still recomputes the node decoration that
+   * holds `spellcheck` and `lang`.
+   *
+   * Both stores are subscribed even on a surface that never spellchecks. The transaction
+   * is a no-op there - `spellcheckOn()` stays false - and one unconditional pair of
+   * subscriptions is less to get wrong than a pair that has to be torn down conditionally.
+   */
+  const refreshSpellcheck = (): void => {
+    if (editor.isDestroyed) return
+    editor.view.dispatch(editor.state.tr)
+  }
+  const unsubscribe = [
+    subscribeSpellcheck(refreshSpellcheck),
+    subscribeInputLanguage(refreshSpellcheck),
+  ]
+
   // Only where typing happens. A viewer has a caret for selecting text and nothing to
   // transliterate into.
   if (options.editable) ime = attachPhoneticIme(editor)
@@ -188,6 +279,7 @@ export function createTextEditor(options: TextEditorOptions): TextEditorHandle {
   return {
     focus: () => editor.commands.focus('end', FOCUS),
     destroy: () => {
+      for (const stop of unsubscribe) stop()
       ime?.destroy()
       editor.destroy()
     },

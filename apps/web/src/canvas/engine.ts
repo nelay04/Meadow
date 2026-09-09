@@ -408,9 +408,10 @@ export type EngineHost = {
    *
    * `surface` is what the page contributes rather than the object: the ink an object
    * that names no colour is drawn in, the type a ruled page sets over whatever its
-   * rows were created with, and where the caret goes when it walks off the top or the
-   * bottom. The editor has to agree with the idle text layer on the first two, or text
-   * changes appearance the moment you stop typing.
+   * rows were created with, whether it is a surface worth spellchecking, and where the
+   * caret goes when it walks off the top or the bottom. The editor has to agree with
+   * the idle text layer on the first two, or text changes appearance the moment you
+   * stop typing.
    */
   beginEdit(
     id: string,
@@ -419,6 +420,7 @@ export type EngineHost = {
     surface: {
       ink: number
       type: SurfaceType | null
+      spellcheck: boolean
       onLeave?: (direction: 'up' | 'down') => boolean
     },
   ): (() => void) | null
@@ -1273,6 +1275,24 @@ export class CanvasEngine {
   }
 
   /**
+   * Whether text edited on this surface is worth asking a dictionary about.
+   *
+   * The ruled surface only. What is written on a writing page is prose - sentences, in
+   * a language, by somebody who wants to be told they have mistyped a word - and that
+   * is exactly what a spellchecker is for. What is written on a free canvas is labels:
+   * a name on a box, a word on an arrow, an abbreviation in a sticky note. Marking
+   * those is a red underline under nearly every object on the board, which teaches the
+   * reader to stop seeing red underlines, and there is nowhere on a canvas that a
+   * misspelled label matters as much as that costs.
+   *
+   * Stated in the surface's own terms, not the product's: `src/canvas` knows about
+   * ruled paper and has never heard of a lea. See `surface.ts`.
+   */
+  private get spellcheckSurface(): boolean {
+    return this.surface === 'ruled'
+  }
+
+  /**
    * The text style a row of this column is written in.
    *
    * The same properties `beginWritingRow` writes onto a new row, resolved through the
@@ -1908,6 +1928,7 @@ export class CanvasEngine {
     const teardown = this.host.beginEdit(id, element, () => this.stopEditing(), {
       ink: this.canvasInk,
       type: this.surfaceType,
+      spellcheck: this.spellcheckSurface,
       onLeave: (direction) => this.leaveRow(id, direction),
     })
     if (teardown === null) {

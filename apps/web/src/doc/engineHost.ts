@@ -56,6 +56,8 @@ export type EditorFactory = (options: {
   fragment: Y.XmlFragment
   props: TextProps
   editable: boolean
+  /** Whether the surface being written on is one worth spellchecking. */
+  spellcheck: boolean
   onExit(): void
   onLeave?(direction: 'up' | 'down'): boolean
   onMarks?(marks: TextMark[]): void
@@ -244,6 +246,7 @@ export class DocEngineHost implements EngineHost {
     surface: {
       ink: number
       type: SurfaceType | null
+      spellcheck: boolean
       onLeave?: (direction: 'up' | 'down') => boolean
     },
   ): (() => void) | null {
@@ -282,6 +285,9 @@ export class DocEngineHost implements EngineHost {
       // A viewer still gets a caret and can select and copy. The write path is what is
       // closed off, in exactly one place, the same as every other mutation.
       editable: this.session.canWrite,
+      // The surface's half only. The reader's own switch is read live inside the
+      // editor, so flipping it does not have to reach back through here.
+      spellcheck: surface.spellcheck,
       onExit,
       onLeave: surface.onLeave,
       onMarks: (marks) => this.options.onMarks?.(marks),
