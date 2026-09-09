@@ -340,15 +340,20 @@ const TEXT_SIZES = [12, 14, 16, 20, 24, 32, 48, 64]
  */
 const WAITING_POLL_MS = 15_000
 
-/** What the status pill says, so a raw state name never reaches the user. */
+/**
+ * What the status bar says, so a raw state name never reaches the user.
+ *
+ * Only the first three can actually be drawn. `denied` and `password` both replace the
+ * whole board with a screen of their own - see the render branches below - rather than
+ * captioning a canvas the reader can still see and no longer reach. They are labelled
+ * anyway because the map is exhaustive over `ConnectionState` on purpose: a state added
+ * later is a type error here rather than a blank space on the bar.
+ */
 const CONNECTION_LABEL: Record<ConnectionState, string> = {
   connecting: 'Connecting',
   connected: 'Live',
   disconnected: 'Offline',
   denied: 'No access',
-  // Never actually drawn - the password screen replaces the whole board rather than
-  // sitting behind a status pill - but the map is exhaustive over the states on
-  // purpose, so a state added later cannot reach the bar unlabelled.
   password: 'Locked',
 }
 
@@ -1516,19 +1521,6 @@ export default function BoardPage({ boardId, onBack }: Props) {
         />
         <span className={`role role-${role}`}>{role}</span>
 
-        {/* Nothing at all while connected. That is the state you are in essentially
-            always, and a permanent indicator for it is the app reporting that nothing
-            is wrong, forever. The pill appears only when something actually is. */}
-        {state !== 'connected' && (
-          <span
-            className="conn"
-            title={detail === '' ? CONNECTION_LABEL[state] : `${CONNECTION_LABEL[state]} (${detail})`}
-          >
-            <span className={`dot ${state}`} />
-            {CONNECTION_LABEL[state]}
-          </span>
-        )}
-
         <div className="spacer" />
 
         {/* Presence. A face each, the badge saying who may write, a crown on whoever
@@ -2661,6 +2653,30 @@ export default function BoardPage({ boardId, onBack }: Props) {
             itself, which is the right readout on a glade and the wrong one on paper:
             the page is not a thing you selected, it is the thing you are writing on. */}
         <span>
+          {/*
+            The sync state, first on the bar and always drawn - "Live" included.
+
+            It used to be a pill by the title, hidden whenever it said "Live", on the
+            reasoning that a permanent green light is the app reporting that nothing is
+            wrong forever. That was wrong in the one way that matters on a shared
+            surface: a readout you only ever see when it is bad is one you have not
+            learned to read by the time it goes bad, and "no pill" and "not looking at
+            the pill" are the same picture. Down here it costs a few characters of a bar
+            that already exists to say what the app is doing, so it says it all the time.
+
+            The dot carries the state and the word names it, so it survives being
+            glanced at and being read aloud. `title` keeps the detail - which close
+            code, which refusal - for when the word is not enough.
+          */}
+          <span
+            className="conn"
+            data-testid="connection-state"
+            title={detail === '' ? CONNECTION_LABEL[state] : `${CONNECTION_LABEL[state]} (${detail})`}
+          >
+            <span className={`dot ${state}`} />
+            {CONNECTION_LABEL[state]}
+          </span>
+          {' \u00b7 '}
           {spec.column !== null ? (
             <span data-testid="object-count">
               {canvas.editingId !== null ? 'Writing' : 'Ready'}

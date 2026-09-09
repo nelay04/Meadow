@@ -2411,19 +2411,26 @@ label {
   flex: 0 0 auto;
 }
 
-/* Connection state, as one pill rather than a dot beside a word. */
+/*
+ * Connection state, as a dot beside a word on the status bar.
+ *
+ * It was a pill by the title, which is the right shape for something that appears only
+ * when it has bad news and has to catch the eye over a page. It is on the bar now and
+ * always showing, so it takes the bar's own type and colour and reads as one more
+ * reading among the others - `Live . Ready`. A pill down here would be a raised chip
+ * shouting the word "Live" at somebody for the whole session.
+ *
+ * The dot keeps its colours, because the colour is the part you read without reading.
+ */
 .conn {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0.2rem 0.6rem 0.2rem 0.5rem;
-  border-radius: var(--pill);
-  background: var(--surface-3);
-  color: var(--muted);
-  font-size: 0.78rem;
+  gap: 0.35rem;
+  /* Type and colour from `.statusbar`, deliberately. */
+  color: inherit;
+  font-size: inherit;
   font-weight: 600;
 }
-
 
 .dot {
   width: 8px;
@@ -2433,9 +2440,15 @@ label {
   flex: 0 0 auto;
 }
 
+/*
+ * No halo on the healthy state.
+ *
+ * The ring was there to make a rare pill findable; on a bar that always carries this,
+ * a permanently glowing green dot is the one thing on the screen that never settles.
+ * Steady green says "fine" better than pulsing green does.
+ */
 .dot.connected {
   background: var(--success);
-  box-shadow: 0 0 0 3px light-dark(#1a7f4522, #4ec98a22);
 }
 
 .dot.connecting {
