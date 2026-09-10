@@ -11,7 +11,8 @@ palette is the light theme's tokens copied as hex - a mail client has no
 """
 
 from html import escape
-from pathlib import Path
+
+from app.config import settings
 
 # `apps/web/src/styles.css`, light theme. Copied rather than imported, because these
 # have to survive a client that supports almost nothing.
@@ -29,13 +30,10 @@ _ACCENT_INK = "#ffffff"
 # it links to reads as a mail from somewhere else.
 _TAGLINE = "Think Beyond the horizon..."
 
-# Embedded rather than linked: a mail client fetching a wordmark over HTTP means either
-# `web_base_url` is publicly reachable (not true in local dev) or the client blocks
-# remote images by default. Same file the SPA serves its own wordmark from
-# (`apps/web/public/brand/meadow-wordmark.png`), copied here so the mail service does
-# not depend on the web app's static host at send time.
-LOGO_PATH = Path(__file__).parent.parent / "assets" / "meadow-wordmark.png"
-LOGO_CID = "meadow-logo"
+# Linked, from `settings.mail_logo_url` - the same absolute URL in every environment.
+# See the setting in `app/config.py` for why a URL and not an attachment or a data URI;
+# the short version is that it is the only form Gmail, Outlook and Apple Mail all render,
+# and it is what Google's own account mails do.
 
 # Comic Neue first: it is the app's voice everywhere else (`apps/web/src/styles.css`),
 # and a mail that greets someone in Inter before handing them a Comic Neue app reads as
@@ -68,7 +66,7 @@ def _shell(*, heading: str, body: str, action: str, link: str, footer: str) -> s
                         border-radius:16px;overflow:hidden;">
             <tr>
               <td style="padding:28px 32px 0;font-family:{_FONT};">
-                <img src="cid:{LOGO_CID}" alt="Meadow" height="28"
+                <img src="{escape(settings.mail_logo_url, quote=True)}" alt="Meadow" height="28"
                      style="height:28px;width:auto;display:block;border:0;" />
                 <div style="font-size:13px;color:{_MUTED};padding-top:6px;">
                   {_TAGLINE}

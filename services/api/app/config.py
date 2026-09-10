@@ -164,6 +164,10 @@ class Settings(BaseSettings):
     resend_from_name: str = "Meadow"
     resend_timeout_seconds: int = 15
 
+    # Where the SPA serves the wordmark, appended to `web_base_url` to build the `src`
+    # every message carries. See `mail_logo_url` below.
+    mail_logo_path: str = "/brand/meadow-wordmark.png"
+
     # --- smtp ---
     smtp_host: str = ""
     smtp_port: int = 587
@@ -189,6 +193,24 @@ class Settings(BaseSettings):
     # has something in it, so it should be usable now and dead soon; an activation link
     # opens an empty account and can afford to wait for someone's morning.
     password_reset_ttl_hours: int = 1
+
+    @property
+    def mail_logo_url(self) -> str:
+        """The wordmark's `src`, under whichever site this deployment serves.
+
+        Linked rather than attached or inlined, which is what every large sender does -
+        Google's own account mails reference gstatic.com. A `cid:` attachment makes Gmail
+        hang a paperclip off a password-reset mail, and a base64 `data:` URI is stripped
+        by Gmail outright. A URL is the only form Gmail, Outlook and Apple Mail all
+        render.
+
+        Derived from `web_base_url`, so the logo comes from the same site the links in
+        the message point at. In local development that is localhost, which no mail
+        client can reach: mail read in dev shows the alt text where the wordmark should
+        be. That is a development-only cosmetic gap - point `web_base_url` at a public
+        host to see it render.
+        """
+        return f"{self.web_base_url.rstrip('/')}{self.mail_logo_path}"
 
     @property
     def mail_provider_name(self) -> str:

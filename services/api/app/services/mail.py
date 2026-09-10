@@ -17,9 +17,11 @@ Every message goes out with both a plain-text and an HTML body. A mail client th
 refuses HTML, a screen reader, and a plain-text archive all get a version that says the
 same thing, and the link is visible as text in both - a button whose destination cannot
 be read is exactly what a phishing mail looks like.
+
+Neither provider attaches anything. The wordmark is linked from `settings.mail_logo_url`,
+so both build the same two-part message and a reader cannot tell which one carried it.
 """
 
-import base64
 import smtplib
 from email.message import EmailMessage
 from email.utils import formataddr
@@ -29,11 +31,8 @@ import anyio
 import httpx
 
 from app.config import settings
-from app.services.mail_templates import LOGO_CID, LOGO_PATH
 
 logger = getLogger(__name__)
-
-_LOGO_BYTES = LOGO_PATH.read_bytes()
 
 _RESEND_ENDPOINT = "https://api.resend.com/emails"
 
@@ -69,9 +68,6 @@ async def _send_smtp(*, to: str, subject: str, text: str, html: str) -> None:
     message["To"] = to
     message.set_content(text)
     message.add_alternative(html, subtype="html")
-    html_part = message.get_payload(1)
-    assert isinstance(html_part, EmailMessage)  # the alternative just added, by construction
-    html_part.add_related(_LOGO_BYTES, "image", "png", cid=f"<{LOGO_CID}>")
 
     try:
         await anyio.to_thread.run_sync(_send_blocking, message)
@@ -86,18 +82,6 @@ async def _send_resend(*, to: str, subject: str, text: str, html: str) -> None:
         "subject": subject,
         "text": text,
         "html": html,
-        # The wordmark travels with the message and the HTML refers to it as
-        # `cid:meadow-logo`, exactly as it does over SMTP. Resend carries `content_id`
-        # through to the MIME part, so one template serves both providers; a client that
-        # ignores the relation shows the alt text and the mail still reads.
-        "attachments": [
-            {
-                "filename": LOGO_PATH.name,
-                "content": base64.b64encode(_LOGO_BYTES).decode("ascii"),
-                "content_type": "image/png",
-                "content_id": LOGO_CID,
-            }
-        ],
     }
     headers = {"Authorization": f"Bearer {settings.resend_api_key.get_secret_value()}"}
 
