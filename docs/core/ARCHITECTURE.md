@@ -2050,7 +2050,15 @@ the target is about.
 | Arrow pass, per arrow | **10.9 µs**, measured by `pnpm bench:arrows`. 2.2 ms at 200 arrows. |
 | 60fps at 5,000 objects | **not verified.** Every run so far rasterised in software (SwiftShader), where `app.render()` returns before rasterisation finishes, so it measures CPU work only. Needs `/canvas-dev.html?n=5000&stress` on real hardware. |
 | 20,000 objects | **never measured.** The dev machine OOM-kills the run at that size, so the benchmark takes one object count per invocation. |
-| Concurrent editors, cursor latency, compaction | not yet applicable. M5. |
+| Concurrent editors sustained per board | **50** at the configured cap (the 51st refused with 4429). With the cap raised: **400 writing editors with zero updates lost**, but only **~100-130 stay current** - fan-out is E(E-1)r frames/s, so past that the room is correct and behind. Measured by `services/api/loadtest`. |
+| Fan-out throughput, one room | **~15,000-17,000 frames/s achieved.** A 400-editor room *offers* 158,000/s and gets a tenth of it; offered load is demand, not throughput. |
+| Cursor propagation p50 / p95 | **1.9 / 2.5 ms** at 5 peers, **6.3 / 8.1 ms** at 50, 100% delivery. `--suite cursors`. |
+| Compaction | **3,300-15,700 updates/s**, N rows -> 1 snapshot, idempotent. Bytes shrink only 1.15x-1.32x: Yjs keeps tombstones, so the win is row count and read amplification, not disk. |
+| Concurrent websockets, one process | **15,000**, zero failures, ~89 KB server RSS each. The sweep hit its own limit, not the server's. |
+
+Taken on a 4-core / 4.9 GB WSL2 machine with the load generator sharing those cores, so
+these are floors rather than ceilings. `docs/DECISIONS.md` carries the scaling law and
+what a larger machine would and would not change.
 
 ---
 

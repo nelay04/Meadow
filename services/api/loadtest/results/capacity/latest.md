@@ -1,0 +1,744 @@
+# Meadow load and performance run
+
+- **commit** `0d4fbec`
+- **when** 2026-09-10T11:56:09+00:00
+- **host** Linux-6.18.33.1-microsoft-standard-WSL2-x86_64-with-glibc2.43, 4 logical CPUs, Python 3.14.4
+- **target** http://127.0.0.1:8099, 1 uvicorn worker, rate limiting off
+- **wall** 768.4s
+
+Load generator and server share this machine, so both compete for the same cores. Latencies are therefore pessimistic and throughput is a floor, not a ceiling.
+
+## Headline numbers
+
+| what | measured |
+|---|---|
+
+## Per-operation latency
+
+### REST latency while holding open websockets
+
+| operation | ok | err | rate/s | p50 | p95 | p99 | max |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| GET /boards/{id} (idle) | 1412 | 0 | 141.2 | 6.906 | 9.458 | 10.987 | 36.397 |
+| GET /boards/{id} (400 sockets open) | 1382 | 0 | 138.1 | 7.053 | 9.494 | 12.141 | 17.158 |
+
+
+## Raw
+
+```json
+{
+  "capacity_sockets": {
+    "boards": 60,
+    "max_concurrent_sockets": 15000,
+    "reached_limit": true,
+    "first_failure": null,
+    "saturating_generator": false,
+    "peak_rss_mb": 961.8,
+    "rounds": [
+      {
+        "sockets_open": 250,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 2.23,
+        "open_rate_per_s": 111.9,
+        "rss_mb": 80.4
+      },
+      {
+        "sockets_open": 500,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 1.88,
+        "open_rate_per_s": 133.0,
+        "rss_mb": 95.6
+      },
+      {
+        "sockets_open": 750,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 1.8,
+        "open_rate_per_s": 138.6,
+        "rss_mb": 107.7
+      },
+      {
+        "sockets_open": 1000,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 1.87,
+        "open_rate_per_s": 134.0,
+        "rss_mb": 120.9
+      },
+      {
+        "sockets_open": 1250,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 2.39,
+        "open_rate_per_s": 104.8,
+        "rss_mb": 133.2
+      },
+      {
+        "sockets_open": 1500,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 2.15,
+        "open_rate_per_s": 116.3,
+        "rss_mb": 146.0
+      },
+      {
+        "sockets_open": 1750,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 1.89,
+        "open_rate_per_s": 132.2,
+        "rss_mb": 159.3
+      },
+      {
+        "sockets_open": 2000,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 1.73,
+        "open_rate_per_s": 144.2,
+        "rss_mb": 173.9
+      },
+      {
+        "sockets_open": 2250,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 1.91,
+        "open_rate_per_s": 131.2,
+        "rss_mb": 189.4
+      },
+      {
+        "sockets_open": 2500,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 2.09,
+        "open_rate_per_s": 119.6,
+        "rss_mb": 204.8
+      },
+      {
+        "sockets_open": 2750,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 1.91,
+        "open_rate_per_s": 131.0,
+        "rss_mb": 219.9
+      },
+      {
+        "sockets_open": 3000,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 2.02,
+        "open_rate_per_s": 123.9,
+        "rss_mb": 235.3
+      },
+      {
+        "sockets_open": 3250,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 2.19,
+        "open_rate_per_s": 114.4,
+        "rss_mb": 250.8
+      },
+      {
+        "sockets_open": 3500,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 2.31,
+        "open_rate_per_s": 108.1,
+        "rss_mb": 264.4
+      },
+      {
+        "sockets_open": 3750,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 2.04,
+        "open_rate_per_s": 122.3,
+        "rss_mb": 275.5
+      },
+      {
+        "sockets_open": 4000,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 2.4,
+        "open_rate_per_s": 104.3,
+        "rss_mb": 287.9
+      },
+      {
+        "sockets_open": 4250,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 1.99,
+        "open_rate_per_s": 125.9,
+        "rss_mb": 299.9
+      },
+      {
+        "sockets_open": 4500,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 2.09,
+        "open_rate_per_s": 119.8,
+        "rss_mb": 312.3
+      },
+      {
+        "sockets_open": 4750,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 2.06,
+        "open_rate_per_s": 121.5,
+        "rss_mb": 325.9
+      },
+      {
+        "sockets_open": 5000,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 1.73,
+        "open_rate_per_s": 144.6,
+        "rss_mb": 340.3
+      },
+      {
+        "sockets_open": 5250,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 1.99,
+        "open_rate_per_s": 125.6,
+        "rss_mb": 355.4
+      },
+      {
+        "sockets_open": 5500,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 1.89,
+        "open_rate_per_s": 132.2,
+        "rss_mb": 371.7
+      },
+      {
+        "sockets_open": 5750,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 1.84,
+        "open_rate_per_s": 136.0,
+        "rss_mb": 387.2
+      },
+      {
+        "sockets_open": 6000,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 2.26,
+        "open_rate_per_s": 110.7,
+        "rss_mb": 402.9
+      },
+      {
+        "sockets_open": 6250,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 3.18,
+        "open_rate_per_s": 78.6,
+        "rss_mb": 419.2
+      },
+      {
+        "sockets_open": 6500,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 2.16,
+        "open_rate_per_s": 115.6,
+        "rss_mb": 434.5
+      },
+      {
+        "sockets_open": 6750,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 1.88,
+        "open_rate_per_s": 133.1,
+        "rss_mb": 450.2
+      },
+      {
+        "sockets_open": 7000,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 1.99,
+        "open_rate_per_s": 125.9,
+        "rss_mb": 461.7
+      },
+      {
+        "sockets_open": 7250,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 2.27,
+        "open_rate_per_s": 110.1,
+        "rss_mb": 472.7
+      },
+      {
+        "sockets_open": 7500,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 2.27,
+        "open_rate_per_s": 110.2,
+        "rss_mb": 485.4
+      },
+      {
+        "sockets_open": 7750,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 2.03,
+        "open_rate_per_s": 123.0,
+        "rss_mb": 496.8
+      },
+      {
+        "sockets_open": 8000,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 2.45,
+        "open_rate_per_s": 102.0,
+        "rss_mb": 509.4
+      },
+      {
+        "sockets_open": 8250,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 2.44,
+        "open_rate_per_s": 102.5,
+        "rss_mb": 522.7
+      },
+      {
+        "sockets_open": 8500,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 2.66,
+        "open_rate_per_s": 94.1,
+        "rss_mb": 536.5
+      },
+      {
+        "sockets_open": 8750,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 2.3,
+        "open_rate_per_s": 108.9,
+        "rss_mb": 550.5
+      },
+      {
+        "sockets_open": 9000,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 2.78,
+        "open_rate_per_s": 90.0,
+        "rss_mb": 565.9
+      },
+      {
+        "sockets_open": 9250,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 1.84,
+        "open_rate_per_s": 136.1,
+        "rss_mb": 581.2
+      },
+      {
+        "sockets_open": 9500,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 2.37,
+        "open_rate_per_s": 105.6,
+        "rss_mb": 596.7
+      },
+      {
+        "sockets_open": 9750,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 2.92,
+        "open_rate_per_s": 85.5,
+        "rss_mb": 612.8
+      },
+      {
+        "sockets_open": 10000,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 1.9,
+        "open_rate_per_s": 131.4,
+        "rss_mb": 628.4
+      },
+      {
+        "sockets_open": 10250,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 1.76,
+        "open_rate_per_s": 142.1,
+        "rss_mb": 644.3
+      },
+      {
+        "sockets_open": 10500,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 4.23,
+        "open_rate_per_s": 59.2,
+        "rss_mb": 660.3
+      },
+      {
+        "sockets_open": 10750,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 2.21,
+        "open_rate_per_s": 113.2,
+        "rss_mb": 676.3
+      },
+      {
+        "sockets_open": 11000,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 2.49,
+        "open_rate_per_s": 100.4,
+        "rss_mb": 693.3
+      },
+      {
+        "sockets_open": 11250,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 3.11,
+        "open_rate_per_s": 80.4,
+        "rss_mb": 709.5
+      },
+      {
+        "sockets_open": 11500,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 2.95,
+        "open_rate_per_s": 84.8,
+        "rss_mb": 725.5
+      },
+      {
+        "sockets_open": 11750,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 3.52,
+        "open_rate_per_s": 71.0,
+        "rss_mb": 737.8
+      },
+      {
+        "sockets_open": 12000,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 2.4,
+        "open_rate_per_s": 104.0,
+        "rss_mb": 748.5
+      },
+      {
+        "sockets_open": 12250,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 2.58,
+        "open_rate_per_s": 96.9,
+        "rss_mb": 760.0
+      },
+      {
+        "sockets_open": 12500,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 2.18,
+        "open_rate_per_s": 114.5,
+        "rss_mb": 772.4
+      },
+      {
+        "sockets_open": 12750,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 2.35,
+        "open_rate_per_s": 106.4,
+        "rss_mb": 784.8
+      },
+      {
+        "sockets_open": 13000,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 3.98,
+        "open_rate_per_s": 62.8,
+        "rss_mb": 797.4
+      },
+      {
+        "sockets_open": 13250,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 2.83,
+        "open_rate_per_s": 88.4,
+        "rss_mb": 809.8
+      },
+      {
+        "sockets_open": 13500,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 2.85,
+        "open_rate_per_s": 87.8,
+        "rss_mb": 821.8
+      },
+      {
+        "sockets_open": 13750,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 2.53,
+        "open_rate_per_s": 98.8,
+        "rss_mb": 834.9
+      },
+      {
+        "sockets_open": 14000,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 1.98,
+        "open_rate_per_s": 126.3,
+        "rss_mb": 849.2
+      },
+      {
+        "sockets_open": 14250,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 2.17,
+        "open_rate_per_s": 115.1,
+        "rss_mb": 863.0
+      },
+      {
+        "sockets_open": 14500,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 2.36,
+        "open_rate_per_s": 105.8,
+        "rss_mb": 878.2
+      },
+      {
+        "sockets_open": 14750,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 2.42,
+        "open_rate_per_s": 103.3,
+        "rss_mb": 892.7
+      },
+      {
+        "sockets_open": 15000,
+        "batch": 250,
+        "opened": 250,
+        "failed": 0,
+        "batch_seconds": 2.68,
+        "open_rate_per_s": 93.2,
+        "rss_mb": 907.0
+      }
+    ]
+  },
+  "capacity_editing_room": {
+    "points": [
+      {
+        "editors_requested": 50,
+        "editors_joined": 50,
+        "join_failures": 0,
+        "duration_s": 15.03,
+        "writes_issued": 750,
+        "offered_writes_per_s": 49.9,
+        "settle_s": 2.26,
+        "drain_s": 0.26,
+        "objects_on_server": 750,
+        "lost_updates": 0,
+        "converged": true,
+        "settle_timed_out": false,
+        "fanout_frames": 36750,
+        "offered_fanout_frames_per_s": 2445.9,
+        "achieved_fanout_frames_per_s": 2404.0,
+        "kept_up": true,
+        "write_p95_ms": 0.13057299656793475,
+        "connect_p95_ms": 586.4768680003181,
+        "write_errors": 0,
+        "peak_rss_mb": 961.9
+      },
+      {
+        "editors_requested": 100,
+        "editors_joined": 100,
+        "join_failures": 0,
+        "duration_s": 15.03,
+        "writes_issued": 1500,
+        "offered_writes_per_s": 99.8,
+        "settle_s": 2.27,
+        "drain_s": 0.27,
+        "objects_on_server": 1500,
+        "lost_updates": 0,
+        "converged": true,
+        "settle_timed_out": false,
+        "fanout_frames": 148500,
+        "offered_fanout_frames_per_s": 9877.0,
+        "achieved_fanout_frames_per_s": 9704.7,
+        "kept_up": true,
+        "write_p95_ms": 0.1414340003975667,
+        "connect_p95_ms": 876.8964230002894,
+        "write_errors": 0,
+        "peak_rss_mb": 961.9
+      },
+      {
+        "editors_requested": 200,
+        "editors_joined": 200,
+        "join_failures": 0,
+        "duration_s": 15.13,
+        "writes_issued": 3000,
+        "offered_writes_per_s": 198.3,
+        "settle_s": 25.89,
+        "drain_s": 23.89,
+        "objects_on_server": 3000,
+        "lost_updates": 0,
+        "converged": true,
+        "settle_timed_out": false,
+        "fanout_frames": 597000,
+        "offered_fanout_frames_per_s": 39458.4,
+        "achieved_fanout_frames_per_s": 15299.0,
+        "kept_up": false,
+        "write_p95_ms": 0.2578109997557476,
+        "connect_p95_ms": 1765.0064070003282,
+        "write_errors": 0,
+        "peak_rss_mb": 961.9
+      },
+      {
+        "editors_requested": 400,
+        "editors_joined": 400,
+        "join_failures": 0,
+        "duration_s": 15.22,
+        "writes_issued": 6000,
+        "offered_writes_per_s": 394.3,
+        "settle_s": 146.43,
+        "drain_s": 144.43,
+        "objects_on_server": 6000,
+        "lost_updates": 0,
+        "converged": true,
+        "settle_timed_out": false,
+        "fanout_frames": 2394000,
+        "offered_fanout_frames_per_s": 157317.9,
+        "achieved_fanout_frames_per_s": 14995.6,
+        "kept_up": false,
+        "write_p95_ms": 0.20163700173725374,
+        "connect_p95_ms": 2905.416622001212,
+        "write_errors": 0,
+        "peak_rss_mb": 961.9
+      }
+    ],
+    "max_lossless_editors": 400,
+    "max_realtime_editors": 100,
+    "peak_achieved_fanout_frames_per_s": 15299.0,
+    "all_converged": true
+  },
+  "capacity_rest_under_sockets": {
+    "sockets_held": 400,
+    "idle": {
+      "name": "GET /boards/{id} (idle)",
+      "unit": "ms",
+      "count": 1412,
+      "errors": 0,
+      "error_detail": {},
+      "error_rate": 0.0,
+      "elapsed_s": 10.002,
+      "throughput_per_s": 141.2,
+      "min": 4.687,
+      "p50": 6.906,
+      "p95": 9.458,
+      "p99": 10.987,
+      "max": 36.397,
+      "mean": 7.079
+    },
+    "loaded": {
+      "name": "GET /boards/{id} (400 sockets open)",
+      "unit": "ms",
+      "count": 1382,
+      "errors": 0,
+      "error_detail": {},
+      "error_rate": 0.0,
+      "elapsed_s": 10.005,
+      "throughput_per_s": 138.1,
+      "min": 4.835,
+      "p50": 7.053,
+      "p95": 9.494,
+      "p99": 12.141,
+      "max": 17.158,
+      "mean": 7.236
+    },
+    "p95_ratio": 1.0,
+    "throughput_ratio": 0.98
+  },
+  "capacity_rest": {
+    "points": [
+      {
+        "concurrency": 32,
+        "requests_per_s": 198.2,
+        "errors": 0,
+        "worst_p95_ms": 387.866
+      },
+      {
+        "concurrency": 64,
+        "requests_per_s": 223.0,
+        "errors": 0,
+        "worst_p95_ms": 801.322
+      },
+      {
+        "concurrency": 128,
+        "requests_per_s": 235.2,
+        "errors": 0,
+        "worst_p95_ms": 924.218
+      },
+      {
+        "concurrency": 256,
+        "requests_per_s": 106.7,
+        "errors": 3,
+        "worst_p95_ms": 6882.007
+      }
+    ],
+    "peak_requests_per_s": 235.2,
+    "peak_at_concurrency": 128
+  }
+}
+```

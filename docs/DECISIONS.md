@@ -141,7 +141,103 @@ are reported separately rather than rounded into the good column.
 | Arrow pass, per arrow | **10.9 µs**, `pnpm bench:arrows`. 2.2 ms at 200 arrows |
 | 60fps at 5,000 objects | **not verified.** Every run so far rasterised in software, where the render call returns before rasterisation finishes, so it measures CPU work only. Needs real hardware |
 | 20,000 objects | **never measured.** The dev machine OOM-kills the run at that size |
-| Concurrent editors, cursor latency, compaction throughput | **not measured.** Correctness is covered by the suites; the numbers are not |
+| Concurrent editors per board | **50 accepted, the 51st refused with 4429**, measured. That is `max_clients_per_room` doing its job, not a capacity limit - with the cap raised, one room sustained **400 writing editors losslessly**. See below |
+| Cursor propagation | **p50 1.9 ms / p95 2.5 ms** in a 5-peer room, **p50 6.3 ms / p95 8.1 ms** at 50 peers, 100% delivery at every size, `--suite cursors` |
+| Compaction throughput | **3,300-15,700 updates/s** folded, log rows N -> 0, idempotent. Bytes only **1.15x-1.32x** though - see "what compaction is actually for" below |
+| Update ingest, one room | **~590 updates/s** absorbed losslessly with 10 writers going flat out, `--suite editors` |
+| Login | **9.3/s, p50 1.6 s** at 16 concurrent. That is argon2id, and it is the intended cost of the hash rather than a bottleneck to remove |
+| REST reads | **peak 235-247 req/s**, zero errors, with the knee somewhere between 64 and 128 concurrent depending on what else the box is doing. Past it the curve *collapses* rather than plateaus: **~105 req/s at 256**, p95 ~6.9 s, and the first errors of the whole suite. One worker, and past the knee more load costs throughput as well as latency |
+
+Taken by `services/api/loadtest` on a 4-core WSL2 machine where the load generator and
+the server share the cores, so the latencies are pessimistic and the throughputs are
+floors. `services/api/loadtest/README.md` says how to reproduce them.
+
+## Where it actually stops
+
+`max_clients_per_room = 50` is a *setting*, and measuring it only tells you what the
+setting says. Run against a target with that cap raised, the ceilings are:
+
+| | |
+|---|---|
+| Concurrent websockets, one process | **15,000**, zero failures, ~95 KB of server RSS each. The sweep stopped because it hit its own configured limit, not because the server did |
+| Writing editors in **one** room, losslessly | **400.** 6,000 writes, **zero lost**, converged - but it takes 132 s of drain after 15 s of typing to get there |
+| Writing editors that stay **current** | **~100-130.** At 100 the room drains in 0.3 s; at 200 it is 20 s behind and at 400 it is 132 s behind. Correct and current are different ceilings, and the second is the one a user feels |
+| Fan-out throughput, one room | **~15,000-17,000 frames/s achieved** across runs. Note the trap: 400 editors *offer* 158,000 frames/s, and the room delivers a tenth of that. The offered figure is demand, not throughput |
+| REST concurrency knee | **64.** Beyond it throughput falls rather than plateaus - the queue in front of one worker grows faster than it drains |
+
+An idle socket, by contrast, costs the event loop nothing measurable: with 400 held
+open, REST p95 moved by 4% and throughput by 2%. It is the fan-out that fills the loop,
+not the connection count - which is why the room ceiling and the socket ceiling are
+two thousand apart.
+
+The gap between the lossless ceiling and the real-time one is the useful part. Fan-out
+is O(peers) per edit, so one edit in a 400-person room is 399 frames; the server accepts
+all of it and loses none of it, but it finishes long after the editing stopped.
+
+### The scaling law, and why a bigger box helps less than you would think
+
+Fan-out demand in a room of `E` editors each writing `r` times a second is
+
+    frames/s = E x (E - 1) x r
+
+which the measurements match to within 0.05% (E=400, r=1: model 158,204/s, measured
+158,187/s). It is **quadratic in room size** - doubling the people quadruples the work.
+
+A room stays current while that demand is under the achieved ceiling `F`, so the
+sustainable room size is `E ~ sqrt(F / r)`. With the measured F = 15,300 frames/s:
+
+| edit rate per user | real-time room size |
+|---|---|
+| 0.5 /s | ~175 |
+| 1 /s | ~124 |
+| 2 /s | ~88 |
+
+Measured against that: 100 editors kept up (0.27 s drain), 200 did not (23.9 s). The
+boundary sits between them, which is where `E ~ 124` puts it.
+
+And because it is a square root, **hardware buys room size very slowly**. If a
+dedicated, faster core delivered `k` times the fan-out:
+
+| k | fan-out | real-time room at 1 edit/s |
+|---|---|---|
+| 1x (measured here) | 15,300/s | 124 |
+| 2x | 30,600/s | 175 |
+| 4x | 61,200/s | 248 |
+| 8x | 122,400/s | 350 |
+
+An eight-fold faster machine buys under three times the room. These are projections
+from the measured law, not measurements - the only measured column is the first.
+
+The other half of the answer is that **more cores do not help a single room at all.**
+Rooms are in-process state, so the API runs one uvicorn worker and one event loop, and
+a room's fan-out is bound to one core no matter how many the box has (see "known sharp
+edges"). Extra cores raise total *sockets* and total *boards*; they do not raise the
+ceiling for one board. Getting past that is a redesign - rooms behind a shared bus -
+not a bigger instance.
+
+### What a larger machine would give
+
+Extrapolated from the measured per-unit costs, and to be treated as arithmetic rather
+than as results:
+
+| | measured here | the constraint |
+|---|---|---|
+| Server memory per idle socket | **~89 KB** (80 MB -> 1,423 MB over 15,000 sockets) | roughly linear, so ~12 GB of headroom implies O(100k) sockets before memory bites |
+| Concurrent sockets | **15,000** on a 4.9 GB box, zero failures | the sweep hit its own limit; memory, file descriptors and ephemeral ports are the next walls, not the server |
+| Fan-out per room | **~15,300 frames/s** on a contended core | one event loop, one core. Scales with single-core speed, not core count |
+| REST reads | **235-247 req/s, knee at 64-128** | one worker. This one *would* scale with workers, if rooms did not forbid them |
+
+## What compaction is actually for
+
+The fold reclaims **rows, not bytes**: N update rows become one snapshot, but the
+snapshot is only 1.15x-1.32x smaller than the log it replaced. Yjs keeps a tombstone
+for every superseded item, so even a board whose writes churn 50 objects 40 times over
+does not collapse to the size of 50 objects.
+
+That is not compaction failing. Room load reads every row for a board, so turning 5,000
+rows into 1 is the win - the read amplification, and the row count that would otherwise
+grow without bound. It is worth writing down because "compaction saves disk" is the
+obvious reading of it, and the measurement says otherwise.
 
 ---
 

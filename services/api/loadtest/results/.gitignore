@@ -1,0 +1,8 @@
+# Keep `latest.md` / `latest.json` - they are the evidence behind the numbers quoted in
+# docs/DECISIONS.md, and a reader should be able to check them without running anything.
+#
+# Drop the timestamped runs. They accumulate one pair per invocation, they are only
+# useful while comparing two runs on one machine, and a repository is the wrong place
+# to keep a pile of them.
+run-*.json
+report-*.md
