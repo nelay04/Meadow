@@ -132,6 +132,10 @@ services:
       MEADOW_OAUTH_STATE_TTL_SECONDS: ${MEADOW_OAUTH_STATE_TTL_SECONDS:-600}
       # Activation mail. Blank host means accounts are created already activated, which
       # is a development convenience and wrong here: set these.
+      MEADOW_MAIL_PROVIDER: ${MEADOW_MAIL_PROVIDER:-smtp}
+      MEADOW_RESEND_API_KEY: ${MEADOW_RESEND_API_KEY:-}
+      MEADOW_RESEND_FROM: ${MEADOW_RESEND_FROM:-}
+      MEADOW_RESEND_FROM_NAME: ${MEADOW_RESEND_FROM_NAME:-Meadow}
       MEADOW_SMTP_HOST: ${MEADOW_SMTP_HOST:-}
       MEADOW_SMTP_PORT: ${MEADOW_SMTP_PORT:-587}
       MEADOW_SMTP_USER: ${MEADOW_SMTP_USER:-}

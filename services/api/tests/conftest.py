@@ -34,6 +34,9 @@ os.environ["MEADOW_RATE_LIMIT_ENABLED"] = "false"
 # a real relay that is slow or unreachable turns every registering test into a timeout.
 # With no host configured accounts are opened immediately, which is the state the rest of
 # the suite assumes; `test_activation.py` monkeypatches the settings and stubs the send.
+# The provider is pinned too: a developer whose .env selects Resend would otherwise take
+# the Resend path with a real key, and blanking the SMTP host would not stop it.
+os.environ["MEADOW_MAIL_PROVIDER"] = "smtp"
 os.environ["MEADOW_SMTP_HOST"] = ""
 os.environ["MEADOW_SMTP_FROM"] = ""
 

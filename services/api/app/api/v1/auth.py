@@ -308,7 +308,7 @@ async def request_password_reset(
         # No relay, so no link can be delivered. Refusing silently is the honest
         # outcome: inventing a way to change a password without the mail would be a
         # second, weaker door into every account.
-        logger.warning("password reset asked for but no smtp is configured")
+        logger.warning("password reset asked for but no mail provider is configured")
         return
 
     try:

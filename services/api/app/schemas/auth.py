@@ -83,7 +83,7 @@ class RegistrationPending(BaseModel):
     """
 
     email: str
-    # False only on a deployment with no SMTP configured, where the account is opened
+    # False only on a deployment with no mail provider configured, where the account is opened
     # immediately. The client shows "check your mail" or "you can log in now" from this
     # rather than assuming which world it is in.
     activation_required: bool = True

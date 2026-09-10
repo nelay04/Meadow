@@ -75,7 +75,7 @@ def _safe_intent(raw: str) -> str:
 
 
 async def _start_activation(session: Session, user: User) -> bool:
-    """Mail the activation link, or open the account where there is no SMTP configured.
+    """Mail the activation link, or open the account where there is no mail provider configured.
 
     The same helper the password form uses, kept here as a call into it rather than a
     second copy: an account created through GitHub is activated exactly like one created

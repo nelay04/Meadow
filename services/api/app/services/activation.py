@@ -208,7 +208,7 @@ async def _resolve_password_reset(
 
 
 async def activate_without_mail(session: AsyncSession, user: User) -> None:
-    """Open the account immediately, for a deployment with no SMTP configured.
+    """Open the account immediately, for a deployment with no mail provider configured.
 
     A development machine that cannot send mail would otherwise produce accounts nobody
     can ever open. Loud on purpose: this is the one path where an address is trusted
@@ -221,7 +221,7 @@ async def activate_without_mail(session: AsyncSession, user: User) -> None:
     only works in production, which is the same as one nobody can test.
     """
     logger.warning(
-        "no smtp configured: activating %s without confirming the address", user.id
+        "no mail provider configured: activating %s without confirming the address", user.id
     )
     user.activated_at = datetime.now(UTC)
     await sharing.apply_pending(session, user)

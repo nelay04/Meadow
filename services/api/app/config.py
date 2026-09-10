@@ -143,10 +143,28 @@ class Settings(BaseSettings):
 
     # --- activation mail ---
     # A registration is not finished until the address answers, so this is what makes
-    # an account usable at all. Blank host is the off switch and it is honest about
-    # itself: with no SMTP configured an account is created already activated, because
-    # the alternative is an account nobody can ever open. That is a development
+    # an account usable at all. Mail can go out two ways and `mail_provider` picks one:
+    # "smtp" hands the message to a relay, "resend" posts it to the Resend API. The
+    # settings for the other provider are ignored rather than validated, so switching is
+    # one variable and no cleanup.
+    #
+    # Whichever is chosen, leaving it unconfigured is the off switch and it is honest
+    # about itself: with no mail configured an account is created already activated,
+    # because the alternative is an account nobody can ever open. That is a development
     # convenience and the API logs a warning every time it takes that path.
+    mail_provider: str = "smtp"
+
+    # --- resend ---
+    # The API key is a credential: it is read by the API only and never reaches the
+    # browser. `resend_from` must be an address on a domain verified in the Resend
+    # dashboard - Resend refuses the send outright otherwise, it does not silently
+    # rewrite the sender.
+    resend_api_key: SecretStr = SecretStr("")
+    resend_from: str = ""
+    resend_from_name: str = "Meadow"
+    resend_timeout_seconds: int = 15
+
+    # --- smtp ---
     smtp_host: str = ""
     smtp_port: int = 587
     # The sender's mailbox, and usually also the login. Kept as two settings because a
@@ -173,8 +191,22 @@ class Settings(BaseSettings):
     password_reset_ttl_hours: int = 1
 
     @property
+    def mail_provider_name(self) -> str:
+        """The chosen provider, normalised. Anything unrecognised means no mail at all.
+
+        Not rejected at startup: a typo here should degrade to the same "no mail
+        configured" path a blank host takes, not stop an API that is otherwise fine
+        from booting.
+        """
+        return self.mail_provider.strip().lower()
+
+    @property
     def mail_enabled(self) -> bool:
-        return bool(self.smtp_host and self.smtp_from)
+        if self.mail_provider_name == "resend":
+            return bool(self.resend_api_key.get_secret_value() and self.resend_from)
+        if self.mail_provider_name == "smtp":
+            return bool(self.smtp_host and self.smtp_from)
+        return False
 
     @property
     def github_oauth_enabled(self) -> bool:

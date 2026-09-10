@@ -138,6 +138,10 @@ services:
       MEADOW_WEB_BASE_URL: ${MEADOW_WEB_BASE_URL:-http://localhost:${WEB_PORT:-3012}}
       # Also from the repo-root .env. Blank host is a working configuration here: the
       # account is opened without the mail, and the API says so in the log.
+      MEADOW_MAIL_PROVIDER: ${MEADOW_MAIL_PROVIDER:-smtp}
+      MEADOW_RESEND_API_KEY: ${MEADOW_RESEND_API_KEY:-}
+      MEADOW_RESEND_FROM: ${MEADOW_RESEND_FROM:-}
+      MEADOW_RESEND_FROM_NAME: ${MEADOW_RESEND_FROM_NAME:-Meadow}
       MEADOW_SMTP_HOST: ${MEADOW_SMTP_HOST:-}
       MEADOW_SMTP_PORT: ${MEADOW_SMTP_PORT:-587}
       MEADOW_SMTP_USER: ${MEADOW_SMTP_USER:-}
