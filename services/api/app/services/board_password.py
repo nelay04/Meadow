@@ -52,11 +52,23 @@ from app.config import settings
 if TYPE_CHECKING:
     from app.models import Board
 
-#: The shortest password worth calling one. Long enough that the rate limit on the
-#: verify endpoint is doing arithmetic rather than a formality, short enough that a
-#: board password can be the sort of thing said out loud on a call, which is how this
-#: one is usually shared.
-MIN_LENGTH = 6
+#: The shortest password worth calling one.
+#:
+#: Four, and that is a deliberate trade rather than a default. This password is read out
+#: to a room or typed into a phone by somebody looking at another screen, and every
+#: character over the minimum is one more chance to get it wrong in front of people. Six
+#: was the earlier number and was chosen so the rate limit on the verify endpoint would
+#: be doing arithmetic rather than a formality.
+#:
+#: What holds the line at four is that guessing is throttled, not that the space is
+#: large: four digits is ten thousand, which is nothing to a machine and a great deal to
+#: a machine allowed ten tries every five minutes. That makes the rate limits load
+#: bearing in a way they were not at six - `rate_limit_board_password` for a signed-in
+#: caller, and `rate_limit_share` for a link visitor, which is keyed on a client address
+#: and is the looser of the two. Anybody raising either limit should read this note
+#: first: they are now the whole defence for a short password, and not a backstop for a
+#: long one.
+MIN_LENGTH = 4
 
 #: Bounded so a multi-kilobyte string never reaches argon2, which would hash it
 #: happily and slowly.

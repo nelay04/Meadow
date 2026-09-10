@@ -185,6 +185,19 @@ The infrastructure to run the thing. Not deployed yet.
   about this glade, and the password decides whether being told is enough. Cards in the
   list carry a key when a board will ask for one - it is the card you should not click
   while screen-sharing - and a padlock when the owner has frozen edits.
+- **A glade or lea password can be four characters now, down from six.** It is read out
+  to a room or typed off another screen, and every character over the minimum is one more
+  chance to fumble it in front of people.
+
+  Worth being plain about what that costs, because the earlier six was chosen so the rate
+  limit would be doing arithmetic rather than a formality. Four digits is ten thousand
+  possibilities: nothing to a machine, and a great deal to a machine allowed ten tries
+  every five minutes. So the throttles are now the whole defence rather than a backstop -
+  `rate_limit_board_password` for a signed-in caller, and `rate_limit_share` for a
+  visitor on a link, which is keyed on a client address and is the looser of the two.
+  There is a note on `MIN_LENGTH` saying so, aimed at whoever next thinks about raising
+  either limit. The boundary is pinned from both sides in the tests, since a minimum is
+  exactly the sort of number that moves without anybody noticing.
 - **A way back in when the owner forgets a board's password.** The entry above says
   forgetting one costs a click and not a board, and that was true of the routes and
   false of the app. Changing and removing a password never ask for the current one, on

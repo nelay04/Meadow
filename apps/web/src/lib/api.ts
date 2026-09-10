@@ -733,8 +733,14 @@ export function setBoardLock(boardId: string, locked: boolean): Promise<Board> {
 // `app/services/board_password.py` for why the owner is not exempt and why neither of
 // the two owner routes below asks for the current password.
 
-/** The shortest password the server will take. The dialog says so before it refuses. */
-export const MIN_BOARD_PASSWORD = 6
+/**
+ * The shortest password the server will take. The dialog says so before it refuses.
+ *
+ * Kept in step with `MIN_LENGTH` in `app/services/board_password.py` by hand, since the
+ * two sides share no schema. The server is the one that decides; this only exists so the
+ * dialog can say no before a round trip does.
+ */
+export const MIN_BOARD_PASSWORD = 4
 
 /** Put a password on the board, or replace the one it has. Owner only. */
 export function setBoardPassword(boardId: string, password: string): Promise<Board> {

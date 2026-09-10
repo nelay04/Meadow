@@ -125,8 +125,15 @@ def test_the_password_is_never_sent_back(client: TestClient, owner: Actor) -> No
 
 
 def test_a_short_password_is_refused(client: TestClient, owner: Actor) -> None:
+    """The boundary, asserted from both sides.
+
+    Both sides because a minimum is the sort of number that gets changed, and a test
+    that only proves "abc" is refused still passes when the minimum has quietly become
+    twelve. The pair pins where the line actually is.
+    """
     board_id = owner.create_board()
     assert _set_password(client, owner, board_id, "abc").status_code == 422
+    assert _set_password(client, owner, board_id, "abcd").status_code == 200
 
 
 # --- it applies to everybody -----------------------------------------------------
