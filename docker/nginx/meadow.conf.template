@@ -1,5 +1,5 @@
-# The Meadow site. Serves the built SPA and proxies /api and /ws to the API container.
-#
+# The Meadow site. Serves the static landing page at /, the built SPA at /app, and
+# proxies /api and /ws to the API container.
 # This is a template, not a plain conf: the nginx image's entrypoint runs envsubst over
 # /etc/nginx/templates/*.template into /etc/nginx/conf.d/. NGINX_ENVSUBST_FILTER is set
 # to MEADOW_ in the compose file so only the variables below are substituted and
@@ -29,6 +29,11 @@ server {
 
     root /usr/share/nginx/html;
     index index.html;
+
+    # Any redirect nginx generates itself is relative. It builds an absolute one from
+    # $scheme, and TLS is terminated in front of this container, so an absolute redirect
+    # sends an https visitor to an http URL - which the browser then blocks or downgrades.
+    absolute_redirect off;
 
     # Thumbnails are webp captured from the canvas, a few hundred KB at most. The
     # default 1m would truncate a large board's capture into a 413.
@@ -160,12 +165,61 @@ server {
         try_files $uri =404;
     }
 
-    location / {
-        # Client-side routing: /board/<uuid> is not a file.
-        try_files $uri $uri/ /index.html;
+    # The app. Hash-routed, so /app is the only path it ever occupies: every route
+    # under it - #/glade/<uuid>, #/reset/<token> - is a fragment the server never sees.
+    # Two exact matches and no prefix location, which is what keeps this to one request.
+    #
+    # The obvious `location /app { try_files $uri $uri/ /app/index.html; }` does not
+    # work here. /app is a real directory in the built output, and try_files redirects
+    # whenever a name resolves to a directory - so /app answered 301 to /app/, built
+    # from $scheme, which behind a TLS terminator is plain http. Naming the file
+    # outright never matches a directory, so there is no redirect to get wrong.
+    #
+    # Both blocks repeat the server-level security headers on purpose: an add_header
+    # anywhere in a location replaces the inherited set rather than adding to it, so
+    # omitting them here would silently drop nosniff and the frame guard from the app.
+    location = /app {
+        try_files /app/index.html =404;
 
-        # index.html names the fingerprinted bundles, so caching it is how a deploy
+        # app/index.html names the fingerprinted bundles, so caching it is how a deploy
         # goes out and never arrives.
+        add_header Cache-Control "no-cache" always;
+        add_header X-Content-Type-Options nosniff always;
+        add_header X-Frame-Options DENY always;
+        add_header Referrer-Policy strict-origin-when-cross-origin always;
+    }
+
+    location = /app/ {
+        try_files /app/index.html =404;
+
+        add_header Cache-Control "no-cache" always;
+        add_header X-Content-Type-Options nosniff always;
+        add_header X-Frame-Options DENY always;
+        add_header Referrer-Policy strict-origin-when-cross-origin always;
+    }
+
+    # Crawler files. Short cache rather than the HTML's no-cache: a search engine
+    # refetches these on its own schedule and neither changes between deploys.
+    location = /robots.txt {
+        expires 1h;
+        add_header Cache-Control "public" always;
+        access_log off;
+    }
+
+    location = /sitemap.xml {
+        expires 1h;
+        add_header Cache-Control "public" always;
+    }
+
+    location / {
+        # The landing page at /, and nothing else. `=404` rather than the SPA fallback
+        # this used to have, and that is a deliberate SEO change: falling back to a 200
+        # for every unknown path gives a crawler an unbounded supply of URLs that all
+        # return the same page, which Google reports as soft 404s and treats as a sign
+        # the site is thin. There are no path-based routes left to catch - the app is
+        # hash-routed under /app - so a path that is not a file genuinely is missing.
+        try_files $uri $uri/ =404;
+
         add_header Cache-Control "no-cache" always;
         add_header X-Content-Type-Options nosniff always;
         add_header X-Frame-Options DENY always;

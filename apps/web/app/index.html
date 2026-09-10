@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!-- `viewport-fit=cover` so the board can paint under a notch and a home indicator;
+         the panels that float over it pad themselves back out with `env(safe-area-inset-*)`.
+         `interactive-widget` keeps the on-screen keyboard resizing the layout rather than
+         sliding a fixed-position board out from under itself. -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+    />
+    <meta name="theme-color" content="#f4f1ec" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0f1318" media="(prefers-color-scheme: dark)" />
+
+    <!--
+      The app itself is deliberately not indexed, and this is the line that says so.
+
+      Everything under /app is either a sign-in form or somebody's private board behind
+      one, so there is nothing here a search result could usefully point at - a crawler
+      that indexed it would list the login screen under the brand's own name and push
+      the landing page at / down the page. The marketing surface at / carries the
+      opposite instruction and is the only thing meant to rank.
+
+      `noindex` is honoured by every major crawler and does not stop a person following
+      a shared board link; it only stops that link becoming a search result.
+    -->
+    <meta name="robots" content="noindex, nofollow" />
+    <!-- One canonical for the whole app: hash routes are invisible to a crawler anyway,
+         so every /app URL is the same document as far as search is concerned. -->
+    <link rel="canonical" href="https://meadow.creara.in/app" />
+
+    <link rel="icon" type="image/png" sizes="32x32" href="/brand/icon-32.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/brand/icon-192.png" />
+    <link rel="apple-touch-icon" href="/brand/icon-180.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <link
+      rel="preload"
+      href="/fonts/comic-neue-400-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <title>Meadow</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

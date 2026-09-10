@@ -1,0 +1,16 @@
+# https://meadow.creara.in/robots.txt
+
+User-agent: *
+Allow: /
+
+# Everything under /app is a sign-in form or somebody's private board behind one.
+# There is nothing there a search result could usefully point at, and a crawler that
+# indexed it would list the login screen under the brand's own name. The pages
+# themselves also carry `noindex`, which is the instruction that actually removes an
+# already-indexed URL - this only saves the crawl.
+Disallow: /app
+
+# JSON, and never a landing page.
+Disallow: /api/
+
+Sitemap: https://meadow.creara.in/sitemap.xml

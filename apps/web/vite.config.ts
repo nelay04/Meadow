@@ -30,6 +30,26 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     envDir: repoRoot,
+    build: {
+      rollupOptions: {
+        /*
+         * Two documents, not one.
+         *
+         * `index.html` is a hand-written static landing page and the only thing at this
+         * origin a search engine can read: the app renders into an empty div behind a
+         * sign-in form, so a crawler that got the SPA got nothing. `app/index.html` is
+         * that SPA, moved down a path and marked noindex, and vite emits it to
+         * dist/app/index.html so nginx can serve it at /app.
+         *
+         * Old links to /#/glade/<uuid> still land on the landing page, which forwards
+         * the fragment to /app - see the script at the top of index.html.
+         */
+        input: {
+          landing: fileURLToPath(new URL('./index.html', import.meta.url)),
+          app: fileURLToPath(new URL('./app/index.html', import.meta.url)),
+        },
+      },
+    },
     server: {
       port: Number(webPort),
       strictPort: true,

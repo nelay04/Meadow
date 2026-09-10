@@ -2,31 +2,622 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <!-- `viewport-fit=cover` so the board can paint under a notch and a home indicator;
-         the panels that float over it pad themselves back out with `env(safe-area-inset-*)`.
-         `interactive-widget` keeps the on-screen keyboard resizing the layout rather than
-         sliding a fixed-position board out from under itself. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <!--
+      The landing page, and the only document in this project meant to be indexed.
+      The app itself lives at /app and carries `noindex` (see app/index.html).
+
+      It is deliberately hand-written static HTML with its CSS inline and no bundle
+      behind it. A crawler that does not run JavaScript still sees every word below,
+      which is the entire reason this file exists: the app is a hash-routed SPA that
+      renders into an empty div, so before this page there was nothing at this origin
+      for a search engine to read.
+    -->
+
+    <!--
+      Deep-link forwarding, and it runs here - first thing in the head, before any
+      markup - on purpose.
+
+      The app used to live at /, so every bookmark, invitation mail and shared board
+      link in the wild points at https://meadow.creara.in/#/glade/<uuid>. Those still
+      arrive here. Reading the fragment and bouncing them to /app keeps every one of
+      them working, and doing it before the body parses means they never see a frame
+      of marketing on the way to their board.
+
+      The fragment is never sent to a server, so this redirect is also the only thing
+      that *can* preserve a reset or join token: a server-side rewrite would drop it.
+      `replace` rather than `assign` so Back goes where the visitor came from rather
+      than into a redirect loop.
+    -->
+    <script>
+      if (location.hash.startsWith('#/')) {
+        location.replace('/app' + location.search + location.hash)
+      }
+    </script>
+
+    <title>Meadow — Infinite Canvas Whiteboard for Real-Time Collaboration</title>
     <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+      name="description"
+      content="Meadow is an open-source infinite canvas whiteboard where writing, diagramming and drawing share one endless surface. Live multiplayer editing, offline-first sync, and self-hosting with Docker."
     />
+    <link rel="canonical" href="https://meadow.creara.in/" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+
     <meta name="theme-color" content="#f4f1ec" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#0f1318" media="(prefers-color-scheme: dark)" />
-    <meta name="description" content="Think Beyond the horizon..." />
+
+    <!-- Open Graph: what Slack, WhatsApp, LinkedIn and Facebook read when the link is
+         pasted. Without these a shared link renders as a bare URL, which for a tool
+         that spreads by people posting board links is a real cost. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Meadow" />
+    <meta property="og:url" content="https://meadow.creara.in/" />
+    <meta property="og:title" content="Meadow — Infinite Canvas Whiteboard for Real-Time Collaboration" />
+    <meta
+      property="og:description"
+      content="One endless surface for writing, drawing and thinking, shared live. Open source and self-hostable."
+    />
+    <meta property="og:image" content="https://meadow.creara.in/brand/og-cover.png" />
+    <meta property="og:image:width" content="1535" />
+    <meta property="og:image:height" content="863" />
+    <meta
+      property="og:image:alt"
+      content="A Meadow board: shapes, arrows, a sticky note and a second person's cursor"
+    />
+    <meta property="og:locale" content="en_US" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Meadow — Infinite Canvas Whiteboard for Real-Time Collaboration" />
+    <meta
+      name="twitter:description"
+      content="One endless surface for writing, drawing and thinking, shared live. Open source and self-hostable."
+    />
+    <meta name="twitter:image" content="https://meadow.creara.in/brand/og-cover.png" />
+
     <link rel="icon" type="image/png" sizes="32x32" href="/brand/icon-32.png" />
     <link rel="icon" type="image/png" sizes="192x192" href="/brand/icon-192.png" />
     <link rel="apple-touch-icon" href="/brand/icon-180.png" />
-    <link
-      rel="preload"
-      href="/fonts/comic-neue-400-latin.woff2"
-      as="font"
-      type="font/woff2"
-      crossorigin
-    />
-    <title>Meadow</title>
+    <link rel="manifest" href="/site.webmanifest" />
+
+    <!--
+      Structured data. `SoftwareApplication` is what makes Google understand this as a
+      product rather than an article, and it is what a "free / open source" qualifier
+      in a result comes from. The FAQ block mirrors the questions answered further
+      down the page in visible text - inventing answers here that the page does not
+      show is the fastest way to lose the rich result and the trust behind it.
+    -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "SoftwareApplication",
+            "@id": "https://meadow.creara.in/#app",
+            "name": "Meadow",
+            "url": "https://meadow.creara.in/",
+            "applicationCategory": "BusinessApplication",
+            "applicationSubCategory": "Collaborative Whiteboard",
+            "operatingSystem": "Web browser",
+            "description": "An open-source infinite canvas whiteboard where writing, diagramming and drawing share one endless surface, edited live by several people at once.",
+            "image": "https://meadow.creara.in/brand/og-cover.png",
+            "screenshot": "https://meadow.creara.in/brand/og-cover.png",
+            "offers": {
+              "@type": "Offer",
+              "price": "0",
+              "priceCurrency": "USD"
+            },
+            "featureList": [
+              "Infinite canvas",
+              "Real-time multiplayer editing",
+              "Offline-first CRDT sync",
+              "Shapes, arrows and connectors that bind to objects",
+              "Rich text editing on the canvas",
+              "Pressure-sensitive drawing",
+              "Phonetic input for thirteen Indian languages",
+              "Self-hosting with Docker"
+            ]
+          },
+          {
+            "@type": "WebSite",
+            "@id": "https://meadow.creara.in/#website",
+            "url": "https://meadow.creara.in/",
+            "name": "Meadow",
+            "publisher": { "@id": "https://meadow.creara.in/#org" }
+          },
+          {
+            "@type": "Organization",
+            "@id": "https://meadow.creara.in/#org",
+            "name": "Meadow",
+            "url": "https://meadow.creara.in/",
+            "logo": "https://meadow.creara.in/brand/icon-512.png"
+          },
+          {
+            "@type": "FAQPage",
+            "@id": "https://meadow.creara.in/#faq",
+            "mainEntity": [
+              {
+                "@type": "Question",
+                "name": "What is an infinite canvas?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "An infinite canvas is a workspace with no page edge and no fixed size. You pan and zoom instead of scrolling to the bottom of a document, and a diagram, a paragraph and a sketch can sit side by side at whatever scale suits them."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Can several people edit a Meadow board at the same time?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Yes. Meadow is live by default: you see other people's cursors, selections and edits as they happen. Two people typing in the same paragraph merge character by character rather than overwriting each other."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Does Meadow work offline?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Yes. Edits are stored locally and merged when you reconnect, so closing the laptop mid-thought does not lose work and does not force anyone to choose which version to keep."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Is Meadow open source and can I self-host it?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Yes. Meadow runs on your own server with Docker Compose, so your boards stay on infrastructure you control."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Can I type in Indian languages on a Meadow board?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Yes. Meadow has phonetic input for thirteen languages of India, including Bengali, Hindi, Tamil, Telugu, Marathi, Gujarati, Kannada, Malayalam, Odia, Punjabi, Assamese, Nepali and Sanskrit. You type amar and get আমার, with no keyboard layout to install."
+                }
+              }
+            ]
+          }
+        ]
+      }
+    </script>
+
+    <style>
+      /*
+       * The landing page's styles, inline and standalone.
+       *
+       * It does not import the app's styles.css: that file pulls three self-hosted
+       * font families and the whole design system for a page that needs a headline,
+       * some prose and two buttons. The half-dozen tokens it does borrow are copied
+       * below so the two surfaces still look like one product, and the type is a
+       * system stack so the page paints with no font request at all.
+       */
+      :root {
+        color-scheme: light dark;
+        --bg: light-dark(#f4f1ec, #0f1318);
+        --surface: light-dark(#fffefc, #171c23);
+        --surface-2: light-dark(#faf7f2, #1d232b);
+        --fg: light-dark(#1b1c1f, #e9ecf1);
+        --fg-strong: light-dark(#0c0d0f, #ffffff);
+        --muted: light-dark(#6a6b73, #98a1ae);
+        --line: light-dark(#e6e0d7, #262d37);
+        --accent: light-dark(#0f6cbd, #4f9bee);
+        --accent-hover: light-dark(#0c5a9e, #6cb0f4);
+        --accent-ink: #ffffff;
+        --accent-soft: light-dark(#0f6cbd16, #4f9bee22);
+        --radius: 12px;
+        --radius-lg: 16px;
+        --shadow: 0 2px 6px light-dark(#1b1c1f12, #0000005e),
+          0 8px 24px light-dark(#1b1c1f0f, #00000047);
+        --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial,
+          sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: var(--sans);
+        font-size: 17px;
+        line-height: 1.65;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      /* One gutter for the whole page, set here and nowhere else, so no section can
+         lose its side padding at phone width. */
+      .wrap {
+        width: 100%;
+        max-width: 940px;
+        margin: 0 auto;
+        padding-inline: 24px;
+      }
+
+      a {
+        color: var(--accent);
+      }
+
+      h1,
+      h2,
+      h3 {
+        color: var(--fg-strong);
+        line-height: 1.2;
+        letter-spacing: -0.02em;
+        text-wrap: balance;
+      }
+
+      /* --- header ------------------------------------------------------------ */
+
+      header.site {
+        border-bottom: 1px solid var(--line);
+        background: var(--bg);
+      }
+
+      .site-inner {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding-block: 16px;
+      }
+
+      .site-inner img {
+        height: 30px;
+        width: auto;
+        display: block;
+      }
+
+      /* --- hero -------------------------------------------------------------- */
+
+      .hero {
+        padding-block: 72px 56px;
+        text-align: center;
+      }
+
+      .hero h1 {
+        margin: 0 0 20px;
+        font-size: clamp(2.1rem, 6vw, 3.4rem);
+      }
+
+      .tagline {
+        margin: 0 auto 32px;
+        max-width: 34em;
+        font-size: clamp(1.05rem, 2.4vw, 1.28rem);
+        color: var(--muted);
+      }
+
+      .cta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        justify-content: center;
+      }
+
+      .btn {
+        display: inline-block;
+        padding: 12px 24px;
+        border-radius: var(--radius);
+        font-weight: 600;
+        font-size: 1rem;
+        text-decoration: none;
+        border: 1px solid transparent;
+      }
+
+      .btn-primary {
+        background: var(--accent);
+        color: var(--accent-ink);
+      }
+
+      .btn-primary:hover {
+        background: var(--accent-hover);
+      }
+
+      .btn-secondary {
+        border-color: var(--line);
+        background: var(--surface);
+        color: var(--fg);
+      }
+
+      .btn-secondary:hover {
+        background: var(--surface-2);
+      }
+
+      figure {
+        margin: 48px 0 0;
+      }
+
+      figure img {
+        max-width: 100%;
+        height: auto;
+        border-radius: var(--radius-lg);
+        border: 1px solid var(--line);
+        box-shadow: var(--shadow);
+      }
+
+      figcaption {
+        margin-top: 12px;
+        font-size: 0.92rem;
+        color: var(--muted);
+      }
+
+      /* --- sections ---------------------------------------------------------- */
+
+      section {
+        padding-block: 56px;
+        border-top: 1px solid var(--line);
+      }
+
+      section > h2 {
+        margin: 0 0 8px;
+        font-size: clamp(1.5rem, 3.6vw, 2rem);
+      }
+
+      .lede {
+        margin: 0 0 36px;
+        max-width: 44em;
+        color: var(--muted);
+      }
+
+      .grid {
+        display: grid;
+        gap: 20px;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      }
+
+      .card {
+        padding: 24px;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+      }
+
+      .card h3 {
+        margin: 0 0 8px;
+        font-size: 1.1rem;
+      }
+
+      .card p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.97rem;
+      }
+
+      /* --- faq --------------------------------------------------------------- */
+
+      .faq h3 {
+        margin: 28px 0 6px;
+        font-size: 1.08rem;
+      }
+
+      .faq p {
+        margin: 0;
+        color: var(--muted);
+        max-width: 44em;
+      }
+
+      /* --- footer ------------------------------------------------------------ */
+
+      footer.site {
+        border-top: 1px solid var(--line);
+        padding-block: 40px 56px;
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+
+      footer.site nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 20px;
+        margin-bottom: 16px;
+      }
+
+      /* Someone who has set "reduce motion" is told about it by the smooth scroll as
+         much as by any animation, so the anchor jumps instead. */
+      @media (prefers-reduced-motion: no-preference) {
+        html {
+          scroll-behavior: smooth;
+        }
+      }
+    </style>
   </head>
+
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <header class="site">
+      <div class="wrap site-inner">
+        <img src="/brand/meadow-wordmark.png" alt="Meadow" width="900" height="275" />
+        <a class="btn btn-primary" href="/app">Open Meadow</a>
+      </div>
+    </header>
+
+    <main>
+      <div class="wrap">
+        <div class="hero">
+          <h1>One endless canvas for writing, drawing and thinking together</h1>
+          <p class="tagline">
+            Meadow is an open-source infinite canvas whiteboard. Prose, diagrams, sketches
+            and sticky notes share a single surface with no page edge, and everyone on a
+            board sees every change as it happens.
+          </p>
+          <div class="cta">
+            <a class="btn btn-primary" href="/app">Open Meadow</a>
+            <a class="btn btn-secondary" href="#features">See what it does</a>
+          </div>
+        </div>
+
+        <figure>
+          <img
+            src="/brand/og-cover.png"
+            alt="A Meadow board showing shapes, arrows, a sticky note and a second person's cursor moving across the canvas"
+            width="1535"
+            height="863"
+          />
+          <figcaption>A board in Meadow — a glade — with a second person working on it.</figcaption>
+        </figure>
+      </div>
+
+      <div class="wrap">
+        <section id="features">
+          <h2>A whiteboard where everything is the same kind of thing</h2>
+          <p class="lede">
+            A paragraph, a rectangle, an arrow, a sticky note and a pen stroke are all just
+            objects at a position. You move, label, connect, restack and share them without
+            switching modes or opening a second app.
+          </p>
+
+          <div class="grid">
+            <div class="card">
+              <h3>Diagram with shapes that hold their text</h3>
+              <p>
+                Eight primitives — rectangle, ellipse, diamond, parallelogram, triangle,
+                trapezoid, polygon and cylinder — each on its own key. Every one carries its
+                own label, so a box with text is one object, not two that drift apart.
+              </p>
+            </div>
+            <div class="card">
+              <h3>Arrows that stay attached</h3>
+              <p>
+                Connectors come straight, curved or elbowed and bind to shapes rather than to
+                coordinates. Move a shape and its arrows follow, resolved against the real
+                outline instead of a bounding box.
+              </p>
+            </div>
+            <div class="card">
+              <h3>Real rich text on the canvas</h3>
+              <p>
+                Bold, italic, underline, strikethrough and eight sizes, edited in place at any
+                zoom. Two people typing in one paragraph merge character by character.
+              </p>
+            </div>
+            <div class="card">
+              <h3>Draw with pressure</h3>
+              <p>
+                Five nibs — ballpoint, fineliner, calligraphy, brush and highlighter — in four
+                widths and seven colours. A stylus's pressure is honoured, and a mouse's speed
+                stands in for it, so a mouse-drawn line still reads as handwriting.
+              </p>
+            </div>
+            <div class="card">
+              <h3>Type in your own script</h3>
+              <p>
+                Phonetic input for thirteen languages of India: Bengali, Hindi, Assamese,
+                Gujarati, Kannada, Malayalam, Marathi, Nepali, Odia, Punjabi, Sanskrit, Tamil
+                and Telugu. Type <em>amar</em>, get আমার — no keyboard layout to install.
+              </p>
+            </div>
+            <div class="card">
+              <h3>A ruled page, when you want one</h3>
+              <p>
+                A <strong>lea</strong> is a printed surface rather than a blank one: ruled
+                lines, a subject and a date, and pages you can add, name, reorder and tear out.
+                Same document, same tools, different paper.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section id="collaboration">
+          <h2>Real-time collaboration that survives a closed laptop</h2>
+          <p class="lede">
+            Open a board with somebody and you see their cursor, their selection and their
+            edits as they happen. Work offline and the two versions merge when you come back,
+            rather than asking which one to keep. Meadow syncs with CRDTs, so there is no
+            "resolve conflict" step and no last-writer-wins overwrite.
+          </p>
+          <div class="grid">
+            <div class="card">
+              <h3>Share by link or by address</h3>
+              <p>
+                A board is restricted until you say otherwise. Turn on the link and anyone
+                holding it can open the board, signed in or not, as a viewer or an editor.
+                Invitations work whether or not the address has an account yet.
+              </p>
+            </div>
+            <div class="card">
+              <h3>Access that changes immediately</h3>
+              <p>
+                Roles resolve from the database on every request and every socket connect, so
+                removing somebody closes their board instead of waiting for a token to expire.
+              </p>
+            </div>
+            <div class="card">
+              <h3>Every session, visible</h3>
+              <p>
+                Your profile lists every browser holding a session — what it is, from where,
+                and when it was last active. Terminate one and that browser is locked out at
+                once.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section id="self-hosting">
+          <h2>Open source, and yours to host</h2>
+          <p class="lede">
+            Meadow runs on your own server with Docker Compose. Your boards, your database,
+            your infrastructure — no seat count and no vendor holding the data. Sign in with
+            an email and password, with GitHub or with Google; all three land on one account
+            keyed by the verified address.
+          </p>
+          <div class="cta" style="justify-content: flex-start">
+            <a class="btn btn-primary" href="/app">Open Meadow</a>
+          </div>
+        </section>
+
+        <section class="faq" id="faq">
+          <h2>Questions</h2>
+
+          <h3>What is an infinite canvas?</h3>
+          <p>
+            An infinite canvas is a workspace with no page edge and no fixed size. You pan and
+            zoom instead of scrolling to the bottom of a document, and a diagram, a paragraph
+            and a sketch can sit side by side at whatever scale suits them.
+          </p>
+
+          <h3>Can several people edit a Meadow board at the same time?</h3>
+          <p>
+            Yes. Meadow is live by default: you see other people's cursors, selections and
+            edits as they happen. Two people typing in the same paragraph merge character by
+            character rather than overwriting each other.
+          </p>
+
+          <h3>Does Meadow work offline?</h3>
+          <p>
+            Yes. Edits are stored locally and merged when you reconnect, so closing the laptop
+            mid-thought does not lose work and does not force anyone to choose which version to
+            keep.
+          </p>
+
+          <h3>Is Meadow open source and can I self-host it?</h3>
+          <p>
+            Yes. Meadow runs on your own server with Docker Compose, so your boards stay on
+            infrastructure you control.
+          </p>
+
+          <h3>Can I type in Indian languages on a Meadow board?</h3>
+          <p>
+            Yes. Meadow has phonetic input for thirteen languages of India, including Bengali,
+            Hindi, Tamil, Telugu, Marathi, Gujarati, Kannada, Malayalam, Odia, Punjabi,
+            Assamese, Nepali and Sanskrit. You type <em>amar</em> and get আমার, with no keyboard
+            layout to install.
+          </p>
+        </section>
+      </div>
+    </main>
+
+    <footer class="site">
+      <div class="wrap">
+        <nav>
+          <a href="#features">Features</a>
+          <a href="#collaboration">Collaboration</a>
+          <a href="#self-hosting">Self-hosting</a>
+          <a href="#faq">Questions</a>
+          <a href="/app">Open Meadow</a>
+        </nav>
+        <p>Meadow — think beyond the horizon.</p>
+      </div>
+    </footer>
   </body>
 </html>
