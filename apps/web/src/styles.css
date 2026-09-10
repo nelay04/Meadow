@@ -3874,6 +3874,60 @@ dialog.modal::backdrop {
   width: 100%;
 }
 
+/*
+ * Six boxes for a mailed code.
+ *
+ * A grid rather than a flex row so every box is exactly the same width whatever is in
+ * it - `1fr` six times - because six boxes that resize around their contents shuffle
+ * sideways as somebody types, which is the one thing a row of boxes must not do while
+ * the eye is going back and forth to another screen.
+ */
+.otp {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 0.5rem;
+}
+
+.otp-box {
+  /* The width comes from the grid; without this the input's own intrinsic size wins
+     and the track overflows the card on a narrow phone. */
+  width: 100%;
+  min-width: 0;
+  padding: 0.6rem 0;
+  text-align: center;
+  /* The chrome's own face, not JetBrains Mono - the rule `.mono` states above holds
+     here too: a monospaced face in this app means document content. Tabular figures do
+     the only job a mono face would have done, which is 111111 being as wide as 000000
+     so the boxes never look unevenly filled. */
+  font-size: 1.35rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The caret is the only thing saying which box is next, and at this size a hairline in
+   the middle of an empty box is easy to lose. The ring says it instead. */
+.otp-box:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* A refused code is wrong as a whole, not wrong in one box - so all six say so. */
+.otp[data-invalid] .otp-box {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+@media (max-width: 380px) {
+  .otp {
+    gap: 0.35rem;
+  }
+
+  .otp-box {
+    padding: 0.5rem 0;
+    font-size: 1.1rem;
+  }
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;

@@ -185,6 +185,56 @@ The infrastructure to run the thing. Not deployed yet.
   about this glade, and the password decides whether being told is enough. Cards in the
   list carry a key when a board will ask for one - it is the card you should not click
   while screen-sharing - and a padlock when the owner has frozen edits.
+- **A way back in when the owner forgets a board's password.** The entry above says
+  forgetting one costs a click and not a board, and that was true of the routes and
+  false of the app. Changing and removing a password never ask for the current one, on
+  purpose - but both controls live in the glade's own three-dot menu, and the forgotten
+  password is what is holding the glade shut. The escape hatch was on the far side of
+  the door it opens.
+
+  So the password screen now has "Forgot it?" on it. The owner presses it, a six-digit
+  code goes to the address on their account, and typing that code back into the same
+  screen replaces the password with a freshly generated one that lasts two hours. Not
+  the old password: nobody has that, it is argon2id like an account's, and a mail that
+  could quote it back would mean somebody had kept a second copy somewhere.
+
+  The code is set large and centred in the mail, under the same wordmark every other
+  message here carries, because it is the one thing the reader opened the mail for and
+  they are usually holding a phone while they read it. It lands in six boxes rather than
+  a text field: a code read off another screen is read a character at a time, and six
+  boxes hold the reader's place and say how many characters to expect before the first
+  one is typed. Pasting works from any box and fills all six, which is what people
+  actually do - and the sixth character submits, so there is no Confirm underneath that
+  exists only because forms have one. A refusal empties all six and starts again, since
+  a wrong code is wrong as a whole and there is no character to go back and fix.
+
+  **When the two hours are up the glade is shut, not open.** This is the part worth
+  arguing about, and it is the only sane answer: the hash stays where it is, the gate
+  keeps asking, and a temporary password that ran out leaves the owner needing another
+  code. An expiry that took the lock off would turn a two-hour convenience into a
+  two-hour delay before a board unlocked itself, which is precisely the failure a lock
+  must not have. The temporary password is for getting back to the control that sets a
+  real one, and the menu says so - the item reads "Set a proper password…" and carries a
+  Temporary badge with the deadline in its tooltip - and setting one clears the deadline
+  in the same call.
+
+  Six digits is only safe because guessing stops: five wrong attempts kill the code, and
+  the last refusal says to ask for another rather than inviting a sixth that cannot
+  work. Asking again overwrites the previous code rather than issuing a second, so an
+  inbox never holds two that both look valid. Three asks an hour per owner, because each
+  one puts a message in a real mailbox. A pass minted from a temporary password is
+  capped at the password's own deadline, which is the small piece that keeps the two
+  hours honest - without it everybody who had already opened the board would keep it for
+  the rest of the day and the limit would only apply to people who had not.
+
+  The route is owner-only and there is nothing in the request that names a recipient:
+  the code goes to the account that asked, so it cannot be pointed at anybody's inbox by
+  anybody. Only the owner is shown the button, too - a member, a stranger on a link and a
+  visitor with no account see exactly the screen they saw before this existed, because a
+  control that answers "you are not the owner" is a dead end with a wrong turn in front
+  of it. That needs nothing new to be known: `GET /boards/{id}` already answers with the
+  role from behind the password, since what a password holds back is the document and
+  not the board's existence.
 - **The stack: seeing and setting what is in front of what.** Depth has been a document
   fact since M2 - `order` is a `Y.Array` of ids and index is depth - with no face on it
   beyond four keyboard chords. A chord is not a feature to anybody who has not been told

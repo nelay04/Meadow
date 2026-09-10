@@ -88,6 +88,11 @@ class BoardOut(BaseModel):
     # anything derived from it: this is the one bit the client needs to know it must
     # ask before it connects, and to badge the board in the list.
     has_password: bool = False
+    #: When the password stops working, on the temporary one the recovery flow issues.
+    #: Null on every password an owner chose, which is what it usually is. The board
+    #: page uses it to say "set a proper one" with a deadline attached, and the deadline
+    #: matters because when it passes the board is shut rather than open.
+    password_expires_at: datetime | None = None
 
 
 class TrashedBoardOut(BaseModel):
@@ -363,6 +368,48 @@ class BoardPasswordVerify(BaseModel):
     #: board through one. It is what gives them the standing to be asked at all - see
     #: the route.
     link_token: str | None = Field(default=None, max_length=128)
+
+
+class BoardRecoveryStartOut(BaseModel):
+    """What the owner is told after a code has been mailed.
+
+    The address is masked rather than returned whole. The owner knows their own address,
+    so the full one adds nothing they do not have; what they actually need is to be told
+    *which* inbox to go and look in, which the last few characters answer.
+    """
+
+    #: e.g. "a…e@example.com".
+    sent_to: str
+    #: Minutes until the code stops working, so the screen can say so without a second
+    #: copy of the number.
+    expires_in_minutes: int
+
+
+class BoardRecoveryRedeem(BaseModel):
+    """The code from the mail, typed back in."""
+
+    # Bounded rather than fixed at six: a code with a space or a stray character in it
+    # is a wrong code, not a malformed request, and answering 422 would tell somebody
+    # pasting from a mail client that they had hit a different wall than they had.
+    code: str = Field(min_length=1, max_length=32)
+
+
+class BoardRecoveryOut(BaseModel):
+    """The temporary password, returned exactly once.
+
+    In the response as well as in the mail, because the owner is looking at the screen
+    now and the relay may take a minute. It is never readable again from anywhere: what
+    the database holds is argon2id, like every other password here.
+    """
+
+    password: str
+    #: When it stops working - into a board that is still shut. Absolute rather than a
+    #: duration so a screen left open does not count down from the wrong moment.
+    expires_at: datetime
+    #: Whether the same password also reached the owner's inbox. False is not a failure
+    #: of the reset - the password on the screen works either way - and the screen says
+    #: so rather than implying the reset did not happen.
+    mailed: bool
 
 
 class BoardPassOut(BaseModel):

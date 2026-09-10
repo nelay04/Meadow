@@ -41,6 +41,9 @@ from app.schemas.boards import (
     BoardPasswordSet,
     BoardPasswordVerify,
     BoardPatch,
+    BoardRecoveryOut,
+    BoardRecoveryRedeem,
+    BoardRecoveryStartOut,
     InvitationOut,
     InviteCreate,
     InviteResultOut,
@@ -51,7 +54,7 @@ from app.schemas.boards import (
     TitleSuggestion,
     TrashedBoardOut,
 )
-from app.services import access_requests, board_password, sharing, trash
+from app.services import access_requests, board_password, board_recovery, mail, sharing, trash
 from app.services.board_kinds import BoardKind
 from app.services.naming import DEFAULT_TITLE, generate_unique_board_title
 from app.services.permissions import (
@@ -99,6 +102,7 @@ def _out(board: Board, role: BoardRole) -> BoardOut:
         # document, and hiding the board's existence from people who were deliberately
         # given it would be a second, different feature.
         has_password=board_password.is_set(board),
+        password_expires_at=board.password_expires_at,
     )
 
 
@@ -1010,8 +1014,161 @@ async def verify_board_password(
         )
 
     return BoardPassOut(
-        pass_token=board_password.mint_pass(str(board.id), board.password_version),
-        expires_in=settings.board_pass_ttl_seconds,
+        pass_token=board_password.mint_pass(
+            str(board.id), board.password_version, not_after=board.password_expires_at
+        ),
+        expires_in=board_password.pass_lifetime(board),
+    )
+
+
+# --- forgetting the board's password ----------------------------------------------
+#
+# The two routes above are the escape hatch from a forgotten password - neither asks for
+# the current one - and both of them are inside the board, which is what the forgotten
+# password is holding shut. These two are how an owner reaches that hatch from the
+# password screen instead.
+#
+# Owner-only, like the rest of it, and there is nothing in either request that names a
+# recipient: the code goes to the address on the account that is asking. So this is not
+# a way to send mail to anybody, including with a board id somebody else owns.
+#
+# See `app/services/board_recovery.py` for why it is a code rather than a link, and why
+# what it buys is a new password with two hours on it rather than the old one.
+
+
+def _mask(email: str) -> str:
+    """"ada@example.com" -> "a…a@example.com". Enough to name an inbox, not to read it.
+
+    The owner already knows the address; what they need from it is which of theirs the
+    mail went to. A short local part masks to a single character rather than growing
+    a second one out of nothing.
+    """
+    local, _, domain = email.partition("@")
+    if domain == "":  # pragma: no cover - addresses are validated on the way in
+        return "…"
+    if len(local) <= 2:
+        return f"{local[:1]}…@{domain}"
+    return f"{local[0]}…{local[-1]}@{domain}"
+
+
+@router.post("/{board_id}/password/forgot", response_model=BoardRecoveryStartOut)
+async def forgot_board_password(
+    board_id: uuid.UUID,
+    request: Request,
+    user: CurrentUser,
+    session: Session,
+    role: Annotated[BoardRole, Depends(board_owner)],
+) -> BoardRecoveryStartOut:
+    """Mail this owner a code for this board.
+
+    404 when the board has no password, rather than sending a code that would replace
+    nothing. It is not a secret - the caller is the owner and `has_password` is on every
+    board they can see - and quietly mailing a code to reset a password that does not
+    exist is worse than saying so.
+
+    A relay failure is a 502 and says so. An owner told to check their mail for a message
+    that was never accepted has no way to tell that from a slow relay, and the difference
+    is whether waiting is the right thing to do.
+    """
+    if settings.rate_limit_enabled:
+        allowed = await rate_limit_check(
+            request.app.state.redis,
+            action="board-recovery",
+            identity=f"{user.id}:{board_id}",
+            spec=settings.rate_limit_board_recovery,
+        )
+        if not allowed:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="a code was sent recently - check your mail",
+            )
+
+    board = await session.get(Board, board_id)
+    if board is None:  # pragma: no cover - board_owner already resolved it
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="no access")
+    if not board_password.is_set(board):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="this board has no password"
+        )
+
+    try:
+        await board_recovery.request(session, board=board, owner=user)
+    except mail.MailError:
+        # Rolled back, so no code is left behind that nobody was told. A row saying a
+        # code exists for a message that never arrived would make the next honest
+        # attempt look like a replay.
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="could not send the code - try again in a moment",
+        ) from None
+    await session.commit()
+    return BoardRecoveryStartOut(
+        sent_to=_mask(user.email),
+        expires_in_minutes=settings.board_recovery_code_ttl_minutes,
+    )
+
+
+@router.post("/{board_id}/password/recover", response_model=BoardRecoveryOut)
+async def recover_board_password(
+    board_id: uuid.UUID,
+    body: BoardRecoveryRedeem,
+    request: Request,
+    user: CurrentUser,
+    session: Session,
+    role: Annotated[BoardRole, Depends(board_owner)],
+) -> BoardRecoveryOut:
+    """Spend the code, and get a temporary password that lasts two hours.
+
+    Evicts every socket on the board, exactly like `PUT /password` and for the same
+    reason: the password changed, so everybody proving the old one stops. The owner
+    doing this is included - what they are holding is a screen with a new password on
+    it, which is the thing they need next.
+
+    The refusals are distinguished, unlike a wrong board password. Nothing here is a
+    secret somebody else chose: the caller is the owner, the code went to their inbox,
+    and "expired" and "you have run out of attempts" are both instructions to ask for
+    another one, which a flat "wrong" would not be.
+    """
+    if settings.rate_limit_enabled:
+        allowed = await rate_limit_check(
+            request.app.state.redis,
+            action="board-recovery-verify",
+            identity=f"{user.id}:{board_id}",
+            spec=settings.rate_limit_board_recovery_verify,
+        )
+        if not allowed:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="too many attempts"
+            )
+
+    board = await session.get(Board, board_id)
+    if board is None:  # pragma: no cover - board_owner already resolved it
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="no access")
+
+    outcome, recovered = await board_recovery.redeem(
+        session, board=board, owner=user, code=body.code.strip()
+    )
+    # Committed on every path, not only the one that worked: a wrong guess increments
+    # the attempt counter, and a counter that only persisted on success would not be
+    # one.
+    await session.commit()
+
+    if recovered is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                board_recovery.Outcome.expired: "that code has expired - ask for another",
+                board_recovery.Outcome.exhausted: (
+                    "too many wrong codes - ask for another"
+                ),
+            }.get(outcome, "that is not the code"),
+        )
+
+    await _evict(request, board_id, "password reset")
+    mailed = await board_recovery.announce(owner=user, board=board, recovered=recovered)
+    return BoardRecoveryOut(
+        password=recovered.password, expires_at=recovered.expires_at, mailed=mailed
     )
 
 

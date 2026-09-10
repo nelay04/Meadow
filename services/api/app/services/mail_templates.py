@@ -50,9 +50,104 @@ _FONT = (
 _MONO = "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
 
 
-def _shell(*, heading: str, body: str, action: str, link: str, footer: str) -> str:
-    """The one layout every message here uses. Extracted at the second, not the first."""
-    safe_link = escape(link, quote=True)
+def _code_block(code: str) -> str:
+    # Two shapes from one block, chosen by length. Six digits are set big and widely
+    # tracked, because they are read a character at a time and typed into six boxes; a
+    # fourteen-character password at that size runs off the side of a phone, so it drops
+    # to a size that fits and keeps only enough tracking to tell an l from a 1. The
+    # alternative was a second near-identical block, which is how two things that should
+    # look alike stop looking alike.
+    short = len(code) <= 8
+    size = "30px" if short else "20px"
+    tracking = "8px" if short else "2px"
+    """The mailed value, set large enough to read off a phone and copy by hand.
+
+    A block rather than a sentence with the code in it, for the same reason the link is
+    boxed below: a value quoted inline is a value somebody selects half of.
+
+    Centred, unlike the button - which sits at the left margin because it is the end of
+    the sentence above it. This is not the end of a sentence. It is the one thing in the
+    message the reader came for, they are usually reading it on a phone with the mail
+    open in one hand, and a centred block is the thing the eye lands on without being
+    aimed. `align` on the cell as well as `margin:auto` on the div, because Outlook
+    ignores the second and every other client honours the first.
+    """
+    return f"""\
+            <tr>
+              <td align="center" style="padding:24px 32px 4px;">
+                <div style="display:inline-block;margin:0 auto;background:{_SURFACE_2};
+                            border:1px solid {_LINE};border-radius:12px;
+                            padding:16px 26px;font-family:{_MONO};font-size:{size};
+                            font-weight:700;letter-spacing:{tracking};
+                            /* The tracking puts that much air after the last character
+                               too, which walks the value off centre by half a letter.
+                               Taken back here rather than by dropping the tracking,
+                               which is what makes six digits read as six things rather
+                               than one number. */
+                            text-indent:{tracking};color:{_FG};">
+                  {escape(code)}
+                </div>
+              </td>
+            </tr>
+"""
+
+
+def _shell(
+    *,
+    heading: str,
+    body: str,
+    footer: str,
+    action: str | None = None,
+    link: str | None = None,
+    code: str | None = None,
+) -> str:
+    """The one layout every message here uses. Extracted at the second, not the first.
+
+    A message carries a link or a code, never both. The board recovery mails are the
+    code kind: what they ask for is a value typed back into the screen the person is
+    already looking at, and a link would send them somewhere they do not need to go.
+    """
+    safe_link = escape(link, quote=True) if link is not None else ""
+    button = (
+        ""
+        if link is None or action is None
+        else f"""\
+            <tr>
+              <td align="left" style="padding:22px 32px 2px;">
+                <a href="{safe_link}"
+                   style="display:inline-block;background:{_ACCENT};color:{_ACCENT_INK};
+                          font-family:{_FONT};font-size:15px;font-weight:400;
+                          text-decoration:none;padding:12px 22px;border-radius:10px;">
+                  {action}
+                </a>
+              </td>
+            </tr>
+"""
+    )
+    # The destination in full, because a button whose target cannot be read is what a
+    # phishing mail looks like. Boxed and set in mono so it reads as a thing being
+    # quoted rather than as a sentence that has come apart: a long token wrapped
+    # mid-word looks like damage.
+    link_text = (
+        ""
+        if link is None
+        else f"""\
+            <tr>
+              <td style="padding:18px 32px 0;font-family:{_FONT};">
+                <div style="font-size:11px;color:{_MUTED};padding-bottom:6px;">
+                  Button not working? Paste this link into your browser:
+                </div>
+                <div style="background:{_SURFACE_2};border:1px solid {_LINE};
+                            border-radius:10px;padding:10px 12px;font-family:{_MONO};
+                            font-size:11px;line-height:1.5;color:{_MUTED};
+                            word-break:break-all;">
+                  {safe_link}
+                </div>
+              </td>
+            </tr>
+"""
+    )
+    middle = button + link_text if code is None else _code_block(code)
     return f"""\
 <!doctype html>
 <html lang="en">
@@ -80,34 +175,7 @@ def _shell(*, heading: str, body: str, action: str, link: str, footer: str) -> s
                 <p style="margin:0 0 12px;">{body}</p>
               </td>
             </tr>
-            <tr>
-              <td align="left" style="padding:22px 32px 2px;">
-                <a href="{safe_link}"
-                   style="display:inline-block;background:{_ACCENT};color:{_ACCENT_INK};
-                          font-family:{_FONT};font-size:15px;font-weight:400;
-                          text-decoration:none;padding:12px 22px;border-radius:10px;">
-                  {action}
-                </a>
-              </td>
-            </tr>
-            <tr>
-              <td style="padding:18px 32px 0;font-family:{_FONT};">
-                <!-- The destination in full, because a button whose target cannot be
-                     read is what a phishing mail looks like. Boxed and set in mono so it
-                     reads as a thing being quoted rather than as a sentence that has
-                     come apart: a long token wrapped mid-word looks like damage. -->
-                <div style="font-size:11px;color:{_MUTED};padding-bottom:6px;">
-                  Button not working? Paste this link into your browser:
-                </div>
-                <div style="background:{_SURFACE_2};border:1px solid {_LINE};
-                            border-radius:10px;padding:10px 12px;font-family:{_MONO};
-                            font-size:11px;line-height:1.5;color:{_MUTED};
-                            word-break:break-all;">
-                  {safe_link}
-                </div>
-              </td>
-            </tr>
-            <tr>
+{middle}            <tr>
               <td style="padding:20px 32px 28px;font-family:{_FONT};color:{_MUTED};
                          font-size:12px;line-height:1.6;">
                 {footer}
@@ -193,6 +261,84 @@ def password_reset_mail(*, name: str, link: str, has_password: bool) -> tuple[st
             "device currently signed in to this account.<br />"
             "If you did not ask for this, ignore this message. Your password has not "
             "changed."
+        ),
+    )
+    return subject, text, html
+
+
+def board_password_code_mail(
+    *, name: str, board_title: str, code: str, minutes: int
+) -> tuple[str, str, str]:
+    """The code that starts a board password recovery.
+
+    Says which board, because an owner with several may have asked about one of them and
+    be reading about another, and a code that turns out to unlock the wrong board is
+    worse than no code. Says what it will do, too: what comes back is a new temporary
+    password, not the forgotten one, and somebody expecting to be reminded of the old one
+    should learn that here rather than after typing six digits.
+    """
+    subject = f"Your code to reset the password on {board_title}"
+    text = (
+        f"Hi {name},\n\n"
+        f'Somebody asked to reset the password on "{board_title}". Your code is:\n\n'
+        f"    {code}\n\n"
+        f"It works once and expires in {minutes} minutes. Entering it sets a new "
+        "temporary password - the old one cannot be recovered, only replaced.\n\n"
+        "If you did not ask for this, ignore this message. The password on the board "
+        "has not changed.\n\n"
+        "Meadow"
+    )
+    html = _shell(
+        heading=f"Hi {escape(name)},",
+        body=(
+            f"Somebody asked to reset the password on <strong>{escape(board_title)}</strong>. "
+            "Type this code on the password screen to carry on."
+        ),
+        code=code,
+        footer=(
+            f"The code works once and expires in {minutes} minutes. Entering it sets a "
+            "new temporary password - the old one cannot be recovered, only replaced."
+            "<br />If you did not ask for this, ignore this message. The password on the "
+            "board has not changed."
+        ),
+    )
+    return subject, text, html
+
+
+def board_temp_password_mail(
+    *, name: str, board_title: str, password: str, hours: int
+) -> tuple[str, str, str]:
+    """The temporary password itself, and the two hours attached to it.
+
+    The deadline is in both parts and in the footer, because this is a password that
+    behaves unlike every other one the reader has: it stops on its own, and it leaves the
+    board shut when it does. Somebody who treats it as the board's new password finds out
+    two hours later in the worst way, so the mail says twice that the job is to set a
+    real one.
+    """
+    subject = f"Your temporary password for {board_title}"
+    text = (
+        f"Hi {name},\n\n"
+        f'The password on "{board_title}" has been replaced with a temporary one:\n\n'
+        f"    {password}\n\n"
+        f"It works for {hours} hours. Open the board with it and set a proper password "
+        "from the board menu - when the temporary one runs out the board stays closed, "
+        "and you would need another code to get back in.\n\n"
+        "Everybody who had the old password has been signed out of the board.\n\n"
+        "Meadow"
+    )
+    html = _shell(
+        heading=f"Hi {escape(name)},",
+        body=(
+            f"The password on <strong>{escape(board_title)}</strong> has been replaced "
+            "with this temporary one."
+        ),
+        code=password,
+        footer=(
+            f"It works for {hours} hours. Open the board with it and set a proper "
+            "password from the board menu: when the temporary one runs out the board "
+            "stays closed, and getting back in means another code.<br />"
+            "Everybody holding the old password has been signed out of the board."
         ),
     )
     return subject, text, html

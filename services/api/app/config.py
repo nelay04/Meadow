@@ -68,6 +68,20 @@ class Settings(BaseSettings):
     # immediately regardless, so this is the ceiling and not the mechanism.
     board_pass_ttl_seconds: int = 12 * 60 * 60
 
+    # How long the code mailed to an owner who forgot their board's password is good
+    # for. Ten minutes: it is typed into a screen they are already looking at, in the
+    # tab they asked from, so the only wait it has to survive is a mail relay's.
+    board_recovery_code_ttl_minutes: int = 10
+
+    # How long the temporary password that replaces the forgotten one lasts.
+    #
+    # Two hours, and the number is doing real work. It is long enough to be interrupted
+    # once and come back, and short enough that a password nobody chose - mailed in
+    # plain text, by design, because it has to be readable - is not what stands in front
+    # of the board tomorrow. When it runs out the board is shut, not open: see
+    # `board_password.has_expired`.
+    board_temp_password_ttl_hours: int = 2
+
     # ARCHITECTURE 6: "re-validate every 15 minutes; force reconnect on failure". The
     # watchdog also wakes early when the access token behind the connection expires,
     # so a socket can never outlive the session that authorised it.
@@ -110,6 +124,15 @@ class Settings(BaseSettings):
     # client address for a link visitor - see `app/api/v1/share.py` for what that key
     # is worth.
     rate_limit_board_password: str = "10/300"
+    # Asking for a recovery code. Three an hour per account, because each one sends mail
+    # to a real inbox and a looser limit would make this endpoint a way to post a few
+    # hundred messages to an owner - including from the owner themselves, which is the
+    # only person who can reach it.
+    rate_limit_board_recovery: str = "3/3600"
+    # Typing a mailed code back in. Wider than the ask, because a mistyped digit should
+    # not cost the code; the thing that actually stops guessing is the per-code attempt
+    # counter in `app/services/board_recovery.py`, which kills it after five.
+    rate_limit_board_recovery_verify: str = "15/900"
 
     # --- third-party sign-in (ARCHITECTURE 7) ---
     # Blank by default, and that is the off switch, per provider: with either half of a

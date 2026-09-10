@@ -104,6 +104,15 @@ export type Board = {
    * board view knows before it tries to connect.
    */
   has_password: boolean
+  /**
+   * When the password stops working, on the temporary one issued by a recovery.
+   *
+   * Null on every password an owner chose, which is what one usually is. It is a
+   * deadline and not a countdown to being unlocked: when it passes the board is shut,
+   * and the way back in is another code. The board view uses it to say so while there
+   * is still time to set a proper one.
+   */
+  password_expires_at: string | null
 }
 
 /**
@@ -324,12 +333,39 @@ type AuthResponse = {
 
 export class ApiError extends Error {
   readonly status: number
+  /**
+   * The server's own sentence, pulled out of `{"detail": "..."}`, or null.
+   *
+   * `message` stays the raw body, because that is what everything already logging it
+   * expects. This is the half of it that is fit to show somebody: FastAPI wraps every
+   * refusal in that one key, and a screen that printed `message` would print the
+   * braces and the key name along with the sentence.
+   *
+   * Null when the body is not that shape, or when the detail is not a string - a
+   * validation error's detail is a list of field problems, which is a developer's
+   * message and not a reader's.
+   */
+  readonly detail: string | null
 
   constructor(status: number, message: string) {
     super(message)
     this.status = status
     this.name = 'ApiError'
+    this.detail = readDetail(message)
   }
+}
+
+function readDetail(body: string): string | null {
+  try {
+    const parsed: unknown = JSON.parse(body)
+    if (typeof parsed === 'object' && parsed !== null && 'detail' in parsed) {
+      const detail = (parsed as { detail: unknown }).detail
+      if (typeof detail === 'string') return detail
+    }
+  } catch {
+    // Not JSON at all - a proxy's error page, or an empty body with a status text.
+  }
+  return null
 }
 
 const BASE = '/api/v1'
@@ -739,6 +775,56 @@ export function verifySharedBoardPassword(
   return call<BoardPass>(`/share/${encodeURIComponent(linkToken)}/password/verify`, {
     method: 'POST',
     body: JSON.stringify({ password }),
+  })
+}
+
+/**
+ * What comes back from asking for a recovery code.
+ *
+ * The address is masked. The owner knows their own; what they need told is which of
+ * their inboxes the code went to.
+ */
+export type BoardRecoveryStart = {
+  /** e.g. "a…e@example.com". */
+  sent_to: string
+  expires_in_minutes: number
+}
+
+/** The temporary password, handed over exactly once. */
+export type BoardRecovery = {
+  password: string
+  /** ISO 8601. When it stops working - into a board that is still shut. */
+  expires_at: string
+  /**
+   * Whether it also reached the owner's inbox. False is not a failed reset: the
+   * password on the screen works either way, and the screen says which happened rather
+   * than implying the reset did not.
+   */
+  mailed: boolean
+}
+
+/**
+ * "I have forgotten this board's password." Owner only; mails them a code.
+ *
+ * The route it starts is the way round a hole this app had for a while: the controls
+ * that change or remove a board password never ask for the current one, and both of
+ * them are inside the board that the forgotten password is holding shut.
+ */
+export function forgotBoardPassword(boardId: string): Promise<BoardRecoveryStart> {
+  return call<BoardRecoveryStart>(`/boards/${boardId}/password/forgot`, { method: 'POST' })
+}
+
+/**
+ * Spend the mailed code for a temporary password.
+ *
+ * What comes back is new and lasts two hours, not the forgotten one - nobody has that.
+ * Everybody on the board, including this tab, is thrown off by it, exactly as if the
+ * owner had changed the password by hand.
+ */
+export function recoverBoardPassword(boardId: string, code: string): Promise<BoardRecovery> {
+  return call<BoardRecovery>(`/boards/${boardId}/password/recover`, {
+    method: 'POST',
+    body: JSON.stringify({ code }),
   })
 }
 

@@ -503,6 +503,15 @@ export default function BoardPage({ boardId, onBack }: Props) {
    * flag was false.
    */
   const [hasPassword, setHasPassword] = useState(false)
+  /**
+   * When the password stops working, on the temporary one a recovery issued.
+   *
+   * Null on every password an owner chose. It is here so the menu can say the board is
+   * running on a borrowed password with a deadline on it: when that deadline passes the
+   * board is shut, not opened, and the only person who can prevent that is the owner
+   * looking at this menu.
+   */
+  const [passwordExpiresAt, setPasswordExpiresAt] = useState<string | null>(null)
   /*
    * How many people are waiting to be let in.
    *
@@ -829,6 +838,8 @@ export default function BoardPage({ boardId, onBack }: Props) {
     try {
       const board = await api.setBoardPassword(boardId, chosen)
       setHasPassword(board.has_password)
+      // Choosing one ends the temporary state, which the server does in the same call.
+      setPasswordExpiresAt(board.password_expires_at)
       toast.success(hasPassword ? 'Password changed.' : 'Password set.')
     } catch (error) {
       toast.error(
@@ -850,6 +861,7 @@ export default function BoardPage({ boardId, onBack }: Props) {
     try {
       const board = await api.clearBoardPassword(boardId)
       setHasPassword(board.has_password)
+      setPasswordExpiresAt(board.password_expires_at)
       toast.success('Password removed.')
     } catch (error) {
       toast.error(
@@ -951,6 +963,7 @@ export default function BoardPage({ boardId, onBack }: Props) {
         settle(board)
         setShareMode(board.share_mode)
         setHasPassword(board.has_password)
+        setPasswordExpiresAt(board.password_expires_at)
       })
       .catch(() => {
         const token = shareToken()
@@ -1444,6 +1457,10 @@ export default function BoardPage({ boardId, onBack }: Props) {
         boardId={boardId}
         noun={noun}
         linkToken={shareToken()}
+        // Known before this screen is drawn: the board fetch above answers with the
+        // role from behind the password, and defaults to `viewer` until it lands - so
+        // the owner's control appears when it is certain and never on a guess.
+        isOwner={role === 'owner'}
         // Reloading rather than reconnecting in place, for the reason `AccessGate`
         // gives: getting in changes the answer to every question this view already
         // asked, and one path back through mount is simpler than a second, rarer one
@@ -1771,12 +1788,34 @@ export default function BoardPage({ boardId, onBack }: Props) {
                   onClick={() => void editPassword()}
                 >
                   <IconKey size={16} />
-                  <span>{hasPassword ? 'Change the password…' : 'Set a password…'}</span>
-                  {hasPassword && (
-                    <span className="menu-badge" title="Everybody is asked for it">
-                      On
-                    </span>
-                  )}
+                  <span>
+                    {/* The temporary password's label is an instruction, not a
+                        description. It is the one state where doing nothing has a
+                        consequence: the board shuts when the two hours are up. */}
+                    {!hasPassword
+                      ? 'Set a password…'
+                      : passwordExpiresAt !== null
+                        ? 'Set a proper password…'
+                        : 'Change the password…'}
+                  </span>
+                  {hasPassword &&
+                    (passwordExpiresAt !== null ? (
+                      <span
+                        className="menu-badge"
+                        title={`This is a temporary password. It stops working at ${new Date(
+                          passwordExpiresAt,
+                        ).toLocaleTimeString([], {
+                          hour: 'numeric',
+                          minute: '2-digit',
+                        })}, and this ${noun} stays closed when it does.`}
+                      >
+                        Temporary
+                      </span>
+                    ) : (
+                      <span className="menu-badge" title="Everybody is asked for it">
+                        On
+                      </span>
+                    ))}
                 </button>
               )}
 

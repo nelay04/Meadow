@@ -211,8 +211,10 @@ async def verify_shared_board_password(
         )
 
     return BoardPassOut(
-        pass_token=board_password.mint_pass(str(board.id), board.password_version),
-        expires_in=settings.board_pass_ttl_seconds,
+        pass_token=board_password.mint_pass(
+            str(board.id), board.password_version, not_after=board.password_expires_at
+        ),
+        expires_in=board_password.pass_lifetime(board),
     )
 
 

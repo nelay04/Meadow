@@ -1,7 +1,57 @@
 import { fileURLToPath } from 'node:url'
 
 import react from '@vitejs/plugin-react'
+import type { Connect, Plugin } from 'vite'
 import { defineConfig, loadEnv } from 'vite'
+
+/**
+ * Serve the SPA at /app on the dev and preview servers, the way nginx does in production.
+ *
+ * Without this, /app is not a file the server knows, so Vite's html fallback answers it
+ * with the root `index.html` - which since the split is the *landing page*. It looks like
+ * it worked, because a page renders; what actually happens is that the landing page's own
+ * "Open Meadow" buttons point at /app and land back on the landing page, so they read as
+ * dead buttons rather than as a routing fault.
+ *
+ * `/app/` happened to work already: it resolves to a real directory containing an
+ * index.html. That is what made this look like a UI bug - one of the two spellings was
+ * fine - and it is why the fix maps both.
+ *
+ * Deliberately no wildcard under /app: nginx matches `= /app` and `= /app/` exactly, and
+ * the app is hash-routed, so there is no route below /app to catch.
+ *
+ * One difference from production remains, and it is Vite's own and not this plugin's:
+ * /app/anything still gets the html fallback here - the landing page - where nginx would
+ * answer 404. Worth knowing when a stale link is being chased, because in dev it renders
+ * a page instead of failing. Not worth a second middleware to paper over, since nothing
+ * in the app produces such a URL.
+ */
+function appEntry(): Plugin {
+  const rewrite: Connect.NextHandleFunction = (request, _response, next) => {
+    const url = request.url ?? '/'
+    // Split rather than parsed: the query has to survive, because a share link arrives
+    // as /app?k=<token> and dropping it turns a visitor with a link into one without.
+    const [path, query] = url.split(/(?=\?)/, 2)
+    if (path === '/app' || path === '/app/') {
+      request.url = `/app/index.html${query ?? ''}`
+    }
+    next()
+  }
+
+  return {
+    name: 'meadow-app-entry',
+    // Installed directly rather than from a returned function. A returned one runs
+    // *after* Vite's internal middlewares, and the internal middleware in question is
+    // the html fallback already answering these - so the post hook would rewrite a
+    // request that had been served three middlewares ago.
+    configureServer: (server) => {
+      server.middlewares.use(rewrite)
+    },
+    configurePreviewServer: (server) => {
+      server.middlewares.use(rewrite)
+    },
+  }
+}
 
 // Ports live in the repo-root .env alongside the compose and API settings, so there
 // is one place to change them.
@@ -28,7 +78,7 @@ export default defineConfig(({ mode }) => {
     .filter(Boolean)
 
   return {
-    plugins: [react()],
+    plugins: [react(), appEntry()],
     envDir: repoRoot,
     build: {
       rollupOptions: {

@@ -332,6 +332,18 @@ class Board(Base):
     password_version: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
+    # When the password stops being a password. Null on every one an owner chose, which
+    # is what a board password normally is; set only on the temporary one issued by the
+    # recovery flow, which lasts two hours.
+    #
+    # Expiry does not unlock the board. `password_hash` stays where it is and
+    # `resolve_access` keeps asking, so a temporary password that has run out leaves the
+    # board shut rather than open - the failure mode of a lock whose key expired has to
+    # be a shut door. The way out is the one it always was: the owner sets a new one,
+    # which clears this column.
+    password_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     # In the trash since. Null is every board that is simply there, which is what the
     # whole app means by a board existing: `resolve_role` refuses a row with a value
     # here, so one deleted board is invisible to every router and to the websocket
@@ -535,6 +547,60 @@ class BoardAccessRequest(Base):
         CheckConstraint(
             "role in ('viewer', 'editor')", name="ck_board_access_requests_role"
         ),
+    )
+
+
+class BoardPasswordReset(Base):
+    """One outstanding "I have forgotten this board's password" request.
+
+    A board password has no self-service way back in through the app. Setting and
+    clearing it are owner-only routes that never ask for the current one - see
+    `app/services/board_password.py` - but every one of those routes lives behind the
+    board, and the board is exactly what the forgotten password is holding shut. So the
+    escape hatch existed and could not be reached from the screen where it was needed.
+
+    This is that hatch, and it is deliberately the long way round: a six-digit code to
+    the owner's own address, and what redeeming it buys is not the old password (nobody
+    has that; it is argon2id) but a fresh random one that lasts two hours. Two hours
+    because a temporary password is for getting back in and choosing a real one, not for
+    running a board on.
+
+    One row per board per owner, rewritten rather than appended to, like
+    `board_access_requests` and for the same reason: asking twice is the same request
+    made again. The rewrite also retires the earlier code, so a mailbox never holds two
+    working ones at once.
+
+    `attempts` is what stops the six digits being six digits' worth of security. The
+    code dies on the fifth wrong guess and has to be asked for again, which puts a mail
+    round trip between a guesser and their next hundred tries. The rate limit in front
+    of the route is the other half.
+    """
+
+    __tablename__ = "board_password_resets"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    board_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("boards.id", ondelete="CASCADE"), nullable=False
+    )
+    #: The owner who asked. Scoped to a person as well as a board so that one owner's
+    #: request cannot be spent by another - the code went to one inbox.
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    #: sha256 of the six digits. A KDF would be the wrong tool - the search space is a
+    #: million, so nothing about hashing it slowly is what makes this safe; `attempts`
+    #: and the rate limit are. It is hashed anyway so a database read is not a live code.
+    code_hash: Mapped[str] = mapped_column(String, nullable=False)
+    attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    #: Set the moment it is spent. Single use, like every other mailed secret here.
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = _created_at()
+
+    __table_args__ = (
+        UniqueConstraint("board_id", "user_id", name="uq_board_password_resets_board_user"),
     )
 
 

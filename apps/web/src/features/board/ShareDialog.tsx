@@ -31,6 +31,7 @@ import type {
   ShareMode,
   ShareState,
 } from '../../lib/api'
+import { copy } from '../../lib/clipboard'
 import { Avatar } from '../../ui/Avatar'
 import { colorFor } from '../../sync/awareness'
 import { useConfirm } from '../../ui/ConfirmDialog'
@@ -136,37 +137,6 @@ const SOCIALS: {
       `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}`,
   },
 ]
-
-/**
- * Copy, by whichever route the browser allows.
- *
- * `navigator.clipboard` is unavailable on plain http beyond localhost, which is most
- * development and every deployment behind an un-TLS'd proxy - exactly where somebody
- * is most likely to be testing this. The fallback is deprecated and still works
- * everywhere, and a copy button that silently does nothing is worse than either.
- */
-async function copy(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text)
-    return true
-  } catch {
-    // Fall through.
-  }
-  try {
-    const field = document.createElement('textarea')
-    field.value = text
-    // Off-screen rather than hidden: `display: none` cannot be selected from.
-    field.style.position = 'fixed'
-    field.style.opacity = '0'
-    document.body.append(field)
-    field.select()
-    const done = document.execCommand('copy')
-    field.remove()
-    return done
-  } catch {
-    return false
-  }
-}
 
 /** A field showing a URL, with the button that copies it. */
 /**
