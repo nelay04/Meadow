@@ -1,7 +1,9 @@
 # Changelog
 
-Meadow ships in milestones rather than on a version cadence, so this is organised by
-phase. Each phase carries the date of the commit that completed it, in `dd-mmm-yyyy`.
+Meadow was developed in milestones, M0 through M6, each dated by the commit that
+completed it. Deploying it shipped v1 as `1.0.0`, and every release from there is a
+semantic version, headed `## [x.y.z] - [dd-mmm-yyyy]` with the date in Indian Standard
+Time.
 
 `docs/core/ARCHITECTURE.md` section 9 is the design record and holds the reasoning.
 This is the delivery record: what each phase actually produced, and what was thrown
@@ -9,16 +11,29 @@ away getting there.
 
 ---
 
-## M6 - Ship v1 - 11-Sep-2026
+## [1.0.0] - [11-Sep-2026]
 
-The infrastructure to run the thing, and the thing running: live at
-`meadow.creara.in`.
+The first release: Meadow deployed and live at `meadow.creara.in`, built from
+everything M0 through M6 delivered.
 
 ### Added
+- **Deployed.** The production stack from M6 runs at `meadow.creara.in`, behind the
+  host's edge proxy.
 - **Licensed under PolyForm Internal Use 1.0.0.** `LICENSE.md` carries the official
   text unchanged. Use and modification are permitted for internal business operations;
   distribution is not. The npm manifests point at it with `SEE LICENSE IN LICENSE.md`,
   since PolyForm Internal Use has no SPDX identifier.
+- **Versioned.** Every package is `1.0.0`, and releases from here on follow semantic
+  versioning.
+
+---
+
+## M6 - Ship v1 - 11-Sep-2026
+
+The development phase for v1: ink, sharing, accounts, and the infrastructure to run
+the thing in production.
+
+### Added
 - **Sessions are live, and terminating one actually terminates it.** The list was a
   snapshot: a sign-in on another device showed up only if you reloaded, which on a
   security screen is worse than useless - you check it, see nothing new, and cannot

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "meadow-api"
-version = "0.0.0"
+version = "1.0.0"
 description = "Meadow API: REST plus the CRDT websocket."
 requires-python = ">=3.13"
 dependencies = [

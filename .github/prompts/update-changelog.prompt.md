@@ -13,11 +13,20 @@ has.
 
 ## What this changelog is
 
-Meadow ships in milestones, not on a version cadence, so the changelog is organised by
-**phase** (M0 through M6) rather than by semver release. Each phase is a heading with
-the date of the commit that completed it. That means the changelog and
-`docs/core/ARCHITECTURE.md` section 9 describe the same thing from two angles: section
-9 is the design record with the reasoning, and this is the delivery record. When they
+Meadow was developed in milestones, M0 through M6, and those sections stay as they
+are. `1.0.0` (11-Sep-2026) is the deploy and ship of v1, and every release since is a
+**semantic version** continuing from there:
+MAJOR for a change that breaks existing boards, stored data, the API or the websocket
+protocol; MINOR for a new feature that breaks nothing; PATCH for a bug fix. Each
+version is a heading in this exact form:
+
+```
+## [1.10.4] - [06-Aug-2026]
+```
+
+The milestone sections and `docs/core/ARCHITECTURE.md` section 9 describe the same
+thing from two angles: section 9 is the design record with the reasoning, and this is
+the delivery record. When they
 disagree, one of them is wrong and it is worth finding out which before writing.
 
 ## Input to collect
@@ -25,14 +34,14 @@ disagree, one of them is wrong and it is worth finding out which before writing.
 Run these, and read the results before writing anything:
 
 ```@terminal
-git log --pretty=format:"%h|%ad|%s" --date=format:'%d-%b-%Y' --reverse
+TZ=Asia/Kolkata git log --pretty=format:"%h|%ad|%s" --date=format-local:'%d-%b-%Y' --reverse
 ```
 
 ```@terminal
 git status --porcelain
 ```
 
-For the phase being written, read the commit bodies rather than only the subjects. The
+For the version being written, read the commit bodies rather than only the subjects. The
 bodies in this repository carry the decisions:
 
 ```@terminal
@@ -45,14 +54,15 @@ better source for the "why" than a diff is.
 
 ## Rules
 
-**Dates are `dd-mmm-yyyy`.** `06-Aug-2026`, not `2026-08-06` and not `Aug 6, 2026`.
-Take the date from the commit that completed the phase, via `--date=format:'%d-%b-%Y'`.
+**Dates are `dd-mmm-yyyy` in Indian Standard Time.** `06-Aug-2026`, not `2026-08-06`
+and not `Aug 6, 2026`. Take the date from the release commit in IST (UTC+05:30), via
+`TZ=Asia/Kolkata git log -1 --date=format-local:'%d-%b-%Y' --format=%ad <commit>`.
 Never invent one, and never use today's date for work that was committed earlier.
 
-**Work that is not committed is `Unreleased`.** Give it the phase name and no date. It
-gets its date when it is committed, not before.
+**Work that is not released is `## [Unreleased]`.** No version and no date. It gets
+both when it is released, not before.
 
-**Group by what changed for a user, not by file.** Under each phase use only the
+**Group by what changed for a user, not by file.** Under each version use only the
 headings that apply, in this order: `Added`, `Changed`, `Fixed`, `Reversed`, `Known
 limitations`. Skip the empty ones rather than writing "None".
 
@@ -80,4 +90,4 @@ section.
 
 ## Final output
 
-Edit `CHANGELOG.md` in place, newest phase first. Do not commit it.
+Edit `CHANGELOG.md` in place, newest version first. Do not commit it.

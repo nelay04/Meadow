@@ -222,7 +222,7 @@ Built in milestones, in order, each one finished before the next started.
 | M3 | Text objects and the DOM overlay | Complete |
 | M4 | Arrows and bindings | Complete |
 | M5 | Presence, compaction, thumbnails | Complete |
-| M6 | Ship v1: ink, sharing, accounts, production stack | In progress |
+| M6 | Ship v1: ink, sharing, accounts, production stack | Complete |
 
 M0 was a gate rather than a feature. It existed to answer one question before any canvas
 code was written - whether a Python CRDT backend carries this workload at all. It drives
@@ -231,7 +231,7 @@ than the server talking to itself, and it kills the server process mid-run to pr
 state comes back from the database rather than from memory. The answer was yes, so the
 stack stayed.
 
-M6 shipped v1, and Meadow is live at [meadow.creara.in](https://meadow.creara.in).
+v1 (`1.0.0`) is deployed and live at [meadow.creara.in](https://meadow.creara.in).
 Delivery record, including the work that was thrown away and why: [`CHANGELOG.md`](CHANGELOG.md).
 
 ---
