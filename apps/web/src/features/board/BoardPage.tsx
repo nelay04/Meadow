@@ -713,6 +713,11 @@ export default function BoardPage({ boardId, kindHint, onBack }: Props) {
     // fires from a pointer handler and a two second drag on a read-only glade would
     // otherwise produce a hundred identical cards.
     onRefused: toast.error,
+    // Paper the writing asked for rather than the reader did, so it says so in the same
+    // words the button uses. Not an error and not a refusal: the line was typed and the
+    // page is longer, which is a success with a side effect worth naming.
+    onLinesAdded: (added) =>
+      toast.success(`Added ${added} more line${added === 1 ? '' : 's'}.`),
   })
 
   // What the arrow button draws with, for the same reason the shape button knows its

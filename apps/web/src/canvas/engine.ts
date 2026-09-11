@@ -292,6 +292,26 @@ export function pageSpan(column: WritingColumn, slot: number): { left: number; r
   return { left, right: left + column.width }
 }
 
+/**
+ * Whether a row that grew by one line would run off the bottom of the page.
+ *
+ * Rows are geometry rather than a list, so this is arithmetic on where the row sits and
+ * how tall it is: it starts on the rule its top lands on, it is as many rules tall as
+ * its writing fills, and the new line takes the rule after those. Exported and pure
+ * because it is the whole of the decision in `growRow`, and the engine it lives on
+ * cannot be stood up without a GPU.
+ */
+export function overflowsPage(
+  top: number,
+  height: number,
+  spacing: number,
+  pageLines: number,
+): boolean {
+  const first = Math.round(top / spacing)
+  const bands = Math.max(1, Math.round(height / spacing))
+  return first + bands > pageLines - 1
+}
+
 /** The distance from one page's left edge to the next one's. */
 export function pageStride(): number {
   return PAGE_PITCH
@@ -422,6 +442,7 @@ export type EngineHost = {
       type: SurfaceType | null
       spellcheck: boolean
       onLeave?: (direction: 'up' | 'down') => boolean
+      onGrow?: () => boolean
     },
   ): (() => void) | null
   /** Toggle an inline mark in the live editor. No-op when nothing is being edited. */
@@ -442,6 +463,15 @@ export type EngineEvents = {
    * publish.
    */
   onPointerWorld?(point: Point | null): void
+  /**
+   * The writing has reached the last rule and wants another one.
+   *
+   * The engine knows the page is full - it rules the paper and it knows where the row
+   * being written on ends - but the length of a page is document state, so lengthening
+   * one is not the engine's to do. Return whether more paper was actually added; false
+   * refuses the newline that asked.
+   */
+  onPageFull?(): boolean
 }
 
 export class CanvasEngine {
@@ -1930,6 +1960,7 @@ export class CanvasEngine {
       type: this.surfaceType,
       spellcheck: this.spellcheckSurface,
       onLeave: (direction) => this.leaveRow(id, direction),
+      onGrow: () => this.growRow(id),
     })
     if (teardown === null) {
       this.textLayer.endEdit()
@@ -1992,6 +2023,34 @@ export class CanvasEngine {
    *
    * Up from the first rule does nothing. The page has a top and this is it.
    */
+  /**
+   * Whether the row being written on may take another rule.
+   *
+   * Paper is the whole of the question. A row is as many rules tall as it has lines,
+   * and a newline on its last one makes it one taller - which is ordinary in the middle
+   * of a page, where the row simply grows down into the next rule and `rowObjectAt`
+   * hands clicks there back to it. On the *last* rule there is nothing to grow into:
+   * the writing carried on past the ruling, off the bottom of the page and onto the
+   * bare fence, where it could be neither seen properly nor clicked back into.
+   *
+   * So the page is lengthened instead, by the same step and through the same write the
+   * "Add lines" button uses - the button is now the deliberate way to do what this does
+   * on demand, rather than the only way to avoid a bug. The newline is refused only
+   * when that fails, which on a page with no cap means a session that cannot write.
+   *
+   * True on an unfenced canvas: a glade has no rules and no bottom, and a text object
+   * there grows as far as the writing goes.
+   */
+  private growRow(id: string): boolean {
+    const object = this.cache.get(id)
+    if (this.column === null || object === undefined) return true
+
+    // Room already ruled for the line, and so nothing to ask for.
+    if (!overflowsPage(object.y, object.h, this.ruleSpacing, this.pageLines)) return true
+
+    return this.events.onPageFull?.() ?? false
+  }
+
   private leaveRow(id: string, direction: 'up' | 'down'): boolean {
     const object = this.cache.get(id)
     if (this.column === null || object === undefined) return false

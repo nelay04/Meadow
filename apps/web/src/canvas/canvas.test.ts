@@ -10,6 +10,7 @@ import type { ObjectData } from '@meadow/schema'
 import { describe, expect, it } from 'vitest'
 
 import { Camera, type CameraFence, MAX_ZOOM, MIN_ZOOM, projectPoint, viewTransform } from './camera'
+import { overflowsPage } from './engine'
 import { containedBy, hitsObject, pickTop, toLocal, unionBounds } from './hitTest'
 import { SNAP_THRESHOLD_PX, snapMove } from './snapping'
 import { splitAroundBox } from './renderers/arrowPass'
@@ -609,6 +610,45 @@ describe('transform', () => {
 
     // Too far out to be reaching for the corner.
     expect(handleAt(box, { x: 130, y: 80 }, 6, 20)).toBeNull()
+  })
+})
+
+describe('overflowsPage', () => {
+  // The metrics a lea is actually ruled at: 21 * 1.45, the same product kinds.ts and
+  // the renderer both derive the rule pitch from.
+  const spacing = 21 * 1.45
+  const top = (rule: number) => rule * spacing
+
+  it('lets a one-line row on the last rule take a second line only off the page', () => {
+    // Ten rules, so rule 9 is the last one. A row on rule 8 grows into rule 9.
+    expect(overflowsPage(top(8), spacing, spacing, 10)).toBe(false)
+    // The same row on the last rule has nothing under it.
+    expect(overflowsPage(top(9), spacing, spacing, 10)).toBe(true)
+  })
+
+  it('counts the rules a wrapped row already fills', () => {
+    // Three lines starting on rule 6 fill 6, 7 and 8, so the fourth lands on 9.
+    expect(overflowsPage(top(6), spacing * 3, spacing, 10)).toBe(false)
+    // Starting one rule lower, the fourth line is off the end.
+    expect(overflowsPage(top(7), spacing * 3, spacing, 10)).toBe(true)
+  })
+
+  it('treats a row shorter than one rule as one rule tall', () => {
+    // A row whose object height has not caught up with its ruling is still standing in
+    // a rule, and rounding it to zero bands would hand out a line that is already used.
+    expect(overflowsPage(top(9), 0, spacing, 10)).toBe(true)
+    expect(overflowsPage(top(8), 1, spacing, 10)).toBe(false)
+  })
+
+  it('is unmoved by a page that has been lengthened', () => {
+    // The same row that was full at ten rules has room at twenty: this is what makes
+    // the newline go through after the page grows.
+    expect(overflowsPage(top(9), spacing, spacing, 10)).toBe(true)
+    expect(overflowsPage(top(9), spacing, spacing, 20)).toBe(false)
+  })
+
+  it('answers for a row on a page of one rule', () => {
+    expect(overflowsPage(0, spacing, spacing, 1)).toBe(true)
   })
 })
 

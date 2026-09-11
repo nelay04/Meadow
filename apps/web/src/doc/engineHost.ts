@@ -60,6 +60,8 @@ export type EditorFactory = (options: {
   spellcheck: boolean
   onExit(): void
   onLeave?(direction: 'up' | 'down'): boolean
+  /** Whether a newline may make this object a line taller. See `onGrow` in textEditor. */
+  onGrow?(): boolean
   onMarks?(marks: TextMark[]): void
 }) => {
   destroy(): void
@@ -248,6 +250,7 @@ export class DocEngineHost implements EngineHost {
       type: SurfaceType | null
       spellcheck: boolean
       onLeave?: (direction: 'up' | 'down') => boolean
+      onGrow?: () => boolean
     },
   ): (() => void) | null {
     const factory = this.options.createEditor
@@ -290,6 +293,7 @@ export class DocEngineHost implements EngineHost {
       spellcheck: surface.spellcheck,
       onExit,
       onLeave: surface.onLeave,
+      onGrow: surface.onGrow,
       onMarks: (marks) => this.options.onMarks?.(marks),
     })
 

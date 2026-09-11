@@ -356,6 +356,15 @@ export type CanvasOptions = {
    * Whatever consumes it has to expect repeats.
    */
   onRefused?(message: string): void
+  /**
+   * The page lengthened itself because the writing had reached its last rule.
+   *
+   * Only the ones nobody asked for. The "Add lines" button reports its own, because it
+   * knows it was pressed; this is the paper arriving unbidden, and it is worth saying
+   * so - a page that silently changes length under you is a page you stop trusting the
+   * bottom of.
+   */
+  onLinesAdded?(added: number): void
 }
 
 /** A glade has no pages, and one frozen empty array keeps that a stable identity. */
@@ -484,6 +493,20 @@ export function useCanvas(
         if (id === null) setActiveMarks([])
       },
       onPointerWorld: (point) => presenceRef.current?.onPointer(point),
+      /*
+       * Writing that has reached the last rule gets more paper rather than a refusal.
+       *
+       * The same step and the same write as the button, and deliberately not the same
+       * caret: the button moves you to the first line it added because you pressed it
+       * having run out of room, while here the caret is already in the row that is
+       * growing into that line and moving it would take the newline away from the
+       * person who just typed it.
+       */
+      onPageFull: () => {
+        const added = growPage()
+        if (added > 0) optionsRef.current.onLinesAdded?.(added)
+        return added > 0
+      },
     })
     engineRef.current = engine
 
@@ -677,18 +700,28 @@ export function useCanvas(
     return () => cancelAnimationFrame(frame)
   }, [pageLines])
 
-  const addLines = useCallback(() => {
+  /**
+   * Lengthen the open page by one step, and say how much longer it actually got.
+   *
+   * Counted off the document rather than assumed: the write is refused outright on a
+   * read-only session, so a caller that trusted the step would report lines nobody got.
+   * Leaves the caret exactly where it is - `addLines` below is the one that moves it.
+   */
+  const growPage = useCallback((): number => {
     const before = openPageRef.current?.lines ?? DEFAULT_PAGE_LINES
-    caretOnLine.current = before
     addPageLines(sessionRef.current, pageIndexRef.current, PAGE_LINES_STEP, DEFAULT_PAGE_LINES)
-    // Counted off the document rather than assumed: the write is refused outright on a
-    // read-only session, and a page near the limit takes fewer rules than it asked for.
-    // A caret waiting on a rule that was never added would sit there forever.
     const after = readPages(sessionRef.current, DEFAULT_PAGE_LINES)[pageIndexRef.current]
-    const added = Math.max(0, (after?.lines ?? before) - before)
+    return Math.max(0, (after?.lines ?? before) - before)
+  }, [])
+
+  const addLines = useCallback(() => {
+    // A caret waiting on a rule that was never added would sit there forever, so this
+    // is armed before the write and disarmed again if nothing came of it.
+    caretOnLine.current = openPageRef.current?.lines ?? DEFAULT_PAGE_LINES
+    const added = growPage()
     if (added === 0) caretOnLine.current = null
     return added
-  }, [])
+  }, [growPage])
 
   const setDate = useCallback((iso: string) => {
     setPageDate(sessionRef.current, pageIndexRef.current, iso, DEFAULT_PAGE_LINES)

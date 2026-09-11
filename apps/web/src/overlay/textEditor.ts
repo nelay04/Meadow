@@ -79,6 +79,20 @@ export type TextEditorOptions = {
    * a key that does nothing at all.
    */
   onLeave?(direction: 'up' | 'down'): boolean
+  /**
+   * A newline is about to make this object one line taller.
+   *
+   * Asked before the key is allowed through, because on a ruled page height is not
+   * free: a row is as many rules tall as it is lines, and the page has a last rule.
+   * Return true to let the newline happen - the usual answer, and always the answer on
+   * a surface with no page - or false to refuse it, which is what stops the writing
+   * running off the bottom of the paper onto nothing.
+   *
+   * The caret only, never a selection: replacing selected text can just as easily make
+   * the object shorter, and asking for paper on the way to a line that is about to be
+   * deleted would lengthen a page nobody wrote on.
+   */
+  onGrow?(): boolean
 }
 
 /**
@@ -195,6 +209,21 @@ export function createTextEditor(options: TextEditorOptions): TextEditorHandle {
         if (event.key === 'Escape') {
           event.preventDefault()
           options.onExit()
+          return true
+        }
+
+        /*
+         * Enter is the one key that adds a line without typing anything into it, so it
+         * is the one key that can walk writing off the end of the page. Shift+Enter is
+         * included because a hard break lands on the next rule exactly as a paragraph
+         * does - what counts here is the height, not which node produced it.
+         */
+        if (event.key === 'Enter' && options.onGrow !== undefined) {
+          if (!view.state.selection.empty) return false
+          if (options.onGrow()) return false
+          // Refused: there is no rule under this one and none could be added. Swallow
+          // the key rather than letting it push the writing onto bare paper.
+          event.preventDefault()
           return true
         }
 
