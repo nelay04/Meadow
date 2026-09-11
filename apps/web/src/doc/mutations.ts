@@ -44,6 +44,7 @@ import type { BoardRole } from '../lib/api'
 import {
   type RichNode,
   fragmentToNodes,
+  fragmentToPlainText,
   setFragmentNodes,
   setFragmentPlainText,
 } from './richText'
@@ -135,13 +136,29 @@ export function createDocSession(
   role: BoardRole,
   locked = false,
   boardLocked = false,
+  /*
+   * What the text editor's writes look like, or undefined to leave typing untracked.
+   *
+   * Passed in rather than imported, so this file stays free of ProseMirror: the editor
+   * is the thing that knows what origin its own writes carry, and it says so once, in
+   * `EDITOR_ORIGIN`. Undefined is the honest answer for the dev harness, which has no
+   * editor behind it.
+   *
+   * Tracking it is what makes one undo stack out of what used to be two. Text lives in
+   * a `Y.XmlFragment` inside the object's own map, so it has always been *within* this
+   * manager's scope - the origin filter was the whole of why typing was not on the
+   * stack, and the editor's per-object, per-visit history was what filled the gap.
+   */
+  editorOrigin?: unknown,
 ): DocSession {
   const roots = docRoots(doc)
 
   const undo = new Y.UndoManager([roots.objects, roots.bindings, roots.order], {
     // Scoped to this client's own edits. Without the filter, undo would revert a
     // collaborator's change, which is never what the user meant.
-    trackedOrigins: new Set([LOCAL_ORIGIN]),
+    trackedOrigins: new Set(
+      editorOrigin === undefined ? [LOCAL_ORIGIN] : [LOCAL_ORIGIN, editorOrigin],
+    ),
     // A drag emits one transaction per frame. Merging anything within this window
     // keeps the whole gesture as a single undo step; gesture boundaries call
     // stopCapturing so two separate drags never merge into one.
@@ -251,6 +268,74 @@ export function updateObjects(
     // After every patch, not per patch. Dragging a shape and an arrow bound to it in
     // one selection would otherwise solve the arrow against the shape's old position.
     reflowArrows(session, touched)
+  })
+}
+
+/**
+ * Two runs of nodes as one, with the blocks either side of the seam made into one line.
+ *
+ * This is what makes a join a join. Appending the lists would leave the moved writing
+ * as a block of its own, which on ruled paper is still its own line, one rule further
+ * down - the row would be two rules tall and nothing would have come up to meet
+ * anything. Merging the last block with the first is the line closing up.
+ *
+ * Only blocks are merged. A bare run of text on either side is not a line and is
+ * appended as it stands.
+ */
+function joinNodes(kept: readonly RichNode[], moving: readonly RichNode[]): RichNode[] {
+  if (kept.length === 0) return [...moving]
+  if (moving.length === 0) return [...kept]
+
+  const last = kept[kept.length - 1]
+  const first = moving[0]
+  if (!('children' in last) || !('children' in first)) return [...kept, ...moving]
+
+  return [
+    ...kept.slice(0, -1),
+    { ...last, children: [...last.children, ...first.children] },
+    ...moving.slice(1),
+  ]
+}
+
+/**
+ * Move one row's writing onto the end of another's, and take the emptied row away.
+ *
+ * Backspace at the start of a line, which on ruled paper is a join rather than a
+ * deletion: there is no character before the caret to remove, because the thing before
+ * the caret is the rule itself. The line comes up to meet the one above it.
+ *
+ * One transaction, so it is one step to undo. Two would let Ctrl+Z put the row back
+ * with the writing still copied onto the row above, which is a state the page was never
+ * in and the worst kind of undo to land on.
+ *
+ * Answers with how many characters the target held before the join, which is where the
+ * caret belongs afterwards - the seam, exactly as it would be in a text editor.
+ * Null when there was nothing to join, so the caller can leave the key alone.
+ */
+export function joinTextInto(
+  session: DocSession,
+  targetId: string,
+  sourceId: string,
+): number | null {
+  const target = objectFragment(session, targetId)
+  if (target === null) return null
+
+  const source = objectFragment(session, sourceId)
+  // Written out, not read as nodes: a row holding an empty paragraph is a row with
+  // nothing on it, and the node list does not say so.
+  const moving = source === null || fragmentToPlainText(source) === ''
+    ? []
+    : fragmentToNodes(source)
+
+  return write(session, () => {
+    const before = fragmentToPlainText(target).length
+    // Only when there is something to move. Rewriting the target's whole fragment to
+    // tidy away a blank row is an update every peer has to apply for no change at all.
+    if (moving.length > 0) {
+      setFragmentNodes(target, joinNodes(fragmentToNodes(target), moving))
+    }
+    purgeObjects(session, new Set([sourceId]))
+    return before
   })
 }
 

@@ -35,6 +35,7 @@ import {
   endGesture,
   ensureObjectFragment,
   insertSnapshot,
+  joinTextInto,
   objectFragment,
   sendBackward,
   sendToBack,
@@ -61,7 +62,16 @@ export type EditorFactory = (options: {
   onExit(): void
   onLeave?(direction: 'up' | 'down'): boolean
   /** Whether a newline may make this object a line taller. See `onGrow` in textEditor. */
-  onGrow?(): boolean
+  onGrow?(lines: number): boolean
+  /** Ctrl+A again, when the row is already all selected. See `onSelectAll` in textEditor. */
+  onSelectAll?(): boolean
+  /** Backspace at the very start of the object. See `onJoin` in textEditor. */
+  onJoin?(): boolean
+  /** Where to put the caret on mount, in characters from the start of the text. */
+  caretChars?: number
+  /** Ctrl+Z and Ctrl+Y inside the editor, which are the document's rather than its own. */
+  onUndo?(): void
+  onRedo?(): void
   onMarks?(marks: TextMark[]): void
 }) => {
   destroy(): void
@@ -183,6 +193,19 @@ export class DocEngineHost implements EngineHost {
     endGesture(this.session)
   }
 
+  /**
+   * Join one row's writing onto the end of another's. See `joinTextInto`.
+   *
+   * Answers with the caret's place in the joined row, or null when nothing happened.
+   */
+  joinText(targetId: string, sourceId: string): number | null {
+    if (!this.session.canWrite) {
+      this.options.onRefused?.(new ReadOnlyError().message)
+      return null
+    }
+    return joinTextInto(this.session, targetId, sourceId)
+  }
+
   undo(): void {
     this.session.undo.undo()
   }
@@ -250,7 +273,10 @@ export class DocEngineHost implements EngineHost {
       type: SurfaceType | null
       spellcheck: boolean
       onLeave?: (direction: 'up' | 'down') => boolean
-      onGrow?: () => boolean
+      onGrow?: (lines: number) => boolean
+      onSelectAll?: () => boolean
+      onJoin?: () => boolean
+      caretChars?: number
     },
   ): (() => void) | null {
     const factory = this.options.createEditor
@@ -294,6 +320,13 @@ export class DocEngineHost implements EngineHost {
       onExit,
       onLeave: surface.onLeave,
       onGrow: surface.onGrow,
+      onSelectAll: surface.onSelectAll,
+      onJoin: surface.onJoin,
+      caretChars: surface.caretChars,
+      // The same two methods the canvas's own Ctrl+Z reaches, so the caret being in a
+      // row or out of it makes no difference to what the key does.
+      onUndo: () => this.undo(),
+      onRedo: () => this.redo(),
       onMarks: (marks) => this.options.onMarks?.(marks),
     })
 

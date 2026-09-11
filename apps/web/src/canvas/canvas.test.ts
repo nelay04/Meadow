@@ -10,7 +10,7 @@ import type { ObjectData } from '@meadow/schema'
 import { describe, expect, it } from 'vitest'
 
 import { Camera, type CameraFence, MAX_ZOOM, MIN_ZOOM, projectPoint, viewTransform } from './camera'
-import { overflowsPage } from './engine'
+import { rulesShort, writingAsLines } from './engine'
 import { containedBy, hitsObject, pickTop, toLocal, unionBounds } from './hitTest'
 import { SNAP_THRESHOLD_PX, snapMove } from './snapping'
 import { splitAroundBox } from './renderers/arrowPass'
@@ -613,7 +613,7 @@ describe('transform', () => {
   })
 })
 
-describe('overflowsPage', () => {
+describe('rulesShort', () => {
   // The metrics a lea is actually ruled at: 21 * 1.45, the same product kinds.ts and
   // the renderer both derive the rule pitch from.
   const spacing = 21 * 1.45
@@ -621,34 +621,90 @@ describe('overflowsPage', () => {
 
   it('lets a one-line row on the last rule take a second line only off the page', () => {
     // Ten rules, so rule 9 is the last one. A row on rule 8 grows into rule 9.
-    expect(overflowsPage(top(8), spacing, spacing, 10)).toBe(false)
-    // The same row on the last rule has nothing under it.
-    expect(overflowsPage(top(9), spacing, spacing, 10)).toBe(true)
+    expect(rulesShort(top(8), spacing, spacing, 10)).toBe(0)
+    // The same row on the last rule has nothing under it, and is one rule short.
+    expect(rulesShort(top(9), spacing, spacing, 10)).toBe(1)
   })
 
   it('counts the rules a wrapped row already fills', () => {
     // Three lines starting on rule 6 fill 6, 7 and 8, so the fourth lands on 9.
-    expect(overflowsPage(top(6), spacing * 3, spacing, 10)).toBe(false)
+    expect(rulesShort(top(6), spacing * 3, spacing, 10)).toBe(0)
     // Starting one rule lower, the fourth line is off the end.
-    expect(overflowsPage(top(7), spacing * 3, spacing, 10)).toBe(true)
+    expect(rulesShort(top(7), spacing * 3, spacing, 10)).toBe(1)
   })
 
   it('treats a row shorter than one rule as one rule tall', () => {
     // A row whose object height has not caught up with its ruling is still standing in
     // a rule, and rounding it to zero bands would hand out a line that is already used.
-    expect(overflowsPage(top(9), 0, spacing, 10)).toBe(true)
-    expect(overflowsPage(top(8), 1, spacing, 10)).toBe(false)
+    expect(rulesShort(top(9), 0, spacing, 10)).toBe(1)
+    expect(rulesShort(top(8), 1, spacing, 10)).toBe(0)
   })
 
   it('is unmoved by a page that has been lengthened', () => {
     // The same row that was full at ten rules has room at twenty: this is what makes
     // the newline go through after the page grows.
-    expect(overflowsPage(top(9), spacing, spacing, 10)).toBe(true)
-    expect(overflowsPage(top(9), spacing, spacing, 20)).toBe(false)
+    expect(rulesShort(top(9), spacing, spacing, 10)).toBe(1)
+    expect(rulesShort(top(9), spacing, spacing, 20)).toBe(0)
   })
 
   it('answers for a row on a page of one rule', () => {
-    expect(overflowsPage(0, spacing, spacing, 1)).toBe(true)
+    expect(rulesShort(0, spacing, spacing, 1)).toBe(1)
+  })
+
+  it('measures a paste by how many lines it carries', () => {
+    // A row on rule 0 of a ten-rule page: nine rules are free below it, so nine more
+    // lines fit exactly and the tenth is one short.
+    expect(rulesShort(0, spacing, spacing, 10, 9)).toBe(0)
+    expect(rulesShort(0, spacing, spacing, 10, 10)).toBe(1)
+    // Forty lines pasted onto the first rule of a ten-rule page is thirty-one short,
+    // which is four steps of ten rather than the one a newline asks for.
+    expect(rulesShort(0, spacing, spacing, 10, 40)).toBe(31)
+  })
+
+  it('asks for nothing when a paste carries no new lines', () => {
+    // A single block continues the line the caret is on, so it takes no rule of its own
+    // even on the last one.
+    expect(rulesShort(top(9), spacing, spacing, 10, 0)).toBe(0)
+  })
+})
+
+describe('writingAsLines', () => {
+  it('keeps the blank rules between rows', () => {
+    // The page from the screenshot: writing on every other rule.
+    const rows = [
+      { rule: 0, text: 'Security and encryption checks' },
+      { rule: 2, text: 'Fix ctrl + A' },
+      { rule: 4, text: 'Backspace to get previous' },
+    ]
+    expect(writingAsLines(rows)).toBe(
+      'Security and encryption checks\n\nFix ctrl + A\n\nBackspace to get previous',
+    )
+  })
+
+  it('counts from the first row, not from the top of the page', () => {
+    // A run starting halfway down the page does not come back with twenty empty lines
+    // in front of it: the gap above the writing belongs to the page, not to the copy.
+    expect(writingAsLines([{ rule: 20, text: 'one' }, { rule: 22, text: 'two' }])).toBe(
+      'one\n\ntwo',
+    )
+  })
+
+  it('gives a row that holds two lines two lines', () => {
+    // A row two rules tall is two lines of the text, and the row after it is still
+    // placed by its own rule rather than by how many lines came before.
+    expect(
+      writingAsLines([{ rule: 0, text: 'first\nsecond' }, { rule: 3, text: 'later' }]),
+    ).toBe('first\nsecond\n\nlater')
+  })
+
+  it('keeps a run of several blank rules', () => {
+    expect(writingAsLines([{ rule: 0, text: 'top' }, { rule: 5, text: 'bottom' }])).toBe(
+      'top\n\n\n\n\nbottom',
+    )
+  })
+
+  it('is empty for no rows at all', () => {
+    expect(writingAsLines([])).toBe('')
   })
 })
 

@@ -1321,6 +1321,66 @@ The infrastructure to run the thing. Not deployed yet.
   else.
 
 ### Fixed
+- **Ctrl+Z on a lea reached back about one line and then stopped.** The text editor
+  came with its own undo stack, built by the collaboration plugin, scoped to a single
+  object and destroyed along with the editor. On a glade, where a sticky is one object
+  you type into for a while, that is invisible. On a lea every rule is its own object
+  and the caret crosses between them constantly, so the history of a line was thrown
+  away the moment you left it: undo reached the last thing typed on the current line
+  and no further, and nothing at all once you moved on.
+
+  Undo now belongs to the document. The session's `Y.UndoManager` already covered the
+  writing - text lives in a fragment inside the object's own map, so it was always
+  within scope - and the only reason typing was not on the stack was the origin filter.
+  It tracks the editor's origin as well now, and the editor sends Ctrl+Z, Ctrl+Y and
+  Ctrl+Shift+Z there rather than to its own stack. One history, for as long as the
+  board is open, whether the caret is in a row or out of it.
+
+  This reverses the deliberate split recorded when text editing landed, which kept two
+  stacks so that undoing a move could never revert a sentence. The origin filter is
+  what actually answers that: the manager tracks this client's own edits, so Ctrl+Z
+  walks back through your own writing and your own moves in the order you made them,
+  and never through anybody else's.
+- **Redo put the writing back but left the caret behind it.** Restored text appeared to
+  the right of the cursor, and the next keystroke landed in the middle of it. The
+  editor's old stack had carried a saved selection on each item; the document's does
+  not, so the caret is now placed at the end of the row after an undo or a redo.
+- **Ctrl+A on a lea selected pages you could not see.** It took every object in the
+  document - other pages, and pages sitting in the trash - which the camera is fenced
+  away from, so nothing looked selected and the next Delete would have been aimed at
+  all of it. It takes the open page and nothing else now.
+
+  It also takes the page's *writing*, which is what Ctrl+A on a diary means. A run of
+  rules from the first written one to the last, blank rules in the middle included:
+  those gaps are somebody's spacing, and a copy that closed them would come back as a
+  different page. Ctrl+C puts it on the clipboard twice over - as plain text with the
+  blank rules as blank lines, and as the rows themselves - so pasting into a mail gives
+  the writing and pasting into another page puts it back on the rules it came off, with
+  the same gaps. Ctrl+X and Delete clear those rules, and pasting plain text from
+  outside the app lays it down one line per rule.
+
+  From inside a row it is an escalation: the first Ctrl+A takes the line, the second
+  takes the page. It cannot be anything else - a selection inside the editor cannot
+  reach past the object holding it, so the page's is a different selection held
+  somewhere else, and the caret leaves when it is taken.
+- **Backspace at the start of a line on a lea did nothing.** Every rule is its own
+  object, so there was no character in front of the caret to delete - what is in front
+  of it is the rule - and the key was simply inert. On a page you are writing down, that
+  reads as the line being stuck: you cannot close a gap you left and you cannot pull a
+  line up to the one above it.
+
+  It joins now, the way a notepad does. If the rule above is empty the row moves up onto
+  it, one press per rule, closing the gap and joining nothing. If the rule above is
+  written on, the two become one line and the caret lands on the seam rather than at the
+  end. On the first line of a page it stays inert, which is what Backspace does at the
+  top of any document. The join is a single transaction, so one Ctrl+Z puts both the row
+  and its writing back - two steps could have left the writing copied above while the
+  row returned empty, which is a page that never existed.
+- **Pasting into a lea ran off the bottom of the paper.** A newline on the last rule
+  already asked for more; a paste was not asked at all, so a paragraph off a web page
+  landed below the ruling where it could be neither read properly nor clicked back
+  into. Both now measure how many rules short the page is and lengthen it by that much,
+  which for a paste is as many steps as it takes rather than the ten a newline needs.
 - **One person closing a laptop lid took realtime down for everybody.** The room relays
   every update and every cursor to every client it holds, and a client leaving between
   the fan-out and the write is a race that happens constantly. It was not treated as

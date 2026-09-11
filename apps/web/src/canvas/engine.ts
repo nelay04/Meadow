@@ -89,7 +89,7 @@ import { createShapeTool } from './tools/shapeTool'
 import { createArrowTool } from './tools/arrowTool'
 import { createPenTool } from './tools/penTool'
 import { createTextTool } from './tools/textTool'
-import type { DocSnapshot } from '../doc/mutations'
+import type { DocSnapshot, ObjectSnapshot } from '../doc/mutations'
 // Only the DataTransfer half of copying lives there: it takes a snapshot and gives
 // one back, and touches no session, so the engine still reaches the document
 // through its host and nothing else.
@@ -293,23 +293,59 @@ export function pageSpan(column: WritingColumn, slot: number): { left: number; r
 }
 
 /**
- * Whether a row that grew by one line would run off the bottom of the page.
+ * How many rules a row would run off the bottom of the page by, growing this much.
  *
  * Rows are geometry rather than a list, so this is arithmetic on where the row sits and
  * how tall it is: it starts on the rule its top lands on, it is as many rules tall as
- * its writing fills, and the new line takes the rule after those. Exported and pure
- * because it is the whole of the decision in `growRow`, and the engine it lives on
- * cannot be stood up without a GPU.
+ * its writing fills, and `lines` more land on the rules after those. Zero means it
+ * fits; anything higher is how much more paper the page needs.
+ *
+ * A count rather than a yes or no, because the two things that make a row taller differ
+ * by orders of magnitude. Enter adds one line and one rule will do. A paste can carry
+ * forty, and a page lengthened one step at a time would still be short by thirty.
+ *
+ * Exported and pure because it is the whole of the decision in `growRow`, and the
+ * engine it lives on cannot be stood up without a GPU.
  */
-export function overflowsPage(
+export function rulesShort(
   top: number,
   height: number,
   spacing: number,
   pageLines: number,
-): boolean {
+  lines = 1,
+): number {
   const first = Math.round(top / spacing)
   const bands = Math.max(1, Math.round(height / spacing))
-  return first + bands > pageLines - 1
+  // The rule the last of the new lines would land on, against the last one ruled.
+  const last = first + bands - 1 + Math.max(0, lines)
+  return Math.max(0, last - (pageLines - 1))
+}
+
+/**
+ * Rows of a page written out as text, with the blank rules between them kept.
+ *
+ * Each row says which rule it starts on and what is written on it; the gaps are
+ * everything in between. Separated from the engine and exported because this is the
+ * half of copying a page that has to be exactly right - a lost blank line is a page
+ * that comes back looking like a different page - and it is arithmetic, so it can be
+ * checked without a GPU.
+ *
+ * Rules are counted from the first row rather than from the top of the page: what is
+ * copied is a run of writing, and leading blank rules above it are the page's, not the
+ * selection's.
+ */
+export function writingAsLines(rows: readonly { rule: number; text: string }[]): string {
+  if (rows.length === 0) return ''
+
+  const first = rows[0].rule
+  const lines: string[] = []
+  for (const row of rows) {
+    while (lines.length < row.rule - first) lines.push('')
+    // A row that wrapped, or that holds two paragraphs, is more than one line - and
+    // each of those stands on a rule of its own, so each is a line here too.
+    for (const line of row.text.split('\n')) lines.push(line)
+  }
+  return lines.join('\n')
 }
 
 /** The distance from one page's left edge to the next one's. */
@@ -420,6 +456,12 @@ export type EngineHost = {
   /** Plain text for the same object, for thumbnails and anything non-visual. */
   textPlain(id: string): string
   /**
+   * Move one text object's writing onto the end of another's and delete the emptied
+   * one. Answers with where the caret belongs in the joined text, or null for a join
+   * that did not happen.
+   */
+  joinText(targetId: string, sourceId: string): number | null
+  /**
    * Mount a rich-text editor into an overlay element. Returns the teardown, or null
    * when this host cannot edit. The engine never learns what the editor is.
    */
@@ -442,7 +484,11 @@ export type EngineHost = {
       type: SurfaceType | null
       spellcheck: boolean
       onLeave?: (direction: 'up' | 'down') => boolean
-      onGrow?: () => boolean
+      onGrow?: (lines: number) => boolean
+      onSelectAll?: () => boolean
+      onJoin?: () => boolean
+      /** Where to put the caret on mount, in characters from the start. */
+      caretChars?: number
     },
   ): (() => void) | null
   /** Toggle an inline mark in the live editor. No-op when nothing is being edited. */
@@ -471,10 +517,18 @@ export type EngineEvents = {
    * one is not the engine's to do. Return whether more paper was actually added; false
    * refuses the newline that asked.
    */
-  onPageFull?(): boolean
+  onPageFull?(short: number): boolean
 }
 
 export class CanvasEngine {
+  /**
+   * Whether the selection is a page's writing rather than a set of objects.
+   *
+   * Two selections that look nothing alike share one set of ids, so one boolean tells
+   * the clipboard, the chrome and the delete path which they are holding. Set only by
+   * `selectPageWriting`, and cleared by every other route into `setSelection`.
+   */
+  private pageTextSelected = false
   readonly camera = new Camera()
   private readonly index = new SpatialIndex()
   private readonly cache = new Map<string, ObjectData>()
@@ -1439,14 +1493,101 @@ export class CanvasEngine {
   }
 
   setSelection(ids: Iterable<string>): void {
+    // Any ordinary selection ends a page-text one. `selectPageWriting` sets the flag
+    // back after calling this, and it is the only thing that may.
+    this.pageTextSelected = false
     this.selected.clear()
     for (const id of ids) this.selected.add(id)
     this.events.onSelectionChange?.(Array.from(this.selected))
     this.requestRender()
   }
 
+  /**
+   * Select everything selectable, which on a diary means everything *here*.
+   *
+   * A glade is one world and Ctrl+A takes all of it. A lea is not: its pages are strips
+   * of the same world, side by side, and every page's writing is an object in the same
+   * document. Unfiltered, Ctrl+A on page four also took pages one to three and every
+   * page sitting in the trash - a selection of things the camera is fenced away from,
+   * which cannot be seen, and which the next Delete or Ctrl+X would have been aimed at.
+   *
+   * Rows are left out for the reason `isPageRow` gives everywhere else: the writing on
+   * a page is the paper, not things on it, so it draws no chrome and is on no
+   * clipboard. Selecting it would be a selection with nothing to show for itself.
+   */
+  /**
+   * Select the writing on the open page, as writing rather than as objects.
+   *
+   * Ctrl+A on a diary means "all of this page", and on a diary that is not a set of
+   * things you have picked up - it is a run of rules from the first written one to the
+   * last, blank rules in the middle included. Those blank rules are the reason this
+   * keeps the run rather than only the rows: a page whose lines are spaced out is a
+   * page somebody spaced out on purpose, and a copy that closed the gaps would be a
+   * different page.
+   *
+   * The flag is what tells the clipboard which of the two selections it is looking at.
+   * Rows are still not objects - they draw no box and take no handles - so this paints
+   * the highlight a text selection would have instead. See `drawSelectionChrome`.
+   */
+  selectPageWriting(): boolean {
+    if (this.column === null) return false
+
+    const rows = this.pageRows()
+    if (rows.length === 0) return false
+
+    this.stopEditing()
+    this.setSelection(rows.map((row) => row.id))
+    this.pageTextSelected = true
+    this.requestRender()
+    return true
+  }
+
+  /** The open page's rows, in the order they are read: down the page. */
+  private pageRows(): ObjectData[] {
+    const origin = this.pageOrigin
+    const rows: ObjectData[] = []
+    for (const id of this.host.order()) {
+      const object = this.cache.get(id)
+      if (object === undefined || object.type !== 'text') continue
+      if (!this.onThisPage(object, origin)) continue
+      rows.push(object)
+    }
+    return rows.sort((a, b) => a.y - b.y)
+  }
+
+  /** The rows of a page-text selection, in reading order. Empty for any other kind. */
+  private selectedRows(): ObjectData[] {
+    if (!this.pageTextSelected) return []
+    return this.pageRows().filter((row) => this.selected.has(row.id))
+  }
+
+  /**
+   * A run of rows as the text it is, blank rules and all.
+   *
+   * The rule a row sits on is what decides where its line goes, not its place in the
+   * list, so two rows three rules apart come back with two empty lines between them.
+   * That is the whole point: it is what makes a copy paste back as the page it was.
+   */
+  private pageWritingText(rows: readonly ObjectData[]): string {
+    const spacing = this.ruleSpacing
+    return writingAsLines(
+      rows.map((row) => ({
+        rule: Math.round(row.y / spacing),
+        text: this.host.textPlain(row.id),
+      })),
+    )
+  }
+
   selectAll(): void {
-    this.setSelection(this.host.order().filter((id) => !this.cache.get(id)?.locked))
+    const origin = this.pageOrigin
+    this.setSelection(
+      this.host.order().filter((id) => {
+        const object = this.cache.get(id)
+        if (object === undefined || object.locked) return false
+        if (this.column === null) return true
+        return !this.isPageRow(id) && this.onThisPage(object, origin)
+      }),
+    )
   }
 
   /*
@@ -1715,7 +1856,38 @@ export class CanvasEngine {
    * Returns false when there was nothing to copy, so the handler can leave the event
    * alone and let the browser do whatever it would have done.
    */
+  /**
+   * Put a page's writing on the clipboard, and clear the rules when cutting.
+   *
+   * Both payloads, for two different destinations. The plain text is what lands in a
+   * mail or an editor, and it carries the blank rules as blank lines. The snapshot is
+   * what lands back in a lea, and it carries the rows themselves - so a paste into
+   * another page puts the writing back on the rules it came off, with the same gaps,
+   * rather than as one run of text the reader has to space out again.
+   */
+  private copyPageWriting(data: DataTransfer | null, cut: boolean): boolean {
+    const rows = this.selectedRows()
+    if (rows.length === 0) return false
+
+    const snapshot = this.host.snapshot(rows.map((row) => row.id))
+    if (snapshot.objects.length === 0) return false
+
+    // Read before the cut, since the rows are about to stop existing.
+    writeClipboard(data, snapshot, this.pageWritingText(rows))
+    if (cut) {
+      // Not `deleteSelection`, which refuses rows on purpose: the page is paper and is
+      // not deletable *as an object*. Cutting the writing off it is a different act,
+      // and it is the one the user just asked for. Undo puts it back.
+      this.host.deleteObjects(rows.map((row) => row.id))
+      this.setSelection([])
+      this.host.commit()
+    }
+    return true
+  }
+
   copySelection(data: DataTransfer | null, cut = false): boolean {
+    if (this.pageTextSelected) return this.copyPageWriting(data, cut)
+
     const ids = this.clipboardTargets()
     if (ids.length === 0) return false
 
@@ -1799,7 +1971,27 @@ export class CanvasEngine {
     if (this.isTextTarget(event.target) || this.editing !== null) return
 
     const snapshot = readClipboard(event.clipboardData)
-    if (snapshot === null) return
+    if (snapshot === null) {
+      /*
+       * Nothing of ours on the clipboard, but a diary is a place you paste writing into
+       * from somewhere else, and a page of ruled paper knows exactly what to do with
+       * lines of text. Only on a writing surface: on a glade there is no rule to put a
+       * line on and no reason to guess where the text should go.
+       */
+      const text = event.clipboardData?.getData('text/plain') ?? ''
+      if (this.column === null || text === '') return
+      event.preventDefault()
+      this.pastePageWriting(this.snapshotFromLines(text.split(/\r?\n/)))
+      return
+    }
+
+    // Rows land back on rules. Anything else on a lea, and everything on a glade, goes
+    // down where it was aimed.
+    if (this.column !== null && snapshot.objects.every((entry) => entry.object.type === 'text')) {
+      event.preventDefault()
+      this.pastePageWriting(snapshot)
+      return
+    }
     // Prevented before the insert rather than after: a refused paste - a viewer, a
     // locked glade - must still not fall through to the browser dropping a payload
     // of JSON onto the page.
@@ -1807,8 +1999,113 @@ export class CanvasEngine {
     this.pasteSnapshot(snapshot)
   }
 
+  /**
+   * Lines of text as rows of a page, one per line, blanks kept as the gaps they are.
+   *
+   * A blank line makes no row - an empty row is nothing to look at and `discardIfEmpty`
+   * would remove it anyway - but it still takes its rule, because the next line is
+   * placed by its index and not by how many rows came before it. That is what carries
+   * the spacing of a page pasted from outside this app.
+   */
+  private snapshotFromLines(lines: readonly string[]): DocSnapshot {
+    const column = this.column
+    if (column === null) return { objects: [], bindings: [] }
+
+    const spacing = this.ruleSpacing
+    const objects: ObjectSnapshot[] = []
+    lines.forEach((line, index) => {
+      if (line.trim() === '') return
+      objects.push({
+        object: {
+          // Replaced on the way in - `insertSnapshot` mints real ones - so this only
+          // has to be unique within the paste.
+          id: `pasted-${index}`,
+          type: 'text',
+          x: 0,
+          y: index * spacing,
+          w: column.width,
+          h: spacing,
+          rotation: 0,
+          opacity: 1,
+          locked: false,
+          parentId: null,
+          createdBy: '',
+          props: {
+            fontSize: column.fontSize,
+            lineHeight: column.lineHeight,
+            padding: 0,
+            paragraphSpacing: 0,
+          },
+        },
+        text: [{ name: 'paragraph', children: [{ text: [{ insert: line }] }] }],
+      })
+    })
+    return { objects, bindings: [] }
+  }
+
+  /** The first rule below everything written on the page, which is where a paste goes. */
+  private firstFreeRule(): number {
+    const spacing = this.ruleSpacing
+    let free = 0
+    for (const row of this.pageRows()) {
+      const first = Math.round(row.y / spacing)
+      free = Math.max(free, first + Math.max(1, Math.round(row.h / spacing)))
+    }
+    return free
+  }
+
+  /**
+   * Put writing onto the page's rules, lengthening the page if it does not reach.
+   *
+   * The offset is the whole of it: every row in the snapshot already sits at a multiple
+   * of the rule pitch relative to the first, so moving the block as one thing keeps
+   * every gap inside it exactly as it was. The x is the open page's own origin, because
+   * which page a row is on is where it is and nothing else.
+   */
+  private pastePageWriting(snapshot: DocSnapshot): boolean {
+    const column = this.column
+    if (column === null || !this.host.canWrite) return false
+
+    const bounds = snapshotBounds(snapshot)
+    if (bounds === null) return false
+
+    const spacing = this.ruleSpacing
+    const target = this.firstFreeRule()
+    // Ask for the paper before the writing, so nothing lands below the last rule.
+    const short = rulesShort(this.rowTop(target), bounds.h, spacing, this.pageLines, 0)
+    if (short > 0 && this.events.onPageFull?.(short) !== true) return false
+
+    const created = this.host.insertSnapshot(snapshot, {
+      x: this.pageOrigin - bounds.x,
+      y: this.rowTop(target) - bounds.y,
+    })
+    if (created.length === 0) return false
+
+    this.host.commit()
+    this.requestRender()
+    return true
+  }
+
   deleteSelection(): void {
     if (this.selected.size === 0) return
+
+    /*
+     * Writing that was selected as writing is deleted as writing.
+     *
+     * The refusal below is about the page as an object - paper is not a thing you can
+     * delete off a board - and it is right for a row that happened to be selected by a
+     * click. It is wrong for a run somebody selected with Ctrl+A and then pressed
+     * Delete on, which is the plainest possible statement of intent, and which Ctrl+X
+     * already honours.
+     */
+    if (this.pageTextSelected) {
+      const rows = this.selectedRows()
+      if (rows.length === 0) return
+      this.host.deleteObjects(rows.map((row) => row.id))
+      this.setSelection([])
+      this.host.commit()
+      return
+    }
 
     // The page itself is never deletable. It is the paper, not something on it, and
     // there is no state a writing surface with no page is in that anybody wants: the
@@ -1931,7 +2228,7 @@ export class CanvasEngine {
    * and that element only exists once the object has been through a sync, so a text
    * object created a microsecond ago has nowhere to put an editor yet.
    */
-  beginTextEdit(id: string): boolean {
+  beginTextEdit(id: string, caretChars?: number): boolean {
     // The overlay does not exist until `init` has run. Callers retry rather than
     // assume, because the board view asks for a caret as soon as the document lands
     // and that can be before the renderer is up.
@@ -1959,8 +2256,13 @@ export class CanvasEngine {
       ink: this.canvasInk,
       type: this.surfaceType,
       spellcheck: this.spellcheckSurface,
+      caretChars,
       onLeave: (direction) => this.leaveRow(id, direction),
-      onGrow: () => this.growRow(id),
+      onGrow: (lines) => this.growRow(id, lines),
+      // Ctrl+A a second time, once the row itself is all selected. The editor cannot
+      // hold a selection wider than its own object, so the page takes it over.
+      onSelectAll: () => this.selectPageWriting(),
+      onJoin: () => this.joinRow(id),
     })
     if (teardown === null) {
       this.textLayer.endEdit()
@@ -2041,14 +2343,62 @@ export class CanvasEngine {
    * True on an unfenced canvas: a glade has no rules and no bottom, and a text object
    * there grows as far as the writing goes.
    */
-  private growRow(id: string): boolean {
+  private growRow(id: string, lines: number): boolean {
     const object = this.cache.get(id)
     if (this.column === null || object === undefined) return true
 
-    // Room already ruled for the line, and so nothing to ask for.
-    if (!overflowsPage(object.y, object.h, this.ruleSpacing, this.pageLines)) return true
+    const short = rulesShort(object.y, object.h, this.ruleSpacing, this.pageLines, lines)
+    // Room already ruled for them, and so nothing to ask for.
+    if (short === 0) return true
 
-    return this.events.onPageFull?.() ?? false
+    return this.events.onPageFull?.(short) ?? false
+  }
+
+  /**
+   * Backspace at the very start of a row. Three answers, and all of them are "up".
+   *
+   * This is the gesture that makes ruled paper behave like a notepad rather than like a
+   * column of boxes. There is no character before the caret to delete - what is in
+   * front of it is the rule itself - so without this the key did nothing at all, which
+   * reads as the page being stuck.
+   *
+   * The rule above is empty: the row moves up onto it. Nothing is joined and nothing is
+   * deleted, because there is nothing there to join to - the writing simply closes a
+   * gap somebody left, one rule per press, exactly as Backspace closes blank lines in a
+   * notepad.
+   *
+   * The rule above is written on: the two become one. The writing comes up to meet it
+   * and the caret lands on the seam.
+   *
+   * There is no rule above: nothing happens and the key is left alone, so Backspace on
+   * the first line of a page is as inert as it is at the top of a document.
+   */
+  private joinRow(id: string): boolean {
+    const object = this.cache.get(id)
+    if (this.column === null || object === undefined || !this.host.canWrite) return false
+
+    const spacing = this.ruleSpacing
+    const rule = Math.round(object.y / spacing)
+    if (rule <= 0) return false
+
+    const above = this.rowObjectAt(this.rowTop(rule - 1))
+    if (above === null) {
+      // Empty rule above, so the row takes it. The editor stays mounted on the same
+      // object and the caret stays where it is; only the paper under it changes.
+      this.host.applyPatches([{ id, patch: { y: this.rowTop(rule - 1) } }])
+      this.host.commit()
+      this.revealRow(id)
+      return true
+    }
+    if (above === id) return false
+
+    const caret = this.host.joinText(above, id)
+    if (caret === null) return false
+
+    this.host.commit()
+    // The row this one just became part of, with the caret at the join.
+    this.beginTextEdit(above, caret)
+    return true
   }
 
   private leaveRow(id: string, direction: 'up' | 'down'): boolean {
@@ -3061,6 +3411,32 @@ export class CanvasEngine {
      * so chrome offering both would be chrome for two things that do not happen.
      * Anything else on the page still selects and still shows its box.
      */
+    /*
+     * A page-text selection is painted, not outlined.
+     *
+     * Eight handles round a run of writing would be the canvas showing through again,
+     * and the rows underneath are the paper. A wash over each row is what a text
+     * selection looks like everywhere else, and it is the only chrome this one needs.
+     */
+    if (this.pageTextSelected) {
+      let painted = false
+      for (const id of this.selected) {
+        const object = this.cache.get(id)
+        if (object === undefined) continue
+        const topLeft = projectPoint(transform, object.x, object.y)
+        const bottomRight = projectPoint(transform, object.x + object.w, object.y + object.h)
+        graphics.rect(
+          topLeft.x,
+          topLeft.y,
+          bottomRight.x - topLeft.x,
+          bottomRight.y - topLeft.y,
+        )
+        painted = true
+      }
+      if (painted) graphics.fill({ color: SELECTION_COLOR, alpha: 0.28 })
+      return
+    }
+
     const selectedObjects: ObjectData[] = []
     for (const id of this.selected) {
       if (this.isPageRow(id)) continue
@@ -3520,7 +3896,9 @@ export class CanvasEngine {
     }
     if (accel && event.key.toLowerCase() === 'a') {
       event.preventDefault()
-      this.selectAll()
+      // On a page, all of it means all of the writing on it. On a canvas it means every
+      // object, which is what `selectAll` has always done.
+      if (this.column === null || !this.selectPageWriting()) this.selectAll()
       return
     }
     // Ctrl+D. It takes the browser's bookmark chord, which is the same trade every

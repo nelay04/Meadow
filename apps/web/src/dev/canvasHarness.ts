@@ -42,7 +42,7 @@ import {
   updateObject,
 } from '../doc/mutations'
 import { fragmentToPlainText } from '../doc/richText'
-import { createTextEditor } from '../overlay/textEditor'
+import { EDITOR_ORIGIN, createTextEditor } from '../overlay/textEditor'
 
 const params = new URLSearchParams(location.search)
 const count = Number(params.get('n') ?? '2000')
@@ -81,7 +81,9 @@ function seeded(seed: number): () => number {
 }
 
 const doc = new Y.Doc()
-const session = createDocSession(doc, 'owner')
+// The origin, like the real board: the harness is where undo gets looked at, so it
+// has to have the same one stack rather than the editor's private one.
+const session = createDocSession(doc, 'owner', false, false, EDITOR_ORIGIN)
 let arrowIds: string[] = []
 
 // The harness gets the real editor. A smoke test that drove a stub would prove the

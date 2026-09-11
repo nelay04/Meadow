@@ -22,6 +22,7 @@ import {
   ensureObjectFragment,
   deleteObjects,
   endGesture,
+  joinTextInto,
   moveBehind,
   moveToDepth,
   purgePage,
@@ -39,6 +40,7 @@ import {
   updateObject,
   updateObjects,
 } from './mutations'
+import { fragmentToPlainText, setFragmentPlainText } from './richText'
 
 const session = (role: 'owner' | 'viewer' = 'owner') => createDocSession(new Y.Doc(), role)
 
@@ -142,6 +144,93 @@ describe('object writes', () => {
     )
 
     expect(transactions).toBe(1)
+  })
+})
+
+describe('joinTextInto', () => {
+  /** A text object carrying one line, the way a row of a lea does. */
+  const row = (doc: ReturnType<typeof session>, line: string): string => {
+    const id = addObject(doc, { type: 'text' })
+    const fragment = ensureObjectFragment(doc, id)
+    if (fragment !== null) setFragmentPlainText(fragment, line)
+    return id
+  }
+
+  const textOf = (doc: ReturnType<typeof session>, id: string): string => {
+    const fragment = ensureObjectFragment(doc, id)
+    return fragment === null ? '' : fragmentToPlainText(fragment)
+  }
+
+  it('moves the writing up and takes the emptied row away', () => {
+    const doc = session()
+    const above = row(doc, 'first')
+    const below = row(doc, 'second')
+
+    expect(joinTextInto(doc, above, below)).toBe('first'.length)
+    expect(textOf(doc, above)).toBe('firstsecond')
+    expect(doc.objects.has(below)).toBe(false)
+    // `order` has to lose it too, or the row lives on as an id pointing at nothing.
+    expect(doc.order.toArray()).not.toContain(below)
+  })
+
+  it('answers with the seam, not the end', () => {
+    const doc = session()
+    const above = row(doc, 'hello')
+    const below = row(doc, ' world')
+
+    // Where the caret goes: after "hello", which is not the end of "hello world".
+    expect(joinTextInto(doc, above, below)).toBe(5)
+  })
+
+  it('takes an empty row away without touching the writing above it', () => {
+    const doc = session()
+    const above = row(doc, 'kept')
+    const below = row(doc, '')
+
+    expect(joinTextInto(doc, above, below)).toBe(4)
+    expect(textOf(doc, above)).toBe('kept')
+    expect(doc.objects.has(below)).toBe(false)
+  })
+
+  it('joins onto an empty row above', () => {
+    const doc = session()
+    const above = row(doc, '')
+    const below = row(doc, 'moved up')
+
+    expect(joinTextInto(doc, above, below)).toBe(0)
+    expect(textOf(doc, above)).toBe('moved up')
+  })
+
+  it('is one step to undo, not two', () => {
+    const doc = session()
+    const above = row(doc, 'first')
+    const below = row(doc, 'second')
+    // The rows were made in their own transactions above; only the join is under test.
+    doc.undo.stopCapturing()
+
+    joinTextInto(doc, above, below)
+    doc.undo.undo()
+
+    // Both halves come back together. One undo that left the writing copied onto the
+    // row above while the row itself returned would be a page that never existed.
+    expect(doc.objects.has(below)).toBe(true)
+    expect(textOf(doc, above)).toBe('first')
+    expect(textOf(doc, below)).toBe('second')
+  })
+
+  it('refuses on a read-only session', () => {
+    const doc = session()
+    const above = row(doc, 'first')
+    const below = row(doc, 'second')
+
+    const viewer = createDocSession(doc.doc, 'viewer')
+    expect(() => joinTextInto(viewer, above, below)).toThrow(ReadOnlyError)
+    expect(viewer.objects.has(below)).toBe(true)
+  })
+
+  it('answers null for a row that is not there', () => {
+    const doc = session()
+    expect(joinTextInto(doc, 'missing', row(doc, 'text'))).toBeNull()
   })
 })
 

@@ -12,17 +12,30 @@
  * document is already correct the instant a key is pressed, so there is no save step
  * that can be missed by a crash or a navigation.
  *
- * Undo is deliberately split. Collaboration brings its own `Y.UndoManager` over the
- * fragment, so Ctrl+Z inside the editor undoes typing. The session's UndoManager in
- * doc/mutations tracks only the local origin, which the editor's writes do not use, so
- * object-level undo never reaches inside a paragraph. Those are the two behaviours a
- * user expects, and getting them from one stack would mean an undo of a move reverting
- * someone's sentence.
+ * Undo is the document's, not the editor's, and that is a reversal of how this file
+ * started. Collaboration builds its own `Y.UndoManager` over the fragment, and the two
+ * behaviours that stack cannot have are the two a diary needs most: it is scoped to one
+ * object, so writing on the next rule is a separate history, and it is built by the
+ * plugin and destroyed with the editor, so the history of a row is gone the moment the
+ * caret leaves it. On a lea, where every rule is its own object and the caret moves
+ * between them constantly, that made Ctrl+Z reach about as far as the last thing typed
+ * and no further.
+ *
+ * So the keys are intercepted here - direct editor props are consulted before any
+ * plugin's keymap - and sent to the session's UndoManager, which is scoped to the
+ * document roots and lives as long as the board is open. `EDITOR_ORIGIN` below is what
+ * lets it see typing at all.
+ *
+ * The old worry, that one stack means "an undo of a move reverts someone's sentence",
+ * is answered by the origin filter rather than by a second stack: the session manager
+ * tracks this client's own edits only, so Ctrl+Z walks back through your own writing
+ * and your own moves, in the order you made them, and never through anybody else's.
  */
 
 import { type TextProps, resolveTextProps } from '@meadow/schema'
 import { Editor } from '@tiptap/core'
 import Collaboration from '@tiptap/extension-collaboration'
+import { PluginKey } from '@tiptap/pm/state'
 import StarterKit from '@tiptap/starter-kit'
 import type * as Y from 'yjs'
 
@@ -31,6 +44,23 @@ import { TEXT_MARKS, type TextMark } from '../doc/richText'
 import { inputLanguageId, subscribeInputLanguage } from '../text/imeStore'
 import { spellcheckEnabled, subscribeSpellcheck } from '../text/spellcheckStore'
 import { PhoneticComposing, attachPhoneticIme } from './phoneticIme'
+
+/**
+ * What the editor's writes into the document look like, for `Y.UndoManager`.
+ *
+ * y-prosemirror wraps every local keystroke in a Yjs transaction of its own, tagged
+ * with `ySyncPluginKey` as the origin - so that plugin key is what a piece of typing
+ * is signed with. `Y.UndoManager` matches a tracked origin by identity *or* by
+ * constructor, and the key itself is not reachable from here - `@tiptap/y-tiptap` is a
+ * transitive dependency, not one this app declares - so the class is what is handed
+ * over. Nothing else in this app writes under a `PluginKey` origin, which is what makes
+ * the wider match exact in practice.
+ *
+ * It is exported from this file on purpose. The document layer must not have to know
+ * what a ProseMirror plugin is; the editor knows what its own writes look like, and
+ * says so once, here. See `createDocSession`.
+ */
+export const EDITOR_ORIGIN: unknown = PluginKey
 
 export type TextEditorHandle = {
   focus(): void
@@ -84,15 +114,51 @@ export type TextEditorOptions = {
    *
    * Asked before the key is allowed through, because on a ruled page height is not
    * free: a row is as many rules tall as it is lines, and the page has a last rule.
-   * Return true to let the newline happen - the usual answer, and always the answer on
-   * a surface with no page - or false to refuse it, which is what stops the writing
+   * `lines` is how many it would gain: one for a newline, and as many as it carries for
+   * a paste. Return true to let it happen - the usual answer, and always the answer on a
+   * surface with no page - or false to refuse it, which is what stops the writing
    * running off the bottom of the paper onto nothing.
    *
    * The caret only, never a selection: replacing selected text can just as easily make
    * the object shorter, and asking for paper on the way to a line that is about to be
    * deleted would lengthen a page nobody wrote on.
    */
-  onGrow?(): boolean
+  onGrow?(lines: number): boolean
+  /**
+   * Ctrl+Z and Ctrl+Y, handed to whoever owns the document's history.
+   *
+   * Undefined leaves the editor's own fragment-scoped stack in place, which is the
+   * right answer for a harness with no session behind it and the wrong one for the app.
+   */
+  onUndo?(): void
+  onRedo?(): void
+  /**
+   * Ctrl+A pressed when this object's own text is already all selected.
+   *
+   * The escalation everything with nested selections uses: the first press takes the
+   * line, the second takes the page. It has to be an escalation rather than a straight
+   * override, because a ProseMirror selection cannot reach past the object it is in -
+   * so "all of the page" is not a bigger version of this selection, it is a different
+   * one, held somewhere else, and the caret leaves when it is taken.
+   */
+  onSelectAll?(): boolean
+  /**
+   * Backspace pressed with the caret at the very start of this object.
+   *
+   * There is nothing in front of the caret to delete, so on an ordinary text box the
+   * key does nothing. On ruled paper the thing in front of the caret is the rule, and
+   * the line is expected to come up to meet the one above it - so the surface is asked,
+   * and answers true when it took the key.
+   */
+  onJoin?(): boolean
+  /**
+   * Where to put the caret on mount, counted in characters from the start of the text.
+   *
+   * Characters rather than a ProseMirror position, because the caller is the surface
+   * and the surface must not have to know how ProseMirror numbers a document. Undefined
+   * means the end, which is where a caret arriving at a row belongs every other time.
+   */
+  caretChars?: number
 }
 
 /**
@@ -175,6 +241,29 @@ export function createTextEditor(options: TextEditorOptions): TextEditorHandle {
   // The handler cannot run before construction returns, so the hole is never observed.
   let ime: ReturnType<typeof attachPhoneticIme> | null = null
 
+  /*
+   * Run an undo or a redo, then put the caret back at the end of the writing.
+   *
+   * The document's UndoManager knows what to change and nothing about where the caret
+   * was - that was the one thing the editor's own stack did for free, through the
+   * relative selection y-prosemirror stores on each stack item. Without it the restored
+   * text arrived around a caret that had not moved, so a redo appeared to type itself
+   * out to the right of the cursor and the next keystroke landed in the middle of it.
+   *
+   * The end of the row rather than a remembered offset: a row is one line of a diary,
+   * the writing that just came back is nearly always the end of it, and a position that
+   * is always sensible beats one that is exact four times in five. Deferred by a frame
+   * because the change reaches ProseMirror through the Yjs observer, so at the moment
+   * the key is handled the text is not in the view yet.
+   */
+  const restoreCaret = (run: () => void): void => {
+    run()
+    requestAnimationFrame(() => {
+      if (editor.isDestroyed) return
+      editor.commands.focus('end')
+    })
+  }
+
   const editor = new Editor({
     element: options.element,
     extensions: extensions(options.fragment),
@@ -194,6 +283,26 @@ export function createTextEditor(options: TextEditorOptions): TextEditorHandle {
        */
       attributes: () => spellcheckAttributes(spellcheckOn()),
 
+      /*
+       * A paste is the other way writing gets taller, and the bigger one by far.
+       *
+       * Enter asks for one rule; a paragraph off a web page can arrive as thirty, and
+       * a page that was one line from its last rule would have swallowed all of them
+       * onto bare paper. Counted as blocks rather than as characters because a rule is
+       * a line and a block is what starts one - wrapping inside a block is measured by
+       * the row itself afterwards, which no count taken before the paste can know.
+       *
+       * The first block continues the line the caret is already on, so it is the ones
+       * after it that need rules of their own.
+       */
+      handlePaste: (_view, _event, slice) => {
+        if (options.onGrow === undefined) return false
+        const added = Math.max(0, slice.content.childCount - 1)
+        if (added === 0) return false
+        // Refused: swallow the paste rather than let it run off the page.
+        return !options.onGrow(added)
+      },
+
       handleKeyDown: (view, event) => {
         /*
          * The input method looks at every key first, and that ordering is the whole of
@@ -203,6 +312,72 @@ export function createTextEditor(options: TextEditorOptions): TextEditorHandle {
          */
         if (ime?.handleKeyDown(event) === true) {
           event.preventDefault()
+          return true
+        }
+
+        /*
+         * Undo and redo belong to the document, not to this object. Taken here rather
+         * than by unbinding Collaboration's keymap, because a direct editor prop is
+         * consulted before any plugin's, so this wins without touching the extension.
+         *
+         * All three chords, exactly as the canvas binds them: Ctrl+Y and Ctrl+Shift+Z
+         * both redo, because somebody who reaches for the wrong one should not conclude
+         * the redo stack is empty.
+         */
+        if ((event.ctrlKey || event.metaKey) && !event.altKey) {
+          const key = event.key.toLowerCase()
+          if (key === 'z' && options.onUndo !== undefined && options.onRedo !== undefined) {
+            event.preventDefault()
+            if (event.shiftKey) restoreCaret(options.onRedo)
+            else restoreCaret(options.onUndo)
+            return true
+          }
+          if (key === 'y' && !event.shiftKey && options.onRedo !== undefined) {
+            event.preventDefault()
+            restoreCaret(options.onRedo)
+            return true
+          }
+        }
+
+        if (
+          (event.ctrlKey || event.metaKey) &&
+          !event.altKey &&
+          !event.shiftKey &&
+          event.key.toLowerCase() === 'a' &&
+          options.onSelectAll !== undefined
+        ) {
+          // Already holding the whole of this object, so this press means more than
+          // this object. `Selection.atStart/atEnd` rather than the doc's own size,
+          // because an empty row is legitimately "all selected" at a single position.
+          const { from, to } = view.state.selection
+          const all = from <= 1 && to >= view.state.doc.content.size - 1
+          if (all && options.onSelectAll()) {
+            event.preventDefault()
+            return true
+          }
+          return false
+        }
+
+        /*
+         * Backspace at the very start of a row is a join, not a deletion.
+         *
+         * Handed over whole rather than conditionally, because the default here is to
+         * do nothing at all: there is no character before the caret, so nothing is lost
+         * by taking the key even on a surface that answers false.
+         *
+         * Deferred by a frame on purpose. A join that lands on the row above destroys
+         * this editor and mounts one there, and doing that from inside this editor's
+         * own key handler is tearing the view down while it is still using it.
+         */
+        if (
+          event.key === 'Backspace' &&
+          options.onJoin !== undefined &&
+          view.state.selection.empty &&
+          view.state.selection.from <= 1
+        ) {
+          const join = options.onJoin
+          event.preventDefault()
+          requestAnimationFrame(() => join())
           return true
         }
 
@@ -220,7 +395,7 @@ export function createTextEditor(options: TextEditorOptions): TextEditorHandle {
          */
         if (event.key === 'Enter' && options.onGrow !== undefined) {
           if (!view.state.selection.empty) return false
-          if (options.onGrow()) return false
+          if (options.onGrow(1)) return false
           // Refused: there is no rule under this one and none could be added. Swallow
           // the key rather than letting it push the writing onto bare paper.
           event.preventDefault()
@@ -303,7 +478,38 @@ export function createTextEditor(options: TextEditorOptions): TextEditorHandle {
    */
   const FOCUS = { scrollIntoView: false }
 
-  editor.commands.focus('end', FOCUS)
+  /**
+   * A character offset as a position in this document.
+   *
+   * Blocks are counted as the newline that `fragmentToPlainText` writes between them,
+   * so an offset taken off plain text lands in the same place here. Anything that runs
+   * off the end answers with the end, which is the right place for a caret that cannot
+   * be put exactly where it was asked for.
+   */
+  const caretAt = (chars: number): number => {
+    let remaining = chars
+    let found: number | null = null
+    let seenBlock = false
+    editor.state.doc.descendants((node, pos) => {
+      if (found !== null) return false
+      if (!node.isTextblock) return true
+
+      if (seenBlock) remaining -= 1
+      seenBlock = true
+      const length = node.textContent.length
+      // `pos` is before the block, so its text starts one along.
+      if (remaining <= length) found = pos + 1 + Math.max(0, remaining)
+      else remaining -= length
+      // Never into the block: its text was just counted whole.
+      return false
+    })
+    return found ?? editor.state.doc.content.size
+  }
+
+  editor.commands.focus(
+    options.caretChars === undefined ? 'end' : caretAt(options.caretChars),
+    FOCUS,
+  )
 
   return {
     focus: () => editor.commands.focus('end', FOCUS),

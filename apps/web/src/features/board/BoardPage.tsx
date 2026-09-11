@@ -96,6 +96,7 @@ import { usePrompt } from '../../ui/PromptDialog'
 import { isPhone, usePhone } from '../../ui/viewport'
 import { useToast } from '../../ui/Toaster'
 import { createDocSession, roleCanWrite } from '../../doc/mutations'
+import { EDITOR_ORIGIN } from '../../overlay/textEditor'
 import type { BoardKind, BoardRole, ShareMode } from '../../lib/api'
 import * as api from '../../lib/api'
 import { useTrashRetentionHours } from '../../lib/appConfig'
@@ -599,7 +600,7 @@ export default function BoardPage({ boardId, kindHint, onBack }: Props) {
   // One Y.Doc per board, for the lifetime of this view.
   const doc = useMemo(() => new Y.Doc(), [boardId])
   const session = useMemo(
-    () => createDocSession(doc, role, locked, boardLocked),
+    () => createDocSession(doc, role, locked, boardLocked, EDITOR_ORIGIN),
     [doc, role, locked, boardLocked],
   )
 

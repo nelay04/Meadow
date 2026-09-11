@@ -502,8 +502,8 @@ export function useCanvas(
        * growing into that line and moving it would take the newline away from the
        * person who just typed it.
        */
-      onPageFull: () => {
-        const added = growPage()
+      onPageFull: (short) => {
+        const added = growPage(short)
         if (added > 0) optionsRef.current.onLinesAdded?.(added)
         return added > 0
       },
@@ -701,15 +701,24 @@ export function useCanvas(
   }, [pageLines])
 
   /**
-   * Lengthen the open page by one step, and say how much longer it actually got.
+   * Lengthen the open page by enough steps to cover `short` more rules, and say how
+   * much longer it actually got.
    *
    * Counted off the document rather than assumed: the write is refused outright on a
    * read-only session, so a caller that trusted the step would report lines nobody got.
    * Leaves the caret exactly where it is - `addLines` below is the one that moves it.
    */
-  const growPage = useCallback((): number => {
+  const growPage = useCallback((short = 1): number => {
     const before = openPageRef.current?.lines ?? DEFAULT_PAGE_LINES
-    addPageLines(sessionRef.current, pageIndexRef.current, PAGE_LINES_STEP, DEFAULT_PAGE_LINES)
+    // Whole steps, however many it takes. The step is what "more paper" means here, and
+    // a paste forty lines long should not leave the page thirty short of holding it.
+    const steps = Math.max(1, Math.ceil(short / PAGE_LINES_STEP))
+    addPageLines(
+      sessionRef.current,
+      pageIndexRef.current,
+      steps * PAGE_LINES_STEP,
+      DEFAULT_PAGE_LINES,
+    )
     const after = readPages(sessionRef.current, DEFAULT_PAGE_LINES)[pageIndexRef.current]
     return Math.max(0, (after?.lines ?? before) - before)
   }, [])
