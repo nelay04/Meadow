@@ -59,8 +59,13 @@ and not `Aug 6, 2026`. Take the date from the release commit in IST (UTC+05:30),
 `TZ=Asia/Kolkata git log -1 --date=format-local:'%d-%b-%Y' --format=%ad <commit>`.
 Never invent one, and never use today's date for work that was committed earlier.
 
-**Work that is not released is `## [Unreleased]`.** No version and no date. It gets
-both when it is released, not before.
+**There is no `## [Unreleased]` section.** Every change is logged straight under its
+own version heading with a date, bumping PATCH, MINOR or MAJOR by the rule above. If
+the top entry is already this change's version (a follow-up fix in the same release),
+add to it rather than opening a new one. The version bump is not only the heading: it
+goes in the same change to `package.json`, `apps/web/package.json`,
+`packages/schema/package.json`, `services/api/pyproject.toml`, and `services/api/uv.lock`
+(run `uv lock`), plus the current-release line in `README.md`.
 
 **Group by what changed for a user, not by file.** Under each version use only the
 headings that apply, in this order: `Added`, `Changed`, `Fixed`, `Reversed`, `Known

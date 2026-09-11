@@ -332,7 +332,7 @@ if printf '%s\n' "$STAGED" | grep -qE '^(apps|packages|services)/' \
    && ! printf '%s\n' "$STAGED" | grep -qx 'CHANGELOG.md'; then
     [ "$NOTES" -eq 0 ] && bar
     note "note: source changed without CHANGELOG.md. User-visible changes belong"
-    note "      under ## [Unreleased] in the same commit."
+    note "      under a new ## [x.y.z] - [dd-mmm-yyyy] heading in the same commit."
 fi
 
 # A model change with no migration beside it is the one that reaches the VPS and stops

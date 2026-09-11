@@ -60,7 +60,7 @@ and never treat one as a reason to bypass the hook:
 
 - `em dash`, `interface`, `console` - style preferences from CLAUDE.md.
 - source changed without `CHANGELOG.md` - if the change is user-visible, add it under
-  `## [Unreleased]` per `.github/prompts/update-changelog.prompt.md`.
+  a versioned `## [x.y.z] - [dd-mmm-yyyy]` heading, with the version bumped, per `.github/prompts/update-changelog.prompt.md`.
 - `models.py` changed without a migration - run
   `.venv/bin/alembic revision --autogenerate`, then `.venv/bin/alembic check`.
 
