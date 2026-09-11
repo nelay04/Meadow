@@ -27,6 +27,11 @@ away getting there.
   lineage is refused as reuse, and the family is revoked, the next time it is used.
   Migration `0014` adds `refresh_tokens.parent_id`. Existing sessions keep working and
   can recover a lost rotation from their next refresh onwards.
+- **Deploy failed to build the API image.** The `1.0.0` and `1.0.1` version bumps
+  changed `services/api/pyproject.toml` without regenerating `uv.lock`, which still
+  recorded `meadow-api` as `0.0.0`, so `uv sync --locked` refused to build. The lock
+  now matches, and a version bump in `pyproject.toml` needs `uv lock` in the same
+  change.
 
 ---
 
