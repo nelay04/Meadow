@@ -35,10 +35,10 @@ export type InputLanguage = {
 }
 
 export const INPUT_LANGUAGES: readonly InputLanguage[] = [
-  { id: 'bn', label: 'Bengali', native: 'বাংলা', glyph: 'অ', sample: ['amar', 'আমার'] },
+  { id: 'bn', label: 'Bengali', native: 'বাংলা', glyph: 'অ', sample: ['nomoskar', 'নমস্কার'] },
   { id: 'hi', label: 'Hindi', native: 'हिन्दी', glyph: 'अ', sample: ['namaste', 'नमस्ते'] },
   { id: 'as', label: 'Assamese', native: 'অসমীয়া', glyph: 'অ', sample: ['nomoskar', 'নমস্কাৰ'] },
-  { id: 'gu', label: 'Gujarati', native: 'ગુજરાતી', glyph: 'અ', sample: ['kem', 'કેમ'] },
+  { id: 'gu', label: 'Gujarati', native: 'ગુજરાતી', glyph: 'અ', sample: ['namaste', 'નમસ્તે'] },
   { id: 'kn', label: 'Kannada', native: 'ಕನ್ನಡ', glyph: 'ಅ', sample: ['namaskara', 'ನಮಸ್ಕಾರ'] },
   { id: 'ml', label: 'Malayalam', native: 'മലയാളം', glyph: 'അ', sample: ['namaskaram', 'നമസ്കാരം'] },
   { id: 'mr', label: 'Marathi', native: 'मराठी', glyph: 'अ', sample: ['namaskar', 'नमस्कार'] },
@@ -46,7 +46,7 @@ export const INPUT_LANGUAGES: readonly InputLanguage[] = [
   // and Thai are not.
   { id: 'ne', label: 'Nepali', native: 'नेपाली', glyph: 'अ', sample: ['namaste', 'नमस्ते'] },
   { id: 'or', label: 'Odia', native: 'ଓଡ଼ିଆ', glyph: 'ଅ', sample: ['namaskar', 'ନମସ୍କାର'] },
-  { id: 'pa', label: 'Punjabi', native: 'ਪੰਜਾਬੀ', glyph: 'ਅ', sample: ['sat', 'ਸਤਿ'] },
+  { id: 'pa', label: 'Punjabi', native: 'ਪੰਜਾਬੀ', glyph: 'ਅ', sample: ['namaskar', 'ਨਮਸਕਾਰ'] },
   { id: 'sa', label: 'Sanskrit', native: 'संस्कृतम्', glyph: 'अ', sample: ['namah', 'नमः'] },
   { id: 'ta', label: 'Tamil', native: 'தமிழ்', glyph: 'அ', sample: ['vanakkam', 'வணக்கம்'] },
   { id: 'te', label: 'Telugu', native: 'తెలుగు', glyph: 'అ', sample: ['namaskaram', 'నమస్కారం'] },

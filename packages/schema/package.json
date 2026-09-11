@@ -2,7 +2,7 @@
   "name": "@meadow/schema",
   "private": true,
   "license": "SEE LICENSE IN ../../LICENSE.md",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",

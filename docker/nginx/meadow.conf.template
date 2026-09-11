@@ -157,6 +157,16 @@ server {
         try_files $uri =404;
     }
 
+    # The site's own images: the screenshots, the wordmark and the icons. Not
+    # fingerprinted, so a month rather than a year, and a picture that changes should be
+    # given a new name rather than replaced in place.
+    location /brand/ {
+        expires 30d;
+        add_header Cache-Control "public" always;
+        add_header X-Content-Type-Options nosniff always;
+        try_files $uri =404;
+    }
+
     # Self-hosted, versioned by hand, and changed roughly never.
     location /fonts/ {
         expires 30d;

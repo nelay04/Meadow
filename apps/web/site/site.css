@@ -1,0 +1,2030 @@
+/*
+ * Shared styles for the static pages at /, /features/, /collaboration/, /faq/ and
+ * /source/, inlined into each one by sitePartials() in vite.config.ts, so a page paints
+ * without a stylesheet request. What only one page uses lives in that page's own
+ * <style>, so no page carries another's demos.
+ *
+ * The colours are the app's own tokens from src/styles.css, copied rather than
+ * imported: that file carries the whole design system and every font family. Keep the
+ * two in step. Both are written with light-dark() against the root's color-scheme,
+ * which is what lets one setting theme both: src/ui/theme.ts in the app and the header
+ * button here write the same storage key.
+ *
+ * Nothing here fades text in or out. Lighthouse measures contrast at whatever moment it
+ * runs, and a label caught halfway through an opacity transition fails it, so the demos
+ * move with transforms and swap with visibility instead.
+ */
+
+@font-face {
+  font-family: 'Comic Neue';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/comic-neue-400-latin.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Comic Neue';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/comic-neue-700-latin.woff2') format('woff2');
+}
+
+/*
+ * The scripts of the thirteen input languages, each cut from the app's Noto face down to
+ * the words these pages print (the sample words from src/text/inputLanguages.ts and the
+ * languages' own names) at the single weight they are set in. 2 to 10 KB each rather
+ * than the app's 50 to 100, and a script is fetched only when a page lays out a letter of
+ * it: the home page's demo opens on Bengali, so the other eight wait for a click.
+ */
+@font-face {
+  font-family: 'Meadow Indic';
+  font-weight: 300;
+  font-display: swap;
+  size-adjust: 108%;
+  src: url('/fonts/noto-sans-bengali-landing-subset.woff2') format('woff2');
+  unicode-range: U+0980-09FF;
+}
+
+@font-face {
+  font-family: 'Meadow Indic';
+  font-weight: 300;
+  font-display: swap;
+  size-adjust: 108%;
+  src: url('/fonts/noto-sans-devanagari-landing-subset.woff2') format('woff2');
+  unicode-range: U+0900-097F;
+}
+
+@font-face {
+  font-family: 'Meadow Indic';
+  font-weight: 300;
+  font-display: swap;
+  size-adjust: 108%;
+  src: url('/fonts/noto-sans-gujarati-landing-subset.woff2') format('woff2');
+  unicode-range: U+0A80-0AFF;
+}
+
+@font-face {
+  font-family: 'Meadow Indic';
+  font-weight: 300;
+  font-display: swap;
+  size-adjust: 108%;
+  src: url('/fonts/noto-sans-gurmukhi-landing-subset.woff2') format('woff2');
+  unicode-range: U+0A00-0A7F;
+}
+
+@font-face {
+  font-family: 'Meadow Indic';
+  font-weight: 300;
+  font-display: swap;
+  size-adjust: 108%;
+  src: url('/fonts/noto-sans-oriya-landing-subset.woff2') format('woff2');
+  unicode-range: U+0B00-0B7F;
+}
+
+@font-face {
+  font-family: 'Meadow Indic';
+  font-weight: 300;
+  font-display: swap;
+  size-adjust: 108%;
+  src: url('/fonts/noto-sans-tamil-landing-subset.woff2') format('woff2');
+  unicode-range: U+0B80-0BFF;
+}
+
+@font-face {
+  font-family: 'Meadow Indic';
+  font-weight: 300;
+  font-display: swap;
+  size-adjust: 108%;
+  src: url('/fonts/noto-sans-telugu-landing-subset.woff2') format('woff2');
+  unicode-range: U+0C00-0C7F;
+}
+
+@font-face {
+  font-family: 'Meadow Indic';
+  font-weight: 300;
+  font-display: swap;
+  size-adjust: 108%;
+  src: url('/fonts/noto-sans-kannada-landing-subset.woff2') format('woff2');
+  unicode-range: U+0C80-0CFF;
+}
+
+@font-face {
+  font-family: 'Meadow Indic';
+  font-weight: 300;
+  font-display: swap;
+  size-adjust: 108%;
+  src: url('/fonts/noto-sans-malayalam-landing-subset.woff2') format('woff2');
+  unicode-range: U+0D00-0D7F;
+}
+
+/*
+ * What paints before Comic Neue arrives: an Arial-class face (Arial, or Roboto on
+ * Android) resized to Comic Neue's metrics, so the swap moves almost nothing. Without
+ * it the fallback was whatever the OS picked, and on a slow phone the swap alone scored
+ * 0.14 CLS against a 0.1 budget.
+ *
+ * size-adjust is measured, not guessed: Comic Neue sets the landing page's own text at
+ * 0.974x the width of Roboto (0.976x in bold). The overrides are Comic Neue's ascent
+ * 900 / descent 250 / gap 0 per 1000 units, divided by that factor.
+ */
+@font-face {
+  font-family: 'Comic Neue Fallback';
+  font-weight: 400;
+  src: local('Arial'), local('ArialMT'), local('Roboto'), local('Roboto Regular'),
+    local('Roboto-Regular'), local('Liberation Sans'), local('Arimo'), local('Helvetica');
+  size-adjust: 97.4%;
+  ascent-override: 92.4%;
+  descent-override: 25.7%;
+  line-gap-override: 0%;
+}
+
+@font-face {
+  font-family: 'Comic Neue Fallback';
+  font-weight: 700;
+  src: local('Arial Bold'), local('Arial-BoldMT'), local('Roboto Bold'), local('Roboto-Bold'),
+    local('Liberation Sans Bold'), local('Arimo Bold'), local('Helvetica Bold');
+  size-adjust: 97.6%;
+  ascent-override: 92.2%;
+  descent-override: 25.6%;
+  line-gap-override: 0%;
+}
+
+:root {
+  color-scheme: light dark;
+
+  /* From src/styles.css, value for value. */
+  --bg: light-dark(#f4f1ec, #0f1318);
+  --surface: light-dark(#fffefc, #171c23);
+  --surface-2: light-dark(#faf7f2, #1d232b);
+  --surface-3: light-dark(#f0ece5, #232a33);
+  --fg: light-dark(#1b1c1f, #e9ecf1);
+  --fg-strong: light-dark(#0c0d0f, #ffffff);
+  --muted: light-dark(#6a6b73, #98a1ae);
+  --line: light-dark(#e6e0d7, #262d37);
+  --edge: light-dark(#d9d2c7, #2f3844);
+  --accent: light-dark(#0f6cbd, #4f9bee);
+  --accent-hover: light-dark(#0c5a9e, #6cb0f4);
+  --accent-soft: light-dark(#0f6cbd16, #4f9bee22);
+  --success: light-dark(#1a7f45, #4ec98a);
+  --danger: light-dark(#b42318, #f9827a);
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 22px;
+  --shadow-sm: 0 1px 2px light-dark(#1b1c1f0f, #00000059);
+  --shadow: 0 2px 6px light-dark(#1b1c1f12, #0000005e),
+    0 8px 24px light-dark(#1b1c1f0f, #00000047);
+  --shadow-lg: 0 1px 2px light-dark(#1b1c1f14, #00000066),
+    0 28px 64px -16px light-dark(#1b1c1f38, #000000a6);
+  --scroll-thumb: light-dark(#1b1c1f2e, #ffffff26);
+  --fast: 120ms cubic-bezier(0.2, 0, 0.2, 1);
+  --ease: cubic-bezier(0.45, 0, 0.25, 1);
+
+  /* The one deliberate difference. The app's dark accent, #4f9bee, gives white text
+     2.9:1, which fails Lighthouse on every button here. This fill gives 5:1 and still
+     reads as the accent. */
+  --btn: light-dark(#0f6cbd, #1f6fc8);
+  --btn-hover: light-dark(#0c5a9e, #1a63b5);
+
+  /* The canvas's dot grid, which is what every band and demo stands on. */
+  --dot: light-dark(#1b1c1f29, #ffffff21);
+  --dots: radial-gradient(circle, var(--dot) 1.1px, transparent 1.6px) 0 0 / 22px 22px;
+  --glow: light-dark(#0f6cbd2e, #4f9bee33);
+
+  /*
+   * Presence colours, for the wanderers in the demos. The hues are the app's palette in
+   * src/sync/awareness.ts; the values are a step darker where the app's own would not
+   * hold white name text at 4.5:1.
+   */
+  --p-green: #2f7d4f;
+  --p-pink: #b83a60;
+  --p-blue: #4a5fb5;
+  --p-orange: #a8561f;
+  --p-purple: #7a5fc0;
+
+  --sans: 'Comic Neue', 'Meadow Indic', 'Comic Neue Fallback', system-ui, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  /* One gutter for every page, so no section can lose its side padding. */
+  --gutter: clamp(16px, 4vw, 32px);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) transparent;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap {
+  width: 100%;
+  max-width: 1160px;
+  margin: 0 auto;
+  padding-inline: var(--gutter);
+}
+
+a {
+  color: var(--accent-hover);
+  text-underline-offset: 3px;
+}
+
+h1,
+h2,
+h3 {
+  color: var(--fg-strong);
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+
+p,
+li {
+  text-wrap: pretty;
+}
+
+[id] {
+  scroll-margin-top: 80px;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Noto's Indic faces read markedly darker than Comic Neue at the same weight, because
+   most of their scripts run a stroke along every word. They are cut at 300, which sits
+   beside Comic Neue 400 without looking bold, and never synthesised heavier. */
+[lang]:not(html) {
+  font-weight: 300;
+  font-synthesis: none;
+}
+
+.icon {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Controls that only work with the page's script. The head script sets `js` before
+   first paint, so they are there from the first frame or not at all, never shifting
+   the layout in late. */
+:root:not(.js) .js-only {
+  display: none !important;
+}
+
+.skip {
+  position: absolute;
+  left: 12px;
+  top: -48px;
+  z-index: 20;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--btn);
+  color: #fff;
+}
+
+.skip:focus {
+  top: 12px;
+}
+
+main {
+  padding-bottom: clamp(56px, 8vw, 88px);
+}
+
+/* --- buttons ---------------------------------------------------------------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 38px;
+  padding: 0 16px;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background var(--fast),
+    border-color var(--fast),
+    color var(--fast),
+    transform var(--fast);
+}
+
+.btn .icon {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2.2;
+}
+
+.btn .icon.mark {
+  stroke: none;
+  fill: currentColor;
+}
+
+.btn-sm {
+  height: 32px;
+  padding: 0 12px;
+  font-size: 14px;
+  border-radius: var(--radius-sm);
+}
+
+/* The hero's and the closing panel's pair: a step up, because they are the two places
+   a visitor is deciding rather than reading. */
+.btn-lg {
+  height: 44px;
+  padding: 0 20px;
+  font-size: 16px;
+}
+
+.btn-primary {
+  background: var(--btn);
+  color: #fff;
+  box-shadow:
+    0 1px 2px #00000026,
+    inset 0 1px 0 #ffffff26;
+}
+
+.btn-primary:hover {
+  background: var(--btn-hover);
+}
+
+.btn-secondary {
+  background: var(--surface);
+  border-color: var(--edge);
+  color: var(--fg);
+}
+
+.btn-secondary:hover {
+  background: var(--surface-2);
+  border-color: var(--accent);
+}
+
+/* The app's ghost: muted, no border, a tinted plate on hover. */
+.btn-ghost {
+  background: transparent;
+  color: var(--muted);
+}
+
+.btn-ghost:hover {
+  background: var(--surface-3);
+  color: var(--fg-strong);
+}
+
+/* The app's square icon button, at the header's 32px. */
+.icon-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition:
+    background var(--fast),
+    color var(--fast),
+    border-color var(--fast);
+}
+
+.icon-btn:hover {
+  background: var(--surface-3);
+  color: var(--fg-strong);
+}
+
+.icon-btn.outlined {
+  border-color: var(--edge);
+}
+
+.icon-btn .mark {
+  stroke: none;
+  fill: currentColor;
+}
+
+/* The theme button shows the theme in effect, a sun or a moon, with the app's own
+   icons. The head script sets data-theme before paint, so the right one is there from
+   the start. */
+.t-dark,
+:root[data-theme='dark'] .t-light {
+  display: none;
+}
+
+:root[data-theme='dark'] .t-dark {
+  display: block;
+}
+
+.cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/*
+ * On a phone the pair stacks, and that is a layout-shift fix rather than a taste.
+ *
+ * Two buttons side by side fit on one row in Comic Neue and wrap onto two in the
+ * fallback, because their labels are a few percent wider in it. The row collapsing from
+ * 98px to 44px when the webfont arrived moved the screenshot and everything under it,
+ * and scored 0.105 of layout shift on a throttled phone against a 0.1 budget. Stacked,
+ * the row is the same height whichever face is in use, and no metric match has to be
+ * perfect for that to hold.
+ */
+@media (max-width: 480px) {
+  .cta {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .cta .btn {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  .btn:active {
+    transform: translateY(1px);
+  }
+
+  .btn .icon {
+    transition: transform var(--fast);
+  }
+
+  .btn-primary:hover .icon.arrow,
+  .more:hover .icon {
+    transform: translateX(2px);
+  }
+}
+
+/* --- header ----------------------------------------------------------------- */
+
+header.site {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  backdrop-filter: saturate(1.4) blur(10px);
+  -webkit-backdrop-filter: saturate(1.4) blur(10px);
+}
+
+.site-inner {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  height: 56px;
+}
+
+.brand {
+  display: block;
+  margin-right: auto;
+}
+
+.brand img {
+  display: block;
+  height: 30px;
+  width: auto;
+}
+
+.site-nav {
+  display: flex;
+  gap: 4px;
+}
+
+.site-nav a {
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  font-size: 15px;
+  font-weight: 700;
+  text-decoration: none;
+  transition:
+    background var(--fast),
+    color var(--fast);
+}
+
+.site-nav a:hover {
+  background: var(--surface-3);
+  color: var(--fg-strong);
+}
+
+/* The accent on its own tint is 4.25:1 in light, under AA for 15px text; the app's
+   hover weight clears it (5.6:1) and is the same blue family. */
+.site-nav a[aria-current='page'],
+.site-menu a[aria-current='page'] {
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+}
+
+.site-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* The hairline that keeps the theme button out of the account group. */
+.actions-rule {
+  width: 1px;
+  height: 20px;
+  margin: 0 8px 0 4px;
+  background: var(--line);
+}
+
+/*
+ * The phone menu. A native popover, so opening, closing on Escape or an outside tap, and
+ * the top layer all come from the browser with no script; the footer script only closes
+ * it when a link inside points at the page already open.
+ */
+.menu-btn {
+  display: none;
+}
+
+.site-menu {
+  position: fixed;
+  inset: 62px var(--gutter) auto auto;
+  width: min(300px, calc(100vw - 2 * var(--gutter)));
+  margin: 0;
+  padding: 8px;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: var(--shadow-lg);
+}
+
+.site-menu:popover-open {
+  display: grid;
+  gap: 2px;
+}
+
+.site-menu a {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.site-menu a:hover {
+  background: var(--surface-3);
+}
+
+.site-menu hr {
+  width: 100%;
+  margin: 6px 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+/* The theme, where the phone header's other controls went. Set like the links above it
+   rather than like a button, because in this list that is what it is. */
+.menu-theme {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+
+.menu-theme:hover {
+  background: var(--surface-3);
+}
+
+.menu-theme .icon {
+  color: var(--muted);
+}
+
+.menu-theme .grow {
+  flex: 1;
+}
+
+.menu-theme b {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+@media (max-width: 820px) {
+  .site-nav {
+    display: none;
+  }
+
+  .menu-btn {
+    display: inline-grid;
+  }
+
+  /* Both move into the popover, so the phone header is the wordmark, one button and
+     the menu rather than five things fighting for 360px. */
+  .site-actions > [data-theme-toggle],
+  .actions-rule {
+    display: none;
+  }
+}
+
+@media (max-width: 379px) {
+  .hide-xs {
+    display: none;
+  }
+}
+
+/* --- shared section chrome ---------------------------------------------------- */
+
+/* A band stands on the canvas's dot grid, fading out from the top. */
+.band {
+  position: relative;
+  isolation: isolate;
+}
+
+.band::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--dots);
+  -webkit-mask-image: radial-gradient(ellipse 80% 75% at 50% 0%, #000 30%, transparent 78%);
+  mask-image: radial-gradient(ellipse 80% 75% at 50% 0%, #000 30%, transparent 78%);
+  pointer-events: none;
+}
+
+.sec {
+  padding-top: clamp(64px, 9vw, 104px);
+}
+
+.sec-head {
+  margin-bottom: 32px;
+}
+
+.sec-head.center {
+  text-align: center;
+}
+
+.sec-head.center .lede {
+  margin-inline: auto;
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  color: var(--accent-hover);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.eyebrow::before {
+  content: '';
+  width: 18px;
+  height: 2px;
+  border-radius: 2px;
+  background: currentColor;
+}
+
+.sec h2,
+.closing h2 {
+  margin: 0 0 12px;
+  font-size: clamp(1.75rem, 3.8vw, 2.5rem);
+}
+
+.lede {
+  margin: 0;
+  max-width: 42em;
+  color: var(--muted);
+  font-size: 17px;
+}
+
+.more {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent-hover);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.more:hover {
+  text-decoration: underline;
+}
+
+.more .icon {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2.2;
+}
+
+.badge {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.card-head h3 {
+  margin: 0;
+}
+
+.grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+}
+
+.card {
+  padding: 22px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+}
+
+.card h3 {
+  margin: 0 0 6px;
+  font-size: 1.1rem;
+}
+
+.card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.card .card-head {
+  margin-bottom: 10px;
+}
+
+kbd {
+  display: inline-block;
+  min-width: 1.9em;
+  padding: 1px 7px;
+  border: 1px solid var(--edge);
+  border-bottom-width: 2px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--fg-strong);
+  font: inherit;
+  font-size: 0.9em;
+  font-weight: 700;
+  line-height: 1.5;
+  text-align: center;
+}
+
+/* A radio group dressed as a row of chips. Real radios under the paint, so arrow keys,
+   Tab and screen readers all get the control they already know. */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.chip {
+  position: relative;
+  display: inline-flex;
+}
+
+.chip input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.chip span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+  transition:
+    background var(--fast),
+    border-color var(--fast),
+    color var(--fast);
+}
+
+.chip:hover span {
+  border-color: var(--accent);
+  color: var(--fg);
+}
+
+/*
+ * A quieter rail, for the demos that carry a long one: thirteen bordered pills under a
+ * picture read as thirteen buttons and win the tile. Unchecked is plain text here, and
+ * only the one in effect is drawn, which is the only state that has to carry.
+ */
+.chips.quiet .chip span {
+  padding: 0 10px;
+  background: transparent;
+}
+
+.chips.quiet .chip:hover span {
+  background: var(--surface-2);
+}
+
+.chips.quiet .chip input:checked + span {
+  border-color: var(--accent);
+}
+
+.chip input:checked + span {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  color: var(--accent-hover);
+}
+
+.chip input:focus-visible + span {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.chip .swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1px solid #0000002e;
+}
+
+/* A frame for a demo: the app's surface, standing on the dot grid. */
+.stage {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--dots), var(--surface-2);
+}
+
+/* A presence name, as the app draws it under a remote cursor. Set light on purpose:
+   these are captions on somebody else's cursor, and at 700 they read as headings and
+   pull the eye off whatever the demo is actually showing. */
+.tag {
+  display: inline-block;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--c);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.closing {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  padding: clamp(36px, 7vw, 72px) var(--gutter);
+  text-align: center;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-sm);
+}
+
+.closing::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--dots);
+  -webkit-mask-image: radial-gradient(ellipse 70% 90% at 50% 100%, #000 10%, transparent 70%);
+  mask-image: radial-gradient(ellipse 70% 90% at 50% 100%, #000 10%, transparent 70%);
+}
+
+.closing p {
+  margin: 0 auto 24px;
+  max-width: 34em;
+  color: var(--muted);
+}
+
+.closing .cta {
+  justify-content: center;
+}
+
+/* --- inner pages: title band -------------------------------------------------- */
+
+.page-hero {
+  padding-top: 40px;
+  padding-bottom: 8px;
+}
+
+.crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 18px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.crumbs a {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.crumbs a:hover {
+  color: var(--fg-strong);
+}
+
+.page-hero h1 {
+  margin: 0 0 14px;
+  max-width: 22ch;
+  font-size: clamp(2.1rem, 5vw, 3.3rem);
+}
+
+.page-hero .lede {
+  font-size: clamp(1.02rem, 2vw, 1.18rem);
+}
+
+.page-hero .cta {
+  margin-top: 26px;
+}
+
+/*
+ * The in-page index on /features/ and /collaboration/: sticky under the header, and on
+ * a phone a row that scrolls sideways rather than wrapping into a second sticky line.
+ * The footer script marks the section in view.
+ */
+.subnav {
+  position: sticky;
+  top: 57px;
+  z-index: 9;
+  margin-top: 32px;
+  border-block: 1px solid var(--line);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: saturate(1.4) blur(10px);
+  -webkit-backdrop-filter: saturate(1.4) blur(10px);
+}
+
+.subnav .wrap {
+  display: flex;
+  gap: 4px;
+  padding-block: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.subnav a {
+  flex: none;
+  padding: 6px 12px;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 15px;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+  transition:
+    background var(--fast),
+    color var(--fast);
+}
+
+.subnav a:hover {
+  background: var(--surface-3);
+  color: var(--fg-strong);
+}
+
+.subnav a[aria-current='true'] {
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+}
+
+.has-subnav [id] {
+  scroll-margin-top: 124px;
+}
+
+/* A section of an inner page, and its rows: words on one side, the thing on the other,
+   alternating so a long page does not read as one column of paragraphs. */
+.group-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 16px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.group-head .badge {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+}
+
+.group-head .badge .icon {
+  width: 24px;
+  height: 24px;
+}
+
+.group-head h2 {
+  margin: 0;
+}
+
+.group-head .lede {
+  grid-column: 1 / -1;
+  margin-top: 8px;
+}
+
+.feat {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 28px 56px;
+  align-items: center;
+  padding-block: clamp(28px, 4vw, 44px);
+  border-top: 1px solid var(--line);
+}
+
+.group-head + .feat {
+  border-top: 0;
+}
+
+.feat:nth-of-type(even) .feat-visual {
+  order: -1;
+}
+
+.feat h3 {
+  margin: 0 0 10px;
+  font-size: clamp(1.25rem, 2.4vw, 1.5rem);
+}
+
+.feat p {
+  margin: 0 0 14px;
+  color: var(--muted);
+}
+
+.ticks {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ticks li {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.ticks .icon {
+  margin-top: 4px;
+  color: var(--accent);
+  stroke-width: 2.4;
+}
+
+.panel {
+  padding: clamp(16px, 2.4vw, 22px);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.panel > * + * {
+  margin-top: 14px;
+}
+
+@media (max-width: 860px) {
+  .feat {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .feat:nth-of-type(even) .feat-visual {
+    order: 0;
+  }
+}
+
+/* Tables: languages, shortcuts, roles. Scroll sideways inside their own box on a phone
+   rather than widening the page. */
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 15px;
+}
+
+.table th,
+.table td {
+  padding: 10px 14px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.table thead th {
+  background: var(--surface-2);
+  color: var(--fg-strong);
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.table tbody tr + tr > * {
+  border-top: 1px solid var(--line);
+}
+
+.table tbody th {
+  color: var(--fg-strong);
+  font-weight: 700;
+}
+
+.table td {
+  color: var(--fg);
+}
+
+/* --- demos shared by more than one page --------------------------------------- */
+
+/*
+ * Wanderers: remote cursors with their names, as the app draws them. Positions are in
+ * container units of the frame they cross, so one path fits a phone and a desktop, and
+ * only `transform` animates, which the compositor runs without touching layout.
+ */
+.wanderer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  display: flex;
+  align-items: flex-start;
+  pointer-events: none;
+}
+
+.wanderer svg {
+  width: 18px;
+  height: 18px;
+  fill: var(--c);
+  stroke: #fff;
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+
+.wanderer .tag {
+  margin: 12px 0 0 -3px;
+  box-shadow: 0 1px 3px #00000024;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .wanderer {
+    animation: var(--path) var(--dur, 14s) var(--ease) infinite;
+  }
+}
+
+/*
+ * Phonetic input: a roman word being typed, the candidate under the caret, and the
+ * word it becomes. The script in footer.html plays it; without the script it stands
+ * still on Bengali mid-word, which is itself the whole idea.
+ */
+.ime {
+  display: grid;
+  gap: 16px;
+}
+
+.ime-editor {
+  padding: 22px 22px 18px;
+  min-height: 168px;
+}
+
+.ime-line {
+  display: flex;
+  align-items: baseline;
+  min-height: 1.4em;
+  color: var(--fg-strong);
+  font-size: clamp(1.7rem, 4vw, 2.3rem);
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.ime-roman {
+  text-decoration: underline 2px var(--accent);
+  text-underline-offset: 6px;
+}
+
+.caret {
+  display: inline-block;
+  align-self: center;
+  width: 2px;
+  height: 1.1em;
+  margin-left: 3px;
+  background: var(--accent);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .caret {
+    animation: blink 1.1s steps(1) infinite;
+  }
+}
+
+@keyframes blink {
+  50% {
+    visibility: hidden;
+  }
+}
+
+.ime-pop {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 6px 12px 6px 6px;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  font-size: 1.25rem;
+}
+
+.ime-pop[data-off] {
+  visibility: hidden;
+}
+
+.ime-num {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: var(--btn);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ime-cand {
+  color: var(--fg-strong);
+}
+
+.ime-hint {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/*
+ * The pen's assist, three ways: the ink as drawn, tidied into real objects that still
+ * look drawn, and the same objects in the board's own style. That is exactly the
+ * difference between the app's `tidy` and `shapes` - one recogniser, two finishes - and
+ * the radios switch it with no script.
+ */
+.ink {
+  display: grid;
+  gap: 12px;
+}
+
+.ink-stage {
+  aspect-ratio: 2 / 1;
+}
+
+.ink-stage svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.ink-stage g {
+  transition: opacity 260ms var(--ease);
+}
+
+.ink .raw {
+  stroke: var(--fg);
+  stroke-width: 2.6;
+}
+
+.ink .neat {
+  opacity: 0;
+  stroke: var(--fg);
+  stroke-width: 2.6;
+}
+
+.ink .neat .fill {
+  fill: none;
+}
+
+.ink:has(input[value='tidy']:checked) .raw,
+.ink:has(input[value='shapes']:checked) .raw {
+  opacity: 0;
+}
+
+.ink:has(input[value='tidy']:checked) .neat,
+.ink:has(input[value='shapes']:checked) .neat {
+  opacity: 1;
+}
+
+.ink:has(input[value='shapes']:checked) .neat {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.ink:has(input[value='shapes']:checked) .neat .fill {
+  fill: var(--accent-soft);
+}
+
+/* Where scroll-driven animation exists, the ink is drawn in as the demo comes into
+   view; elsewhere it is simply there. */
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    .ink .raw path {
+      stroke-dasharray: 1;
+      animation: draw linear both;
+      animation-timeline: view();
+      animation-range: entry 30% cover 45%;
+    }
+  }
+}
+
+@keyframes draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/*
+ * A lea's paper, in the app's four stocks. The values are the app's own `[data-paper]`
+ * blocks in src/styles.css; kraft keeps a little pulp, the flat stocks have none, and
+ * "match theme" is the light and dark stocks under light-dark(), as it is in the app.
+ */
+.lea-demo {
+  display: grid;
+  gap: 12px;
+}
+
+.lea {
+  --paper: #b39a76;
+  --rule: #2b22164a;
+  --ink: #241c11;
+  --pulp: radial-gradient(120% 90% at 15% 0%, #ffffff29, transparent 55%),
+    radial-gradient(90% 70% at 100% 100%, #2b22162e, transparent 60%);
+  padding: 0 22px 14px;
+  /* Dark paper and the landing page's tile are both #171c23, so the sheet needs an edge
+     of its own or it stops being a sheet lying on something. */
+  border: 1px solid light-dark(#0000001f, #ffffff24);
+  border-radius: 4px 12px 12px 4px;
+  background-color: var(--paper);
+  background-image: var(--pulp),
+    repeating-linear-gradient(to bottom, transparent 0 29px, var(--rule) 29px 30px);
+  box-shadow:
+    inset 6px 0 0 -3px #00000014,
+    var(--shadow);
+  color: var(--ink);
+  font-size: 17px;
+  line-height: 30px;
+  transition:
+    background-color var(--fast),
+    color var(--fast);
+}
+
+.lea-demo:has(input[value='light']:checked) .lea {
+  --paper: #faf7f1;
+  --rule: #2b221636;
+  --ink: #241c11;
+  --pulp: none;
+}
+
+.lea-demo:has(input[value='dark']:checked) .lea {
+  --paper: #171c23;
+  --rule: #e8dcc44a;
+  --ink: #ece3d2;
+  --pulp: none;
+}
+
+.lea-demo:has(input[value='system']:checked) .lea {
+  --paper: light-dark(#faf7f1, #171c23);
+  --rule: light-dark(#2b221636, #e8dcc44a);
+  --ink: light-dark(#241c11, #ece3d2);
+  --pulp: none;
+}
+
+/*
+ * The landing page's lea has no "Match theme" stock of its own: it simply opens on the
+ * paper the page is wearing and follows the theme button until a visitor picks a stock,
+ * which the footer script does by moving the checked mark. This rule is what that looks
+ * like before the script runs, and without it.
+ */
+.lea-demo[data-paper-follow]:not(:has(input:checked)) .lea {
+  --paper: light-dark(#faf7f1, #171c23);
+  --rule: light-dark(#2b221636, #e8dcc44a);
+  --ink: light-dark(#241c11, #ece3d2);
+  --pulp: none;
+}
+
+.lea-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.lea-head b {
+  font-size: 18px;
+}
+
+.lea-head span {
+  font-size: 15px;
+}
+
+/* The ink is the paper's, never the page's: a section rule setting `p` to the muted
+   colour would otherwise put grey text on kraft. */
+.lea p {
+  margin: 0;
+  color: inherit;
+}
+
+.swatch.vintage {
+  background: #b39a76;
+}
+
+.swatch.light {
+  background: #faf7f1;
+}
+
+.swatch.dark {
+  background: #171c23;
+}
+
+.swatch.system {
+  background: linear-gradient(to right, #faf7f1 50%, #171c23 50%);
+}
+
+/* Two edits to one sentence, kept side by side: the merge the CRDT does, drawn. */
+.merge {
+  padding: 18px;
+}
+
+.merge-line {
+  margin: 0;
+  color: var(--fg-strong);
+  font-size: 1.2rem;
+  line-height: 1.9;
+}
+
+/*
+ * A word somebody else typed, marked the way a selection is marked on the canvas: a
+ * tint and a ring in their colour. The ring is an inset shadow rather than a border so
+ * it adds no width to the inline box, and unlike the flat 2px underline it replaces it
+ * follows the corner radius all the way round instead of being cut square by it.
+ */
+.merge ins {
+  padding: 1px 6px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--c) 15%, transparent);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--c) 40%, transparent);
+  color: var(--fg-strong);
+  text-decoration: none;
+}
+
+/*
+ * The two edits arriving, wiped in one after the other. A clip rather than a width or
+ * an opacity: the sentence is laid out once and never reflows, and no word is ever
+ * caught half faded, which is what Lighthouse would measure the contrast of.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  .merge[data-play] ins {
+    animation: wipe 420ms var(--ease) both;
+  }
+
+  .merge[data-play] ins:last-of-type {
+    animation-delay: 560ms;
+  }
+}
+
+@keyframes wipe {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+
+  to {
+    clip-path: inset(0);
+  }
+}
+
+.merge .who {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin: 12px 0 0;
+  padding: 0;
+  color: var(--muted);
+  font-size: 14px;
+  list-style: none;
+}
+
+.merge .who li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/*
+ * A live glade in miniature: three people, a sticky note, two shapes and the arrows
+ * between them. Every size is a percentage or a container unit of the frame, so it is
+ * the same picture at 320px and at 1160px. Purely illustrative, and aria-hidden: the
+ * words beside it say what it shows.
+ */
+.live {
+  container-type: inline-size;
+  aspect-ratio: 4 / 3;
+  border-color: var(--edge);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+}
+
+/* On the children, not on .live: a container unit resolves against the nearest
+   container above the element using it, never the element itself. */
+.live-bar,
+.l-obj {
+  font-size: clamp(12px, 2.4cqw, 15px);
+}
+
+.live-bar {
+  position: absolute;
+  inset: 12px 12px auto;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.live-title {
+  margin-right: auto;
+  padding: 3px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--fg);
+  font-weight: 700;
+}
+
+.faces {
+  display: flex;
+  padding-left: 6px;
+}
+
+.face {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-left: -6px;
+  border: 2px solid var(--surface);
+  border-radius: 50%;
+  background: var(--c);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.live-share {
+  padding: 3px 12px;
+  border-radius: 8px;
+  background: var(--btn);
+  color: #fff;
+  font-weight: 700;
+}
+
+.live-links {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.l-obj {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  padding: 6px;
+  color: var(--fg-strong);
+  font-weight: 700;
+  line-height: 1.25;
+  text-align: center;
+}
+
+.l-sticky {
+  left: 7%;
+  top: 30%;
+  width: 27%;
+  aspect-ratio: 1;
+  place-items: start;
+  padding: 10px;
+  border-radius: 3px;
+  background: #fde58a;
+  box-shadow: 0 6px 14px -6px #0000004d;
+  color: #3b2f06;
+  text-align: left;
+}
+
+.l-sticky small {
+  align-self: end;
+  color: #5c4a0e;
+  font-size: 0.85em;
+  font-weight: 400;
+}
+
+.l-box {
+  left: 50%;
+  top: 25%;
+  width: 34%;
+  height: 17%;
+  border: 2px solid var(--accent);
+  border-radius: 10px;
+  background: var(--surface);
+  outline: 2px solid var(--p-pink);
+  outline-offset: 5px;
+}
+
+.l-oval {
+  left: 54%;
+  top: 66%;
+  width: 30%;
+  height: 19%;
+  border: 2px solid var(--p-green);
+  border-radius: 50%;
+  background: var(--surface);
+}
+
+.l-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: -0.12em;
+  background: var(--p-blue);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .l-caret {
+    animation: blink 1.1s steps(1) infinite;
+  }
+}
+
+/* Cherry, who has the box selected; Snowy, typing into it; Otter, a guest on the link.
+   The frame is 100cqw wide and 75cqw tall. Each rule's own transform is where its
+   cursor rests when motion is reduced. */
+.lw-a {
+  --path: live-a;
+  --dur: 15s;
+  --c: var(--p-pink);
+  transform: translate(80cqw, 14cqw);
+}
+
+.lw-b {
+  --path: live-b;
+  --dur: 7s;
+  --c: var(--p-blue);
+  transform: translate(76cqw, 28cqw);
+}
+
+.lw-c {
+  --path: live-c;
+  --dur: 19s;
+  --c: var(--p-green);
+  transform: translate(24cqw, 56cqw);
+}
+
+@keyframes live-a {
+  0%,
+  100% {
+    transform: translate(80cqw, 14cqw);
+  }
+
+  35% {
+    transform: translate(86cqw, 30cqw);
+  }
+
+  65% {
+    transform: translate(62cqw, 22cqw);
+  }
+}
+
+@keyframes live-b {
+  0%,
+  100% {
+    transform: translate(76cqw, 28cqw);
+  }
+
+  50% {
+    transform: translate(79cqw, 30cqw);
+  }
+}
+
+@keyframes live-c {
+  0%,
+  100% {
+    transform: translate(24cqw, 56cqw);
+  }
+
+  30% {
+    transform: translate(40cqw, 42cqw);
+  }
+
+  60% {
+    transform: translate(50cqw, 57cqw);
+  }
+
+  85% {
+    transform: translate(34cqw, 66cqw);
+  }
+}
+
+/* Figures in a row: the home page's and the source page's. */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stat {
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.stat b {
+  display: block;
+  color: var(--fg-strong);
+  font-size: clamp(2rem, 4.4vw, 2.75rem);
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+}
+
+.stat span {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+@media (max-width: 760px) {
+  .stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* A piece of the app's chrome drawn as a list: the stack, a lea's pages, sessions,
+   invitations. Illustrations, marked aria-hidden where they are used. */
+.mock {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mock li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  min-height: 42px;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--fg);
+  font-size: 15px;
+}
+
+.mock .on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface));
+}
+
+.mock .grow {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mock small {
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.mock .num {
+  min-width: 18px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: right;
+}
+
+.mock .act {
+  padding: 2px 10px;
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* --- footer ------------------------------------------------------------------ */
+
+footer.site {
+  border-top: 1px solid var(--line);
+  padding-block: 48px;
+  font-size: 15px;
+}
+
+.foot {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 2fr);
+  gap: 36px 48px;
+}
+
+.foot-brand img {
+  display: block;
+  height: 30px;
+  width: auto;
+}
+
+.foot-brand p {
+  margin: 14px 0 16px;
+  max-width: 24em;
+  color: var(--muted);
+}
+
+.foot-cols {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 28px 24px;
+}
+
+.foot-h {
+  margin: 0 0 12px;
+  color: var(--fg-strong);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.foot-cols ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.foot-cols a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.foot-cols a:hover {
+  color: var(--fg-strong);
+}
+
+.foot-cols .icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* Back to top: floats in once the first screen has scrolled away. Hidden with
+   visibility as well as opacity, so it is not a tab stop while it cannot be seen. */
+.to-top {
+  position: fixed;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: max(16px, env(safe-area-inset-bottom));
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: var(--shadow);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(8px);
+  transition:
+    opacity var(--fast),
+    transform var(--fast),
+    visibility var(--fast),
+    border-color var(--fast),
+    color var(--fast);
+}
+
+.to-top[data-shown] {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+}
+
+.to-top:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.to-top .icon {
+  stroke-width: 2.2;
+}
+
+@media (max-width: 760px) {
+  .foot {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .foot-cols {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 600px) {
+  .card {
+    padding: 18px;
+  }
+}

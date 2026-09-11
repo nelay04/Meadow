@@ -1,0 +1,76 @@
+    <a class="skip" href="#main">Skip to content</a>
+
+    <header class="site">
+      <div class="wrap site-inner">
+        <a class="brand" href="/" data-page="home" aria-label="Meadow home">
+          <img
+            src="/brand/meadow-wordmark-100.webp"
+            srcset="
+              /brand/meadow-wordmark-100.webp 1x,
+              /brand/meadow-wordmark-200.webp 2x,
+              /brand/meadow-wordmark-300.webp 3x
+            "
+            alt="Meadow"
+            width="100"
+            height="30"
+          />
+        </a>
+        <nav class="site-nav" aria-label="Main">
+          <a href="/" data-page="home">Home</a>
+          <a href="/features/" data-page="features">Features</a>
+          <a href="/collaboration/" data-page="collaboration">Collaboration</a>
+          <a href="/faq/" data-page="faq">FAQ</a>
+          <a href="/source/" data-page="source">Source</a>
+        </nav>
+        <!--
+          The theme button is a page control and the two beside it are account controls,
+          so a rule stands between them. Without it the row read as one set of four and
+          the sun looked like a third way to sign in. Below 820px it is not here at all:
+          the phone header is the wordmark, one button and the menu, and the theme lives
+          in the menu with everything else that was dropped.
+        -->
+        <div class="site-actions">
+          <button
+            class="icon-btn"
+            type="button"
+            data-theme-toggle
+            aria-label="Theme: light"
+            title="Theme: light"
+          >
+            <svg class="icon t-light" aria-hidden="true"><use href="#i-sun" /></svg>
+            <svg class="icon t-dark" aria-hidden="true"><use href="#i-moon" /></svg>
+          </button>
+          <span class="actions-rule" aria-hidden="true"></span>
+          <a class="btn btn-sm btn-ghost hide-xs" href="/app">Sign in</a>
+          <a class="btn btn-sm btn-primary" href="/app">Get started</a>
+          <button
+            class="icon-btn menu-btn"
+            type="button"
+            popovertarget="site-menu"
+            aria-label="Menu"
+            title="Menu"
+          >
+            <svg class="icon" aria-hidden="true"><use href="#i-menu" /></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- The phone menu, opened by the button above. A native popover: see site.css. -->
+    <nav class="site-menu" id="site-menu" popover aria-label="Menu">
+      <a href="/" data-page="home">Home</a>
+      <a href="/features/" data-page="features">Features</a>
+      <a href="/collaboration/" data-page="collaboration">Collaboration</a>
+      <a href="/faq/" data-page="faq">FAQ</a>
+      <a href="/source/" data-page="source">Source and licence</a>
+      <hr />
+      <a href="/app">Sign in</a>
+      <hr />
+      <button class="menu-theme" type="button" data-theme-toggle>
+        <svg class="icon t-light" aria-hidden="true"><use href="#i-sun" /></svg>
+        <svg class="icon t-dark" aria-hidden="true"><use href="#i-moon" /></svg>
+        <span class="grow">Theme</span>
+        <b class="t-light">Light</b>
+        <b class="t-dark">Dark</b>
+      </button>
+    </nav>

@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 
 import react from '@vitejs/plugin-react'
 import type { Connect, Plugin } from 'vite'
-import { defineConfig, loadEnv } from 'vite'
+import { defineConfig, loadEnv, transformWithEsbuild } from 'vite'
 
 /**
  * Serve the SPA at /app on the dev and preview servers, the way nginx does in production.
@@ -22,20 +22,38 @@ import { defineConfig, loadEnv } from 'vite'
  * Deliberately no wildcard under /app: nginx matches `= /app` and `= /app/` exactly, and
  * the app is hash-routed, so there is no route below /app to catch.
  *
+ * The static /faq/ and /source/ pages need the same for their slashless spelling. Vite
+ * finds `faq/index.html` for /faq/ on its own, but /faq falls through to the html
+ * fallback and renders the landing page under the wrong address.
+ *
  * One difference from production remains, and it is Vite's own and not this plugin's:
  * /app/anything still gets the html fallback here - the landing page - where nginx would
  * answer 404. Worth knowing when a stale link is being chased, because in dev it renders
  * a page instead of failing. Not worth a second middleware to paper over, since nothing
  * in the app produces such a URL.
  */
+const DOCUMENTS: Record<string, string> = {
+  '/app': '/app/index.html',
+  '/app/': '/app/index.html',
+  '/features': '/features/index.html',
+  '/features/': '/features/index.html',
+  '/collaboration': '/collaboration/index.html',
+  '/collaboration/': '/collaboration/index.html',
+  '/faq': '/faq/index.html',
+  '/faq/': '/faq/index.html',
+  '/source': '/source/index.html',
+  '/source/': '/source/index.html',
+}
+
 function appEntry(): Plugin {
   const rewrite: Connect.NextHandleFunction = (request, _response, next) => {
     const url = request.url ?? '/'
     // Split rather than parsed: the query has to survive, because a share link arrives
     // as /app?k=<token> and dropping it turns a visitor with a link into one without.
     const [path, query] = url.split(/(?=\?)/, 2)
-    if (path === '/app' || path === '/app/') {
-      request.url = `/app/index.html${query ?? ''}`
+    const target = DOCUMENTS[path]
+    if (target !== undefined) {
+      request.url = `${target}${query ?? ''}`
     }
     next()
   }
@@ -51,6 +69,97 @@ function appEntry(): Plugin {
     },
     configurePreviewServer: (server) => {
       server.middlewares.use(rewrite)
+    },
+  }
+}
+
+/**
+ * The shared head, header, footer and icon sprite of the static pages: /, /faq/ and
+ * /source/.
+ *
+ * Each page is a hand-written HTML file with a few markers in it, and this swaps each
+ * marker for the file of the same name in site/. The output is still one static
+ * document per page with its CSS inline and nothing to fetch, which is the property the
+ * landing page was written for; the partials only stop three copies of the same chrome
+ * from drifting apart.
+ *
+ * The word after `header` names the page, and the nav link carrying that `data-page`
+ * gets `aria-current`. The files are read on every transform, so in dev an edit to a
+ * partial shows on the next reload. The app's own index.html has no markers and passes
+ * through untouched.
+ */
+function sitePartials(): Plugin {
+  const dir = fileURLToPath(new URL('./site/', import.meta.url))
+  const read = (name: string) => readFileSync(`${dir}${name}`, 'utf8')
+  const marker = /<!--\s*site:(head|sprite|header|footer)(?:\s+([a-z]+))?\s*-->/g
+  const symbol = /[ \t]*<symbol id="(i-[a-z-]+)"[\s\S]*?<\/symbol>\n?/g
+  let building = false
+
+  /**
+   * Only the icons this page names.
+   *
+   * sprite.html holds every icon the site owns, and no page uses more than a third of
+   * them. The unused ones are not free: they are bytes in the document and nodes in the
+   * DOM of a page that never draws them.
+   */
+  const trimSprite = (sprite: string, used: Set<string>) =>
+    sprite.replace(symbol, (whole, id: string) => (used.has(id) ? whole : ''))
+
+  /**
+   * What the browser needs, without what the author needs.
+   *
+   * These pages carry their CSS and their script inline, comments and all, and those
+   * comments are most of both files. They are worth keeping in site/ and worth leaving
+   * out of what every visitor downloads and parses, so they are stripped here rather
+   * than there, and only for a build: `pnpm dev` still serves the readable copy.
+   *
+   * JSON-LD is left alone. It is a script element but it is not script, and esbuild's
+   * JavaScript loader would make nonsense of it.
+   */
+  const squeeze = async (html: string) => {
+    const styles = [...html.matchAll(/<style>([\s\S]*?)<\/style>/g)]
+    for (const [whole, css] of styles) {
+      const { code } = await transformWithEsbuild(css, 'inline.css', { minify: true, charset: 'utf8' })
+      html = html.replace(whole, `<style>${code.trim()}</style>`)
+    }
+    const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)]
+    for (const [whole, js] of scripts) {
+      const { code } = await transformWithEsbuild(js, 'inline.js', { minify: true, charset: 'utf8' })
+      html = html.replace(whole, `<script>${code.trim()}</script>`)
+    }
+    return html.replace(/\n?[ \t]*<!--[\s\S]*?-->/g, '')
+  }
+
+  return {
+    name: 'meadow-site-partials',
+    configResolved: (config) => {
+      building = config.command === 'build'
+    },
+    transformIndexHtml: {
+      order: 'pre',
+      handler: async (html) => {
+        // The header and footer name icons of their own, and they are not in the page
+        // yet when the sprite marker is reached.
+        const named = `${html}${read('header.html')}${read('footer.html')}`
+        const used = new Set([...named.matchAll(/href="#(i-[a-z-]+)"/g)].map((m) => m[1]))
+        const out = html.replace(marker, (_match, part: string, page: string | undefined) => {
+          if (part === 'head') {
+            // A function, so a `$` in the CSS is never read as a replacement pattern.
+            return read('head.html').replace('<!-- site:style -->', () => `<style>\n${read('site.css')}</style>`)
+          }
+          if (part === 'sprite') {
+            return trimSprite(read('sprite.html'), used)
+          }
+          if (part === 'header' && page !== undefined) {
+            return read('header.html').replace(
+              new RegExp(`data-page="${page}"`, 'g'),
+              `data-page="${page}" aria-current="page"`,
+            )
+          }
+          return read(`${part}.html`)
+        })
+        return building ? await squeeze(out) : out
+      },
     },
   }
 }
@@ -126,24 +235,29 @@ export default defineConfig(({ mode }) => {
     .filter(Boolean)
 
   return {
-    plugins: [react(), appEntry(), serviceWorker()],
+    plugins: [react(), appEntry(), sitePartials(), serviceWorker()],
     envDir: repoRoot,
     build: {
       rollupOptions: {
         /*
-         * Two documents, not one.
+         * Six documents, not one.
          *
-         * `index.html` is a hand-written static landing page and the only thing at this
-         * origin a search engine can read: the app renders into an empty div behind a
-         * sign-in form, so a crawler that got the SPA got nothing. `app/index.html` is
-         * that SPA, moved down a path and marked noindex, and vite emits it to
-         * dist/app/index.html so nginx can serve it at /app.
+         * `index.html` and the four pages under it are hand-written static pages and the
+         * only things at this origin a search engine can read: the app renders into an
+         * empty div behind a sign-in form, so a crawler that got the SPA got nothing.
+         * `app/index.html` is that SPA, moved down a path and marked noindex, and vite
+         * emits it to dist/app/index.html so nginx can serve it at /app. The static five
+         * share their chrome through sitePartials() above.
          *
          * Old links to /#/glade/<uuid> still land on the landing page, which forwards
          * the fragment to /app - see the script at the top of index.html.
          */
         input: {
           landing: fileURLToPath(new URL('./index.html', import.meta.url)),
+          features: fileURLToPath(new URL('./features/index.html', import.meta.url)),
+          collaboration: fileURLToPath(new URL('./collaboration/index.html', import.meta.url)),
+          faq: fileURLToPath(new URL('./faq/index.html', import.meta.url)),
+          source: fileURLToPath(new URL('./source/index.html', import.meta.url)),
           app: fileURLToPath(new URL('./app/index.html', import.meta.url)),
         },
       },

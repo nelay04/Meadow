@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Meadow Source Code and Licence | Run It for Your Team</title>
+    <meta
+      name="description"
+      content="Meadow's code is public on GitHub under PolyForm Internal Use 1.0.0. What the licence allows, how to run it with Docker Compose, and what it is built with."
+    />
+    <link rel="canonical" href="https://meadow.creara.in/source/" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Meadow" />
+    <meta property="og:url" content="https://meadow.creara.in/source/" />
+    <meta property="og:title" content="Meadow Source Code and Licence | Run It for Your Team" />
+    <meta
+      property="og:description"
+      content="Source-available under PolyForm Internal Use 1.0.0: read the code, run it on your own server, and see what the licence allows."
+    />
+    <meta property="og:image" content="https://meadow.creara.in/brand/og-cover.png" />
+    <meta property="og:image:width" content="1535" />
+    <meta property="og:image:height" content="863" />
+    <meta property="og:locale" content="en_US" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <!--
+      The licence summary below is a plain-language reading of LICENSE.md, and it has to
+      stay one: if the licence changes, this page changes with it. Nothing here may call
+      Meadow open source.
+    -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "BreadcrumbList",
+            "itemListElement": [
+              { "@type": "ListItem", "position": 1, "name": "Home", "item": "https://meadow.creara.in/" },
+              { "@type": "ListItem", "position": 2, "name": "Source", "item": "https://meadow.creara.in/source/" }
+            ]
+          },
+          {
+            "@type": "SoftwareSourceCode",
+            "name": "Meadow",
+            "url": "https://meadow.creara.in/source/",
+            "codeRepository": "https://github.com/nelay04/Meadow",
+            "programmingLanguage": ["TypeScript", "Python"],
+            "runtimePlatform": "Docker",
+            "license": "https://polyformproject.org/licenses/internal-use/1.0.0"
+          }
+        ]
+      }
+    </script>
+
+    <!-- site:head -->
+
+    <style>
+      /* This page's own: the licence lists, the commands and the document links. */
+      .list {
+        display: grid;
+        gap: 10px;
+        margin: 12px 0 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .list li {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+      }
+
+      .list .icon {
+        margin-top: 3px;
+        stroke-width: 2.4;
+      }
+
+      .yes .icon {
+        color: var(--success);
+      }
+
+      .no .icon {
+        color: var(--danger);
+      }
+
+      .note {
+        margin: 16px 0 0;
+        max-width: 64ch;
+        color: var(--muted);
+        font-size: 15px;
+      }
+
+      /* Two cards side by side fill the row, rather than leaving a third of it empty. */
+      #licence .grid,
+      #run .grid {
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+      }
+
+      /* A title bar above the command, so the Copy button never sits over the text of a
+         long line. Laid out by grid, so the markup stays a plain pre and a button. */
+      .code {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        margin-top: 14px;
+        overflow: hidden;
+        background: var(--surface-2);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+      }
+
+      .code::before {
+        content: 'Terminal';
+        grid-area: 1 / 1;
+        padding-left: 14px;
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .code .btn {
+        grid-area: 1 / 2;
+        height: 28px;
+        margin: 5px;
+        padding: 0 10px;
+      }
+
+      .code pre {
+        grid-column: 1 / -1;
+        grid-row: 2;
+        margin: 0;
+        padding: 12px 14px 14px;
+        overflow-x: auto;
+        border-top: 1px solid var(--line);
+        color: var(--fg);
+        font: 13.5px/1.7 var(--mono);
+      }
+
+      .card .after {
+        margin-top: 14px;
+      }
+
+      a.link-card {
+        display: flex;
+        gap: 14px;
+        color: inherit;
+        text-decoration: none;
+        transition: border-color var(--fast);
+      }
+
+      a.link-card:hover {
+        border-color: var(--accent);
+      }
+
+      a.link-card .ext {
+        margin-left: auto;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+
+  <body>
+    <!-- site:sprite -->
+    <!-- site:header source -->
+
+    <main id="main">
+      <div class="band">
+        <div class="wrap page-hero">
+          <nav class="crumbs" aria-label="Breadcrumb">
+            <a href="/">Home</a>
+            <span aria-hidden="true">/</span>
+            <span aria-current="page">Source</span>
+          </nav>
+          <p class="eyebrow">Source</p>
+          <h1>Source-available, and yours to run</h1>
+          <p class="lede">
+            Every line of Meadow is public on GitHub under the PolyForm Internal Use License 1.0.0.
+            Run it on your own server for your team, change it to fit how you work, and keep your
+            boards on infrastructure you control.
+          </p>
+          <div class="cta">
+            <a class="btn btn-lg btn-primary" href="https://github.com/nelay04/Meadow" target="_blank" rel="noopener">
+              <svg class="icon mark" aria-hidden="true"><use href="#i-github" /></svg>
+              View on GitHub
+              <span class="sr-only">(opens in a new tab)</span>
+            </a>
+            <a
+              class="btn btn-lg btn-secondary"
+              href="https://github.com/nelay04/Meadow/blob/main/LICENSE.md"
+              target="_blank"
+              rel="noopener"
+            >
+              <svg class="icon" aria-hidden="true"><use href="#i-scale" /></svg>
+              Read the licence
+              <span class="sr-only">(opens in a new tab)</span>
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <section class="sec" id="licence">
+        <div class="wrap">
+          <div class="sec-head">
+            <p class="eyebrow">Licence</p>
+            <h2>What the licence allows</h2>
+            <p class="lede">
+              Source-available means the code is open to read but not to redistribute. That is
+              the one line between this and open source.
+            </p>
+          </div>
+
+          <div class="grid">
+            <div class="card">
+              <h3>You can</h3>
+              <ul class="list yes">
+                <li><svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>Read all of the code on GitHub</li>
+                <li><svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>Run Meadow for the internal business operations of you and your company</li>
+                <li><svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>Change it and build on it for those same purposes</li>
+                <li><svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>Rely on the patent licence the terms include</li>
+              </ul>
+            </div>
+            <div class="card">
+              <h3>You cannot</h3>
+              <ul class="list no">
+                <li><svg class="icon" aria-hidden="true"><use href="#i-x" /></svg>Distribute Meadow to anyone else, changed or unchanged</li>
+                <li><svg class="icon" aria-hidden="true"><use href="#i-x" /></svg>Sublicense it, or transfer your licence</li>
+                <li><svg class="icon" aria-hidden="true"><use href="#i-x" /></svg>Use it beyond your company's internal operations without asking first</li>
+              </ul>
+            </div>
+          </div>
+          <p class="note">
+            If you are told in writing that you have broken the terms, you have 32 days to put it
+            right before your licence ends. The software comes as is, without warranty. This is a
+            plain-language summary; the licence text is what applies.
+          </p>
+        </div>
+      </section>
+
+      <section class="sec" id="run">
+        <div class="wrap">
+          <div class="sec-head">
+            <p class="eyebrow">Run it</p>
+            <h2>Two ways to start</h2>
+            <p class="lede">Docker is the only requirement. No Python or Node on the host.</p>
+          </div>
+
+          <div class="grid">
+            <div class="card">
+              <div class="card-head">
+                <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-terminal" /></svg></div>
+                <h3>Try it on your machine</h3>
+              </div>
+              <p>The development stack, with hot reload. Then open http://localhost:3012.</p>
+              <div class="code">
+                <pre><code>git clone https://github.com/nelay04/Meadow.git
+cd Meadow
+cp .env.example .env
+docker compose -f docker-compose.local.yml up -d</code></pre>
+                <button class="btn btn-sm btn-secondary" type="button" data-copy>Copy</button>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-head">
+                <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-server" /></svg></div>
+                <h3>Run it for your team</h3>
+              </div>
+              <p>
+                The production stack puts nginx in front and runs migrations before the API
+                starts. Copy <code>.env.prod.example</code> to <code>.env.prod</code>, fill it in,
+                then:
+              </p>
+              <div class="code">
+                <pre><code>docker compose --env-file .env.prod up -d --build --wait</code></pre>
+                <button class="btn btn-sm btn-secondary" type="button" data-copy>Copy</button>
+              </div>
+              <p class="after">
+                <a href="https://github.com/nelay04/Meadow/blob/main/docs/DEPLOY.md" target="_blank" rel="noopener">
+                  Read the deploy guide<span class="sr-only"> (opens in a new tab)</span></a
+                >, the runbook this site was deployed with.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="sec" id="numbers">
+        <div class="wrap">
+          <div class="sec-head">
+            <p class="eyebrow">Measured</p>
+            <h2>By the numbers</h2>
+            <p class="lede">
+              From the repository's own benchmarks, not from a brochure. Sixty frames a second
+              at 5,000 objects is the target and is not yet verified on real hardware; everything
+              below has been measured.
+            </p>
+          </div>
+
+          <ul class="stats">
+            <li class="stat"><b>1</b><span>draw call for 5,000 shapes on screen</span></li>
+            <li class="stat"><b>3.5 ms</b><span>of CPU per frame at 5,000 objects</span></li>
+            <li class="stat"><b>15,000</b><span>websockets on one API process, no failures</span></li>
+            <li class="stat"><b>89 KB</b><span>of server memory per open connection</span></li>
+          </ul>
+          <p class="note">
+            Taken on a four-core machine with 4.9 GB of memory, under WSL2, with the load
+            generator running on the same cores. These are floors rather than ceilings: the
+            websocket sweep stopped at its own limit and not at the server's, and 20,000
+            objects has never been measured because a run that size is killed for memory.
+            Real hardware should do better, and none of it has been measured there yet.
+          </p>
+        </div>
+      </section>
+
+      <section class="sec" id="stack">
+        <div class="wrap">
+          <div class="sec-head">
+            <p class="eyebrow">Built with</p>
+            <h2>What is inside</h2>
+            <p class="lede">
+              Shapes go to a WebGL layer as one instanced draw call, with arrows and ink on
+              passes of their own; rich text is a DOM overlay on the same camera. The document is
+              a CRDT, synced over a websocket and kept in the browser for offline work.
+            </p>
+          </div>
+
+          <div class="grid">
+            <div class="card">
+              <h3>Canvas</h3>
+              <p>React 19, TypeScript, Vite, PixiJS 8, TipTap, rbush, Zustand, Tailwind</p>
+            </div>
+            <div class="card">
+              <h3>Realtime</h3>
+              <p>yjs over websocket, offline persistence in the browser, awareness for presence</p>
+            </div>
+            <div class="card">
+              <h3>Server</h3>
+              <p>FastAPI, pycrdt, SQLAlchemy 2 async, Alembic, arq</p>
+            </div>
+            <div class="card">
+              <h3>Data</h3>
+              <p>PostgreSQL 16, Redis 7</p>
+            </div>
+            <div class="card">
+              <h3>Auth</h3>
+              <p>argon2id, JWT access tokens, rotating refresh tokens with reuse detection</p>
+            </div>
+            <div class="card">
+              <h3>Infrastructure</h3>
+              <p>Docker Compose, nginx, GitHub Actions to GHCR to a VPS</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="sec" id="docs">
+        <div class="wrap">
+          <div class="sec-head">
+            <p class="eyebrow">Read further</p>
+            <h2>The documents behind it</h2>
+          </div>
+
+          <div class="grid">
+            <a class="card link-card" href="https://github.com/nelay04/Meadow/blob/main/README.md" target="_blank" rel="noopener">
+              <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-book" /></svg></div>
+              <div>
+                <h3>README</h3>
+                <p>What Meadow does and how it works, with screenshots.</p>
+              </div>
+              <svg class="icon ext" aria-hidden="true"><use href="#i-external" /></svg>
+              <span class="sr-only">(opens in a new tab)</span>
+            </a>
+            <a class="card link-card" href="https://github.com/nelay04/Meadow/blob/main/docs/core/ARCHITECTURE.md" target="_blank" rel="noopener">
+              <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-layers" /></svg></div>
+              <div>
+                <h3>Architecture</h3>
+                <p>The CRDT schema, data model, API surface and the reasoning behind them.</p>
+              </div>
+              <svg class="icon ext" aria-hidden="true"><use href="#i-external" /></svg>
+              <span class="sr-only">(opens in a new tab)</span>
+            </a>
+            <a class="card link-card" href="https://github.com/nelay04/Meadow/blob/main/CHANGELOG.md" target="_blank" rel="noopener">
+              <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-restore" /></svg></div>
+              <div>
+                <h3>Changelog</h3>
+                <p>Every release, including the work that was thrown away and why.</p>
+              </div>
+              <svg class="icon ext" aria-hidden="true"><use href="#i-external" /></svg>
+              <span class="sr-only">(opens in a new tab)</span>
+            </a>
+          </div>
+        </div>
+      </section>
+
+      <section class="sec">
+        <div class="wrap">
+          <div class="closing">
+            <h2>Prefer not to run it yourself?</h2>
+            <p>Meadow is already running here. Sign in with email, GitHub or Google and start a glade.</p>
+            <div class="cta">
+              <a class="btn btn-lg btn-primary" href="/app">
+                Use Meadow now
+                <svg class="icon arrow" aria-hidden="true"><use href="#i-arrow" /></svg>
+              </a>
+              <a class="btn btn-lg btn-secondary" href="/faq/#licence">Licence questions</a>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- site:footer -->
+  </body>
+</html>

@@ -1,0 +1,967 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Meadow Features | Canvas Tools, Diary Pages and Indian Languages</title>
+    <meta
+      name="description"
+      content="Every Meadow feature: eight shapes on single keys, connectors that bind, ink that tidies into shapes, ruled diary pages, phonetic input in thirteen Indian languages, offline sync and keyboard shortcuts."
+    />
+    <link rel="canonical" href="https://meadow.creara.in/features/" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Meadow" />
+    <meta property="og:url" content="https://meadow.creara.in/features/" />
+    <meta property="og:title" content="Meadow Features | Canvas Tools, Diary Pages and Indian Languages" />
+    <meta
+      property="og:description"
+      content="Glades for thinking out loud, leas for writing things down, thirteen Indian languages on both, and a live, offline-first document under all of it."
+    />
+    <meta property="og:image" content="https://meadow.creara.in/brand/og-cover.png" />
+    <meta property="og:image:width" content="1535" />
+    <meta property="og:image:height" content="863" />
+    <meta property="og:locale" content="en_US" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <!--
+      Everything on this page describes what the app does today, and each claim was
+      read off the code rather than remembered: the tools and their keys from
+      src/canvas/engine.ts, the kinds from src/features/boards/kinds.ts, the languages
+      and their samples from src/text/inputLanguages.ts, the renderer's figures from
+      docs/core/ARCHITECTURE.md section 11. When one of those changes, this changes.
+    -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "BreadcrumbList",
+            "itemListElement": [
+              { "@type": "ListItem", "position": 1, "name": "Home", "item": "https://meadow.creara.in/" },
+              { "@type": "ListItem", "position": 2, "name": "Features", "item": "https://meadow.creara.in/features/" }
+            ]
+          },
+          {
+            "@type": "WebPage",
+            "@id": "https://meadow.creara.in/features/#page",
+            "url": "https://meadow.creara.in/features/",
+            "name": "Meadow Features",
+            "isPartOf": { "@id": "https://meadow.creara.in/#website" },
+            "about": { "@id": "https://meadow.creara.in/#app" }
+          }
+        ]
+      }
+    </script>
+
+    <!-- site:head -->
+
+    <style>
+      /* This page's own: the shape keys, connectors, nibs and the other small demos. */
+      .shapes {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .shape {
+        display: grid;
+        justify-items: center;
+        gap: 4px;
+        padding: 12px 6px 10px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--surface-2);
+        color: var(--fg);
+        font-size: 13px;
+        transition:
+          border-color var(--fast),
+          background var(--fast);
+      }
+
+      .shape svg {
+        width: 44px;
+        height: 33px;
+        margin-bottom: 4px;
+        fill: none;
+        stroke: var(--accent);
+        stroke-width: 2;
+        stroke-linejoin: round;
+      }
+
+      .shape.hit {
+        border-color: var(--accent);
+        background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+      }
+
+      @media (prefers-reduced-motion: no-preference) {
+        .shape.hit svg {
+          animation: pop 380ms var(--ease);
+        }
+      }
+
+      @keyframes pop {
+        40% {
+          transform: scale(1.2);
+        }
+      }
+
+      .hint {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .conn-stage {
+        aspect-ratio: 2 / 1;
+      }
+
+      .conn-stage svg {
+        display: block;
+        width: 100%;
+        height: 100%;
+        fill: none;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .conn-stage .node {
+        fill: var(--surface);
+        stroke: var(--accent);
+        stroke-width: 2;
+      }
+
+      .conn-stage .route {
+        stroke: var(--fg);
+        stroke-width: 2.2;
+        visibility: hidden;
+      }
+
+      .conn:has(input[value='straight']:checked) .r-straight,
+      .conn:has(input[value='curved']:checked) .r-curved,
+      .conn:has(input[value='elbow']:checked) .r-elbow {
+        visibility: visible;
+      }
+
+      .nibs,
+      .widths {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .nibs {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 6px;
+      }
+
+      .nibs li {
+        display: grid;
+        justify-items: center;
+        gap: 2px;
+        color: var(--fg);
+        font-size: 13px;
+      }
+
+      .nibs svg {
+        width: 100%;
+        max-width: 80px;
+        height: 30px;
+        color: var(--fg);
+      }
+
+      .widths {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px 20px;
+      }
+
+      .widths li {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--fg);
+        font-size: 13px;
+      }
+
+      .widths i {
+        display: block;
+        border-radius: 50%;
+        background: var(--fg);
+      }
+
+      .sizes {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        gap: 8px 18px;
+      }
+
+      .sizes span {
+        display: grid;
+        justify-items: center;
+        color: var(--fg-strong);
+        font-weight: 700;
+        line-height: 1;
+      }
+
+      .sizes small {
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 400;
+      }
+
+      .sticky-note {
+        width: min(230px, 80%);
+        margin: 18px auto 6px;
+        padding: 16px 16px 12px;
+        border-radius: 3px;
+        background: #fde58a;
+        box-shadow: 0 12px 22px -12px #00000073;
+        color: #3b2f06;
+        transform: rotate(-2deg);
+      }
+
+      .sticky-note p {
+        margin: 0 0 14px;
+        color: #3b2f06;
+        font-size: 17px;
+        font-weight: 700;
+        line-height: 1.35;
+      }
+
+      .sticky-note small {
+        color: #5c4a0e;
+        font-size: 13px;
+      }
+
+      .guides svg {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+
+      .guides .box {
+        fill: var(--surface);
+        stroke: var(--edge);
+        stroke-width: 1.5;
+      }
+
+      .guides .drag {
+        stroke: var(--accent);
+        stroke-width: 2;
+      }
+
+      .guides .guide {
+        stroke: var(--p-pink);
+        stroke-width: 1.5;
+        stroke-dasharray: 4 4;
+      }
+
+      .guides .gap {
+        fill: none;
+        stroke: var(--p-pink);
+        stroke-width: 1.5;
+      }
+
+      /* The browser's own spelling mark, which a lea leaves on unless you switch it off. */
+      .typo {
+        text-decoration: underline wavy #d9342b;
+        text-decoration-thickness: 1.5px;
+        text-underline-offset: 5px;
+      }
+
+      .mock .add {
+        justify-content: center;
+        border-style: dashed;
+        background: transparent;
+        color: var(--muted);
+        font-weight: 700;
+      }
+
+      .langs .native {
+        font-size: 1.12em;
+      }
+
+      .langs td:nth-child(3) {
+        color: var(--muted);
+      }
+
+      .keys-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+        gap: 14px;
+        align-items: start;
+      }
+
+      .keys-grid caption {
+        padding: 12px 14px 8px;
+        color: var(--fg-strong);
+        font-weight: 700;
+        text-align: left;
+      }
+
+      .keys-grid tbody tr:first-child > * {
+        border-top: 1px solid var(--line);
+      }
+
+      .keys-grid tbody th {
+        color: var(--fg);
+        font-weight: 400;
+      }
+
+      .keys-grid td {
+        text-align: right;
+        white-space: nowrap;
+      }
+
+      .keys-grid .or {
+        margin: 0 4px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+    </style>
+  </head>
+
+  <body>
+    <!-- site:sprite -->
+    <!-- site:header features -->
+
+    <main id="main" class="has-subnav">
+      <div class="band">
+        <div class="wrap page-hero">
+          <nav class="crumbs" aria-label="Breadcrumb">
+            <a href="/">Home</a>
+            <span aria-hidden="true">/</span>
+            <span aria-current="page">Features</span>
+          </nav>
+          <p class="eyebrow">Features</p>
+          <h1>Everything you can do on a Meadow canvas</h1>
+          <p class="lede">
+            Glades for thinking out loud, leas for writing things down, thirteen Indian
+            languages on both, and the same live, offline-first document under all of it.
+          </p>
+          <div class="cta">
+            <a class="btn btn-primary" href="/app">
+              Get started
+              <svg class="icon arrow" aria-hidden="true"><use href="#i-arrow" /></svg>
+            </a>
+            <a class="btn btn-secondary" href="#shortcuts">Keyboard shortcuts</a>
+          </div>
+        </div>
+      </div>
+
+      <nav class="subnav" aria-label="On this page">
+        <div class="wrap">
+          <a href="#glades">Glades</a>
+          <a href="#leas">Leas</a>
+          <a href="#languages">Languages</a>
+          <a href="#everywhere">Everywhere</a>
+          <a href="#shortcuts">Shortcuts</a>
+        </div>
+      </nav>
+
+      <section class="sec" id="glades">
+        <div class="wrap">
+          <div class="group-head">
+            <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-canvas" /></svg></div>
+            <h2>Glades: a clearing with no edges</h2>
+            <p class="lede">
+              A glade is an open canvas for diagrams, notes and sketches. Think out loud and let
+              it sprawl: pan and zoom instead of scrolling, and set a paragraph beside a diagram
+              at whatever scale suits it.
+            </p>
+          </div>
+
+          <div class="feat" id="shapes">
+            <div class="feat-text">
+              <h3>Eight shapes, each on its own key</h3>
+              <p>
+                Rectangle, ellipse, diamond, parallelogram, triangle, trapezoid, polygon and
+                cylinder, each a single keypress away. Every shape holds its own label, and the
+                label fits the shape rather than its box, so the words in a diamond stay inside
+                the diamond.
+              </p>
+              <ul class="ticks">
+                <li><svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>Pick how many sides a polygon has</li>
+                <li><svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>Labels never clip at the edge</li>
+                <li><svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>After drawing, the tool hands back to select, so you can adjust what you just made</li>
+              </ul>
+            </div>
+            <div class="feat-visual">
+              <div class="panel" data-shapes>
+                <div class="shapes">
+                  <div class="shape" data-key="r" data-name="rectangle">
+                    <svg viewBox="0 0 48 36" aria-hidden="true"><rect x="6" y="6" width="36" height="24" rx="3" /></svg>
+                    <span>Rectangle</span><kbd>R</kbd>
+                  </div>
+                  <div class="shape" data-key="o" data-name="ellipse">
+                    <svg viewBox="0 0 48 36" aria-hidden="true"><ellipse cx="24" cy="18" rx="18" ry="12" /></svg>
+                    <span>Ellipse</span><kbd>O</kbd>
+                  </div>
+                  <div class="shape" data-key="d" data-name="diamond">
+                    <svg viewBox="0 0 48 36" aria-hidden="true"><path d="M24 4L42 18L24 32L6 18Z" /></svg>
+                    <span>Diamond</span><kbd>D</kbd>
+                  </div>
+                  <div class="shape" data-key="g" data-name="parallelogram">
+                    <svg viewBox="0 0 48 36" aria-hidden="true"><path d="M14 6H42L34 30H6Z" /></svg>
+                    <span>Parallelogram</span><kbd>G</kbd>
+                  </div>
+                  <div class="shape" data-key="j" data-name="triangle">
+                    <svg viewBox="0 0 48 36" aria-hidden="true"><path d="M24 5L42 31H6Z" /></svg>
+                    <span>Triangle</span><kbd>J</kbd>
+                  </div>
+                  <div class="shape" data-key="z" data-name="trapezoid">
+                    <svg viewBox="0 0 48 36" aria-hidden="true"><path d="M14 6H34L42 30H6Z" /></svg>
+                    <span>Trapezoid</span><kbd>Z</kbd>
+                  </div>
+                  <div class="shape" data-key="n" data-name="polygon">
+                    <svg viewBox="0 0 48 36" aria-hidden="true"><path d="M15 5H33L42 18L33 31H15L6 18Z" /></svg>
+                    <span>Polygon</span><kbd>N</kbd>
+                  </div>
+                  <div class="shape" data-key="y" data-name="cylinder">
+                    <svg viewBox="0 0 48 36" aria-hidden="true"><path d="M8 9C8 3 40 3 40 9V27C40 33 8 33 8 27ZM8 9C8 15 40 15 40 9" /></svg>
+                    <span>Cylinder</span><kbd>Y</kbd>
+                  </div>
+                </div>
+                <p class="hint js-only">Try it: press a shape's key anywhere on this page.</p>
+                <output class="sr-only"></output>
+              </div>
+            </div>
+          </div>
+
+          <div class="feat" id="connectors">
+            <div class="feat-text">
+              <h3>Connectors that hold on</h3>
+              <p>
+                Draw an arrow from one object to another and it binds to the shape's true
+                outline, so it follows when either end moves. Route it straight, curved or at
+                right angles, bend it, re-aim either end, and give it a label that travels with
+                it.
+              </p>
+              <ul class="ticks">
+                <li><svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>Connection dots appear as you hover a shape</li>
+                <li><svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>A curve is stored as a curve, so it stays smooth at any zoom</li>
+              </ul>
+            </div>
+            <div class="feat-visual">
+              <div class="panel conn">
+                <div class="stage conn-stage">
+                  <svg viewBox="0 0 300 150" aria-hidden="true">
+                    <rect class="node" x="20" y="22" width="88" height="48" rx="8" />
+                    <ellipse class="node" cx="236" cy="104" rx="46" ry="26" />
+                    <g class="route r-straight"><path d="M110 50L190 100M180 100L190 100L185 91" /></g>
+                    <g class="route r-curved"><path d="M110 46C156 46 150 104 188 104M181 98L190 104L181 110" /></g>
+                    <g class="route r-elbow"><path d="M110 46H150V104H188M181 98L190 104L181 110" /></g>
+                  </svg>
+                </div>
+                <fieldset class="chips">
+                  <legend class="sr-only">Connector routing</legend>
+                  <label class="chip"><input type="radio" name="route" value="straight" /><span>Straight</span></label>
+                  <label class="chip"><input type="radio" name="route" value="curved" checked /><span>Curved</span></label>
+                  <label class="chip"><input type="radio" name="route" value="elbow" /><span>Elbow</span></label>
+                </fieldset>
+              </div>
+            </div>
+          </div>
+
+          <div class="feat" id="ink">
+            <div class="feat-text">
+              <h3>Ink with five nibs, and help when you want it</h3>
+              <p>
+                Round, felt, chisel, brush and highlighter, each in four widths from fine to
+                heavy. A stylus's pressure shapes the line; with a mouse, speed stands in for
+                it, because a mouse reports no pressure at all.
+              </p>
+              <p>
+                The pen can also correct what you drew, in two degrees. Tidy turns a hand-drawn
+                box, ellipse or arrow into the real object and keeps the look of your ink;
+                Shapes makes the same object in the board's own style.
+              </p>
+              <ul class="ticks">
+                <li><svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>A hand-drawn arrow becomes a real connector, elbows included</li>
+                <li><svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>Assist works with the round and felt nibs</li>
+                <li><svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>Every stroke is one object and one undo step</li>
+              </ul>
+            </div>
+            <div class="feat-visual">
+              <div class="panel">
+                <div class="ink">
+                  <div class="stage ink-stage">
+                    <svg viewBox="0 0 260 130" aria-hidden="true">
+                      <g class="raw">
+                        <path pathLength="1" d="M22 38C46 33 78 36 104 34C106 55 105 78 104 98C80 101 50 99 23 100C20 80 23 58 20 40" />
+                        <path pathLength="1" d="M200 32C226 31 244 48 242 66C240 86 220 99 196 98C172 97 156 83 158 64C160 45 178 33 206 35" />
+                        <path pathLength="1" d="M110 67C123 61 137 72 153 65M144 57L154 65L145 74" />
+                      </g>
+                      <g class="neat">
+                        <rect class="fill" x="22" y="35" width="82" height="64" rx="8" />
+                        <ellipse class="fill" cx="200" cy="66" rx="42" ry="32" />
+                        <path d="M110 67H154M146 59L155 67L146 75" />
+                      </g>
+                    </svg>
+                  </div>
+                  <fieldset class="chips">
+                    <legend class="sr-only">Pen assist</legend>
+                    <label class="chip"><input type="radio" name="ink-assist" value="off" checked /><span>Off</span></label>
+                    <label class="chip"><input type="radio" name="ink-assist" value="tidy" /><span>Tidy</span></label>
+                    <label class="chip"><input type="radio" name="ink-assist" value="shapes" /><span>Shapes</span></label>
+                  </fieldset>
+                </div>
+                <ul class="nibs" aria-label="Nibs">
+                  <li>
+                    <svg viewBox="0 0 80 30" aria-hidden="true"><path d="M6 20C20 6 40 26 74 10" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" /></svg>
+                    Round
+                  </li>
+                  <li>
+                    <svg viewBox="0 0 80 30" aria-hidden="true"><path d="M6 20C20 6 40 26 74 10" fill="none" stroke="currentColor" stroke-opacity="0.78" stroke-width="5" stroke-linecap="round" /></svg>
+                    Felt
+                  </li>
+                  <li>
+                    <svg viewBox="0 0 80 30" aria-hidden="true"><path d="M6 20C20 6 40 26 74 10" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="butt" transform="skewX(-28) translate(9 0)" /></svg>
+                    Chisel
+                  </li>
+                  <li>
+                    <svg viewBox="0 0 80 30" aria-hidden="true"><path d="M6 21C22 6 42 25 74 9C44 21 24 12 6 21Z" fill="currentColor" /></svg>
+                    Brush
+                  </li>
+                  <li>
+                    <svg viewBox="0 0 80 30" aria-hidden="true"><path d="M8 15H72" fill="none" stroke="#e8b400" stroke-opacity="0.55" stroke-width="12" /></svg>
+                    Highlighter
+                  </li>
+                </ul>
+                <ul class="widths" aria-label="Widths">
+                  <li><i style="width: 3px; height: 3px"></i>Fine</li>
+                  <li><i style="width: 6px; height: 6px"></i>Medium</li>
+                  <li><i style="width: 11px; height: 11px"></i>Broad</li>
+                  <li><i style="width: 18px; height: 18px"></i>Heavy</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <div class="feat" id="text">
+            <div class="feat-text">
+              <h3>Rich text and sticky notes, edited in place</h3>
+              <p>
+                Text is real rich text, typed straight onto the canvas and crisp at any zoom, in
+                eight sizes from 12 to 64. Sticky notes are for quick thoughts, and each one
+                carries the name of whoever wrote it.
+              </p>
+              <ul class="ticks">
+                <li><svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>Enter edits the selected text, and so does a double-click</li>
+                <li><svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>Copied objects paste into a mail as their words, not as coordinates</li>
+              </ul>
+            </div>
+            <div class="feat-visual">
+              <div class="panel">
+                <div class="sizes" aria-label="The eight text sizes" role="img">
+                  <span style="font-size: 12px">Aa<small>12</small></span>
+                  <span style="font-size: 14px">Aa<small>14</small></span>
+                  <span style="font-size: 16px">Aa<small>16</small></span>
+                  <span style="font-size: 20px">Aa<small>20</small></span>
+                  <span style="font-size: 24px">Aa<small>24</small></span>
+                  <span style="font-size: 32px">Aa<small>32</small></span>
+                  <span style="font-size: 48px">Aa<small>48</small></span>
+                  <span style="font-size: 64px">Aa<small>64</small></span>
+                </div>
+                <div class="sticky-note">
+                  <p>Bring the prototype to Friday's review</p>
+                  <small>Snowy</small>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="feat" id="arrange">
+            <div class="feat-text">
+              <h3>Guides that lay it out for you</h3>
+              <p>
+                Drag near a neighbour and edges and centres line up, with a line drawn through
+                both so you can see which one matched. Gaps even themselves out along a row, and
+                while you resize, an edge snaps to a neighbour's so a column ends up one width.
+              </p>
+              <p>
+                The stack panel lists every object front to back. Drag a row, type a position or
+                nudge it with the keyboard to put this one behind that one.
+              </p>
+              <ul class="ticks">
+                <li><svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>Marquee-select to move many objects at once</li>
+                <li><svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>Undo, redo, duplicate, and copy and paste between glades and tabs</li>
+              </ul>
+            </div>
+            <div class="feat-visual">
+              <div class="panel" aria-hidden="true">
+                <div class="guides">
+                  <svg viewBox="0 0 320 130">
+                    <line class="guide" x1="8" y1="30" x2="312" y2="30" />
+                    <rect class="box" x="20" y="30" width="76" height="52" rx="8" />
+                    <rect class="box drag" x="122" y="30" width="76" height="52" rx="8" />
+                    <rect class="box" x="224" y="30" width="76" height="52" rx="8" />
+                    <path class="gap" d="M96 104H122M96 98V110M122 98V110M198 104H224M198 98V110M224 98V110" />
+                  </svg>
+                </div>
+                <ul class="mock">
+                  <li><span class="num">4</span><span class="grow">Arrow</span><small>Connector</small></li>
+                  <li class="on"><span class="num">3</span><span class="grow">Design review</span><small>Rectangle</small></li>
+                  <li><span class="num">2</span><span class="grow">Launch plan notes</span><small>Sticky note</small></li>
+                  <li><span class="num">1</span><span class="grow">Ship it</span><small>Ellipse</small></li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="sec" id="leas">
+        <div class="wrap">
+          <div class="group-head">
+            <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-book" /></svg></div>
+            <h2>Leas: a diary on the same canvas</h2>
+            <p class="lede">
+              Kraft paper, ruled and waiting. Open a lea and start writing: the caret is
+              already on the first line.
+            </p>
+          </div>
+
+          <div class="feat" id="lea-writing">
+            <div class="feat-text">
+              <h3>Write on the lines, not in boxes</h3>
+              <p>
+                A lea is a glade printed as ruled paper. Click a rule and write on it. The ruling
+                matches the type exactly, so the words never drift off the lines, and the page
+                keeps a comfortable width on any screen and runs on as far as you write.
+              </p>
+              <p>
+                Print it on vintage kraft, light or dark paper, or paper that follows the theme.
+                The stock is your own preference in this browser, so even a viewer can choose
+                how a page they can only read looks to them.
+              </p>
+              <ul class="ticks">
+                <li><svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>Spelling is marked as you write, with a switch to turn it off</li>
+                <li><svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>The rail keeps to select and pan: a diary is for sentences</li>
+              </ul>
+            </div>
+            <div class="feat-visual">
+              <div class="panel lea-demo">
+                <div class="lea">
+                  <div class="lea-head"><b>Garden plan</b><span>28th May, 2026</span></div>
+                  <p>Sow the tomatoes by the south wall.</p>
+                  <p>Ask about mango <span class="typo">cutings</span> on Sunday.</p>
+                  <p>Water the beans before the heat.</p>
+                </div>
+                <fieldset class="chips">
+                  <legend class="sr-only">Paper</legend>
+                  <label class="chip"><input type="radio" name="paper" value="vintage" /><span><i class="swatch vintage"></i>Vintage</span></label>
+                  <label class="chip"><input type="radio" name="paper" value="light" /><span><i class="swatch light"></i>Light</span></label>
+                  <label class="chip"><input type="radio" name="paper" value="dark" /><span><i class="swatch dark"></i>Dark</span></label>
+                  <label class="chip"><input type="radio" name="paper" value="system" checked /><span><i class="swatch system"></i>Match theme</span></label>
+                </fieldset>
+              </div>
+            </div>
+          </div>
+
+          <div class="feat" id="pages">
+            <div class="feat-text">
+              <h3>Pages with a subject and a date</h3>
+              <p>
+                Every page has its own subject and its own date, written the way a diary writes
+                one, 28th May, 2026, and picked from a calendar of Meadow's own. The list of
+                pages sits beside the paper, one line each, so you can see what is in the diary
+                and turn straight to a page.
+              </p>
+              <p>
+                Tear a page out and it waits in the lea's own trash, showing how long it has
+                left, until you restore it or let it go for good.
+              </p>
+            </div>
+            <div class="feat-visual">
+              <div class="panel" aria-hidden="true">
+                <ul class="mock">
+                  <li class="on"><span class="num">1</span><span class="grow">Garden plan</span><small>28th May</small></li>
+                  <li><span class="num">2</span><span class="grow">Friend's birthday celebration</span><small>30th May</small></li>
+                  <li><span class="num">3</span><span class="grow">Trip to Shillong</span><small>14th Jun</small></li>
+                  <li class="add">Add a page</li>
+                </ul>
+                <ul class="mock">
+                  <li>
+                    <svg class="icon" aria-hidden="true"><use href="#i-trash" /></svg>
+                    <span class="grow">Torn out: Old notes</span>
+                    <span class="act">Restore</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="sec" id="languages">
+        <div class="wrap">
+          <div class="group-head">
+            <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-keys" /></svg></div>
+            <h2>Type in thirteen Indian languages</h2>
+            <p class="lede">
+              Phonetic input works the way Google Input Tools does: type the sound of a word in
+              English letters, pick it from the list under the caret, and keep writing. On
+              glades and leas alike.
+            </p>
+          </div>
+
+          <div class="feat">
+            <div class="feat-text">
+              <h3>Spell it the way it sounds</h3>
+              <p>
+                Type <em>nomoskar</em> and Bengali candidates appear under the caret; Space, Enter, a
+                number or a click puts one on the page. The language is your own setting, so two
+                people on one lea can each write in theirs.
+              </p>
+              <ul class="ticks">
+                <li><svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>Off until you turn it on</li>
+                <li><svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>Only the English letters of the word being typed are sent, to Google's input service, never the page</li>
+                <li><svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>Offline, Bengali and Assamese keep working by rule, on the Avro scheme</li>
+                <li><svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>For the others, the list says plainly when the service cannot be reached</li>
+              </ul>
+            </div>
+            <div class="feat-visual">
+              <div class="panel">
+                <div class="ime" data-ime>
+                  <div class="stage ime-editor" aria-hidden="true">
+                    <div class="ime-line">
+                      <span class="ime-out" lang="bn"></span><span class="ime-roman">nomoskar</span
+                      ><span class="caret"></span>
+                    </div>
+                    <div class="ime-pop">
+                      <span class="ime-num">1</span>
+                      <span class="ime-cand" lang="bn">নমস্কার</span>
+                      <span class="ime-hint">Space to accept</span>
+                    </div>
+                  </div>
+                  <output class="sr-only">nomoskar becomes নমস্কার</output>
+                  <fieldset class="chips">
+                    <legend class="sr-only">Language to try</legend>
+                    <label class="chip"><input type="radio" name="ime-lang" value="bn" checked /><span>Bengali</span></label>
+                    <label class="chip"><input type="radio" name="ime-lang" value="hi" /><span>Hindi</span></label>
+                    <label class="chip"><input type="radio" name="ime-lang" value="ta" /><span>Tamil</span></label>
+                    <label class="chip"><input type="radio" name="ime-lang" value="te" /><span>Telugu</span></label>
+                    <label class="chip"><input type="radio" name="ime-lang" value="mr" /><span>Marathi</span></label>
+                    <label class="chip"><input type="radio" name="ime-lang" value="gu" /><span>Gujarati</span></label>
+                    <label class="chip"><input type="radio" name="ime-lang" value="kn" /><span>Kannada</span></label>
+                    <label class="chip"><input type="radio" name="ime-lang" value="ml" /><span>Malayalam</span></label>
+                    <label class="chip"><input type="radio" name="ime-lang" value="or" /><span>Odia</span></label>
+                    <label class="chip"><input type="radio" name="ime-lang" value="pa" /><span>Punjabi</span></label>
+                    <label class="chip"><input type="radio" name="ime-lang" value="as" /><span>Assamese</span></label>
+                    <label class="chip"><input type="radio" name="ime-lang" value="ne" /><span>Nepali</span></label>
+                    <label class="chip"><input type="radio" name="ime-lang" value="sa" /><span>Sanskrit</span></label>
+                  </fieldset>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table class="table langs">
+              <caption class="sr-only">The thirteen languages, with a word typed in each</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Language</th>
+                  <th scope="col">In its own script</th>
+                  <th scope="col">You type</th>
+                  <th scope="col">You get</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><th scope="row">Bengali</th><td class="native" lang="bn">বাংলা</td><td>nomoskar</td><td class="native" lang="bn">নমস্কার</td></tr>
+                <tr><th scope="row">Hindi</th><td class="native" lang="hi">हिन्दी</td><td>namaste</td><td class="native" lang="hi">नमस्ते</td></tr>
+                <tr><th scope="row">Assamese</th><td class="native" lang="as">অসমীয়া</td><td>nomoskar</td><td class="native" lang="as">নমস্কাৰ</td></tr>
+                <tr><th scope="row">Gujarati</th><td class="native" lang="gu">ગુજરાતી</td><td>namaste</td><td class="native" lang="gu">નમસ્તે</td></tr>
+                <tr><th scope="row">Kannada</th><td class="native" lang="kn">ಕನ್ನಡ</td><td>namaskara</td><td class="native" lang="kn">ನಮಸ್ಕಾರ</td></tr>
+                <tr><th scope="row">Malayalam</th><td class="native" lang="ml">മലയാളം</td><td>namaskaram</td><td class="native" lang="ml">നമസ്കാരം</td></tr>
+                <tr><th scope="row">Marathi</th><td class="native" lang="mr">मराठी</td><td>namaskar</td><td class="native" lang="mr">नमस्कार</td></tr>
+                <tr><th scope="row">Nepali</th><td class="native" lang="ne">नेपाली</td><td>namaste</td><td class="native" lang="ne">नमस्ते</td></tr>
+                <tr><th scope="row">Odia</th><td class="native" lang="or">ଓଡ଼ିଆ</td><td>namaskar</td><td class="native" lang="or">ନମସ୍କାର</td></tr>
+                <tr><th scope="row">Punjabi</th><td class="native" lang="pa">ਪੰਜਾਬੀ</td><td>namaskar</td><td class="native" lang="pa">ਨਮਸਕਾਰ</td></tr>
+                <tr><th scope="row">Sanskrit</th><td class="native" lang="sa">संस्कृतम्</td><td>namah</td><td class="native" lang="sa">नमः</td></tr>
+                <tr><th scope="row">Tamil</th><td class="native" lang="ta">தமிழ்</td><td>vanakkam</td><td class="native" lang="ta">வணக்கம்</td></tr>
+                <tr><th scope="row">Telugu</th><td class="native" lang="te">తెలుగు</td><td>namaskaram</td><td class="native" lang="te">నమస్కారం</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="sec" id="everywhere">
+        <div class="wrap">
+          <div class="group-head">
+            <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-layers" /></svg></div>
+            <h2>On every glade and lea</h2>
+            <p class="lede">
+              What holds the rest together: work that survives a dropped connection, an app you
+              can install, one theme across the site and the app, and a board list that finds
+              things.
+            </p>
+          </div>
+
+          <div class="grid">
+            <div class="card" id="offline">
+              <div class="card-head">
+                <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-offline" /></svg></div>
+                <h3>Works offline</h3>
+              </div>
+              <p>
+                Every edit is kept in your browser first. Close the laptop mid-thought or keep
+                working on a train, and it merges when you reconnect, with no conflict dialog
+                and no overwrite.
+              </p>
+            </div>
+            <div class="card" id="install">
+              <div class="card-head">
+                <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-install" /></svg></div>
+                <h3>Installs like an app</h3>
+              </div>
+              <p>
+                Add it to a phone's home screen or install it from a desktop browser. The
+                installed app opens without a network; signing in and opening a board for the
+                first time still need one.
+              </p>
+            </div>
+            <div class="card" id="themes">
+              <div class="card-head">
+                <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-palette" /></svg></div>
+                <h3>Light, dark or your system's</h3>
+              </div>
+              <p>
+                One switch, shared by this site and the app, and remembered in every open tab.
+                A lea's paper is a setting of its own on top.
+              </p>
+            </div>
+            <div class="card" id="boards">
+              <div class="card-head">
+                <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-search" /></svg></div>
+                <h3>Find any board</h3>
+              </div>
+              <p>
+                Everything, Recent, Glades, Leas and Trash, narrowed to boards you own or boards
+                shared with you, and searchable by name. Glades show a preview of their canvas.
+              </p>
+            </div>
+            <div class="card" id="trash">
+              <div class="card-head">
+                <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-restore" /></svg></div>
+                <h3>Thirty days to change your mind</h3>
+              </div>
+              <p>
+                A deleted board waits in the trash with its history, link and members intact.
+                Only its owner can delete it, and only its owner can bring it back.
+              </p>
+            </div>
+            <div class="card" id="fast">
+              <div class="card-head">
+                <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-zap" /></svg></div>
+                <h3>Fast on crowded boards</h3>
+              </div>
+              <p>
+                Shapes go to the GPU as one instanced draw call however many there are, and
+                arrows and ink get a pass each. At 5,000 objects a frame costs 3.5 ms of CPU,
+                measured.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="sec" id="shortcuts">
+        <div class="wrap">
+          <div class="group-head">
+            <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-keys" /></svg></div>
+            <h2>Keyboard shortcuts</h2>
+            <p class="lede">Every tool has a key of its own. On a Mac, Ctrl is Cmd.</p>
+          </div>
+
+          <div class="keys-grid">
+            <div class="table-wrap">
+              <table class="table">
+                <caption>Tools</caption>
+                <tbody>
+                  <tr><th scope="row">Select</th><td><kbd>V</kbd></td></tr>
+                  <tr><th scope="row">Pan</th><td><kbd>H</kbd></td></tr>
+                  <tr><th scope="row">Text</th><td><kbd>T</kbd></td></tr>
+                  <tr><th scope="row">Sticky note</th><td><kbd>S</kbd></td></tr>
+                  <tr><th scope="row">Arrow</th><td><kbd>A</kbd></td></tr>
+                  <tr><th scope="row">Line</th><td><kbd>L</kbd></td></tr>
+                  <tr><th scope="row">Pen</th><td><kbd>P</kbd></td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="table-wrap">
+              <table class="table">
+                <caption>Shapes</caption>
+                <tbody>
+                  <tr><th scope="row">Rectangle</th><td><kbd>R</kbd></td></tr>
+                  <tr><th scope="row">Ellipse</th><td><kbd>O</kbd></td></tr>
+                  <tr><th scope="row">Diamond</th><td><kbd>D</kbd></td></tr>
+                  <tr><th scope="row">Parallelogram</th><td><kbd>G</kbd></td></tr>
+                  <tr><th scope="row">Triangle</th><td><kbd>J</kbd></td></tr>
+                  <tr><th scope="row">Trapezoid</th><td><kbd>Z</kbd></td></tr>
+                  <tr><th scope="row">Polygon</th><td><kbd>N</kbd></td></tr>
+                  <tr><th scope="row">Cylinder</th><td><kbd>Y</kbd></td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="table-wrap">
+              <table class="table">
+                <caption>Edit</caption>
+                <tbody>
+                  <tr><th scope="row">Undo</th><td><kbd data-mod>Ctrl</kbd> <kbd>Z</kbd></td></tr>
+                  <tr><th scope="row">Redo</th><td><kbd data-mod>Ctrl</kbd> <kbd>Y</kbd></td></tr>
+                  <tr><th scope="row">Select all</th><td><kbd data-mod>Ctrl</kbd> <kbd>A</kbd></td></tr>
+                  <tr><th scope="row">Duplicate</th><td><kbd data-mod>Ctrl</kbd> <kbd>D</kbd></td></tr>
+                  <tr><th scope="row">Delete</th><td><kbd>Del</kbd><span class="or">or</span><kbd>Backspace</kbd></td></tr>
+                  <tr><th scope="row">Edit the selected text</th><td><kbd>Enter</kbd></td></tr>
+                  <tr><th scope="row">Deselect</th><td><kbd>Esc</kbd></td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="table-wrap">
+              <table class="table">
+                <caption>Arrange and view</caption>
+                <tbody>
+                  <tr><th scope="row">Bring forward</th><td><kbd>]</kbd></td></tr>
+                  <tr><th scope="row">Send backward</th><td><kbd>[</kbd></td></tr>
+                  <tr><th scope="row">Bring to front</th><td><kbd data-mod>Ctrl</kbd> <kbd>]</kbd></td></tr>
+                  <tr><th scope="row">Send to back</th><td><kbd data-mod>Ctrl</kbd> <kbd>[</kbd></td></tr>
+                  <tr><th scope="row">Zoom to 100%</th><td><kbd>0</kbd></td></tr>
+                  <tr><th scope="row">Zoom to fit</th><td><kbd>1</kbd></td></tr>
+                  <tr><th scope="row">Pan while held</th><td><kbd>Space</kbd></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="sec">
+        <div class="wrap">
+          <div class="closing">
+            <h2>Try it on a blank glade</h2>
+            <p>Sign in with email, GitHub or Google. Every feature on this page is there from the first board.</p>
+            <div class="cta">
+              <a class="btn btn-lg btn-primary" href="/app">
+                Get started
+                <svg class="icon arrow" aria-hidden="true"><use href="#i-arrow" /></svg>
+              </a>
+              <a class="btn btn-lg btn-secondary" href="/collaboration/">See how teams use it</a>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- site:footer -->
+  </body>
+</html>

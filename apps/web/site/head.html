@@ -1,0 +1,57 @@
+    <meta name="theme-color" content="#f4f1ec" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0f1318" media="(prefers-color-scheme: dark)" />
+
+    <!--
+      Comic Neue, the app's own interface face, so these pages and the product read as
+      one thing. Both weights are preloaded: about 19 KB each, same-origin, and needed
+      for the first paint of the headline. Fonts are not a ranking signal in themselves;
+      what matters is that the words are in the HTML (they are) and that loading them
+      neither delays paint nor shifts layout, which is what `swap`, the preload and the
+      metric-matched fallback in site.css are for.
+    -->
+    <link
+      rel="preload"
+      href="/fonts/comic-neue-700-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="/fonts/comic-neue-400-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+
+    <link rel="icon" type="image/png" sizes="32x32" href="/brand/icon-32.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/brand/icon-192.png" />
+    <link rel="apple-touch-icon" href="/brand/icon-180.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+
+    <!--
+      The theme, before first paint, so a visitor who chose light never sees a frame of
+      dark. The key and values are the app's (src/ui/theme.ts), so a choice made there
+      holds here. With nothing chosen the page stays on `light dark` and follows the OS;
+      data-theme still names the one in effect, because the header button shows it. The
+      button itself is wired in footer.html.
+
+      `js` goes on first, for the same reason: controls that only work with the footer
+      script (the FAQ's search, say) are display:none without it, and marking the root
+      here rather than unhiding them later means they are either in the first frame or
+      never, and never shift the page in.
+    -->
+    <script>
+      document.documentElement.classList.add('js')
+      try {
+        const theme = localStorage.getItem('meadow.theme')
+        const chosen = theme === 'light' || theme === 'dark'
+        if (chosen) document.documentElement.style.colorScheme = theme
+        document.documentElement.setAttribute(
+          'data-theme',
+          chosen ? theme : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
+        )
+      } catch {}
+    </script>
+
+    <!-- site:style -->

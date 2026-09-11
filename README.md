@@ -239,7 +239,7 @@ than the server talking to itself, and it kills the server process mid-run to pr
 state comes back from the database rather than from memory. The answer was yes, so the
 stack stayed.
 
-v1 is deployed and live at [meadow.creara.in](https://meadow.creara.in); the current release is `1.1.0`.
+v1 is deployed and live at [meadow.creara.in](https://meadow.creara.in); the current release is `1.2.0`.
 Delivery record, including the work that was thrown away and why: [`CHANGELOG.md`](CHANGELOG.md).
 
 ---

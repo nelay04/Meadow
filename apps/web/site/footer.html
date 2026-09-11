@@ -1,0 +1,456 @@
+    <footer class="site">
+      <div class="wrap">
+        <div class="foot">
+          <div class="foot-brand">
+            <a href="/" aria-label="Meadow home">
+              <img
+                src="/brand/meadow-wordmark-100.webp"
+                srcset="
+                  /brand/meadow-wordmark-100.webp 1x,
+                  /brand/meadow-wordmark-200.webp 2x,
+                  /brand/meadow-wordmark-300.webp 3x
+                "
+                alt="Meadow"
+                width="100"
+                height="30"
+                loading="lazy"
+              />
+            </a>
+            <p>Think beyond the horizon.</p>
+            <a
+              class="icon-btn outlined"
+              href="https://github.com/nelay04/Meadow"
+              target="_blank"
+              rel="noopener"
+              aria-label="Meadow on GitHub (opens in a new tab)"
+              title="Meadow on GitHub"
+            >
+              <svg class="icon mark" aria-hidden="true"><use href="#i-github" /></svg>
+            </a>
+          </div>
+
+          <nav class="foot-cols" aria-label="Footer">
+            <div>
+              <p class="foot-h">Product</p>
+              <ul>
+                <li><a href="/features/">Features</a></li>
+                <li><a href="/collaboration/">Collaboration</a></li>
+                <li><a href="/features/#glades">Glades</a></li>
+                <li><a href="/features/#leas">Leas</a></li>
+              </ul>
+            </div>
+            <div>
+              <p class="foot-h">Resources</p>
+              <ul>
+                <li><a href="/faq/">FAQ</a></li>
+                <li><a href="/features/#shortcuts">Keyboard shortcuts</a></li>
+                <li><a href="/source/">Source and licence</a></li>
+                <li>
+                  <a href="https://github.com/nelay04/Meadow/blob/main/CHANGELOG.md" target="_blank" rel="noopener">
+                    Changelog
+                    <svg class="icon" aria-hidden="true"><use href="#i-external" /></svg>
+                    <span class="sr-only">(opens in a new tab)</span>
+                  </a>
+                </li>
+              </ul>
+            </div>
+            <div>
+              <p class="foot-h">Account</p>
+              <ul>
+                <li><a href="/app">Sign in</a></li>
+                <li><a href="/app">Create an account</a></li>
+              </ul>
+            </div>
+          </nav>
+        </div>
+      </div>
+    </footer>
+
+    <!--
+      `#top` with no element of that id is, by the HTML spec, the top of the document.
+      Keep it that way: the sticky header once carried the id, and since a sticky
+      element is always in view, the browser scrolled nowhere.
+    -->
+    <a class="to-top" href="#top" aria-label="Back to top" title="Back to top">
+      <svg class="icon" aria-hidden="true"><use href="#i-up" /></svg>
+    </a>
+
+    <script>
+      /*
+       * The only script on these pages besides the deep-link forward on /. Every part of
+       * it looks for its own elements first and does nothing on a page without them, and
+       * every demo it drives is readable without it: the script adds motion, never the
+       * content.
+       *
+       * The theme half shares its storage key and values with src/ui/theme.ts in the
+       * app, so a choice made here holds in the app and one made in the app holds here,
+       * including in a tab that is already open. The app has a third state, `system`,
+       * stored as the key's absence; these pages offer only light and dark, and with
+       * nothing stored they follow the OS, which is exactly what the app's `system` does.
+       */
+      ;(function () {
+        const KEY = 'meadow.theme'
+        const LABEL = { light: 'Theme: light', dark: 'Theme: dark' }
+        const TINT = { light: '#f4f1ec', dark: '#0f1318' }
+        const root = document.documentElement
+        const os = window.matchMedia('(prefers-color-scheme: dark)')
+        const still = window.matchMedia('(prefers-reduced-motion: reduce)')
+        const toggles = document.querySelectorAll('[data-theme-toggle]')
+        const tints = document.querySelectorAll('meta[name="theme-color"]')
+
+        /*
+         * The landing page's lea demo, which wears the paper the page wears. It has no
+         * "Match theme" stock of its own - the one on /features/ does - so following the
+         * theme is done by moving the checked mark, and it stops the moment a visitor
+         * picks a stock, because from then on the choice is theirs and not the page's.
+         */
+        const paperDemo = document.querySelector('[data-paper-follow]')
+        const stocks = paperDemo === null ? [] : [...paperDemo.querySelectorAll('input[name="paper"]')]
+        let stockPicked = false
+        stocks.forEach((stock) => stock.addEventListener('change', () => (stockPicked = true)))
+
+        // What was chosen, here or in the app, or null when nothing was.
+        function stored() {
+          try {
+            const theme = localStorage.getItem(KEY)
+            return theme === 'light' || theme === 'dark' ? theme : null
+          } catch {
+            return null
+          }
+        }
+
+        // Held in memory too, so the button still works where storage throws.
+        let choice = stored()
+        let current = 'light'
+
+        function paint() {
+          current = choice ?? (os.matches ? 'dark' : 'light')
+          // Nothing chosen keeps the page on `light dark`, so it follows the OS live.
+          root.style.colorScheme = choice ?? 'light dark'
+          root.setAttribute('data-theme', current)
+          // Once a theme is chosen, the browser's own chrome follows the page, not the OS.
+          tints.forEach((meta) => {
+            const own = (meta.getAttribute('media') ?? '').includes('dark') ? 'dark' : 'light'
+            meta.setAttribute('content', TINT[choice ?? own])
+          })
+          toggles.forEach((button) => {
+            button.setAttribute('aria-label', LABEL[current])
+            button.setAttribute('title', LABEL[current])
+          })
+          // The landing page's screenshot. A picture's sources only know the OS, so a
+          // chosen theme pins them; with none chosen they go back to asking the OS.
+          document.querySelectorAll('source[data-shot]').forEach((source) => {
+            const shot = source.getAttribute('data-shot')
+            source.media =
+              choice === null ? `(prefers-color-scheme: ${shot})` : shot === choice ? 'all' : 'not all'
+          })
+          if (!stockPicked) {
+            const stock = stocks.find((paper) => paper.value === current)
+            if (stock !== undefined) stock.checked = true
+          }
+        }
+
+        toggles.forEach((button) =>
+          button.addEventListener('click', () => {
+            choice = current === 'dark' ? 'light' : 'dark'
+            try {
+              localStorage.setItem(KEY, choice)
+            } catch {}
+            paint()
+          }),
+        )
+
+        // Another tab changed it: this site's, or the app's.
+        window.addEventListener('storage', (event) => {
+          if (event.key !== null && event.key !== KEY) return
+          choice = stored()
+          paint()
+        })
+
+        // Nothing chosen: the OS switching at dusk switches the button's icon too.
+        os.addEventListener('change', paint)
+
+        paint()
+
+        // The phone menu closes once a link in it is followed. Leaving the page closes
+        // it anyway; this is for a link to a section of the page already open.
+        const menu = document.getElementById('site-menu')
+        if (menu !== null && typeof menu.hidePopover === 'function') {
+          menu.addEventListener('click', (event) => {
+            if (event.target.closest('a') && menu.matches(':popover-open')) menu.hidePopover()
+          })
+        }
+
+        // Back to top: in view once the first screen has scrolled away, and out of the
+        // way (and out of the tab order, see site.css) before that.
+        const up = document.querySelector('.to-top')
+        if (up !== null) {
+          const show = () => up.toggleAttribute('data-shown', window.scrollY > 480)
+          window.addEventListener('scroll', show, { passive: true })
+          show()
+        }
+
+        document.querySelectorAll('[data-copy]').forEach((button) =>
+          button.addEventListener('click', () => {
+            const code = button.parentElement.querySelector('code')
+            if (code === null || !navigator.clipboard) return
+            navigator.clipboard.writeText(code.textContent.trim()).then(() => {
+              button.textContent = 'Copied'
+              setTimeout(() => (button.textContent = 'Copy'), 1600)
+            })
+          }),
+        )
+
+        // Shortcut tables are written with Ctrl; on a Mac the same chords are Cmd.
+        if (/Mac|iPhone|iPad/.test(navigator.userAgent)) {
+          document.querySelectorAll('kbd[data-mod]').forEach((key) => (key.textContent = 'Cmd'))
+        }
+
+        /*
+         * The in-page index on /features/ and /collaboration/ marks the section being
+         * read, and on a phone slides that chip into view in its own scrolling row.
+         */
+        const index = [...document.querySelectorAll('.subnav a[href^="#"]')]
+        if (index.length > 0 && 'IntersectionObserver' in window) {
+          const row = index[0].parentElement
+          const inView = new Map()
+          const mark = () => {
+            const id = index.map((a) => a.hash.slice(1)).find((key) => inView.get(key))
+            index.forEach((a) => {
+              const on = a.hash.slice(1) === id
+              if (on) a.setAttribute('aria-current', 'true')
+              else a.removeAttribute('aria-current')
+              if (on && row.scrollWidth > row.clientWidth) {
+                row.scrollTo({ left: a.offsetLeft - (row.clientWidth - a.offsetWidth) / 2 })
+              }
+            })
+          }
+          const observer = new IntersectionObserver(
+            (entries) => {
+              entries.forEach((entry) => inView.set(entry.target.id, entry.isIntersecting))
+              mark()
+            },
+            { rootMargin: '-130px 0px -55% 0px' },
+          )
+          index.forEach((a) => {
+            const section = document.getElementById(a.hash.slice(1))
+            if (section !== null) observer.observe(section)
+          })
+        }
+
+        /*
+         * Phonetic input, played: the roman word typed a letter at a time, the candidate
+         * offered under the caret, then committed in its own script. The words are the
+         * app's own samples from src/text/inputLanguages.ts. It walks the languages on
+         * its own until somebody picks one, pauses while the demo is off screen, and
+         * with reduced motion simply shows each answer.
+         */
+        const ime = document.querySelector('[data-ime]')
+        if (ime !== null) {
+          const WORDS = {
+            bn: ['nomoskar', 'নমস্কার'],
+            hi: ['namaste', 'नमस्ते'],
+            as: ['nomoskar', 'নমস্কাৰ'],
+            gu: ['namaste', 'નમસ્તે'],
+            kn: ['namaskara', 'ನಮಸ್ಕಾರ'],
+            ml: ['namaskaram', 'നമസ്കാരം'],
+            mr: ['namaskar', 'नमस्कार'],
+            ne: ['namaste', 'नमस्ते'],
+            or: ['namaskar', 'ନମସ୍କାର'],
+            pa: ['namaskar', 'ਨਮਸਕਾਰ'],
+            sa: ['namah', 'नमः'],
+            ta: ['vanakkam', 'வணக்கம்'],
+            te: ['namaskaram', 'నమస్కారం'],
+          }
+          const roman = ime.querySelector('.ime-roman')
+          const out = ime.querySelector('.ime-out')
+          const cand = ime.querySelector('.ime-cand')
+          const pop = ime.querySelector('.ime-pop')
+          const say = ime.querySelector('output')
+          // The rail is set in each language's own script, so the editor names the one it
+          // is playing in English. The name is the label's title rather than a second
+          // list here, so there is one place it can be wrong.
+          const named = ime.querySelector('[data-ime-name]')
+          const radios = [...ime.querySelectorAll('input[type="radio"]')]
+          let timer = 0
+          let picked = false
+          let onScreen = false
+          let held = false
+
+          const wait = (ms, then) => {
+            clearTimeout(timer)
+            timer = setTimeout(then, ms)
+          }
+
+          function play(lang) {
+            const [word, native] = WORDS[lang]
+            out.lang = lang
+            cand.lang = lang
+            cand.textContent = native
+            if (named !== null) {
+              const label = radios.find((radio) => radio.value === lang)?.closest('.chip')
+              if (label != null) named.textContent = label.title
+            }
+            if (still.matches) {
+              roman.textContent = ''
+              out.textContent = native
+              pop.setAttribute('data-off', '')
+              return
+            }
+            pop.setAttribute('data-off', '')
+            let typed = 0
+            const type = () => {
+              // The word already on the page stays until the next one starts arriving,
+              // so the line is never empty between languages.
+              if (typed === 0) out.textContent = ''
+              typed += 1
+              roman.textContent = word.slice(0, typed)
+              if (typed < word.length) return wait(110, type)
+              pop.removeAttribute('data-off')
+              wait(1000, () => {
+                roman.textContent = ''
+                out.textContent = native
+                pop.setAttribute('data-off', '')
+                if (!picked) wait(1900, advance)
+              })
+            }
+            wait(400, type)
+          }
+
+          // On to the next language, unless the demo is off screen or being operated.
+          function advance() {
+            if (!onScreen || held || picked) {
+              timer = 0
+              return
+            }
+            const at = radios.findIndex((radio) => radio.checked)
+            const next = radios[(at + 1) % radios.length]
+            next.checked = true
+            play(next.value)
+          }
+
+          radios.forEach((radio) =>
+            radio.addEventListener('change', () => {
+              picked = true
+              const [word, native] = WORDS[radio.value]
+              say.textContent = `${word} becomes ${native}`
+              play(radio.value)
+            }),
+          )
+          ime.addEventListener('focusin', () => (held = true))
+          ime.addEventListener('focusout', () => (held = false))
+
+          if ('IntersectionObserver' in window) {
+            new IntersectionObserver(([entry]) => {
+              onScreen = entry.isIntersecting
+              if (onScreen && timer === 0 && !picked) play(radios.find((r) => r.checked).value)
+            }).observe(ime)
+          }
+        }
+
+        /*
+         * The two edits in the merge demo arrive rather than being there: the wipe is in
+         * site.css, and this only says when to run it - once the tile is on screen, and
+         * again whenever somebody asks. The sentence is complete in the markup, so with
+         * no script, or with motion reduced, it is simply already merged.
+         */
+        const merge = document.querySelector('[data-merge]')
+        if (merge !== null && !still.matches) {
+          const replay = () => {
+            merge.removeAttribute('data-play')
+            void merge.offsetWidth
+            merge.setAttribute('data-play', '')
+          }
+          const button = merge.querySelector('[data-merge-replay]')
+          if (button !== null) button.addEventListener('click', replay)
+          if ('IntersectionObserver' in window) {
+            const watch = new IntersectionObserver(([entry]) => {
+              if (!entry.isIntersecting) return
+              watch.disconnect()
+              replay()
+            })
+            watch.observe(merge)
+          } else {
+            replay()
+          }
+        }
+
+        /*
+         * A figure that counts up to itself the first time it is seen. The final value is
+         * in the markup and is what a crawler, a print and a reduced-motion visitor get;
+         * this only replaces it for the second it takes to arrive at the same number.
+         */
+        document.querySelectorAll('[data-count-to]').forEach((figure) => {
+          const target = Number(figure.getAttribute('data-count-to'))
+          if (!Number.isFinite(target) || still.matches || !('IntersectionObserver' in window)) return
+          const format = (value) => value.toLocaleString('en-US')
+          const watch = new IntersectionObserver(([entry]) => {
+            if (!entry.isIntersecting) return
+            watch.disconnect()
+            const started = performance.now()
+            const step = (now) => {
+              // Eased out, so it slows into the number rather than stopping dead on it.
+              const through = Math.min(1, (now - started) / 900)
+              const eased = 1 - Math.pow(1 - through, 3)
+              figure.textContent = format(Math.round(target * eased))
+              if (through < 1) requestAnimationFrame(step)
+            }
+            requestAnimationFrame(step)
+          })
+          watch.observe(figure)
+        })
+
+        // /features/: press a shape's key anywhere on the page and its tile answers,
+        // the way the rail does in the app.
+        const shapes = document.querySelector('[data-shapes]')
+        if (shapes !== null) {
+          const said = shapes.querySelector('output')
+          document.addEventListener('keydown', (event) => {
+            if (event.ctrlKey || event.metaKey || event.altKey) return
+            if (event.target.closest('input, textarea, select, [contenteditable]')) return
+            const tile = shapes.querySelector(`[data-key="${event.key.toLowerCase()}"]`)
+            if (tile === null) return
+            tile.classList.remove('hit')
+            void tile.offsetWidth
+            tile.classList.add('hit')
+            said.textContent = `${event.key.toUpperCase()}: ${tile.getAttribute('data-name')}`
+          })
+        }
+
+        // /faq/: narrow the questions as you type, and open or close them all at once.
+        const search = document.getElementById('faq-q')
+        if (search !== null) {
+          const items = [...document.querySelectorAll('.faq details')]
+          const groups = [...document.querySelectorAll('.faq-group')]
+          const count = document.querySelector('[data-faq-count]')
+          const none = document.querySelector('[data-faq-none]')
+          const expand = document.querySelector('[data-faq-expand]')
+          const label = () => {
+            const open = items.filter((d) => !d.hidden).every((d) => d.open)
+            expand.textContent = open ? 'Collapse all' : 'Expand all'
+          }
+          search.addEventListener('input', () => {
+            const query = search.value.trim().toLowerCase()
+            let shown = 0
+            items.forEach((d) => {
+              const hit = query === '' || d.textContent.toLowerCase().includes(query)
+              d.hidden = !hit
+              if (hit) shown += 1
+              if (query !== '') d.open = hit
+            })
+            groups.forEach((g) => (g.hidden = g.querySelector('details:not([hidden])') === null))
+            none.hidden = shown > 0
+            count.textContent = query === '' ? '' : `${shown} of ${items.length} questions match`
+            label()
+          })
+          expand.addEventListener('click', () => {
+            const open = !items.filter((d) => !d.hidden).every((d) => d.open)
+            items.forEach((d) => {
+              if (!d.hidden) d.open = open
+            })
+            label()
+          })
+          items.forEach((d) => d.addEventListener('toggle', label))
+        }
+      })()
+    </script>

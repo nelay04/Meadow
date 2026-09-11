@@ -11,6 +11,173 @@ away getting there.
 
 ---
 
+## [1.2.0] - [12-Sep-2026]
+
+### Added
+- **Four pages under the landing page: `/features/`, `/collaboration/`, `/faq/` and
+  `/source/`.** The detail that used to crowd the home page has room of its own.
+  `/features/` covers glades, leas, the thirteen input languages, what holds across both
+  kinds of board, and every keyboard shortcut, with a sticky index that marks the section
+  being read. `/collaboration/` covers presence, merging, sharing, invitations, access
+  requests, the three roles, board passwords, locks and sessions. The FAQ moves off the
+  landing page onto its own, grows from seven questions to fifteen in four groups, gains
+  a search box and an expand-all, and carries FAQPage and breadcrumb structured data that
+  match the visible text word for word. The source page says what PolyForm Internal Use
+  1.0.0 allows and forbids, how to start Meadow with Docker Compose on a laptop or for a
+  team, what it is built with, what its own benchmarks have measured, and where the
+  README, architecture record and changelog are. All four are in the sitemap and in
+  `llms.txt`.
+- **A light and dark switch on the site, shared with the app.** One button flips
+  between the two, with the app's sun and moon icons and labels, and writes the app's
+  `meadow.theme` key, so a choice made on the site holds in the app and the other way
+  round, including in tabs already open. With nothing chosen the site follows the OS,
+  which is what the app calls `system`. The stored theme is applied before first paint,
+  so it never flashes the other one.
+- `llms.txt` at the site root, linking the pages, the app, the source, the licence and
+  the changelog. Lighthouse's agentic browsing audit failed on it, because the path fell
+  through to HTML with no H1 and no links.
+- **Small working demos instead of descriptions.** The home page and `/features/` show
+  phonetic input typing `nomoskar` into `নমস্কার` and walking the thirteen languages,
+  the pen's assist turning hand-drawn ink into real shapes, a lea's paper in each stock,
+  two people's edits merging in one sentence, and a glade with three cursors crossing it.
+  Only the typing needs script; the rest switch on `:has()` and CSS alone, and every one
+  of them still says what it means with no script at all.
+- **A menu on phones**, built on the browser's own popover, so opening, closing on Escape
+  and closing on a tap outside all come from the browser. Under 820px the four navigation
+  links simply were not there before.
+- The thirteen languages are printed in their own scripts, from nine Noto faces cut down
+  to the words these pages show: 2 to 10 KB each, and a script is fetched only when a
+  page lays out a letter of it.
+
+### Changed
+- **The landing page is rewritten twice over.** It is 1160px wide instead of 940px, with
+  one 16 to 32px gutter, and buttons are 38px (32px in the header) instead of 52px, each
+  saying what it does instead of "Open Meadow" on every one. It now reads as a summary
+  rather than a manual: the hero stands on the canvas's own dot grid with the screenshot
+  in a window frame and two wanderers crossing it, then four figures, then seven
+  highlight tiles that each demonstrate one thing and link to the page that explains it,
+  then a panel showing a live glade beside what control an owner has. The long feature
+  lists and the checklist move to `/features/` and `/collaboration/`. The footer carries
+  the tagline under the logo and product, resource and account columns instead of a name
+  and a licence line, and a back-to-top button floats in once the page is scrolled.
+- The five static pages share one head, header, footer, icon sprite and stylesheet from
+  `apps/web/site/`, inlined by `sitePartials()` in `apps/web/vite.config.ts`. Each page
+  is still one static document with its CSS inline and nothing to fetch. The colours are
+  the app's own tokens, value for value.
+- **A build strips what only the author needs.** `sitePartials()` now minifies the inline
+  CSS and script, drops the HTML comments, and gives each page only the icons it actually
+  names instead of the whole sheet. `pnpm dev` still serves the readable copy. The home
+  page went from 100 KB to 69 KB (26 KB to 18 KB over the wire) and the features page,
+  the longest, from 109 KB to 81 KB (27 KB to 20 KB).
+- nginx caches `/brand/` for 30 days, as it already did for `/fonts/`, and compresses at
+  level 5 rather than the default 1. These pages are hand-written HTML with their CSS
+  inline, so the document is the whole payload.
+- They are set in Comic Neue, the app's interface face, instead of the system stack,
+  with both weights preloaded. A fallback resized to Comic Neue's measured widths
+  (`size-adjust` 97.4% regular, 97.6% bold) keeps the swap from moving the layout: CLS
+  on a throttled phone load was 0.14 with the OS fallback and is 0.005 with this one,
+  measured with a layout-shift observer under Chrome network emulation.
+- **The hero screenshot matches the theme**: a light board on the light theme and a
+  dark one on the dark, switching with the theme button as well as with the OS. Both
+  are responsive WebP, 29 KB at desktop width instead of a 207 KB PNG, with
+  `fetchpriority="high"` as the LCP element. The header wordmark is 3 to 13 KB by pixel
+  density instead of 122 KB. `og-cover.png` stays for Open Graph and the README.
+- Links to GitHub, the licence and the docs open in a new tab and say so to screen
+  readers. The tab title uses a pipe instead of an em dash, and the copy drops em dashes.
+- **The highlights on the home page are quieter.** Every tile now opens the same way, a
+  badge beside its heading, where the languages tile alone used to stack them. The
+  thirteen language chips are set in each language's own script rather than in thirteen
+  identical English pills, and the demo names the one it is playing; the twelve "and
+  everything else" pills become three columns of plain text, because none of them was
+  ever a button. Chips across the whole site drop to weight 600 and a hairline border,
+  and the demos that carry a long rail drop the filled background as well.
+- **Presence names are set lighter.** They are captions on somebody else's cursor, and
+  at 12.5px/700 with a 6px shadow they read as headings and pulled the eye off the demo
+  they were standing on. Now 11.5px/600 with a 3px one.
+- **The theme button has a rule between it and the account buttons.** It is a page
+  control and `Sign in` and `Get started` are not, and a row of four read as one set.
+  Below 820px it leaves the header entirely and lives in the phone menu, so the phone
+  header is the wordmark, one button and the menu.
+- **The demo cast is named for the meadow, not for people**: Cherry, Snowy, Lilac and
+  Crayon, with a guest on a share link called Otter, which is a name
+  `src/features/auth/guest.ts` actually generates. The invented people they replace
+  carried a plausibility they had not earned, and one of them had a pronoun.
+- The glades and leas are peers, so the footer lists both. It linked only to leas.
+  Keyboard shortcuts moved from Product to Resources, where a reference belongs.
+- **`Home` joins the top bar.** Every other page was reachable from it and the home page
+  was not, unless a visitor guessed that the wordmark was a link.
+- **The crowd in the renderer tile is Meadow's own eight shapes.** It was five coloured
+  outlines that are nothing this app draws. It is now a mask over one flat colour, so it
+  themes with the page, it grows into whatever height the row leaves it, and it fades out
+  on both open edges rather than being sliced through the middle of a row.
+- An inserted word in the merge demo is marked the way a selection is marked on the
+  canvas, a tint and a ring in the other person's colour. The 2px underline it replaces
+  was cut square by the corner radius it sat inside.
+- The landing page's lea demo has no "Match theme" stock of its own: it opens on the
+  paper the page is already wearing and follows the theme button until a visitor picks a
+  stock, at which point the choice is theirs. The demo on `/features/`, which does offer
+  the stock, now opens on it rather than on kraft.
+- **Three things on the page move when they are first seen**: the figure in the renderer
+  tile counts up to 5,000, the two edits in the merge demo wipe in one after the other
+  and can be replayed, and a tile lifts under the pointer. All three are off under
+  reduced motion, and the markup carries the finished state, so a crawler and a visitor
+  with no script get the answer and not the animation.
+
+### Fixed
+- **The landing page called Meadow open source.** It is not: `LICENSE.md` is PolyForm
+  Internal Use 1.0.0, which forbids distribution. Every page, its meta and Open Graph
+  descriptions and its structured data now say source-available, and the FAQ answers
+  "Is Meadow open source?" with what the licence actually permits.
+- **Primary buttons failed contrast in dark mode.** White on `#4f9bee` is 2.9:1. The
+  site's buttons use `#1f6fc8` in dark mode (5.0:1); light mode is unchanged at 5.4:1.
+  The current page's nav link uses the accent's hover weight, 5.6:1 on its tint where
+  the plain accent was 4.25:1.
+- **Three of the thirteen sample words were not greetings.** Bengali was `amar`, "my";
+  Punjabi was `sat`, the first word of a greeting and on its own "truth"; Gujarati was
+  `kem`, the first word of one and on its own "how". The other ten all say hello. They
+  are now `nomoskar` for `নমস্কার`, `namaskar` for `ਨਮਸਕਾਰ` and `namaste` for `નમસ્તે`.
+  The Bengali spelling is also what the Avro scheme in `src/text/bengaliPhonetic.ts`
+  actually transliterates: `namaskar` there gives `নামাস্কার`. The app's own
+  input-language announcement reads the same list, so it changed with them.
+- `scripts/subset-landing-fonts.py`, which cuts those nine Noto faces down to the words
+  the pages print. The subsets existed with no way to remake them, so a changed sample
+  word rendered as empty boxes on any machine without that script installed, which is
+  exactly what the Gurmukhi and Gujarati words above did until they were recut.
+- **The benchmarks on `/source/` say what they were taken on**: four cores and 4.9 GB
+  under WSL2, with the load generator sharing them. They are floors, not ceilings, and
+  the page said neither.
+- Dark lea paper and the landing page's tile are both `#171c23`, so the sheet vanished
+  into the card it was lying on. It has an edge of its own now.
+- The Bengali example rendered as empty boxes on machines with no Bengali font. It now
+  uses a subset of Noto Sans Bengali holding only the glyphs on the page, set at the
+  surrounding text size and weight 300 so it does not read as bold beside Comic Neue.
+- **The hero's buttons moved the page when the font arrived.** Side by side they fit one
+  row in Comic Neue and wrapped onto two in the metric-matched fallback, and the row
+  collapsing from 98px to 44px pushed the screenshot and everything under it up: 0.105 of
+  layout shift on a throttled phone, against a 0.1 budget. Below 480px a pair of buttons
+  now stacks, which is the same height in either face. The worst case across phone widths
+  is 0.048.
+- **Two things these pages claimed that the code does not do.** A lea offers select and
+  pan, not a glade's drawing tools, and its pages can be added and torn out but not
+  reordered; and shapes alone go to the GPU as one instanced draw call, with arrows and
+  ink on passes of their own. The pages, the FAQ's structured data and `llms.txt` now say
+  what `src/features/boards/kinds.ts` and `docs/core/ARCHITECTURE.md` say.
+
+### Known limitations
+- The fallback's `size-adjust` was measured against Roboto, the only Arial-class face on
+  the development machine. Arial on Windows and macOS is close but was not measured.
+- The app's own `button.primary` uses the same white-on-`#4f9bee` pair in dark mode and
+  still has the 2.9:1 contrast. Only the static pages changed.
+- A headline or a paragraph can still re-wrap when Comic Neue replaces the fallback, and
+  at 360px that is 0.048 of layout shift on a throttled cold load. It is inside the 0.1
+  budget and Lighthouse measures 0, but only a font that never swaps would make it zero
+  on a real phone.
+- The static half of `scripts/stack-check.mjs` is stale: it expects `/` to reference a JS
+  bundle and unknown paths to fall back to the app. Neither has been true since the
+  landing page was split out.
+
+---
+
 ## [1.1.0] - [11-Sep-2026]
 
 ### Added

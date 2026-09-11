@@ -1,0 +1,745 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Meadow Collaboration | Live Cursors, Sharing and Access Control</title>
+    <meta
+      name="description"
+      content="How people work together in Meadow: live cursors and selections, edits that merge character by character, share links, invitations, access requests, board passwords, locks and visible sessions."
+    />
+    <link rel="canonical" href="https://meadow.creara.in/collaboration/" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Meadow" />
+    <meta property="og:url" content="https://meadow.creara.in/collaboration/" />
+    <meta property="og:title" content="Meadow Collaboration | Live Cursors, Sharing and Access Control" />
+    <meta
+      property="og:description"
+      content="See every cursor and edit as it happens, share by link or invitation, and take access away the moment you need to."
+    />
+    <meta property="og:image" content="https://meadow.creara.in/brand/og-cover.png" />
+    <meta property="og:image:width" content="1535" />
+    <meta property="og:image:height" content="863" />
+    <meta property="og:locale" content="en_US" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <!--
+      As on /features/, every statement here was read off the code: sharing and
+      invitations from src/features/board/ShareDialog.tsx, the password from
+      app/services/board_password.py, roles from app/services/permissions.py, the lock
+      from src/doc/mutations.ts and the sessions list from the profile.
+    -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "BreadcrumbList",
+            "itemListElement": [
+              { "@type": "ListItem", "position": 1, "name": "Home", "item": "https://meadow.creara.in/" },
+              { "@type": "ListItem", "position": 2, "name": "Collaboration", "item": "https://meadow.creara.in/collaboration/" }
+            ]
+          },
+          {
+            "@type": "WebPage",
+            "@id": "https://meadow.creara.in/collaboration/#page",
+            "url": "https://meadow.creara.in/collaboration/",
+            "name": "Collaboration in Meadow",
+            "isPartOf": { "@id": "https://meadow.creara.in/#website" },
+            "about": { "@id": "https://meadow.creara.in/#app" }
+          }
+        ]
+      }
+    </script>
+
+    <!-- site:head -->
+
+    <style>
+      /* This page's own: the hero's pair, the share dialog, the roles and the mock-ups. */
+      .collab-hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 0.95fr);
+        gap: 36px 56px;
+        align-items: center;
+      }
+
+      .collab-hero h1 {
+        max-width: 16ch;
+      }
+
+      .people .face {
+        width: 32px;
+        height: 32px;
+        margin-left: 0;
+        border: 0;
+        font-size: 13px;
+      }
+
+      .role {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        margin-left: auto;
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+
+      .role .icon {
+        width: 15px;
+        height: 15px;
+        color: var(--p-orange);
+      }
+
+      .share-demo {
+        display: grid;
+        gap: 16px;
+      }
+
+      .share-demo legend {
+        margin-bottom: 8px;
+        padding: 0;
+        color: var(--fg-strong);
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      /* What the link hands out only matters once the link is on. */
+      .link-role {
+        display: none;
+      }
+
+      .share-demo:has(input[value='public']:checked) .link-role {
+        display: block;
+      }
+
+      .share-say p {
+        display: none;
+        align-items: flex-start;
+        gap: 10px;
+        margin: 0;
+        padding: 12px 14px;
+        border-radius: var(--radius);
+        background: var(--surface-2);
+        color: var(--fg);
+        font-size: 15px;
+      }
+
+      .share-say .icon {
+        margin-top: 3px;
+        color: var(--accent);
+      }
+
+      .share-demo:has(input[value='restricted']:checked) .say-restricted,
+      .share-demo:has(input[value='public']:checked):has(input[value='viewer']:checked) .say-view,
+      .share-demo:has(input[value='public']:checked):has(input[value='editor']:checked) .say-edit {
+        display: flex;
+      }
+
+      .roles th,
+      .roles td {
+        text-align: center;
+      }
+
+      .roles thead th:first-child,
+      .roles tbody th {
+        text-align: left;
+      }
+
+      .roles tbody th {
+        color: var(--fg);
+        font-weight: 400;
+      }
+
+      .roles .icon {
+        stroke-width: 2.4;
+      }
+
+      .roles .yes {
+        color: var(--success);
+      }
+
+      .roles .no {
+        color: var(--muted);
+      }
+
+      .gate {
+        display: grid;
+        justify-items: center;
+        gap: 12px;
+        padding: 30px 20px;
+        text-align: center;
+      }
+
+      .gate > * + * {
+        margin-top: 0;
+      }
+
+      .gate .badge {
+        width: 52px;
+        height: 52px;
+        border-radius: 16px;
+      }
+
+      .gate .badge .icon {
+        width: 26px;
+        height: 26px;
+      }
+
+      .gate b {
+        color: var(--fg-strong);
+        font-size: 1.1rem;
+      }
+
+      .gate p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 15px;
+      }
+
+      .field {
+        display: flex;
+        align-items: center;
+        width: min(280px, 100%);
+        height: 40px;
+        padding: 0 14px;
+        border: 1px solid var(--edge);
+        border-radius: var(--radius);
+        background: var(--surface);
+        color: var(--fg);
+        letter-spacing: 4px;
+      }
+
+      .forgot {
+        color: var(--accent-hover);
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      .notice {
+        display: flex;
+        gap: 10px;
+        padding: 12px 14px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--surface-2);
+        color: var(--fg);
+        font-size: 15px;
+      }
+
+      .notice .icon {
+        margin-top: 3px;
+        flex: none;
+        color: var(--accent);
+      }
+
+      @media (max-width: 920px) {
+        .collab-hero {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <!-- site:sprite -->
+    <!-- site:header collaboration -->
+
+    <main id="main" class="has-subnav">
+      <div class="band">
+        <div class="wrap page-hero collab-hero">
+          <div>
+            <nav class="crumbs" aria-label="Breadcrumb">
+              <a href="/">Home</a>
+              <span aria-hidden="true">/</span>
+              <span aria-current="page">Collaboration</span>
+            </nav>
+            <p class="eyebrow">Collaboration</p>
+            <h1>One canvas, everyone on it, and you in charge</h1>
+            <p class="lede">
+              See every cursor, selection and edit as it happens. Share by link, by invitation
+              or on request, put a password in front of a board, and take access back the moment
+              you need to.
+            </p>
+            <div class="cta">
+              <a class="btn btn-primary" href="/app">
+                Get started
+                <svg class="icon arrow" aria-hidden="true"><use href="#i-arrow" /></svg>
+              </a>
+              <a class="btn btn-secondary" href="#sharing">How sharing works</a>
+            </div>
+          </div>
+
+          <div class="stage live" aria-hidden="true">
+            <div class="live-bar">
+              <span class="live-title">Launch plan</span>
+              <span class="faces">
+                <span class="face" style="--c: var(--p-pink)">C</span>
+                <span class="face" style="--c: var(--p-blue)">S</span>
+                <span class="face" style="--c: var(--p-green)">O</span>
+              </span>
+              <span class="live-share">Share</span>
+            </div>
+            <svg class="live-links" viewBox="0 0 400 300" preserveAspectRatio="none">
+              <path d="M138 125C165 125 172 101 196 101M188 95L197 101L188 107" />
+              <path d="M268 128C268 155 276 170 276 194M270 187L276 196L282 187" />
+            </svg>
+            <div class="l-obj l-sticky">Launch plan notes<small>Cherry</small></div>
+            <div class="l-obj l-box"><span>Design review<span class="l-caret"></span></span></div>
+            <div class="l-obj l-oval">Ship it</div>
+            <div class="wanderer lw-a">
+              <svg viewBox="0 0 24 24"><path d="M4 2.5l6 17 2.8-7.2 7.2-2.8z" /></svg>
+              <span class="tag">Cherry</span>
+            </div>
+            <div class="wanderer lw-b">
+              <svg viewBox="0 0 24 24"><path d="M4 2.5l6 17 2.8-7.2 7.2-2.8z" /></svg>
+              <span class="tag">Snowy</span>
+            </div>
+            <div class="wanderer lw-c">
+              <svg viewBox="0 0 24 24"><path d="M4 2.5l6 17 2.8-7.2 7.2-2.8z" /></svg>
+              <span class="tag">Otter</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <nav class="subnav" aria-label="On this page">
+        <div class="wrap">
+          <a href="#presence">Presence</a>
+          <a href="#merge">Merging</a>
+          <a href="#sharing">Sharing</a>
+          <a href="#roles">Roles</a>
+          <a href="#security">Control</a>
+        </div>
+      </nav>
+
+      <section class="sec" id="presence">
+        <div class="wrap">
+          <div class="group-head">
+            <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-users" /></svg></div>
+            <h2>See who is here</h2>
+            <p class="lede">
+              Everyone on a board is a wanderer: a named cursor in their own colour, moving as
+              they move.
+            </p>
+          </div>
+
+          <div class="feat">
+            <div class="feat-text">
+              <h3>Cursors, selections and faces</h3>
+              <p>
+                A wanderer's cursor carries their name, and whatever they have selected is
+                outlined in the same colour, so it is obvious who is holding what. A row of
+                faces says who is here right now; the owner wears a crown, and a click on a face
+                says which role that person has.
+              </p>
+              <p>
+                Visitors on a share link get a name of their own, like Hare, Otter or Finch, for
+                as long as that tab is open. A room of people who never signed in can still be
+                talked about out loud.
+              </p>
+            </div>
+            <div class="feat-visual">
+              <div class="panel" aria-hidden="true">
+                <ul class="mock people">
+                  <li>
+                    <span class="face" style="--c: var(--p-pink)">C</span>
+                    <span class="grow">Cherry</span>
+                    <span class="role"><svg class="icon" aria-hidden="true"><use href="#i-crown" /></svg>Owner</span>
+                  </li>
+                  <li>
+                    <span class="face" style="--c: var(--p-blue)">S</span>
+                    <span class="grow">Snowy</span>
+                    <span class="role">Editor</span>
+                  </li>
+                  <li>
+                    <span class="face" style="--c: var(--p-purple)">L</span>
+                    <span class="grow">Lilac</span>
+                    <span class="role">Viewer</span>
+                  </li>
+                  <li>
+                    <span class="face" style="--c: var(--p-green)">O</span>
+                    <span class="grow">Otter</span>
+                    <span class="role">Guest on the link</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <div class="feat" id="merge">
+            <div class="feat-text">
+              <h3>Edits that merge, never clash</h3>
+              <p>
+                The document is a CRDT. Two people typing in one paragraph merge character by
+                character, and work done offline is kept in your browser and merged when you
+                reconnect. There is no conflict dialog and no version of the page that wins over
+                anybody else's.
+              </p>
+              <p>
+                Ink is the one thing that arrives whole: a pen stroke reaches everyone when you
+                lift the pen, while your cursor shows that you are drawing it.
+              </p>
+            </div>
+            <div class="feat-visual">
+              <div class="panel">
+                <div class="stage merge">
+                  <p class="merge-line">
+                    Ship the <ins style="--c: var(--p-blue)">new</ins> canvas
+                    <ins style="--c: var(--p-pink)">on Friday</ins>.
+                  </p>
+                  <ul class="who">
+                    <li><span class="tag" style="--c: var(--p-blue)">You</span> typed offline</li>
+                    <li><span class="tag" style="--c: var(--p-pink)">Cherry</span> typed online</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="sec" id="sharing">
+        <div class="wrap">
+          <div class="group-head">
+            <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-link" /></svg></div>
+            <h2>Share it your way</h2>
+            <p class="lede">
+              A board is yours alone until you share it. Two separate decisions: whether the
+              address is an address or a key, and who in particular you are letting in.
+            </p>
+          </div>
+
+          <div class="feat">
+            <div class="feat-text">
+              <h3>A link, for whoever you choose</h3>
+              <p>
+                General access is one setting. Restricted means only the people you add can open
+                the board. Anyone with the link means exactly that, as a viewer or an editor,
+                signed in or not. Replace the link whenever you like and the old one stops
+                working.
+              </p>
+              <p>
+                From the same dialog you can send it to WhatsApp, Telegram, Facebook, LinkedIn
+                or an email.
+              </p>
+            </div>
+            <div class="feat-visual">
+              <div class="panel share-demo">
+                <fieldset>
+                  <legend>General access</legend>
+                  <div class="chips">
+                    <label class="chip"><input type="radio" name="access" value="restricted" checked /><span>Restricted</span></label>
+                    <label class="chip"><input type="radio" name="access" value="public" /><span>Anyone with the link</span></label>
+                  </div>
+                </fieldset>
+                <fieldset class="link-role">
+                  <legend>People with the link can</legend>
+                  <div class="chips">
+                    <label class="chip"><input type="radio" name="link-role" value="viewer" checked /><span>View</span></label>
+                    <label class="chip"><input type="radio" name="link-role" value="editor" /><span>Edit</span></label>
+                  </div>
+                </fieldset>
+                <div class="share-say">
+                  <p class="say-restricted">
+                    <svg class="icon" aria-hidden="true"><use href="#i-lock" /></svg>
+                    Only the people you have added can open this glade. The link does nothing for
+                    anyone else.
+                  </p>
+                  <p class="say-view">
+                    <svg class="icon" aria-hidden="true"><use href="#i-globe" /></svg>
+                    Anyone holding the link can open this glade and read it, without signing in.
+                  </p>
+                  <p class="say-edit">
+                    <svg class="icon" aria-hidden="true"><use href="#i-globe" /></svg>
+                    Anyone holding the link can open this glade and edit it, without signing in.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="feat">
+            <div class="feat-text">
+              <h3>Invitations that respect the inbox</h3>
+              <p>
+                Invite anyone by email address. An address that already has an account is given
+                access straight away and told by mail. An address without one is not mailed at
+                all: you get a sign-up link to pass on yourself, and the board is waiting the
+                moment they activate their account.
+              </p>
+              <p>
+                Meadow never mails an address nobody has confirmed. That restraint is what keeps
+                the mail people are actually waiting for, the activation and reset links, out of
+                spam folders.
+              </p>
+            </div>
+            <div class="feat-visual">
+              <div class="panel" aria-hidden="true">
+                <ul class="mock">
+                  <li>
+                    <svg class="icon" aria-hidden="true"><use href="#i-mail" /></svg>
+                    <span class="grow">snowy@example.com</span>
+                    <small>Added as editor, mailed</small>
+                  </li>
+                  <li>
+                    <svg class="icon" aria-hidden="true"><use href="#i-mail" /></svg>
+                    <span class="grow">lilac@example.com</span>
+                    <span class="act">Copy sign-up link</span>
+                  </li>
+                </ul>
+                <ul class="mock">
+                  <li>
+                    <span class="face" style="--c: var(--p-purple)">P</span>
+                    <span class="grow">Poppy asks to join</span>
+                    <span class="act">Let in</span>
+                    <span class="act">Decline</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <div class="feat">
+            <div class="feat-text">
+              <h3>Asking, when the door is shut</h3>
+              <p>
+                Somebody who reaches a board they cannot open sees a way forward rather than a
+                wall: one click asks for access. The request is a record, not a key. It waits in
+                the owner's share dialog, which checks for new ones every few seconds while it
+                is open, and nothing opens until the owner says so.
+              </p>
+            </div>
+            <div class="feat-visual">
+              <div class="panel gate" aria-hidden="true">
+                <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-shield" /></svg></div>
+                <b>You do not have access to this glade</b>
+                <p>Ask its owner, and they will see your request the next time they open sharing.</p>
+                <span class="btn btn-primary">Ask for access</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="sec" id="roles">
+        <div class="wrap">
+          <div class="group-head">
+            <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-key" /></svg></div>
+            <h2>Three roles, checked everywhere</h2>
+            <p class="lede">
+              Owner, editor and viewer. The role is worked out in one place on the server and
+              checked on every request and again when the live connection opens, so what
+              somebody can do never depends on which screen they are looking at.
+            </p>
+          </div>
+
+          <div class="table-wrap">
+            <table class="table roles">
+              <caption class="sr-only">What each role can do</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Can</th>
+                  <th scope="col">Owner</th>
+                  <th scope="col">Editor</th>
+                  <th scope="col">Viewer</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row">Open and read the board</th>
+                  <td><svg class="icon yes" aria-hidden="true"><use href="#i-check" /></svg><span class="sr-only">Yes</span></td>
+                  <td><svg class="icon yes" aria-hidden="true"><use href="#i-check" /></svg><span class="sr-only">Yes</span></td>
+                  <td><svg class="icon yes" aria-hidden="true"><use href="#i-check" /></svg><span class="sr-only">Yes</span></td>
+                </tr>
+                <tr>
+                  <th scope="row">Draw, write and edit</th>
+                  <td><svg class="icon yes" aria-hidden="true"><use href="#i-check" /></svg><span class="sr-only">Yes</span></td>
+                  <td><svg class="icon yes" aria-hidden="true"><use href="#i-check" /></svg><span class="sr-only">Yes</span></td>
+                  <td><svg class="icon no" aria-hidden="true"><use href="#i-x" /></svg><span class="sr-only">No</span></td>
+                </tr>
+                <tr>
+                  <th scope="row">Share, invite and answer requests</th>
+                  <td><svg class="icon yes" aria-hidden="true"><use href="#i-check" /></svg><span class="sr-only">Yes</span></td>
+                  <td><svg class="icon no" aria-hidden="true"><use href="#i-x" /></svg><span class="sr-only">No</span></td>
+                  <td><svg class="icon no" aria-hidden="true"><use href="#i-x" /></svg><span class="sr-only">No</span></td>
+                </tr>
+                <tr>
+                  <th scope="row">Lock the board for everyone</th>
+                  <td><svg class="icon yes" aria-hidden="true"><use href="#i-check" /></svg><span class="sr-only">Yes</span></td>
+                  <td><svg class="icon no" aria-hidden="true"><use href="#i-x" /></svg><span class="sr-only">No</span></td>
+                  <td><svg class="icon no" aria-hidden="true"><use href="#i-x" /></svg><span class="sr-only">No</span></td>
+                </tr>
+                <tr>
+                  <th scope="row">Set or remove a password</th>
+                  <td><svg class="icon yes" aria-hidden="true"><use href="#i-check" /></svg><span class="sr-only">Yes</span></td>
+                  <td><svg class="icon no" aria-hidden="true"><use href="#i-x" /></svg><span class="sr-only">No</span></td>
+                  <td><svg class="icon no" aria-hidden="true"><use href="#i-x" /></svg><span class="sr-only">No</span></td>
+                </tr>
+                <tr>
+                  <th scope="row">Delete it, and restore it from the trash</th>
+                  <td><svg class="icon yes" aria-hidden="true"><use href="#i-check" /></svg><span class="sr-only">Yes</span></td>
+                  <td><svg class="icon no" aria-hidden="true"><use href="#i-x" /></svg><span class="sr-only">No</span></td>
+                  <td><svg class="icon no" aria-hidden="true"><use href="#i-x" /></svg><span class="sr-only">No</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="note">
+            A share link never lowers anybody: an owner who opens their own board through the
+            link they just copied is still the owner.
+          </p>
+        </div>
+      </section>
+
+      <section class="sec" id="security">
+        <div class="wrap">
+          <div class="group-head">
+            <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-shield" /></svg></div>
+            <h2>Control that takes effect at once</h2>
+            <p class="lede">
+              A password in front of the door, a lock on the document, and a way to end any
+              session anywhere.
+            </p>
+          </div>
+
+          <div class="feat" id="password">
+            <div class="feat-text">
+              <h3>A password in front of everyone</h3>
+              <p>
+                Put a password on a board and everybody is asked for it, the owner included.
+                Nothing of the document is loaded behind the prompt, so there is nothing to see
+                through, and changing the password sends everyone already inside back to it.
+              </p>
+              <p>
+                Forgotten it? The owner, and only the owner, can have a code mailed to them and
+                trade it for a temporary password, which expires and asks to be replaced with a
+                proper one.
+              </p>
+            </div>
+            <div class="feat-visual">
+              <div class="panel gate" aria-hidden="true">
+                <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-lock" /></svg></div>
+                <b>Launch plan is protected</b>
+                <p>Enter the password to open this glade.</p>
+                <span class="field">......</span>
+                <span class="btn btn-primary">Open</span>
+                <span class="forgot">Forgot it?</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="feat" id="lock">
+            <div class="feat-text">
+              <h3>Locks, and access you can take back</h3>
+              <p>
+                The owner's lock stops every edit, their own included, which is how you present
+                a board without nudging anything. There is also a lock for your own tab alone,
+                which nobody else sees.
+              </p>
+              <p>
+                Remove somebody and the board closes for them at once. The copy their browser
+                had is cleared as they go, so a reload shows them nothing.
+              </p>
+            </div>
+            <div class="feat-visual">
+              <div class="panel" aria-hidden="true">
+                <p class="notice">
+                  <svg class="icon" aria-hidden="true"><use href="#i-lock" /></svg>
+                  The owner has locked this glade. Nobody can edit it until they unlock it.
+                </p>
+                <p class="notice">
+                  <svg class="icon" aria-hidden="true"><use href="#i-shield" /></svg>
+                  Lilac's access was removed. Their board closed while they were looking at it.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="feat" id="sessions">
+            <div class="feat-text">
+              <h3>Every session, visible</h3>
+              <p>
+                Your profile lists every browser signed in to your account, with where it is and
+                when it was last active, and the list updates as it changes. End one and that
+                browser is locked out immediately, even if it is sitting idle.
+              </p>
+              <p>
+                Sign-in tokens rotate every time they are refreshed, and a stolen copy is caught
+                the next time either copy is used.
+              </p>
+            </div>
+            <div class="feat-visual">
+              <div class="panel" aria-hidden="true">
+                <ul class="mock">
+                  <li>
+                    <svg class="icon" aria-hidden="true"><use href="#i-laptop" /></svg>
+                    <span class="grow">Chrome on Windows</span>
+                    <small>This browser</small>
+                  </li>
+                  <li>
+                    <svg class="icon" aria-hidden="true"><use href="#i-laptop" /></svg>
+                    <span class="grow">Safari on iPhone</span>
+                    <small>5 minutes ago</small>
+                    <span class="act">End</span>
+                  </li>
+                  <li>
+                    <svg class="icon" aria-hidden="true"><use href="#i-laptop" /></svg>
+                    <span class="grow">Firefox on Ubuntu</span>
+                    <small>3 days ago</small>
+                    <span class="act">End</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <div class="feat" id="trash">
+            <div class="feat-text">
+              <h3>Thirty days to change your mind</h3>
+              <p>
+                A deleted board goes to the trash, where its owner can restore it for thirty
+                days with its history, its link and its members intact. Pages torn out of a lea
+                come back the same way.
+              </p>
+            </div>
+            <div class="feat-visual">
+              <div class="panel" aria-hidden="true">
+                <ul class="mock">
+                  <li>
+                    <svg class="icon" aria-hidden="true"><use href="#i-trash" /></svg>
+                    <span class="grow">Q3 roadmap</span>
+                    <small>28 days left</small>
+                    <span class="act">Restore</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="sec">
+        <div class="wrap">
+          <div class="closing">
+            <h2>Open a glade with somebody</h2>
+            <p>Sign in with email, GitHub or Google, make a board, and send them the link.</p>
+            <div class="cta">
+              <a class="btn btn-lg btn-primary" href="/app">
+                Get started
+                <svg class="icon arrow" aria-hidden="true"><use href="#i-arrow" /></svg>
+              </a>
+              <a class="btn btn-lg btn-secondary" href="/faq/#privacy">Privacy questions</a>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- site:footer -->
+  </body>
+</html>

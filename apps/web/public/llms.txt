@@ -1,0 +1,28 @@
+# Meadow
+
+> Meadow is an infinite canvas whiteboard where writing, diagramming and drawing share one endless surface, edited live by several people at once. It works offline, installs as an app, and has phonetic input for thirteen Indian languages.
+
+Meadow is source-available under the PolyForm Internal Use License 1.0.0. The code is public, and it may be used and modified for an organisation's internal business operations, but not redistributed. It is not open source.
+
+A board is called a glade. A lea is a ruled, paged diary on the same canvas and the same live document, offered with writing rather than the drawing tools.
+
+## Product
+
+- [Meadow](https://meadow.creara.in/): what Meadow does and what makes it different
+- [Features](https://meadow.creara.in/features/): shapes, connectors, ink and its assist, text and sticky notes, leas and their pages, phonetic input for thirteen Indian languages, offline work, and the keyboard shortcuts
+- [Collaboration](https://meadow.creara.in/collaboration/): live cursors and selections, character-level merging, share links, invitations and requests, roles, board passwords, locks and sessions
+- [FAQ](https://meadow.creara.in/faq/): the canvas, collaboration, offline use, sharing and privacy, and the licence
+- [Source and licence](https://meadow.creara.in/source/): what the licence allows, how to run Meadow with Docker Compose, and what it is built with
+- [Get started](https://meadow.creara.in/app): sign in or create an account; boards are private unless their owner shares them
+
+## Source
+
+- [Source code](https://github.com/nelay04/Meadow): the full repository on GitHub
+- [README](https://github.com/nelay04/Meadow/blob/main/README.md): features, how it works, and how to run it
+- [Licence](https://github.com/nelay04/Meadow/blob/main/LICENSE.md): PolyForm Internal Use License 1.0.0
+- [Changelog](https://github.com/nelay04/Meadow/blob/main/CHANGELOG.md): every release and what it changed
+
+## Optional
+
+- [Architecture](https://github.com/nelay04/Meadow/blob/main/docs/core/ARCHITECTURE.md): the CRDT schema, data model, API surface and the reasoning behind them
+- [Deploy guide](https://github.com/nelay04/Meadow/blob/main/docs/DEPLOY.md): the runbook for putting the production stack on a server

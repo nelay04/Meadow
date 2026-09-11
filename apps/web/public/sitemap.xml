@@ -1,11 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  One URL, and that is not an oversight.
-
-  A sitemap lists what should be indexed, and this site has exactly one indexable
-  document: the landing page. The app at /app is noindex, and its routes live in the
-  URL fragment, which is never a separate URL to a crawler. Padding this with #features
-  anchors would list the same page five times.
+  Every indexable document at this origin: the landing page, the features and
+  collaboration pages, the FAQ and the source page. The app at /app is noindex, and its
+  routes live in the URL fragment, which is never a separate URL to a crawler. Padding
+  this with #section anchors would list the same page several times.
 
   Add an entry here whenever a genuinely new indexable path ships - docs, a changelog,
   a comparison page - and update `lastmod` when its content changes, not on every deploy.
@@ -13,8 +11,32 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
     <loc>https://meadow.creara.in/</loc>
-    <lastmod>2026-09-10</lastmod>
+    <lastmod>2026-09-12</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://meadow.creara.in/features/</loc>
+    <lastmod>2026-09-12</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://meadow.creara.in/collaboration/</loc>
+    <lastmod>2026-09-12</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://meadow.creara.in/faq/</loc>
+    <lastmod>2026-09-12</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://meadow.creara.in/source/</loc>
+    <lastmod>2026-09-12</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
   </url>
 </urlset>
