@@ -6,6 +6,8 @@
 
 One endless surface for writing, drawing and thinking, shared live.
 
+**[meadow.creara.in](https://meadow.creara.in)**
+
 </div>
 
 <br>
@@ -229,12 +231,15 @@ than the server talking to itself, and it kills the server process mid-run to pr
 state comes back from the database rather than from memory. The answer was yes, so the
 stack stayed.
 
-What is left in M6 is the deployment itself, a demo recording, and choosing a licence.
+M6 shipped v1, and Meadow is live at [meadow.creara.in](https://meadow.creara.in).
 Delivery record, including the work that was thrown away and why: [`CHANGELOG.md`](CHANGELOG.md).
 
 ---
 
 ## License
 
-Not yet chosen, which means the default applies: no permission is granted to use, copy or
-modify this code. That is not the intent, and it is the last open item before v1.
+Copyright (c) 2026 Nelay Karmakar.
+
+[PolyForm Internal Use License 1.0.0](LICENSE.md). You may use and modify Meadow for the
+internal business operations of you and your company. You may not distribute it, in
+original or modified form. For any other use, ask.

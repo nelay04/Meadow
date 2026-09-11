@@ -1,6 +1,7 @@
 {
   "name": "web",
   "private": true,
+  "license": "SEE LICENSE IN ../../LICENSE.md",
   "type": "module",
   "scripts": {
     "dev": "vite",

@@ -9,11 +9,16 @@ away getting there.
 
 ---
 
-## M6 - Ship v1 - Unreleased
+## M6 - Ship v1 - 11-Sep-2026
 
-The infrastructure to run the thing. Not deployed yet.
+The infrastructure to run the thing, and the thing running: live at
+`meadow.creara.in`.
 
 ### Added
+- **Licensed under PolyForm Internal Use 1.0.0.** `LICENSE.md` carries the official
+  text unchanged. Use and modification are permitted for internal business operations;
+  distribution is not. The npm manifests point at it with `SEE LICENSE IN LICENSE.md`,
+  since PolyForm Internal Use has no SPDX identifier.
 - **Sessions are live, and terminating one actually terminates it.** The list was a
   snapshot: a sign-in on another device showed up only if you reloaded, which on a
   security screen is worse than useless - you check it, see nothing new, and cannot
@@ -1150,7 +1155,7 @@ The infrastructure to run the thing. Not deployed yet.
   same recognition with the pen's own colour and weight kept, and the smoother is gone
   rather than kept as a third setting nobody would pick.
 - **The stock a lea is printed on is the diary's, not the page's.** It was a page value,
-  decided in the same unreleased block above: stationery travels with the page, so
+  decided in the same M6 block above: stationery travels with the page, so
   everyone who opens it sees the same paper. That was right while a lea was one page.
   With several, turning from kraft to dark halfway through a notebook reads as a bug
   rather than as a choice, because a real notebook is bound with one stock. The control
@@ -1686,8 +1691,6 @@ The infrastructure to run the thing. Not deployed yet.
   inserting one checkpoint ahead of the shield, which loses every write rather than
   some. Found by CI on a slower machine, where three tests fail on it; a fast local
   machine schedules the task in time and hides it.
-- Not deployed. `meadow.creara.in` does not serve this yet.
-- No licence chosen, so the default applies and nobody may use the code.
 - Backups have no offsite copy. They sit on the same disk as the database they protect,
   which covers a bad migration and not a lost VPS.
 - TLS is not in the compose file. The stack serves plain HTTP on a loopback-bound port

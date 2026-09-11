@@ -1,6 +1,7 @@
 {
   "name": "@meadow/schema",
   "private": true,
+  "license": "SEE LICENSE IN ../../LICENSE.md",
   "version": "0.0.0",
   "type": "module",
   "main": "./src/index.ts",
