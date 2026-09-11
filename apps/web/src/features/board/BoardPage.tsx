@@ -135,6 +135,18 @@ import { useCanvas } from './useCanvas'
 
 type Props = {
   boardId: string
+  /**
+   * What the address bar says this board is, for the first paint only.
+   *
+   * The server is still the authority and still corrects both the surface and the hash
+   * one request later - see `settle`. This exists because the wrong answer for that one
+   * request is not a neutral one: a lea drawn as a glade is unfenced and uncolumned, so
+   * every page's writing is on screen at once, spread across the strips of world the
+   * fence normally keeps to one page, and the board visibly rearranges itself when the
+   * kind lands. Opening on the kind the link names makes that the rare case of a stale
+   * link rather than the common case of every open.
+   */
+  kindHint?: string
   onBack: () => void
 }
 
@@ -460,17 +472,19 @@ function dedupe(wanderers: readonly Wanderer[]): Wanderer[] {
   return out
 }
 
-export default function BoardPage({ boardId, onBack }: Props) {
+export default function BoardPage({ boardId, kindHint, onBack }: Props) {
   const [title, setTitle] = useState('')
   /*
    * What paper this glade is drawn on.
    *
-   * Metadata, so it arrives with the title one request after mount and the board opens
-   * on graph paper for that moment. That is deliberate: waiting for it would hold the
-   * canvas back behind a REST round trip to decide a background, and the surface swap
-   * is a class and two style writes rather than a rebuild.
+   * Metadata, so it arrives with the title one request after mount. Waiting for it is
+   * still not an option - that would hold the canvas back behind a REST round trip to
+   * decide a background - so the URL's own segment is what gets drawn meanwhile, via
+   * `kindHint`. An unknown or historical segment reads as the default, which is what
+   * `boardKind` already does for every other caller, and a link that disagrees with the
+   * board is corrected by `settle` exactly as it always was.
    */
-  const [kind, setKind] = useState<BoardKind>('glade')
+  const [kind, setKind] = useState<BoardKind>(() => boardKind(kindHint).id)
   // Seeded from the ws-token mint and refreshed on every reconnect. The server is
   // always the authority; this is what lets the UI stop a write before it happens.
   const [role, setRole] = useState<BoardRole>('viewer')

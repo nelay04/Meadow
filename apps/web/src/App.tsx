@@ -20,7 +20,7 @@ import { SplashVideo } from './ui/SplashVideo'
  */
 type Route =
   | { name: 'boards' }
-  | { name: 'board'; boardId: string }
+  | { name: 'board'; boardId: string; kind: string }
   | { name: 'profile' }
   | { name: 'reset'; token: string }
   | { name: 'join'; token: string }
@@ -33,12 +33,21 @@ type Route =
  * board view learns the real kind from the server and rewrites the hash if the link
  * disagreed, so an old link, a hand-edited one, or a link to a board somebody has
  * since changed all still open the right thing.
+ *
+ * The segment is captured anyway, and handed to the view as what to draw until the
+ * server answers. Not load-bearing and not trusted: it decides the first paint and
+ * nothing else. See `kindHint` in BoardPage.
  */
-const BOARD_ROUTE = new RegExp(`^#/(?:${BOARD_PATH_SEGMENTS.join('|')})/([0-9a-f-]{36})$`, 'i')
+const BOARD_ROUTE = new RegExp(
+  `^#/(${BOARD_PATH_SEGMENTS.join('|')})/([0-9a-f-]{36})$`,
+  'i',
+)
 
 function routeFromHash(): Route {
   const board = BOARD_ROUTE.exec(location.hash)
-  if (board !== null) return { name: 'board', boardId: board[1] }
+  if (board !== null) {
+    return { name: 'board', boardId: board[2], kind: board[1].toLowerCase() }
+  }
   if (/^#\/profile\/?$/.test(location.hash)) return { name: 'profile' }
   // The password reset link from the mail. The token lives in the fragment, so it never
   // reaches a server log on the way here.
@@ -115,6 +124,7 @@ function Shell() {
     page = (
       <BoardPage
         boardId={route.boardId}
+        kindHint={route.kind}
         onBack={() => {
           location.hash = ''
         }}
