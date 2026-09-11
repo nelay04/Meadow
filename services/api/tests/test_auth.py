@@ -30,6 +30,16 @@ def _sign_up(client: TestClient, email: str, password: str = "correct-horse-batt
     assert response.status_code == 200, response.text
 
 
+def _hold(client: TestClient, token: str) -> None:
+    """Make `token` the browser's only refresh cookie.
+
+    Set where the server sets it. A bare `cookies.set` lands beside the server's copy
+    rather than over it, and reading the jar back then fails on two cookies of one name.
+    """
+    client.cookies.clear()
+    client.cookies.set(REFRESH_COOKIE, token, domain="testserver.local", path="/api/v1/auth")
+
+
 def test_register_answers_with_a_pending_account_and_no_session(client: TestClient) -> None:
     """202, not 201: the row exists, the registration does not finish until the mail does.
 
@@ -173,6 +183,9 @@ def test_reusing_a_rotated_refresh_token_revokes_the_whole_family(
     from app.config import settings
 
     monkeypatch.setattr(settings, "refresh_rotation_grace_seconds", 0)
+    # Recovery too: the replay below is the live token's own parent, which is the one
+    # shape recovery is allowed to accept. The tests after this one cover it.
+    monkeypatch.setattr(settings, "refresh_rotation_recovery_seconds", 0)
 
     email = f"{uuid.uuid4().hex[:12]}@meadow-tests.dev"
     _sign_up(client, email)
@@ -227,6 +240,102 @@ def test_a_refresh_racing_its_own_rotation_is_not_theft(client: TestClient) -> N
     # token is still the live one and the family was never revoked.
     client.cookies.set(REFRESH_COOKIE, rotated)
     assert client.post("/api/v1/auth/refresh").status_code == 200
+    client.cookies.clear()
+
+
+def test_a_rotation_the_browser_never_received_is_recovered(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The refresh happened here and the response never arrived there.
+
+    A tab closing or reloading with the request in flight, or a dropped connection,
+    leaves the browser holding the spent token while the server has moved on. Its next
+    refresh comes up to fifteen minutes later, well past the grace window, and used to
+    read as theft - which is the "logged out after a few minutes" this guards.
+    """
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "refresh_rotation_grace_seconds", 0)
+
+    email = f"{uuid.uuid4().hex[:12]}@meadow-tests.dev"
+    _sign_up(client, email)
+    kept = client.cookies[REFRESH_COOKIE]
+
+    # The lost rotation: the server mints a new token nobody ever receives.
+    assert client.post("/api/v1/auth/refresh").status_code == 200
+    lost = client.cookies[REFRESH_COOKIE]
+    _hold(client, kept)
+
+    recovered = client.post("/api/v1/auth/refresh")
+    assert recovered.status_code == 200, recovered.text
+    fresh = client.cookies[REFRESH_COOKIE]
+    assert fresh not in (kept, lost), "recovery must rotate and hand back a working cookie"
+
+    # And the session carries on from the new cookie as normal.
+    assert client.post("/api/v1/auth/refresh").status_code == 200
+
+    # The token that went astray is now the one out of place, and presenting it is reuse.
+    _hold(client, lost)
+    assert client.post("/api/v1/auth/refresh").status_code == 401
+    client.cookies.clear()
+
+
+def test_recovery_is_not_a_way_round_theft_detection(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Both holders of a lineage cannot keep taking turns.
+
+    An attacker who presents the live token's parent is recovered once, exactly as the
+    real browser would be. But the token that mints names the attacker's copy as its
+    parent, so when the real user comes back with theirs it is plain reuse and the
+    family dies - the same outcome as without recovery, one step later.
+    """
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "refresh_rotation_grace_seconds", 0)
+
+    email = f"{uuid.uuid4().hex[:12]}@meadow-tests.dev"
+    _sign_up(client, email)
+    stolen = client.cookies[REFRESH_COOKIE]
+
+    assert client.post("/api/v1/auth/refresh").status_code == 200
+    legitimate = client.cookies[REFRESH_COOKIE]
+
+    _hold(client, stolen)
+    assert client.post("/api/v1/auth/refresh").status_code == 200
+    attacker = client.cookies[REFRESH_COOKIE]
+
+    _hold(client, legitimate)
+    replay = client.post("/api/v1/auth/refresh")
+    assert replay.status_code == 401
+    assert "reuse" in replay.json()["detail"]
+
+    _hold(client, attacker)
+    assert client.post("/api/v1/auth/refresh").status_code == 401
+    client.cookies.clear()
+
+
+def test_an_old_ancestor_is_still_reuse(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only the live token's direct parent is recoverable, never anything further back."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "refresh_rotation_grace_seconds", 0)
+
+    email = f"{uuid.uuid4().hex[:12]}@meadow-tests.dev"
+    _sign_up(client, email)
+    ancestor = client.cookies[REFRESH_COOKIE]
+
+    assert client.post("/api/v1/auth/refresh").status_code == 200
+    assert client.post("/api/v1/auth/refresh").status_code == 200
+    current = client.cookies[REFRESH_COOKIE]
+
+    _hold(client, ancestor)
+    assert client.post("/api/v1/auth/refresh").status_code == 401
+
+    _hold(client, current)
+    assert client.post("/api/v1/auth/refresh").status_code == 401
     client.cookies.clear()
 
 

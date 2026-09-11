@@ -135,7 +135,9 @@ opens, and forgotten passwords are recoverable.
 The profile page lists every browser currently holding a session: what it is, from what
 address, when it signed in and when it was last active. Terminate one and that browser is
 locked out immediately rather than at the end of its token's life, and it is told why
-while it sits idle. The list updates itself as sessions come and go.
+while it sits idle. The list updates itself as sessions come and go. A session that is
+yours stays yours: closing a tab mid-refresh or losing the connection does not sign you
+out.
 
 ---
 
@@ -181,7 +183,7 @@ calls as well.
 | **Realtime** | yjs over websocket, offline persistence in the browser, awareness for presence |
 | **Server** | FastAPI, pycrdt, SQLAlchemy 2 async, Alembic, arq |
 | **Data** | PostgreSQL 16, Redis 7 |
-| **Auth** | argon2id, JWT access tokens, rotating refresh tokens with reuse detection |
+| **Auth** | argon2id, JWT access tokens, rotating refresh tokens with reuse detection and recovery of rotations the browser never received |
 | **Infra** | Docker Compose, nginx, GitHub Actions to GHCR to a VPS |
 
 </div>
@@ -231,7 +233,7 @@ than the server talking to itself, and it kills the server process mid-run to pr
 state comes back from the database rather than from memory. The answer was yes, so the
 stack stayed.
 
-v1 (`1.0.0`) is deployed and live at [meadow.creara.in](https://meadow.creara.in).
+v1 is deployed and live at [meadow.creara.in](https://meadow.creara.in); the current release is `1.0.1`.
 Delivery record, including the work that was thrown away and why: [`CHANGELOG.md`](CHANGELOG.md).
 
 ---

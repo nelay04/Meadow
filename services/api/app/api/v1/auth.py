@@ -492,6 +492,46 @@ async def refresh(
                 expires_in=expires_at - int(datetime.now(UTC).timestamp()),
             )
 
+        # Past the grace window, but possibly still the same browser: one whose rotation
+        # happened here and never arrived there, so it is holding the token that rotation
+        # spent. That is only believable while the token minted in its place has never
+        # been redeemed - nobody has shown they hold it - so recover exactly then, with a
+        # full rotation this time so the browser ends up with a cookie that works. The
+        # new token names the presented one as its parent, so the other holder of this
+        # lineage, whichever it is, is refused as reuse the next time it asks.
+        recovery = timedelta(seconds=settings.refresh_rotation_recovery_seconds)
+        orphan = (
+            None
+            if recovery <= timedelta(0) or now - row.revoked_at > recovery
+            else (
+                await session.execute(
+                    select(RefreshToken).where(
+                        RefreshToken.parent_id == row.id,
+                        RefreshToken.revoked_at.is_(None),
+                        RefreshToken.expires_at > now,
+                    )
+                    # Two contexts recovering at the same moment can each mint a child.
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+        )
+        if orphan is not None and row.expires_at > now:
+            user = await session.get(User, row.user_id)
+            if user is None:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED, detail="unknown user"
+                )
+            orphan.revoked_at = now
+            return await issue_session(
+                session,
+                response,
+                request,
+                user,
+                row.family_id,
+                row.family_started_at,
+                parent_id=row.id,
+            )
+
         await session.execute(
             update(RefreshToken)
             .where(RefreshToken.family_id == row.family_id, RefreshToken.revoked_at.is_(None))
@@ -517,7 +557,7 @@ async def refresh(
     # The family's start comes off the row being replaced, so the sessions list keeps
     # saying when this browser signed in rather than when it last renewed.
     return await issue_session(
-        session, response, request, user, row.family_id, row.family_started_at
+        session, response, request, user, row.family_id, row.family_started_at, parent_id=row.id
     )
 
 

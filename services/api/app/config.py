@@ -57,6 +57,21 @@ class Settings(BaseSettings):
     # entirely and restores the strict reading, which is what the theft tests use.
     refresh_rotation_grace_seconds: int = 10
 
+    # How long a browser whose rotation was lost can still recover from it.
+    #
+    # A rotation can happen on the server and never reach the browser: the tab closes or
+    # reloads with the refresh in flight, or the network drops the response. The browser
+    # keeps the spent token, and its next refresh - up to one access-token lifetime
+    # later - read as theft and logged a working session out.
+    #
+    # So a spent token is still redeemed, with a full rotation and a new cookie, when it
+    # is the direct parent of the family's live token, that live token has never been
+    # redeemed, and the spent one was rotated away no longer ago than this. The new
+    # token names the presented one as its parent, so the other copy of the lineage no
+    # longer qualifies and is caught as reuse the moment it is presented. Zero disables
+    # recovery, which is what the theft tests use.
+    refresh_rotation_recovery_seconds: int = 60 * 60
+
     ws_token_ttl_seconds: int = 60
 
     # How long a board password stays proved for, once somebody has typed it.

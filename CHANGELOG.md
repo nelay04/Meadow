@@ -11,6 +11,25 @@ away getting there.
 
 ---
 
+## [1.0.1] - [11-Sep-2026]
+
+### Fixed
+- **Signed out after a few minutes of normal use.** A refresh rotates the token on the
+  server whether or not the response reaches the browser. When it did not (a tab closed
+  or reloaded with the request in flight, including the board's thumbnail upload when
+  a tab is hidden, or a dropped connection), the browser kept the spent token, and its
+  next refresh, up to fifteen minutes later, was treated as theft and ended the
+  session. A spent token is now accepted, with a full rotation and a new cookie, when
+  it is the direct parent of the family's live token, that live token has never been
+  used, and it was rotated away within the last hour
+  (`MEADOW_REFRESH_ROTATION_RECOVERY_SECONDS`, 0 turns this off). Theft detection still
+  holds: the new token names the presented one as its parent, so the other copy of the
+  lineage is refused as reuse, and the family is revoked, the next time it is used.
+  Migration `0014` adds `refresh_tokens.parent_id`. Existing sessions keep working and
+  can recover a lost rotation from their next refresh onwards.
+
+---
+
 ## [1.0.0] - [11-Sep-2026]
 
 The first release: Meadow deployed and live at `meadow.creara.in`, built from

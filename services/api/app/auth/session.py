@@ -88,6 +88,7 @@ async def issue_session(
     user: User,
     family_id: uuid.UUID,
     family_started_at: datetime | None = None,
+    parent_id: uuid.UUID | None = None,
 ) -> TokenPair:
     """Mint an access token and a fresh refresh token in `family_id`'s lineage.
 
@@ -95,6 +96,9 @@ async def issue_session(
     one off the token it is replacing. Omitting it leaves the column to its database
     default, which is right for a login and wrong for a refresh - a refresh that let it
     default would make every session look like it began fifteen minutes ago.
+
+    `parent_id` is the token a rotation was exchanged for, and None for a login. It is
+    what lets a lost rotation be recovered; see `refresh_rotation_recovery_seconds`.
 
     Left to the default rather than set to `now` here on purpose: `created_at` is
     defaulted by the database too, and the sessions list compares the two. Timing one
@@ -107,6 +111,7 @@ async def issue_session(
         user_id=user.id,
         token_hash=token_hash,
         family_id=family_id,
+        parent_id=parent_id,
         expires_at=now + timedelta(days=settings.refresh_token_ttl_days),
         # Rewritten on every rotation rather than fixed at login: a browser that
         # updates itself is the same session, and the sessions list should say what it

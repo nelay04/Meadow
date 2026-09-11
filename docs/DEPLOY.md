@@ -343,6 +343,20 @@ docker compose --env-file .env.prod exec api \
   python -c "from app.config import settings; print(settings.refresh_rotation_grace_seconds)"
 ```
 
+**Signed out a few minutes after a tab was closed, reloaded or lost its connection.**
+A refresh that rotated on the server but whose response never reached the browser left
+it holding the spent token, and the next refresh read as theft. Migration `0014` adds
+`refresh_tokens.parent_id`, and `MEADOW_REFRESH_ROTATION_RECOVERY_SECONDS` (default
+3600) is how long such a browser can still redeem the token it kept. Confirm the
+migration ran and the setting is live:
+
+```bash
+docker compose --env-file .env.prod exec api \
+  python -c "from app.config import settings; print(settings.refresh_rotation_recovery_seconds)"
+docker compose --env-file .env.prod exec postgres \
+  sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "\d refresh_tokens"' | grep parent_id
+```
+
 **"This session was terminated from another device" after signing in elsewhere.** A
 login publishes to every open sessions stream, and each one re-checks its own family.
 A browser whose family had already been revoked only discovers it at that moment, so

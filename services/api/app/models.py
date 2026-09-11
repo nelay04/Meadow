@@ -211,6 +211,13 @@ class RefreshToken(Base):
     # Rotation lineage. Reusing any token in a family revokes the whole family, and a
     # family is also what the profile page calls a session: one browser, signed in once.
     family_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    # The token this one was minted in exchange for. Null for the first token of a
+    # family. It is what lets a browser whose rotation response never arrived redeem the
+    # spent token it still holds, without that becoming a way round theft detection -
+    # see `refresh_rotation_recovery_seconds`.
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("refresh_tokens.id", ondelete="SET NULL"), nullable=True
+    )
     # When the family's *first* token was issued, carried forward onto every rotation.
     # Denormalised on purpose: it makes a live row a self-contained account of one
     # session, so listing them needs no grouping and pruning spent rows loses nothing.
