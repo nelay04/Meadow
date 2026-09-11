@@ -171,6 +171,11 @@ document's observers update the render cache, and the frame is drawn from that -
 local drag and a peer's edit take the same path through the same code. Edits made offline
 are held in the browser and merge on reconnect.
 
+Meadow installs as an app. On a phone, "Add to Home Screen", or the install button in a
+desktop browser's address bar, gives it its own window and icon. A service worker keeps
+the app's code on the device, so the installed app opens without a network. Signing in
+and loading boards from the server still need one.
+
 The websocket handshake is the security boundary. The token is validated and the board
 role resolved before the connection joins a room, by one function that every REST route
 calls as well.
@@ -181,6 +186,7 @@ calls as well.
 |---|---|
 | **Canvas** | React 19, TypeScript, Vite, PixiJS 8, TipTap, rbush, Zustand, Tailwind |
 | **Realtime** | yjs over websocket, offline persistence in the browser, awareness for presence |
+| **PWA** | Web app manifest, a build-generated service worker that precaches the app shell |
 | **Server** | FastAPI, pycrdt, SQLAlchemy 2 async, Alembic, arq |
 | **Data** | PostgreSQL 16, Redis 7 |
 | **Auth** | argon2id, JWT access tokens, rotating refresh tokens with reuse detection and recovery of rotations the browser never received |
@@ -233,7 +239,7 @@ than the server talking to itself, and it kills the server process mid-run to pr
 state comes back from the database rather than from memory. The answer was yes, so the
 stack stayed.
 
-v1 is deployed and live at [meadow.creara.in](https://meadow.creara.in); the current release is `1.0.1`.
+v1 is deployed and live at [meadow.creara.in](https://meadow.creara.in); the current release is `1.1.0`.
 Delivery record, including the work that was thrown away and why: [`CHANGELOG.md`](CHANGELOG.md).
 
 ---

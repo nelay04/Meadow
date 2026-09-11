@@ -18,3 +18,14 @@ createRoot(container).render(
     <App />
   </StrictMode>,
 )
+
+// The worker that makes Meadow installable and lets the shell open offline; see
+// pwa/sw.js. Production builds only, since dev has no /sw.js to register. After `load`,
+// so its precache does not compete with the board's first paint for the network.
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js', { scope: '/app' }).catch((error: unknown) => {
+      console.warn('service worker registration failed', error)
+    })
+  })
+}

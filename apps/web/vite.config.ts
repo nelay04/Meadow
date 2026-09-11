@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 import react from '@vitejs/plugin-react'
@@ -53,6 +55,52 @@ function appEntry(): Plugin {
   }
 }
 
+/**
+ * Emit /sw.js from pwa/sw.js, with the build's own bundle names to precache.
+ *
+ * Build only. The names are content hashes, so they are only known once rollup has
+ * written the bundle, and that is the reason this is a plugin rather than a file in
+ * public/. Everything under assets/ is taken: the landing page is static HTML with no
+ * bundle of its own, so what is there is the app.
+ *
+ * The version is a hash of the list and the template, so a deploy that changes no
+ * bundle leaves the worker byte-identical and the browser does not reinstall it.
+ */
+function serviceWorker(): Plugin {
+  const template = fileURLToPath(new URL('./pwa/sw.js', import.meta.url))
+
+  return {
+    name: 'meadow-service-worker',
+    apply: 'build',
+    generateBundle(_options, bundle) {
+      const source = readFileSync(template, 'utf8')
+      const precache = [
+        ...Object.keys(bundle)
+          .filter((name) => name.startsWith('assets/'))
+          .sort()
+          .map((name) => `/${name}`),
+        '/site.webmanifest',
+        '/brand/icon-192.png',
+        '/brand/icon-512.png',
+        '/brand/icon-maskable-512.png',
+      ]
+      const version = createHash('sha256')
+        .update(source)
+        .update(precache.join('\n'))
+        .digest('hex')
+        .slice(0, 12)
+
+      this.emitFile({
+        type: 'asset',
+        fileName: 'sw.js',
+        source: source
+          .replace('__MEADOW_SW_VERSION__', version)
+          .replace('/* __MEADOW_SW_PRECACHE__ */ []', JSON.stringify(precache)),
+      })
+    },
+  }
+}
+
 // Ports live in the repo-root .env alongside the compose and API settings, so there
 // is one place to change them.
 const repoRoot = fileURLToPath(new URL('../../', import.meta.url))
@@ -78,7 +126,7 @@ export default defineConfig(({ mode }) => {
     .filter(Boolean)
 
   return {
-    plugins: [react(), appEntry()],
+    plugins: [react(), appEntry(), serviceWorker()],
     envDir: repoRoot,
     build: {
       rollupOptions: {

@@ -11,6 +11,32 @@ away getting there.
 
 ---
 
+## [1.1.0] - [11-Sep-2026]
+
+### Added
+- **Installable app (PWA).** A service worker at `/sw.js`, scoped to `/app`, makes
+  Meadow installable to a home screen or desktop and lets the installed app open with
+  no network. The build generates it (`serviceWorker()` in `apps/web/vite.config.ts`,
+  template in `apps/web/pwa/sw.js`) with the exact fingerprinted bundles to precache,
+  and its version is a hash of that list, so a deploy that changes no bundle does not
+  reinstall it. The `/app` shell is network-first, so online launches still get the
+  current deploy straight away. Bundles and fonts are cache-first, and brand PNGs are
+  cached when first used. `/api` and `/ws` are never intercepted. No worker is
+  registered in dev.
+- A real maskable icon, `brand/icon-maskable-512.png`, full-bleed with the mark inside
+  the safe zone. The manifest used to give the rounded tile as maskable, and a
+  platform mask cut its corners. The manifest also gains `"id": "/app"`.
+- iOS home-screen meta tags on `app/index.html`, so an installed app opens without
+  Safari's chrome.
+
+### Known limitations
+- Offline, the installed app opens but cannot sign in or fetch a board it has not
+  already synced: session refresh and board loads need the API. Boards already in the
+  browser's y-indexeddb store are unaffected.
+- The landing page at `/` is not cached and still needs a network.
+
+---
+
 ## [1.0.1] - [11-Sep-2026]
 
 ### Fixed

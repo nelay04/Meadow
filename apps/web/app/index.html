@@ -34,6 +34,12 @@
     <link rel="icon" type="image/png" sizes="192x192" href="/brand/icon-192.png" />
     <link rel="apple-touch-icon" href="/brand/icon-180.png" />
     <link rel="manifest" href="/site.webmanifest" />
+    <!-- Installed to an iOS home screen, open without Safari's chrome. iOS reads these
+         rather than the manifest's `display`. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Meadow" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <link
       rel="preload"
       href="/fonts/comic-neue-400-latin.woff2"
