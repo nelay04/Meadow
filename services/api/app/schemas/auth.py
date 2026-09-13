@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, model_validator
 
 
 class RegisterRequest(BaseModel):
@@ -177,16 +177,73 @@ class AuthResponse(TokenPair):
     user: UserOut
 
 
+class ApiTokenGrantIn(BaseModel):
+    """One glade a fine-grained token may open, and what it may do there.
+
+    `read` is part of the shape so a form can send what it shows, and it must be true:
+    edit and delete are on top of reading, never instead of it, and a glade the token may
+    not even read is simply a glade that is not listed.
+    """
+
+    board_id: uuid.UUID
+    read: bool = True
+    edit: bool = False
+    delete: bool = False
+
+    @model_validator(mode="after")
+    def _reads(self) -> "ApiTokenGrantIn":
+        if not self.read:
+            raise ValueError("a granted glade is always readable; leave it out to grant nothing")
+        return self
+
+
+def _unique_grants(grants: list[ApiTokenGrantIn] | None) -> None:
+    if grants is None:
+        return
+    ids = [grant.board_id for grant in grants]
+    if len(set(ids)) != len(ids):
+        raise ValueError("a glade may be granted once")
+
+
 class ApiTokenCreate(BaseModel):
     """A personal access token, as the profile page asks for one."""
 
     name: str = Field(min_length=1, max_length=80)
-    scope: Literal["read", "write"] = "read"
-    #: The boards the token may open. Omitted or null for every board the account can
-    #: open; an empty list is refused, since a token that opens nothing is a mistake.
-    board_ids: list[uuid.UUID] | None = Field(default=None, min_length=1, max_length=100)
+    #: `classic` is everything the account can do; `fine_grained` names its glades.
+    kind: Literal["classic", "fine_grained"]
+    #: Required for a fine-grained token, and refused on a classic one.
+    grants: list[ApiTokenGrantIn] | None = Field(default=None, max_length=100)
     #: Days until it stops working. Null for never, which the page does not default to.
     expires_in_days: int | None = Field(default=None, ge=1, le=366)
+
+    @model_validator(mode="after")
+    def _grants_match_kind(self) -> "ApiTokenCreate":
+        if self.kind == "classic" and self.grants is not None:
+            raise ValueError("a classic token has no grants; it can do what the account can")
+        if self.kind == "fine_grained" and not self.grants:
+            raise ValueError("a fine-grained token needs at least one glade")
+        _unique_grants(self.grants)
+        return self
+
+
+class ApiTokenPatch(BaseModel):
+    """Rename a token, or change which glades a fine-grained one may open and how."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    grants: list[ApiTokenGrantIn] | None = Field(default=None, min_length=1, max_length=100)
+
+    @model_validator(mode="after")
+    def _unique(self) -> "ApiTokenPatch":
+        _unique_grants(self.grants)
+        return self
+
+
+class ApiTokenGrantOut(BaseModel):
+    board_id: uuid.UUID
+    title: str
+    read: bool = True
+    edit: bool
+    delete: bool
 
 
 class ApiTokenOut(BaseModel):
@@ -196,8 +253,9 @@ class ApiTokenOut(BaseModel):
     name: str
     #: The first characters of the raw token, so the person can tell which is which.
     prefix: str
-    scope: Literal["read", "write"]
-    board_ids: list[uuid.UUID] | None = None
+    kind: Literal["classic", "fine_grained"]
+    #: Null for a classic token, which names no glades because it has all of them.
+    grants: list[ApiTokenGrantOut] | None = None
     created_at: datetime
     expires_at: datetime | None = None
     last_used_at: datetime | None = None
@@ -207,3 +265,21 @@ class ApiTokenCreated(ApiTokenOut):
     """The response to issuing a token: the only time the secret is ever sent."""
 
     token: str
+
+
+class ApiTokenCurrent(BaseModel):
+    """A token describing itself, to the client holding it.
+
+    What an MCP server reads at startup, so the model it serves knows its boundaries
+    before it tries to cross one. Carries nothing the holder could not already learn by
+    trying, and nothing about any other token.
+    """
+
+    id: uuid.UUID
+    name: str
+    kind: Literal["classic", "fine_grained"]
+    expires_at: datetime | None = None
+    #: Only a classic token may create glades: a new glade is not on a fine-grained
+    #: token's list, and adding it would be the token widening itself.
+    can_create_glades: bool
+    grants: list[ApiTokenGrantOut] | None = None

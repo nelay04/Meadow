@@ -44,8 +44,6 @@ export type Room = {
   board: Board
   access: WsToken
   session: DocSession
-  /** Why writing is refused, in words, or null when it is allowed. */
-  readOnlyReason: string | null
   provider: WebsocketProvider
   lastUsed: number
 }
@@ -56,13 +54,33 @@ export type Identity = {
   name: () => string
 }
 
-function readOnlyReason(access: WsToken): string | null {
-  if (access.can_write) return null
+export type Action = 'edit' | 'delete'
+
+/** What this connection may do, as a phrase: "read, edit and delete". */
+export function allowedPhrase(access: Pick<WsToken, 'can_edit' | 'can_delete'>): string {
+  if (access.can_edit && access.can_delete) return 'read, edit and delete'
+  if (access.can_edit) return 'read and edit, but not delete'
+  if (access.can_delete) return 'read and delete, but not edit'
+  return 'only read'
+}
+
+/**
+ * Why an action is refused on a glade, in words a model can act on, or null when allowed.
+ *
+ * Names the actual boundary. "Read-only" when the token could edit but the owner locked
+ * the glade would send a model off to ask for a different token, which cannot help.
+ */
+export function refusal(room: Pick<Room, 'board' | 'access'>, action: Action): string | null {
+  const { access, board } = room
+  if (action === 'edit' ? access.can_edit : access.can_delete) return null
+  const what = action === 'edit' ? 'edit' : 'delete objects on'
   if (access.role === 'viewer' || access.role === 'commenter') {
-    return `Your role on this glade is ${access.role}, so it is read-only.`
+    return `Cannot ${what} "${board.title}": your role there is ${access.role}, which is read-only.`
   }
-  if (access.is_locked) return 'The owner has locked this glade. Nobody can edit it until they unlock it.'
-  return 'This access token is read-only. Create a read-and-edit token to make changes.'
+  if (access.is_locked) {
+    return `Cannot ${what} "${board.title}": the owner has locked it. Nobody can change it until they unlock it.`
+  }
+  return `Cannot ${what} "${board.title}": this access token may ${allowedPhrase(access)} there. The token's owner can change its permissions under Profile > Access tokens.`
 }
 
 export class Rooms {
@@ -99,14 +117,17 @@ export class Rooms {
   private async join(boardId: string): Promise<Room> {
     const board = await this.api.getBoard(boardId)
     if (board.has_password) {
-      throw new RoomError('This glade has a password, and access tokens cannot open password-protected glades.')
+      throw new RoomError(
+        'This glade has a password, and access tokens cannot open password-protected glades.',
+      )
     }
     const access = await this.api.mintWsToken(boardId)
 
     const doc = new Y.Doc()
     const role: BoardRole = access.can_write ? access.role : 'viewer'
     // Writes are refused before they reach the session, with the reason in words (see
-    // `readOnlyReason`); the session only has to agree, which a viewer role makes it do.
+    // `refusal`); the session only has to agree, which a viewer role makes it do. The
+    // edit/delete split is enforced again by the server, whatever this process does.
     const session = createDocSession(doc, role)
 
     const provider = new WebsocketProvider(this.api.wsBase, boardId, doc, {
@@ -121,7 +142,6 @@ export class Rooms {
       board,
       access,
       session,
-      readOnlyReason: readOnlyReason(access),
       provider,
       lastUsed: Date.now(),
     }
@@ -151,7 +171,12 @@ export class Rooms {
         if (provider.synced) return
         clearTimeout(timer)
         provider.destroy()
-        reject(new RoomError(CLOSE_REASONS[closeCode ?? 0] ?? `The connection to the glade closed (${closeCode ?? 'no code'}).`))
+        reject(
+          new RoomError(
+            CLOSE_REASONS[closeCode ?? 0] ??
+              `The connection to the glade closed (${closeCode ?? 'no code'}).`,
+          ),
+        )
       })
     })
 
@@ -182,7 +207,9 @@ export class Rooms {
     for (;;) {
       const socket = room.provider.ws as unknown as WebSocket | null
       if (socket === null || !room.provider.wsconnected) {
-        throw new RoomError('The connection closed before the edit was sent. Nothing may have been saved; read the glade again.')
+        throw new RoomError(
+          'The connection closed before the edit was sent. Nothing may have been saved; read the glade again.',
+        )
       }
       if (socket.bufferedAmount === 0) break
       if (Date.now() > deadline) throw new RoomError('Timed out sending the edit to Meadow.')

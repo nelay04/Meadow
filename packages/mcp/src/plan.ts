@@ -16,7 +16,13 @@ import {
   readObject,
 } from '@meadow/schema'
 
-import type { DocSession, EditBatch, EditConnect, EditCreate, EditUpdate } from '../../../apps/web/src/doc/mutations'
+import type {
+  DocSession,
+  EditBatch,
+  EditConnect,
+  EditCreate,
+  EditUpdate,
+} from '../../../apps/web/src/doc/mutations'
 import { fragmentToPlainText } from '../../../apps/web/src/doc/richText'
 import { type Placed, layoutBlock } from './layout'
 import type { DiagramDirection, DiagramSpec, SpecNodeType } from './mermaid'
@@ -86,7 +92,8 @@ const SIZES: Record<SpecNodeType, { w: number; h: number }> = {
 export function colour(value: string | undefined, field: string): number | undefined {
   if (value === undefined) return undefined
   const match = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(value.trim())
-  if (match === null) throw new PlanError(`${field} must be a hex colour like #1f7a8c, not ${value}`)
+  if (match === null)
+    throw new PlanError(`${field} must be a hex colour like #1f7a8c, not ${value}`)
   const digits = match[1].length === 3 ? [...match[1]].map((c) => c + c).join('') : match[1]
   return Number.parseInt(digits, 16)
 }
@@ -123,7 +130,9 @@ function styleProps(input: {
 }
 
 /** The box around everything on the board, or null when it is empty. */
-export function contentBounds(session: DocSession): { minX: number; minY: number; maxX: number; maxY: number } | null {
+export function contentBounds(
+  session: DocSession,
+): { minX: number; minY: number; maxX: number; maxY: number } | null {
   let bounds: { minX: number; minY: number; maxX: number; maxY: number } | null = null
   for (const map of session.objects.values()) {
     const box = objectBounds(readObject(map))
@@ -147,7 +156,9 @@ export function contentBounds(session: DocSession): { minX: number; minY: number
 /** Beside the board's content, to the right, top-aligned. The origin on an empty board. */
 function besideContent(session: DocSession): { x: number; y: number } {
   const bounds = contentBounds(session)
-  return bounds === null ? { x: 0, y: 0 } : { x: Math.round(bounds.maxX + 160), y: Math.round(bounds.minY) }
+  return bounds === null
+    ? { x: 0, y: 0 }
+    : { x: Math.round(bounds.maxX + 160), y: Math.round(bounds.minY) }
 }
 
 function checkSize(count: number): void {
@@ -157,7 +168,8 @@ function checkSize(count: number): void {
 }
 
 function checkNumber(value: number | undefined, field: string): void {
-  if (value !== undefined && !Number.isFinite(value)) throw new PlanError(`${field} must be a number`)
+  if (value !== undefined && !Number.isFinite(value))
+    throw new PlanError(`${field} must be a number`)
 }
 
 /**
@@ -197,7 +209,13 @@ export async function planCreate(
     if (!(type in SIZES)) throw new PlanError(`unknown node type: ${type}`)
     for (const field of ['x', 'y', 'w', 'h', 'font_size'] as const) checkNumber(node[field], field)
     const size = SIZES[type]
-    return { ...node, type, ref: refOf(node.ref, `node${index + 1}`), w: node.w ?? size.w, h: node.h ?? size.h }
+    return {
+      ...node,
+      type,
+      ref: refOf(node.ref, `node${index + 1}`),
+      w: node.w ?? size.w,
+      h: node.h ?? size.h,
+    }
   })
 
   const unplaced = sized.filter((node) => node.x === undefined || node.y === undefined)
@@ -212,7 +230,8 @@ export async function planCreate(
   }
 
   const create: EditCreate[] = sized.map((node) => {
-    const at = node.x !== undefined && node.y !== undefined ? { x: node.x, y: node.y } : placed[node.ref]
+    const at =
+      node.x !== undefined && node.y !== undefined ? { x: node.x, y: node.y } : placed[node.ref]
     return {
       ref: node.ref,
       object: {
@@ -236,10 +255,12 @@ export async function planCreate(
   for (const map of session.bindings.values()) {
     const arrowId = String(map.get('arrowId'))
     const entry = ends.get(arrowId) ?? { start: null, end: null }
-    entry[map.get('end') === 'end' ? 'end' : 'start'] = (map.get('targetId') as string | null) ?? null
+    entry[map.get('end') === 'end' ? 'end' : 'start'] =
+      (map.get('targetId') as string | null) ?? null
     ends.set(arrowId, entry)
   }
-  for (const { start, end } of ends.values()) if (start !== null && end !== null) joined.add(`${start}>${end}`)
+  for (const { start, end } of ends.values())
+    if (start !== null && end !== null) joined.add(`${start}>${end}`)
 
   const connect: EditConnect[] = []
   edges.forEach((edge, index) => {
@@ -266,7 +287,10 @@ export async function planCreate(
       },
       text: edge.label === undefined || edge.label === '' ? null : textToRich(edge.label, false),
     })
-    connect.push({ arrow: ref, end: 'start', target: edge.from }, { arrow: ref, end: 'end', target: edge.to })
+    connect.push(
+      { arrow: ref, end: 'start', target: edge.from },
+      { arrow: ref, end: 'end', target: edge.to },
+    )
   })
 
   return { create, connect }
@@ -278,7 +302,8 @@ export function planUpdate(session: DocSession, updates: readonly UpdateInput[])
     const map = session.objects.get(input.id)
     if (map === undefined) throw new PlanError(`no object with id ${input.id}`)
     const current = readObject(map)
-    for (const field of ['x', 'y', 'w', 'h', 'rotation', 'font_size'] as const) checkNumber(input[field], field)
+    for (const field of ['x', 'y', 'w', 'h', 'rotation', 'font_size'] as const)
+      checkNumber(input[field], field)
 
     const patch: Partial<ObjectData> = {}
     if (input.x !== undefined) patch.x = input.x
@@ -291,7 +316,9 @@ export function planUpdate(session: DocSession, updates: readonly UpdateInput[])
       if (input.w !== undefined) patch.w = input.w
       if (input.h !== undefined) patch.h = input.h
     } else if (input.w !== undefined || input.h !== undefined) {
-      throw new PlanError(`${input.id} is an arrow; its size comes from its ends, so move what it connects instead`)
+      throw new PlanError(
+        `${input.id} is an arrow; its size comes from its ends, so move what it connects instead`,
+      )
     }
 
     const props = styleProps(input)
@@ -327,7 +354,9 @@ export type DiagramPlan = {
 function label(session: DocSession, id: string): string {
   const map = session.objects.get(id)
   const text = map?.get('text')
-  return text === undefined || text === null ? '' : fragmentToPlainText(text as Parameters<typeof fragmentToPlainText>[0])
+  return text === undefined || text === null
+    ? ''
+    : fragmentToPlainText(text as Parameters<typeof fragmentToPlainText>[0])
 }
 
 const norm = (value: string): string => value.trim().replace(/\s+/g, ' ').toLowerCase()
@@ -360,7 +389,8 @@ export async function planDiagram(
   for (const map of session.bindings.values()) {
     const arrowId = String(map.get('arrowId'))
     const entry = bindingsByArrow.get(arrowId) ?? { start: null, end: null }
-    entry[map.get('end') === 'end' ? 'end' : 'start'] = (map.get('targetId') as string | null) ?? null
+    entry[map.get('end') === 'end' ? 'end' : 'start'] =
+      (map.get('targetId') as string | null) ?? null
     bindingsByArrow.set(arrowId, entry)
   }
 
@@ -404,7 +434,8 @@ export async function planDiagram(
     if (already !== undefined) {
       existingEdges.push(already[0])
       const current = label(session, already[0])
-      if (edge.label !== undefined && edge.label !== current) updates.push({ id: already[0], label: edge.label })
+      if (edge.label !== undefined && edge.label !== current)
+        updates.push({ id: already[0], label: edge.label })
       return
     }
     newEdges.push({

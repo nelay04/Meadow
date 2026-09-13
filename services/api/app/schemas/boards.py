@@ -84,6 +84,10 @@ class BoardOut(BaseModel):
     is_locked: bool
     locked_by: uuid.UUID | None = None
     can_write: bool
+    #: `can_write`, split. Always both equal to it for a session; a fine-grained access
+    #: token may allow one without the other.
+    can_edit: bool = False
+    can_delete: bool = False
     # Whether a password stands in front of this board. Never the password, and never
     # anything derived from it: this is the one bit the client needs to know it must
     # ask before it connects, and to badge the board in the list.
@@ -174,6 +178,10 @@ class WsTokenOut(BaseModel):
     # needs. Returned rather than derived on the client so there is one answer, decided
     # in one place, and a lock taken while the page was open lands with the reconnect.
     can_write: bool
+    #: `can_write`, split, for a fine-grained access token that allows one without the
+    #: other. The socket enforces each; these are so the client can refuse first.
+    can_edit: bool = False
+    can_delete: bool = False
     is_locked: bool
 
 

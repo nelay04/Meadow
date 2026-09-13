@@ -15,7 +15,7 @@ from app.api.v1 import router as api_router
 from app.config import settings
 from app.db import SessionLocal, engine
 from app.realtime import wstoken
-from app.realtime.guard import ReadOnlyChannel
+from app.realtime.guard import GrantedChannel, ReadOnlyChannel
 from app.realtime.rooms import (
     WS_CLOSE_FORBIDDEN,
     WS_CLOSE_ROOM_FULL,
@@ -24,7 +24,7 @@ from app.realtime.rooms import (
 )
 from app.realtime.server import FastAPIChannel, MeadowWebsocketServer, awareness_snapshot
 from app.services import api_tokens, board_password
-from app.services.permissions import Access, resolve_access
+from app.services.permissions import FULL_GRANT, Access, resolve_access
 
 logger = getLogger(__name__)
 
@@ -74,13 +74,13 @@ async def _resolve(claims: wstoken.WsTokenClaims) -> Access | None:
     """Access for a ws-token's holder, as it stands now. The handshake and the watchdog.
 
     One function for both so they cannot disagree. A socket minted through a personal
-    access token re-proves the token every time: revoked or expired is 4401, a board not
-    on its allow-list is 4403, and a read scope switches writing off inside
-    `resolve_access`, beside the lock, rather than in a check of its own.
+    access token re-proves the token every time: revoked or expired is 4401, a glade the
+    token does not name (or no longer names) is 4403, and its grant narrows the answer
+    inside `resolve_access`, beside the lock, rather than in a check of its own.
     """
     board_uuid = uuid.UUID(claims.board_id)
     async with SessionLocal() as session:
-        read_only = False
+        grant = FULL_GRANT
         if claims.api_token_id is not None:
             token = (
                 None
@@ -89,9 +89,10 @@ async def _resolve(claims: wstoken.WsTokenClaims) -> Access | None:
             )
             if token is None:
                 raise _TokenRefused(WS_CLOSE_UNAUTHORIZED, "access token revoked")
-            if not api_tokens.allows_board(token, board_uuid):
+            token_grant = await api_tokens.grant_for(session, token, board_uuid)
+            if token_grant is None:
                 raise _TokenRefused(WS_CLOSE_FORBIDDEN, "no access")
-            read_only = api_tokens.is_read_only(token)
+            grant = token_grant
 
         return await resolve_access(
             session,
@@ -99,7 +100,7 @@ async def _resolve(claims: wstoken.WsTokenClaims) -> Access | None:
             user_id=claims.user_id,
             link_token=claims.link_token,
             pass_version=claims.pass_version,
-            read_only=read_only,
+            grant=grant,
         )
 
 
@@ -153,8 +154,16 @@ async def _watch_session(
         changed = current is None or (
             current.role,
             current.can_write,
+            current.can_edit,
+            current.can_delete,
             current.password_required,
-        ) != (granted.role, granted.can_write, granted.password_required)
+        ) != (
+            granted.role,
+            granted.can_write,
+            granted.can_edit,
+            granted.can_delete,
+            granted.password_required,
+        )
         if changed:
             logger.info(
                 "closing ws for board %s: %s/%s -> %s",
@@ -255,8 +264,21 @@ async def board_socket(websocket: WebSocket, board_id: str, token: str = "") -> 
         return
 
     channel: FastAPIChannel
-    if access.can_write:
+    if access.can_write and access.can_edit and access.can_delete:
         channel = FastAPIChannel(websocket, path=board_id)
+    elif access.can_write:
+        # A fine-grained access token allowed one of edit and delete and not the other.
+        # Every write is checked against the grant before the room sees it: see
+        # `GrantedChannel`. Nothing else ever gets here, since a role and the lock only
+        # ever allow both or neither.
+        channel = GrantedChannel(
+            websocket,
+            path=board_id,
+            log=logger,
+            board=lambda: bytes(room.ydoc.get_update()),
+            can_edit=access.can_edit,
+            can_delete=access.can_delete,
+        )
     else:
         # Viewers, commenters, and anybody at all while the board is locked: awareness
         # and sync requests pass, document writes are dropped. The client already knows

@@ -12,7 +12,7 @@ from app.auth.tokens import AccessTokenError, decode_access_token
 from app.db import get_session
 from app.models import ApiToken, User
 from app.services import api_tokens, session_events
-from app.services.permissions import BoardRole, resolve_role
+from app.services.permissions import FULL_GRANT, BoardRole, TokenGrant, resolve_role
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -37,12 +37,15 @@ class Principal:
     user: User
     api_token: ApiToken | None = None
 
-    @property
-    def read_only(self) -> bool:
-        return self.api_token is not None and api_tokens.is_read_only(self.api_token)
+    async def grant_for(self, session: AsyncSession, board_id: uuid.UUID) -> TokenGrant | None:
+        """What this caller may do on a glade before the role applies; None for nothing.
 
-    def allows_board(self, board_id: uuid.UUID) -> bool:
-        return self.api_token is None or api_tokens.allows_board(self.api_token, board_id)
+        A session and a classic token get everything; a fine-grained token gets its grant
+        for that glade, or None when it does not name it.
+        """
+        if self.api_token is None:
+            return FULL_GRANT
+        return await api_tokens.grant_for(session, self.api_token, board_id)
 
 
 async def _session_user(request: Request, raw: str, session: AsyncSession) -> User:
@@ -101,7 +104,7 @@ async def current_principal(
 
     Only for the routes an MCP client needs. Taking this instead of `CurrentUser` is the
     decision that a token may reach the route, and it comes with the obligation to honour
-    `Principal.read_only` and `Principal.allows_board`.
+    `Principal.grant_for` on every glade it touches.
     """
     if credentials is None:
         raise _unauthorised("not authenticated")
@@ -134,9 +137,10 @@ class BoardAccess:
     which is `resolve_role`'s doing rather than this class's - see the note there.
 
     `accept_api_token` lets a personal access token through. Off by default, so a board
-    route is session-only until somebody decides otherwise. When on, the token's board
-    allow-list shuts other boards, and a read-scoped token is refused any minimum above
-    viewer: the role is the account's, and the token only takes away from it.
+    route is session-only until somebody decides otherwise. When on, a glade a
+    fine-grained token does not name answers 403 like one that does not exist. Only
+    `minimum=viewer` is accepted with it: a route that changes a glade needs a decision
+    about which of edit and delete it is, and none has been made.
     """
 
     def __init__(
@@ -146,6 +150,8 @@ class BoardAccess:
         include_deleted: bool = False,
         accept_api_token: bool = False,
     ) -> None:
+        if accept_api_token and minimum is not BoardRole.viewer:
+            raise ValueError("token access is for reading routes; decide edit or delete first")
         self.minimum = minimum
         self.include_deleted = include_deleted
         self.accept_api_token = accept_api_token
@@ -167,15 +173,13 @@ class BoardAccess:
         )
         # 403 and not 404 even when the board does not exist: a different status for
         # "no such board" would let anyone probe which board ids are real.
-        if role is None or not principal.allows_board(board_id):
+        if role is None or await principal.grant_for(session, board_id) is None:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="no access")
 
         from app.services.permissions import at_least
 
         if not at_least(role, self.minimum):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="insufficient role")
-        if principal.read_only and self.minimum is not BoardRole.viewer:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="read-only token")
         return role
 
 

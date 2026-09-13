@@ -64,7 +64,11 @@ describe('graphToMermaid', () => {
       create: [
         { ref: 'a', object: { type: 'rect', x: 0, y: 0 }, text: textToRich('Say "hi"') },
         { ref: 'b', object: { type: 'diamond', x: 300, y: 0 }, text: textToRich('Ok?') },
-        { ref: 'e', object: { type: 'arrow', props: { startHead: 'open', endHead: 'none' } }, text: textToRich('back', false) },
+        {
+          ref: 'e',
+          object: { type: 'arrow', props: { startHead: 'open', endHead: 'none' } },
+          text: textToRich('back', false),
+        },
         { ref: 'free', object: { type: 'arrow' } },
       ],
       connect: [
@@ -82,6 +86,8 @@ describe('graphToMermaid', () => {
       { key: ids.b, label: 'Ok?', type: 'diamond' },
     ])
     // A back-pointing arrow is written the way it reads.
-    expect(spec.edges).toEqual([{ from: ids.b, to: ids.a, label: 'back', direction: 'forward', type: 'arrow' }])
+    expect(spec.edges).toEqual([
+      { from: ids.b, to: ids.a, label: 'back', direction: 'forward', type: 'arrow' },
+    ])
   })
 })

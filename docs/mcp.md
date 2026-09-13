@@ -10,20 +10,46 @@ arrive live, and the assistant appears among the wanderers while it works.
 
 ## 1. Create an access token
 
-In Meadow, open **Profile > Access tokens**:
+In Meadow, open **Profile > Access tokens**, name the token after what will use it, and pick
+one of two kinds.
 
-- Give the token a name that says what will use it, e.g. "Claude Code on my laptop".
-- Choose **Read only** if the assistant should only look, or **Read and edit** if it will
-  draw.
-- Pick an expiry.
+**Classic.** Everything your account can do, on every glade you can open, including
+creating and importing glades. Use it for your own agent on your own machine.
+
+**Fine-grained.** Only the glades you pick, each with its own permissions:
+
+| Permission | Allows |
+|---|---|
+| View | Reading the glade. Always on for a chosen glade; turning Edit or Delete on turns it on |
+| Edit | Adding, changing, moving, relabelling and connecting objects |
+| Delete | Removing objects |
+
+For example, with glades A to E you might choose A, C and D: view and edit on A, view only
+on D, view and delete on C. B and E do not exist for that token. A fine-grained token
+cannot create or import glades. You can change a token's glades later with
+**Change glades**, and anything using it picks up the change straight away.
 
 The token (`mdw_...`) is shown once. Copy it straight into the client config below.
 
-A token acts as you and can never do more than you can:
+Whatever the kind, a token can never do more than you can. If your role on a glade is
+viewer, or its owner has locked it, the token cannot edit it either. Glades with a password
+cannot be opened with a token. Revoking takes effect immediately, including on glades the
+token has open.
 
-- a read-only token cannot write, even on your own glades;
-- revoking it takes effect immediately, including on glades it has open;
-- glades with a password cannot be opened with a token.
+**The server enforces this, not the assistant.** A fine-grained token without Delete cannot
+remove objects even from a hand-written client talking to the websocket directly. The
+server replays every change against a copy of the glade first and drops anything the grant
+does not allow.
+
+**The assistant knows its boundaries.** When it connects, the MCP server gives it:
+- the token's kind and, for a fine-grained token, each glade with its permissions, in the
+  server instructions;
+- `can_edit` and `can_delete` for each glade in `list_glades`;
+- a `get_my_access` tool.
+
+Tools the token cannot use on any glade are not offered at all. For example, a view-only
+token does not see `create_nodes` or `delete_objects`. When a call is refused, the refusal
+names the missing permission.
 
 ## 2. Connect a client
 
@@ -125,7 +151,8 @@ node meadow-mcp.js --http --api https://meadow.example.com --host 127.0.0.1 --po
 
 | Tool | What it does |
 |---|---|
-| `list_glades` | Glades the token can open |
+| `list_glades` | Glades the token can open, with `can_edit` and `can_delete` for each |
+| `get_my_access` | The token's kind, and each glade it can open with its permissions |
 | `get_glade_summary` | Size, bounds, counts by type, a sample of labels |
 | `get_glade_graph` | Nodes and edges with ids, labels, positions, colours, and what each arrow connects. Paged |
 | `find_objects` | Search by label text, type or region |

@@ -10,9 +10,29 @@ function board() {
   const session = createDocSession(new Y.Doc(), 'owner')
   const { ids } = applyEdits(session, {
     create: [
-      { ref: 'frame', object: { type: 'rect', x: -50, y: -50, w: 900, h: 400 }, text: textToRich('Checkout') },
-      { ref: 'cart', object: { type: 'rect', x: 0, y: 0, w: 120, h: 60, parentId: 'frame', props: { fill: 0xf4d35e } }, text: textToRich('Cart') },
-      { ref: 'pay', object: { type: 'diamond', x: 400, y: 0, w: 120, h: 80, parentId: 'frame' }, text: textToRich('Paid?') },
+      {
+        ref: 'frame',
+        object: { type: 'rect', x: -50, y: -50, w: 900, h: 400 },
+        text: textToRich('Checkout'),
+      },
+      {
+        ref: 'cart',
+        object: {
+          type: 'rect',
+          x: 0,
+          y: 0,
+          w: 120,
+          h: 60,
+          parentId: 'frame',
+          props: { fill: 0xf4d35e },
+        },
+        text: textToRich('Cart'),
+      },
+      {
+        ref: 'pay',
+        object: { type: 'diamond', x: 400, y: 0, w: 120, h: 80, parentId: 'frame' },
+        text: textToRich('Paid?'),
+      },
       { ref: 'next', object: { type: 'arrow' }, text: textToRich('pay', false) },
       { ref: 'both', object: { type: 'arrow', props: { startHead: 'open' } } },
       { ref: 'plain', object: { type: 'line' } },
@@ -28,7 +48,11 @@ function board() {
       { arrow: 'loose', end: 'start', target: 'pay' },
     ],
   })
-  return { session, ids, file: exportGlade(session, { title: 'Shop', kind: 'glade' }, { app: 'test' }) }
+  return {
+    session,
+    ids,
+    file: exportGlade(session, { title: 'Shop', kind: 'glade' }, { app: 'test' }),
+  }
 }
 
 describe('gladeToGraph', () => {
@@ -45,13 +69,20 @@ describe('gladeToGraph', () => {
     const graph = gladeToGraph(file)
     const cart = graph.nodes.find((node) => node.id === ids.cart)!
     expect(cart).toMatchObject({ label: 'Cart', type: 'rect', parent: ids.frame, fill: '#f4d35e' })
-    expect(graph.groups).toEqual([{ id: ids.frame, label: 'Checkout', children: [ids.cart, ids.pay] }])
+    expect(graph.groups).toEqual([
+      { id: ids.frame, label: 'Checkout', children: [ids.cart, ids.pay] },
+    ])
   })
 
   it('reads what each edge connects and which way it points', () => {
     const { ids, file } = board()
     const edges = Object.fromEntries(gladeToGraph(file).edges.map((edge) => [edge.id, edge]))
-    expect(edges[ids.next]).toMatchObject({ from: ids.cart, to: ids.pay, label: 'pay', direction: 'forward' })
+    expect(edges[ids.next]).toMatchObject({
+      from: ids.cart,
+      to: ids.pay,
+      label: 'pay',
+      direction: 'forward',
+    })
     expect(edges[ids.both]).toMatchObject({ from: ids.pay, to: ids.cart, direction: 'both' })
     expect(edges[ids.plain]).toMatchObject({ type: 'line', direction: 'none' })
     expect(edges[ids.loose]).toMatchObject({ from: ids.pay, to: null })
@@ -67,7 +98,9 @@ describe('gladeToGraph', () => {
 
 describe('richTextToPlain', () => {
   it('writes one line per block, including list items', () => {
-    expect(richTextToPlain(textToRich('# Title\nfirst **bold**\n- a\n- b'))).toBe('Title\nfirst bold\na\nb')
+    expect(richTextToPlain(textToRich('# Title\nfirst **bold**\n- a\n- b'))).toBe(
+      'Title\nfirst bold\na\nb',
+    )
     expect(richTextToPlain(null)).toBe('')
   })
 })

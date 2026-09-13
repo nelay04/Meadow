@@ -35,21 +35,37 @@ away getting there.
     appears among the wanderers while it works.
   - **Two transports.** stdio for local clients, and Streamable HTTP served at `/mcp`
     behind nginx by a new `mcp` service in `docker-compose.yml`.
-- **Personal access tokens, under Profile > Access tokens.**
-  - **Issuing.** A token is read-only or read-and-edit, and can expire. The secret is
-    shown once and only its digest is stored.
-  - **Narrowing only.** A token can never do more than its owner: a read-only token
-    cannot write even on the owner's own glades, and it cannot open a password-protected
-    glade.
-  - **Where it is accepted.** Only on reading the account, listing, reading and creating
-    glades, and minting a ws-token. Every other route refuses it. A token cannot manage
-    tokens or sessions.
+- **Personal access tokens, under Profile > Access tokens, in two kinds.**
+  - **Classic.** Everything the account can do, on every glade.
+  - **Fine-grained.** Only the glades you choose, each with its own View, Edit and Delete.
+    Turning Edit or Delete on turns View on; a glade not chosen does not exist for the
+    token. Its glades can be changed later, and anything using it picks the change up
+    immediately.
+  - **Narrowing only.** Either kind can only narrow its owner: a viewer's edit grant edits
+    nothing, a locked glade stays locked, and password-protected glades cannot be opened.
+    The secret is shown once and only its digest is stored.
+  - **Enforced by the server.** A token that may edit but not delete cannot remove objects
+    even by writing to the websocket directly. Every change it sends is replayed on a copy
+    of the glade first and dropped whole if the grant does not allow it.
+  - **Where a token is accepted.** Only on reading the account, listing, reading and
+    creating glades (classic only), minting a ws-token, and describing itself. Every other
+    route refuses it. A token cannot manage tokens or sessions.
   - **Revoking.** Revoking takes effect immediately, including on glades the token has
     open, and leaves the same person's browser connected.
-  - **Tests.** Written before the implementation in `services/api/tests/test_api_tokens.py`
-    (26 tests). `pnpm e2e:mcp` checks the whole path: real API, the built server over
-    stdio and HTTP, a browser watching live edits, a refused read-only write, revocation,
-    and persistence across a reload.
+- **Assistants are told their boundaries.**
+  - The MCP server reads the token's permissions at startup and puts them in its
+    instructions.
+  - `list_glades` shows `can_edit` and `can_delete` for each glade, and `get_my_access`
+    describes the token.
+  - Tools a token cannot use anywhere are not offered, and a refused call names the
+    missing permission.
+- **Tests.** `services/api/tests/test_api_tokens.py` (42 tests) was written before the
+  implementation. It includes raw websocket updates that bypass every client check.
+  `pnpm e2e:mcp` checks the whole path with a real API, the built server over stdio and
+  HTTP, and a browser watching live edits:
+  - classic, view-only and split edit/delete tokens;
+  - a glade the token does not name;
+  - revocation, and persistence across a reload.
 
 ### Changed
 - **The build order in ARCHITECTURE section 9 changed.** Agent access (1.3.0 and this
@@ -62,8 +78,6 @@ away getting there.
   header or a local command can.
 - **Undo.** A person's Ctrl+Z does not undo an assistant's edits, because undo only
   tracks your own changes. This is intended.
-- **Allow-lists.** Limiting a token to named glades is supported by the API but not
-  offered on the profile page yet.
 
 ## [1.3.0] - [13-Sep-2026]
 

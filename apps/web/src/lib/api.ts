@@ -325,21 +325,30 @@ export type AuthSession = {
   expires_at: string
 }
 
+/** One glade a fine-grained token may open, and what it may do there. Read is always on. */
+export type AccessTokenGrant = {
+  board_id: string
+  title: string
+  read: true
+  edit: boolean
+  delete: boolean
+}
+
 /**
  * A personal access token, as the profile page lists it. Never the secret.
  *
- * The credential an MCP client or a script holds instead of a session. It stands in for
- * this account and can only narrow it: `read` switches writing off, and `board_ids`
- * shuts every board it does not name.
+ * The credential an MCP client or a script holds instead of a session. A classic token
+ * is everything this account can do; a fine-grained one names glades, each with its own
+ * permissions. Either way it can only narrow the account, never add to it.
  */
 export type AccessToken = {
   id: string
   name: string
   /** The first characters of the secret, so the list can say which token is which. */
   prefix: string
-  scope: 'read' | 'write'
-  /** Null for every board the account can open. */
-  board_ids: string[] | null
+  kind: 'classic' | 'fine_grained'
+  /** Null for a classic token, which names no glades because it has all of them. */
+  grants: AccessTokenGrant[] | null
   created_at: string
   expires_at: string | null
   last_used_at: string | null
@@ -348,12 +357,16 @@ export type AccessToken = {
 /** The one response that carries the secret. It is never sent again. */
 export type CreatedAccessToken = AccessToken & { token: string }
 
-export type AccessTokenCreate = {
-  name: string
-  scope: 'read' | 'write'
-  board_ids?: string[]
-  expires_in_days?: number
+export type AccessTokenGrantInput = {
+  board_id: string
+  read: true
+  edit: boolean
+  delete: boolean
 }
+
+export type AccessTokenCreate =
+  | { name: string; kind: 'classic'; expires_in_days?: number }
+  | { name: string; kind: 'fine_grained'; grants: AccessTokenGrantInput[]; expires_in_days?: number }
 
 type AuthResponse = {
   access_token: string
@@ -613,6 +626,14 @@ export function listAccessTokens(): Promise<AccessToken[]> {
 
 export function createAccessToken(body: AccessTokenCreate): Promise<CreatedAccessToken> {
   return call<CreatedAccessToken>('/tokens', { method: 'POST', body: JSON.stringify(body) })
+}
+
+/** Rename a token, or replace a fine-grained token's glades. Open connections re-check. */
+export function updateAccessToken(
+  tokenId: string,
+  patch: { name?: string; grants?: AccessTokenGrantInput[] },
+): Promise<AccessToken> {
+  return call<AccessToken>(`/tokens/${tokenId}`, { method: 'PATCH', body: JSON.stringify(patch) })
 }
 
 /** Revoke, which also closes every board connection the token has open. */

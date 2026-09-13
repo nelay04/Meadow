@@ -639,6 +639,12 @@ diagram behind. It is a new mutation on the existing write path, not a schema ch
   objects, text, bindings and arrow heads into nodes and edges (`from`, `to`, `label`,
   `direction`). It is lossy, one-way and pure. The full interchange file is also
   available for a field the graph leaves out.
+- **It knows its boundaries.** It reads `GET /tokens/current` before it starts and writes
+  the token's kind and grants into the server instructions. Tools the token can use on no
+  glade are disabled, and `list_glades` and `get_my_access` report per-glade permissions.
+  Each write is checked against the glade's `can_edit` and `can_delete` before it is
+  sent, so a refusal names the exact permission. This is guidance only: the boundary is
+  the socket.
 - **Writes are planned, then applied.** `packages/mcp/src/plan.ts` turns tool input
   into an `EditBatch`. Every write takes `preview` and returns the plan instead. Nodes
   without coordinates are placed by an ELK layered layout, to the right of the existing
@@ -1328,16 +1334,19 @@ GET    /jobs/{id}
 
 POST   /ws-token                      short-lived (60s) token for ws handshake
 
--- personal access tokens (1.4.0). Session only: a token cannot manage tokens.
-GET    /tokens                        live tokens; never the secret
-POST   /tokens                        { name, scope: read|write, board_ids?, expires_in_days? }
-                                      -> the secret, once
+-- personal access tokens (1.4.0). Session only, except /current: a token cannot manage tokens.
+GET    /tokens                        live tokens with their grants; never the secret
+POST   /tokens                        { name, kind: classic|fine_grained,
+                                        grants?: [{ board_id, read, edit, delete }],
+                                        expires_in_days? } -> the secret, once
+PATCH  /tokens/{id}                   { name?, grants? }; a grant change closes its sockets
 DELETE /tokens/{id}                   revoke; closes every socket it opened
+GET    /tokens/current                the calling token describing its own boundaries
 ```
 
 A personal access token (`mdw_...`) is accepted on exactly these routes and refused with
 401 on every other: `GET /auth/me`, `GET /boards`, `GET /boards/{id}`, `POST /boards`
-(write scope, no board list), and `POST /ws-token`. A route opts in by taking
+(classic only), `POST /ws-token`, and `GET /tokens/current`. A route opts in by taking
 `CurrentPrincipal` instead of `CurrentUser`, so a route added later is closed to tokens
 until somebody decides otherwise.
 
@@ -1651,27 +1660,56 @@ provider, no hash. If this ever needs reversing again, reverse it in
 ### Personal access tokens (1.4.0)
 
 For clients that cannot hold a browser session: the MCP server, scripts. A row in
-`api_tokens`:
+`api_tokens`, of one of two kinds, as GitHub has them:
 
-- **Storage.** Only a sha256 digest and a display prefix are kept.
-- **Scope.** `read` or `write`.
-- **Boards.** An optional allow-list of board ids, which can only name boards the owner
-  can open at issue time.
-- **Lifetime.** An optional expiry, `last_used_at` written at most once a minute, and
-  `revoked_at`.
+- **classic**: everything the owner can do, on every glade the owner can open.
+- **fine_grained**: only the glades in `api_token_grants`, one row per glade with
+  `can_edit` and `can_delete`. A row is the grant of read, so there is no grant that can
+  edit or delete without reading. A glade with no row answers exactly as a glade that
+  does not exist. Grants cascade with the board.
 
-A token **only narrows** its owner. The role is still resolved live by `resolve_role`.
-A read scope is folded into `resolve_access` as `read_only`, beside the lock, so
-`can_write` stays the one answer. The allow-list shuts other boards with the same 403
-as no access.
+Only a sha256 digest and a display prefix are stored. Tokens have an optional expiry,
+`last_used_at` is written at most once a minute, and `revoked_at` marks revocation.
 
-The ws-token carries the id of the token that minted it (`api_token_id`). The handshake
-and the watchdog reload that token every time: revoked or expired closes with 4401, and
-a board not on its list with 4403. `SocketRegistry` also indexes sockets by token id,
-so revoking closes that token's sockets at once and leaves the same person's browser
-alone. Tokens cannot mint, list or revoke tokens, and cannot end sessions, so a stolen
-token cannot make itself permanent. Tests for all of this came first, in
-`tests/test_api_tokens.py`.
+**A token only narrows.** The role is still resolved live by `resolve_role`. A token's
+grant for a board (`TokenGrant`, `FULL_GRANT` for a classic token and for every session)
+is folded into `resolve_access` beside the lock. `Access.can_edit` and `can_delete` are
+the role and lock intersected with the grant, and `can_write` is either of them. A
+viewer's edit grant edits nothing.
+
+**The socket enforces edit and delete apart.**
+- A connection that may do both, or neither, gets the existing channels.
+- One that may do only one gets `GrantedChannel` (`app/realtime/guard.py`). It replays
+  each incoming document update on a fresh copy of the room's document (`effect_of`),
+  using pycrdt's deep events to classify the update:
+  - removing a key from `objects` is a removal;
+  - the tidy-up a removal brings (its `order` entry deleted, its arrows' bindings
+    deleted, arrow ends pointing at it set to null) is cleanup;
+  - anything else is an edit.
+- An update is dropped whole if it removes without delete or edits without edit, since a
+  Y.Doc has no rollback and part of an update is never applied. The copy is rebuilt per
+  message: a board's worth of decoding per write, paid only by these token connections,
+  never by a browser.
+
+**Where a token is accepted.** A route opts in by taking `CurrentPrincipal` rather than
+`CurrentUser`, and must apply `Principal.grant_for` to every glade it touches. Today that
+is `GET /auth/me`, `GET /boards` (only granted glades), `GET /boards/{id}`, `POST /boards`
+(classic only), `POST /ws-token`, and `GET /tokens/current`. Token management and
+sessions are session only, so a token cannot widen itself.
+
+**Revocation and change.**
+- The ws-token carries the minting token's id (`api_token_id`). The handshake and the
+  watchdog reload the token and its grant every time:
+  - revoked or expired closes with 4401;
+  - a glade no longer granted closes with 4403.
+- `SocketRegistry` indexes sockets by token id:
+  - revoking closes them with 4401;
+  - changing a grant (`PATCH /tokens/{id}`) closes them with 4403, so clients re-mint
+    under the new grant;
+  - the same person's browser is untouched.
+
+Tests came first, in `tests/test_api_tokens.py`. They include raw Yjs updates that bypass
+every client check and must still be dropped.
 
 ### Permission resolution
 

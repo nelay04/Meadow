@@ -15,6 +15,10 @@ export type Board = {
   kind: string
   role: BoardRole
   can_write: boolean
+  /** Changing the glade other than removing objects. Split from delete by fine-grained tokens. */
+  can_edit: boolean
+  /** Removing objects. */
+  can_delete: boolean
   is_locked: boolean
   has_password: boolean
   updated_at: string
@@ -30,7 +34,28 @@ export type WsToken = {
   token: string
   role: BoardRole
   can_write: boolean
+  can_edit: boolean
+  can_delete: boolean
   is_locked: boolean
+}
+
+export type TokenGrant = {
+  board_id: string
+  title: string
+  read: boolean
+  edit: boolean
+  delete: boolean
+}
+
+/** The token describing itself: what it may do before any role or lock is applied. */
+export type TokenInfo = {
+  id: string
+  name: string
+  kind: 'classic' | 'fine_grained'
+  expires_at: string | null
+  can_create_glades: boolean
+  /** Null for a classic token, which has every glade its owner can open. */
+  grants: TokenGrant[] | null
 }
 
 export class MeadowApiError extends Error {
@@ -52,9 +77,10 @@ function explain(status: number, detail: string): string {
     return 'This glade has a password, and access tokens cannot open password-protected glades.'
   }
   if (detail.includes('token may not create')) {
-    return 'This access token cannot create glades: that needs a read-and-edit token that is not limited to particular glades.'
+    return 'This access token cannot create glades: only a classic token can.'
   }
-  if (status === 403) return 'The access token has no access to that glade.'
+  if (status === 403)
+    return 'This access token has no access to that glade. Call get_my_access to see which glades it can open.'
   if (status === 429) return 'Meadow is rate limiting this token. Wait a moment and try again.'
   return `Meadow answered ${status}: ${detail}`
 }
@@ -113,7 +139,14 @@ export class MeadowApi {
     })
   }
 
+  currentToken(): Promise<TokenInfo> {
+    return this.call<TokenInfo>('/tokens/current')
+  }
+
   mintWsToken(boardId: string): Promise<WsToken> {
-    return this.call<WsToken>('/ws-token', { method: 'POST', body: { board_id: boardId } })
+    return this.call<WsToken>('/ws-token', {
+      method: 'POST',
+      body: { board_id: boardId },
+    })
   }
 }

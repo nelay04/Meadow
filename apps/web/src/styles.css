@@ -1216,6 +1216,144 @@ label {
   padding: 0.45rem 0.5rem;
 }
 
+/* The two kinds carry a line saying what each means, because "classic" alone does not. */
+.token-kind-hint {
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--faint);
+}
+
+/* Fine-grained grants: a row per glade, three toggles per row. Scrolls rather than
+   pushing the page when somebody has a lot of glades. */
+.grant-picker {
+  margin-top: 0.8rem;
+}
+
+.grant-picker-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+}
+
+.grant-filter {
+  flex: 0 1 14rem;
+  min-width: 0;
+  padding: 0.3rem 0.55rem;
+  font-size: 0.8rem;
+}
+
+.grant-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0 0;
+  max-height: 18rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.grant-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.8rem;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--surface-2);
+}
+
+.grant-row.on {
+  border-color: var(--accent);
+}
+
+.grant-title {
+  font-size: 0.85rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.grant-toggles {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.grant-toggle {
+  padding: 0.2rem 0.6rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 999px;
+  color: var(--muted);
+}
+
+.grant-toggle.on {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.grant-toggle.on:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+/* The kind choices carry a sentence each, so they have to be allowed to wrap. */
+.token-options .theme-choice {
+  min-width: 0;
+  white-space: normal;
+  text-align: center;
+}
+
+.token-row {
+  flex-wrap: wrap;
+}
+
+.token-kind {
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.token-grants {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-top: 0.3rem;
+}
+
+.token-grant {
+  padding: 0.05rem 0.45rem;
+  border-radius: 0.35rem;
+  background: var(--surface);
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.token-actions {
+  display: flex;
+  gap: 0.35rem;
+  margin-left: auto;
+}
+
+.token-edit {
+  flex-basis: 100%;
+}
+
+.token-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+}
+
 /* The secret, once. Accent-tinted like the current session row: it is the one thing on
    the card the reader has to act on before leaving. */
 .token-created {
@@ -1274,6 +1412,21 @@ label {
   .session .profile-connect,
   .session .session-badge {
     margin-left: auto;
+  }
+
+  /* A token's buttons go under its text on a phone, so the name and the grants are not
+     squeezed into a column a word wide. */
+  .token-row .session-text {
+    flex-basis: calc(100% - 2.5rem);
+  }
+
+  .token-actions {
+    flex-basis: 100%;
+    justify-content: flex-end;
+  }
+
+  .token-actions .profile-connect {
+    margin-left: 0;
   }
 }
 

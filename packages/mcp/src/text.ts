@@ -22,7 +22,10 @@ function runs(line: string): GladeRichRun[] {
     const mark = (name: string, inner: string): void => {
       out.push({ insert: inner, attributes: { [name]: {} } })
     }
-    if ((part.startsWith('**') && part.endsWith('**')) || (part.startsWith('__') && part.endsWith('__'))) {
+    if (
+      (part.startsWith('**') && part.endsWith('**')) ||
+      (part.startsWith('__') && part.endsWith('__'))
+    ) {
       if (part.length > 4) mark('bold', part.slice(2, -2))
       else out.push({ insert: part })
     } else if (part.startsWith('~~') && part.endsWith('~~') && part.length > 4) {

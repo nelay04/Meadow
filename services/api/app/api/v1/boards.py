@@ -56,11 +56,21 @@ from app.schemas.boards import (
     TitleSuggestion,
     TrashedBoardOut,
 )
-from app.services import access_requests, board_password, board_recovery, mail, sharing, trash
+from app.services import (
+    access_requests,
+    api_tokens,
+    board_password,
+    board_recovery,
+    mail,
+    sharing,
+    trash,
+)
 from app.services.board_kinds import BoardKind
 from app.services.naming import DEFAULT_TITLE, generate_unique_board_title
 from app.services.permissions import (
+    FULL_GRANT,
     BoardRole,
+    TokenGrant,
     at_least,
     can_write,
     rank,
@@ -78,13 +88,14 @@ MAX_THUMBNAIL_BYTES = 512 * 1024
 ALLOWED_THUMBNAIL_TYPES = frozenset({"image/webp", "image/png"})
 
 
-def _out(board: Board, role: BoardRole, *, read_only: bool = False) -> BoardOut:
+def _out(board: Board, role: BoardRole, grant: TokenGrant = FULL_GRANT) -> BoardOut:
     # `can_write` is computed here rather than left to the client so the lock and the
     # role are answered together, in the same place and the same way the websocket
     # handshake answers them. A client deriving it from the two fields beside it would
     # be the second implementation of a rule, which is what ARCHITECTURE 7 says not to
     # have; these two exist alongside it only so the UI can say *why*.
     locked = board.locked_at is not None
+    writable = can_write(role) and not locked
     return BoardOut(
         id=board.id,
         workspace_id=board.workspace_id,
@@ -98,9 +109,11 @@ def _out(board: Board, role: BoardRole, *, read_only: bool = False) -> BoardOut:
         share_role=BoardRole(board.share_role),
         is_locked=locked,
         locked_by=board.locked_by,
-        # `read_only` is a read-scoped access token, which stops writing at any role for
-        # the same reason the lock does. See `resolve_access`.
-        can_write=can_write(role) and not locked and not read_only,
+        # `grant` is what an access token allows here, which narrows writing at any role
+        # for the same reason the lock does. See `resolve_access`.
+        can_write=writable and (grant.edit or grant.delete),
+        can_edit=writable and grant.edit,
+        can_delete=writable and grant.delete,
         # Only whether there is one. The board still appears in the list and still
         # answers with its title and its role: what the password holds back is the
         # document, and hiding the board's existence from people who were deliberately
@@ -143,7 +156,7 @@ async def list_boards(
     The union matters: a board shared directly with someone outside the workspace is
     invisible if you only join on workspace membership.
 
-    A personal access token may list, and sees only the boards on its allow-list.
+    A personal access token may list. A fine-grained one sees only the glades it names.
     """
     user = principal.user
     query = (
@@ -172,11 +185,12 @@ async def list_boards(
     boards = list((await session.execute(query)).scalars())
     out = []
     for board in boards:
-        if not principal.allows_board(board.id):
+        grant = await principal.grant_for(session, board.id)
+        if grant is None:
             continue
         role = await resolve_role(session, user_id=user.id, board_id=board.id)
         if role is not None:
-            out.append(_out(board, role, read_only=principal.read_only))
+            out.append(_out(board, role, grant))
     return out
 
 
@@ -268,14 +282,12 @@ async def create_board(
 ) -> BoardOut:
     """Create a board, owned by the caller.
 
-    A personal access token may create one if it is write-scoped and not limited to
-    named boards. A board-scoped token would otherwise make a board it cannot open, or
-    quietly widen itself to include it, and neither is what its owner agreed to.
+    A classic access token may create one. A fine-grained token may not: the new glade
+    is not on its list, so it would either make a glade it cannot open or quietly widen
+    itself to include it, and neither is what its owner agreed to.
     """
     user = principal.user
-    if principal.api_token is not None and (
-        principal.read_only or principal.api_token.board_ids is not None
-    ):
+    if principal.api_token is not None and not api_tokens.is_classic(principal.api_token):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="token may not create")
     member = await session.get(WorkspaceMember, (body.workspace_id, user.id))
     if member is None:
@@ -314,9 +326,10 @@ async def get_board(
 ) -> BoardOut:
     """Metadata only, never content. Content arrives over the websocket."""
     board = await session.get(Board, board_id)
-    if board is None:
+    grant = await principal.grant_for(session, board_id)
+    if board is None or grant is None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="no access")
-    return _out(board, role, read_only=principal.read_only)
+    return _out(board, role, grant)
 
 
 @router.patch("/{board_id}", response_model=BoardOut)

@@ -79,7 +79,9 @@ export function richTextToPlain(nodes: readonly GladeRichNode[] | null): string 
       const isLine = LINE_BLOCKS.has(node.name)
       // A list item holds a paragraph, so the paragraph ends the line and the item
       // does not end a second, empty one.
-      const holdsBlocks = node.children.some((child) => 'name' in child && LINE_BLOCKS.has(child.name))
+      const holdsBlocks = node.children.some(
+        (child) => 'name' in child && LINE_BLOCKS.has(child.name),
+      )
       walk(node.children)
       if (isLine && !holdsBlocks) {
         lines.push(current)

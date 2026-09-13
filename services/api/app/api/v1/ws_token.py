@@ -6,9 +6,9 @@ for a board they cannot open, and the handshake is what stops a credential obtai
 legitimately from being used after access is gone. Neither one alone is sufficient.
 
 A personal access token may mint here too, and it is the one route of the realtime path
-it reaches. The token's board allow-list is checked before anything is resolved, a
-read-scoped token resolves with writing switched off, and the token's id goes into the
-ws-token so the handshake can ask again whether it is still good.
+it reaches. A glade a fine-grained token does not name is refused before anything is
+resolved, the token's grant narrows what is resolved, and the token's id goes into the
+ws-token so the handshake can ask again whether it is still good and still grants this.
 
 An anonymous visitor on a public link mints at `/share/{token}/ws-token` instead - see
 `app/api/v1/share.py`. The split is deliberate: this route requires a session, that one
@@ -62,9 +62,10 @@ async def create_ws_token(
     # pass, or one that is forged, expired, or minted for another board or an older
     # password - every one of which means the same thing here, which is that they have
     # not proved it.
-    # Before resolving anything, and the same 403 as no access at all: a token scoped to
-    # other boards has no business learning whether this one exists.
-    if not principal.allows_board(body.board_id):
+    # Before resolving anything, and the same 403 as no access at all: a token that does
+    # not name this glade has no business learning whether it exists.
+    grant = await principal.grant_for(session, body.board_id)
+    if grant is None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="no access")
 
     pass_version = (
@@ -83,7 +84,7 @@ async def create_ws_token(
         user_id=user.id,
         link_token=body.link_token,
         pass_version=pass_version,
-        read_only=principal.read_only,
+        grant=grant,
     )
     if access is None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="no access")
@@ -134,5 +135,7 @@ async def create_ws_token(
         expires_in=settings.ws_token_ttl_seconds,
         role=access.role,
         can_write=access.can_write,
+        can_edit=access.can_edit,
+        can_delete=access.can_delete,
         is_locked=access.locked,
     )

@@ -149,6 +149,23 @@ async def resolve_role(
 
 
 @dataclass(frozen=True)
+class TokenGrant:
+    """What a personal access token allows on one board, before the role is applied.
+
+    A classic token is `FULL` everywhere. A fine-grained token has one of these per glade
+    it names, and none for every other glade, which is no access at all. Read is the
+    grant itself: there is no grant that can edit or delete without being able to read.
+    """
+
+    edit: bool
+    delete: bool
+
+
+#: Everything the role allows. A classic token, and every caller that is not a token.
+FULL_GRANT = TokenGrant(edit=True, delete=True)
+
+
+@dataclass(frozen=True)
 class Access:
     """Everything that decides what a caller may do to a board, resolved together.
 
@@ -177,6 +194,11 @@ class Access:
     #: different refusal with a different way out: `can_write` is answered by asking
     #: somebody for more access, and this one is answered by typing.
     password_required: bool = False
+    #: May change the document other than by removing objects, and may remove them.
+    #: Both are `can_write` unless a fine-grained token split them; the websocket
+    #: enforces each on its own (see `app/realtime/guard.py`).
+    can_edit: bool = False
+    can_delete: bool = False
 
 
 async def resolve_access(
@@ -186,7 +208,7 @@ async def resolve_access(
     user_id: uuid.UUID | None = None,
     link_token: str | None = None,
     pass_version: int | None = None,
-    read_only: bool = False,
+    grant: TokenGrant = FULL_GRANT,
 ) -> Access | None:
     """The effective access a caller has to a board, or None for no access at all.
 
@@ -210,10 +232,12 @@ async def resolve_access(
     handshake - and anything short of the board's current one leaves
     `password_required` set, whatever role was resolved above it.
 
-    `read_only` is a read-scoped personal access token. It is folded in here beside the
-    lock for the lock's reason: it is a thing that stops writing at any role, and a
-    caller that had to remember to check it separately would be the one that forgets.
-    It narrows only. The role reported is still the account's.
+    `grant` is what a personal access token allows on this board. It is folded in here
+    beside the lock for the lock's reason: it stops writing at any role, and a caller
+    that had to remember to check it separately would be the one that forgets. It only
+    narrows. The role reported is still the account's, and a grant of edit to a viewer
+    edits nothing. A caller whose token has no grant for this board does not call this
+    at all: that is no access, answered before anything is resolved.
     """
     from app.models import Board
     from app.services import board_password, sharing
@@ -255,6 +279,7 @@ async def resolve_access(
     # owner is the one person who can never be shut out by it, since removing it is an
     # owner-only route that does not ask for the current one.
     password_required = board_password.is_set(board) and pass_version != board.password_version
+    writable = can_write(role) and not locked and not password_required
     return Access(
         role=role,
         # Only true when the link is the *only* thing that got them in. Somebody with a
@@ -269,6 +294,8 @@ async def resolve_access(
         # otherwise - a caller who may not read the document cannot be told they may
         # write to it - and it means a caller that ignores `password_required` fails
         # closed rather than open.
-        can_write=can_write(role) and not locked and not password_required and not read_only,
+        can_write=writable and (grant.edit or grant.delete),
         password_required=password_required,
+        can_edit=writable and grant.edit,
+        can_delete=writable and grant.delete,
     )

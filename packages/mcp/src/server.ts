@@ -32,10 +32,11 @@ import {
   importGlade,
 } from '../../../apps/web/src/doc/mutations'
 import packageJson from '../package.json' with { type: 'json' }
-import { MeadowApi, MeadowApiError } from './api'
+import { type ToolNeeds, describeBoundaries, usable } from './access'
+import { MeadowApi, MeadowApiError, type TokenInfo } from './api'
 import { type DiagramSpec, MermaidError, graphToMermaid, parseMermaid } from './mermaid'
 import { PlanError, planCreate, planDiagram, planRemove, planUpdate } from './plan'
-import { type Room, RoomError, Rooms } from './room'
+import { type Action, type Room, RoomError, Rooms, allowedPhrase, refusal } from './room'
 import { textToRich } from './text'
 
 export const VERSION: string = packageJson.version
@@ -48,7 +49,7 @@ How to work with it:
 - Every object keeps its id, so read first and then edit by id with update_objects, delete_objects and set_text.
 - To draw or extend a diagram, prefer apply_diagram: give nodes and edges (or Mermaid), and it matches existing nodes by id or label, adds what is missing and lays new nodes out beside the existing content. create_nodes and connect are the lower-level versions.
 - Leave out x and y and the server lays nodes out for you. Coordinates are world units: x grows right, y grows down.
-- Pass preview: true to any write to see what it would do without changing the glade.
+- Pass preview: true to any write to see what it would do without changing the glade. A preview works even where the write itself is not allowed.
 - Labels accept light Markdown: **bold**, *italic*, # headings and - bullets.
 Edits appear live for anyone with the glade open.`
 
@@ -92,12 +93,27 @@ const region = z
   .describe('Only objects that overlap this rectangle, in world units.')
 const colour = z.string().describe('Hex colour, e.g. #f4d35e.')
 const nodeType = z
-  .enum(['rect', 'ellipse', 'diamond', 'parallelogram', 'triangle', 'trapezoid', 'polygon', 'cylinder', 'sticky', 'text'])
-  .describe('Shape. rect by default; diamond for decisions, cylinder for data stores, sticky for notes, text for free text.')
+  .enum([
+    'rect',
+    'ellipse',
+    'diamond',
+    'parallelogram',
+    'triangle',
+    'trapezoid',
+    'polygon',
+    'cylinder',
+    'sticky',
+    'text',
+  ])
+  .describe(
+    'Shape. rect by default; diamond for decisions, cylinder for data stores, sticky for notes, text for free text.',
+  )
 const direction = z
   .enum(['forward', 'back', 'both', 'none'])
   .describe('Arrowheads: forward points from -> to. Default forward for arrows, none for lines.')
-const routing = z.enum(['straight', 'curved', 'orthogonal']).describe('Path style. orthogonal draws elbows.')
+const routing = z
+  .enum(['straight', 'curved', 'orthogonal'])
+  .describe('Path style. orthogonal draws elbows.')
 
 const nodeInput = z.object({
   ref: z
@@ -128,7 +144,10 @@ const edgeInput = z.object({
   stroke: colour.optional(),
 })
 
-function overlaps(item: { x: number; y: number; w: number; h: number }, area: z.infer<typeof region>): boolean {
+function overlaps(
+  item: { x: number; y: number; w: number; h: number },
+  area: z.infer<typeof region>,
+): boolean {
   const minX = Math.min(item.x, item.x + item.w)
   const maxX = Math.max(item.x, item.x + item.w)
   const minY = Math.min(item.y, item.y + item.h)
@@ -137,7 +156,11 @@ function overlaps(item: { x: number; y: number; w: number; h: number }, area: z.
 }
 
 function snapshot(room: Room): GladeFile {
-  return exportGlade(room.session, { title: room.board.title, kind: room.board.kind }, { app: `meadow-mcp ${VERSION}` })
+  return exportGlade(
+    room.session,
+    { title: room.board.title, kind: room.board.kind },
+    { app: `meadow-mcp ${VERSION}` },
+  )
 }
 
 function graphOf(room: Room): GladeGraph {
@@ -154,7 +177,9 @@ function describeBatch(batch: EditBatch): Json {
         ? {}
         : { x: object.x, y: object.y, w: object.w, h: object.h }),
       label: richTextToPlain(text ?? null),
-      ...(object.props === undefined || Object.keys(object.props).length === 0 ? {} : { props: object.props }),
+      ...(object.props === undefined || Object.keys(object.props).length === 0
+        ? {}
+        : { props: object.props }),
     })),
     connect: batch.connect ?? [],
     update: (batch.update ?? []).map(({ id, patch, text }) => ({
@@ -169,13 +194,57 @@ function describeBatch(batch: EditBatch): Json {
 export type ServerOptions = {
   api: MeadowApi
   idleMs: number
+  /** The token describing itself, read before the server is built so the instructions carry it. */
+  access: TokenInfo
 }
 
-export function createServer({ api, idleMs }: ServerOptions): { server: McpServer; close: () => void } {
-  const server = new McpServer({ name: 'meadow', version: VERSION }, { instructions: INSTRUCTIONS })
+/** What a batch would need: edit for anything it creates, changes or connects; delete for removals. */
+function needsOf(batch: EditBatch): Action[] {
+  const needs: Action[] = []
+  if ((batch.create?.length ?? 0) + (batch.update?.length ?? 0) + (batch.connect?.length ?? 0) > 0)
+    needs.push('edit')
+  if ((batch.remove?.length ?? 0) > 0) needs.push('delete')
+  return needs
+}
+
+export function createServer({ api, idleMs, access: initialAccess }: ServerOptions): {
+  server: McpServer
+  close: () => void
+} {
+  const server = new McpServer(
+    { name: 'meadow', version: VERSION },
+    { instructions: `${INSTRUCTIONS}\n\n${describeBoundaries(initialAccess)}` },
+  )
+
+  let access = initialAccess
+  // Every tool, with what it needs, so a token that can never use one does not offer it.
+  const gated: {
+    tool: { enable: () => void; disable: () => void; enabled: boolean }
+    needs: ToolNeeds
+  }[] = []
+  const gate = (
+    tool: { enable: () => void; disable: () => void; enabled: boolean },
+    needs: ToolNeeds,
+  ): void => {
+    gated.push({ tool, needs })
+    if (!usable(access, needs)) tool.disable()
+  }
+  /** Re-read the token, and switch tools on or off if what it may do has changed. */
+  const refreshAccess = async (): Promise<TokenInfo> => {
+    access = await api.currentToken()
+    for (const { tool, needs } of gated) {
+      const want = usable(access, needs)
+      if (want && !tool.enabled) tool.enable()
+      if (!want && tool.enabled) tool.disable()
+    }
+    return access
+  }
 
   let userId: string | null = null
-  const me = async (): Promise<{ id: string; default_workspace_id: string | null }> => {
+  const me = async (): Promise<{
+    id: string
+    default_workspace_id: string | null
+  }> => {
     const account = await api.me()
     userId = account.id
     return account
@@ -191,7 +260,9 @@ export function createServer({ api, idleMs }: ServerOptions): { server: McpServe
         userId: userId ?? 'mcp',
         name: () => {
           const client = server.server.getClientVersion()?.name
-          return client === undefined || client === '' ? 'AI assistant (via MCP)' : `${client} (via MCP)`
+          return client === undefined || client === ''
+            ? 'AI assistant (via MCP)'
+            : `${client} (via MCP)`
         },
       },
       idleMs,
@@ -208,9 +279,21 @@ export function createServer({ api, idleMs }: ServerOptions): { server: McpServe
     plan: (room: Room) => Promise<{ batch: EditBatch; extra?: Record<string, unknown> }>,
   ): Promise<CallToolResult> => {
     const room = await openRoom(id)
-    if (wantPreview !== true && room.readOnlyReason !== null) return refused(room.readOnlyReason)
     const { batch, extra } = await plan(room)
-    if (wantPreview === true) return ok({ preview: true, ...extra, ...describeBatch(batch) })
+    // After planning, so the refusal names exactly what the batch needed. Checked here
+    // so a model gets a reason; the server drops the write regardless.
+    const blocked = needsOf(batch)
+      .map((action) => refusal(room, action))
+      .filter((reason): reason is string => reason !== null)
+    if (wantPreview === true) {
+      return ok({
+        preview: true,
+        ...(blocked.length === 0 ? {} : { would_be_refused: blocked }),
+        ...extra,
+        ...describeBatch(batch),
+      })
+    }
+    if (blocked.length > 0) return refused(blocked.join('\n'))
 
     const result = applyEdits(room.session, batch)
     await (await roomsFor()).flush(room)
@@ -243,25 +326,60 @@ export function createServer({ api, idleMs }: ServerOptions): { server: McpServe
     'list_glades',
     {
       title: 'List glades',
-      description: 'Every glade this access token can open, most recently changed first.',
+      description:
+        'Every glade this access token can open, most recently changed first, with what may be done on each (can_edit, can_delete).',
       inputSchema: {},
       annotations: { readOnlyHint: true },
     },
     () =>
       guarded(async () => {
-        const boards = await api.listBoards()
+        const [boards] = await Promise.all([api.listBoards(), refreshAccess()])
         return ok(
           boards.map((board) => ({
             id: board.id,
             title: board.title,
             kind: board.kind,
             role: board.role,
-            can_write: board.can_write,
+            can_edit: board.can_edit,
+            can_delete: board.can_delete,
+            allowed: allowedPhrase(board),
             locked: board.is_locked,
             has_password: board.has_password,
             updated_at: board.updated_at,
           })),
         )
+      }),
+  )
+
+  server.registerTool(
+    'get_my_access',
+    {
+      title: 'What this token may do',
+      description:
+        'The access token behind this server: classic (everything the account can do) or fine-grained, and for a fine-grained token every glade it can open with its read, edit and delete permissions. Call this before editing if unsure.',
+      inputSchema: {},
+      annotations: { readOnlyHint: true },
+    },
+    () =>
+      guarded(async () => {
+        const info = await refreshAccess()
+        return ok({
+          token: info.name,
+          kind: info.kind,
+          expires_at: info.expires_at,
+          can_create_glades: info.can_create_glades,
+          glades:
+            info.grants === null
+              ? 'every glade the account can open; list_glades shows what the role and locks allow on each'
+              : info.grants.map((grant) => ({
+                  id: grant.board_id,
+                  title: grant.title,
+                  read: grant.read,
+                  edit: grant.edit,
+                  delete: grant.delete,
+                })),
+          note: "The account's role and the owner's lock can narrow these further on a glade. list_glades shows the result.",
+        })
       }),
   )
 
@@ -288,8 +406,9 @@ export function createServer({ api, idleMs }: ServerOptions): { server: McpServe
           title: room.board.title,
           kind: room.board.kind,
           role: room.access.role,
-          can_write: room.readOnlyReason === null,
-          ...(room.readOnlyReason === null ? {} : { read_only_because: room.readOnlyReason }),
+          can_edit: room.access.can_edit,
+          can_delete: room.access.can_delete,
+          allowed: allowedPhrase(room.access),
           objects: file.objects.length,
           nodes: graph.nodes.length,
           edges: graph.edges.length,
@@ -297,11 +416,20 @@ export function createServer({ api, idleMs }: ServerOptions): { server: McpServe
           bounds:
             xs.length === 0
               ? null
-              : { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) },
+              : {
+                  x: Math.min(...xs),
+                  y: Math.min(...ys),
+                  w: Math.max(...xs) - Math.min(...xs),
+                  h: Math.max(...ys) - Math.min(...ys),
+                },
           labels: graph.nodes
             .filter((node) => node.label !== '')
             .slice(0, 40)
-            .map((node) => ({ id: node.id, type: node.type, label: node.label.slice(0, 120) })),
+            .map((node) => ({
+              id: node.id,
+              type: node.type,
+              label: node.label.slice(0, 120),
+            })),
         })
       }),
   )
@@ -315,7 +443,13 @@ export function createServer({ api, idleMs }: ServerOptions): { server: McpServe
       inputSchema: {
         glade_id: gladeId,
         offset: z.number().int().min(0).optional(),
-        limit: z.number().int().min(1).max(2000).optional().describe('Nodes per page, default 300.'),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(2000)
+          .optional()
+          .describe('Nodes per page, default 300.'),
         region: region.optional(),
         include_freedraw: z.boolean().optional(),
       },
@@ -325,7 +459,9 @@ export function createServer({ api, idleMs }: ServerOptions): { server: McpServe
       guarded(async () => {
         const graph = graphOf(await openRoom(glade_id))
         const nodes = graph.nodes.filter(
-          (node) => (include_freedraw || node.type !== 'freedraw') && (area === undefined || overlaps(node, area)),
+          (node) =>
+            (include_freedraw || node.type !== 'freedraw') &&
+            (area === undefined || overlaps(node, area)),
         )
         const page = nodes.slice(offset, offset + limit)
         const onPage = new Set(page.map((node) => node.id))
@@ -367,7 +503,8 @@ export function createServer({ api, idleMs }: ServerOptions): { server: McpServe
       guarded(async () => {
         const graph = graphOf(await openRoom(glade_id))
         const needle = text?.toLowerCase()
-        const matchLabel = (label: string): boolean => needle === undefined || label.toLowerCase().includes(needle)
+        const matchLabel = (label: string): boolean =>
+          needle === undefined || label.toLowerCase().includes(needle)
         const nodes: GraphNode[] = graph.nodes.filter(
           (node) =>
             matchLabel(node.label) &&
@@ -377,7 +514,9 @@ export function createServer({ api, idleMs }: ServerOptions): { server: McpServe
         const edges: GraphEdge[] =
           area !== undefined
             ? []
-            : graph.edges.filter((edge) => matchLabel(edge.label) && (type === undefined || edge.type === type))
+            : graph.edges.filter(
+                (edge) => matchLabel(edge.label) && (type === undefined || edge.type === type),
+              )
         return ok({
           nodes: nodes.slice(0, limit),
           edges: edges.slice(0, limit),
@@ -392,7 +531,10 @@ export function createServer({ api, idleMs }: ServerOptions): { server: McpServe
       title: 'Get objects in full',
       description:
         'The complete stored form of some objects, including every style property and rich text, plus the bindings of any arrows among them.',
-      inputSchema: { glade_id: gladeId, ids: z.array(z.string()).min(1).max(200) },
+      inputSchema: {
+        glade_id: gladeId,
+        ids: z.array(z.string()).min(1).max(200),
+      },
       annotations: { readOnlyHint: true },
     },
     ({ glade_id, ids }) =>
@@ -421,7 +563,8 @@ export function createServer({ api, idleMs }: ServerOptions): { server: McpServe
     ({ glade_id }) =>
       guarded(async () => {
         const text = JSON.stringify(snapshot(await openRoom(glade_id)))
-        if (text.length > GLADE_MAX_BYTES) return refused('This glade is larger than an export may be.')
+        if (text.length > GLADE_MAX_BYTES)
+          return refused('This glade is larger than an export may be.')
         return { content: [{ type: 'text', text }] }
       }),
   )
@@ -430,227 +573,306 @@ export function createServer({ api, idleMs }: ServerOptions): { server: McpServe
     'export_mermaid',
     {
       title: 'Export a glade as Mermaid',
-      description: 'The glade as a Mermaid flowchart: shapes, labels and connections, without positions or colours.',
-      inputSchema: { glade_id: gladeId, direction: z.enum(['LR', 'TB']).optional() },
+      description:
+        'The glade as a Mermaid flowchart: shapes, labels and connections, without positions or colours.',
+      inputSchema: {
+        glade_id: gladeId,
+        direction: z.enum(['LR', 'TB']).optional(),
+      },
       annotations: { readOnlyHint: true },
     },
     ({ glade_id, direction: flow }) =>
       guarded(async () => ({
-        content: [{ type: 'text', text: graphToMermaid(graphOf(await openRoom(glade_id)), flow ?? 'LR') }],
+        content: [
+          {
+            type: 'text',
+            text: graphToMermaid(graphOf(await openRoom(glade_id)), flow ?? 'LR'),
+          },
+        ],
       })),
   )
 
   // --- writing ---------------------------------------------------------------------------
 
-  server.registerTool(
-    'create_glade',
-    {
-      title: 'Create a glade',
-      description: 'A new, empty glade owned by the token holder. Needs a read-and-edit token not limited to particular glades.',
-      inputSchema: {
-        title: z.string().min(1).max(200),
-        kind: z.enum(['glade', 'lea']).optional().describe('glade is a canvas; lea is a ruled diary.'),
+  gate(
+    server.registerTool(
+      'create_glade',
+      {
+        title: 'Create a glade',
+        description:
+          'A new, empty glade owned by the token holder. Needs a read-and-edit token not limited to particular glades.',
+        inputSchema: {
+          title: z.string().min(1).max(200),
+          kind: z
+            .enum(['glade', 'lea'])
+            .optional()
+            .describe('glade is a canvas; lea is a ruled diary.'),
+        },
       },
-    },
-    ({ title, kind }) =>
-      guarded(async () => {
-        const account = await me()
-        if (account.default_workspace_id === null) return refused('This account has no workspace to create a glade in.')
-        const board = await api.createBoard(account.default_workspace_id, title, kind ?? 'glade')
-        return ok({ id: board.id, title: board.title, kind: board.kind })
-      }),
+      ({ title, kind }) =>
+        guarded(async () => {
+          const account = await me()
+          if (account.default_workspace_id === null)
+            return refused('This account has no workspace to create a glade in.')
+          const board = await api.createBoard(account.default_workspace_id, title, kind ?? 'glade')
+          return ok({ id: board.id, title: board.title, kind: board.kind })
+        }),
+    ),
+    'create',
   )
 
-  server.registerTool(
-    'create_nodes',
-    {
-      title: 'Create nodes',
-      description:
-        'Add shapes, stickies or text. Nodes without x and y are laid out together beside the existing content. Edges between them can be added in the same call with edges.',
-      inputSchema: {
-        glade_id: gladeId,
-        nodes: z.array(nodeInput).min(1).max(500),
-        edges: z.array(edgeInput).max(500).optional(),
-        direction: z.enum(['LR', 'TB']).optional().describe('Layout direction for unplaced nodes. Default LR.'),
-        placement: z.object({ x: z.number(), y: z.number() }).optional().describe('Top-left of the laid-out block.'),
-        preview,
+  gate(
+    server.registerTool(
+      'create_nodes',
+      {
+        title: 'Create nodes',
+        description:
+          'Add shapes, stickies or text. Nodes without x and y are laid out together beside the existing content. Edges between them can be added in the same call with edges.',
+        inputSchema: {
+          glade_id: gladeId,
+          nodes: z.array(nodeInput).min(1).max(500),
+          edges: z.array(edgeInput).max(500).optional(),
+          direction: z
+            .enum(['LR', 'TB'])
+            .optional()
+            .describe('Layout direction for unplaced nodes. Default LR.'),
+          placement: z
+            .object({ x: z.number(), y: z.number() })
+            .optional()
+            .describe('Top-left of the laid-out block.'),
+          preview,
+        },
       },
-    },
-    ({ glade_id, nodes, edges, direction: flow, placement, preview: wantPreview }) =>
-      guarded(() =>
-        edit(glade_id, wantPreview, async (room) => ({
-          batch: await planCreate(room.session, nodes, edges ?? [], { direction: flow, placement }),
-        })),
-      ),
-  )
-
-  server.registerTool(
-    'connect',
-    {
-      title: 'Connect objects',
-      description: 'Draw arrows or lines between objects already on the glade. The ends stay attached when the objects move.',
-      inputSchema: { glade_id: gladeId, edges: z.array(edgeInput).min(1).max(500), preview },
-    },
-    ({ glade_id, edges, preview: wantPreview }) =>
-      guarded(() =>
-        edit(glade_id, wantPreview, async (room) => ({ batch: await planCreate(room.session, [], edges) })),
-      ),
-  )
-
-  server.registerTool(
-    'update_objects',
-    {
-      title: 'Update objects',
-      description:
-        'Change labels, position, size, rotation or colours by id. For arrows: label, direction, routing and stroke; their ends follow what they connect.',
-      inputSchema: {
-        glade_id: gladeId,
-        updates: z
-          .array(
-            z.object({
-              id: z.string(),
-              label: z.string().optional(),
-              x: z.number().optional(),
-              y: z.number().optional(),
-              w: z.number().positive().optional(),
-              h: z.number().positive().optional(),
-              rotation: z.number().optional().describe('Radians.'),
-              fill: colour.optional(),
-              stroke: colour.optional(),
-              text_color: colour.optional(),
-              font_size: z.number().min(6).max(288).optional(),
-              direction: direction.optional(),
-              routing: routing.optional(),
-              locked: z.boolean().optional(),
+      ({ glade_id, nodes, edges, direction: flow, placement, preview: wantPreview }) =>
+        guarded(() =>
+          edit(glade_id, wantPreview, async (room) => ({
+            batch: await planCreate(room.session, nodes, edges ?? [], {
+              direction: flow,
+              placement,
             }),
-          )
-          .min(1)
-          .max(500),
-        preview,
+          })),
+        ),
+    ),
+    'edit',
+  )
+
+  gate(
+    server.registerTool(
+      'connect',
+      {
+        title: 'Connect objects',
+        description:
+          'Draw arrows or lines between objects already on the glade. The ends stay attached when the objects move.',
+        inputSchema: {
+          glade_id: gladeId,
+          edges: z.array(edgeInput).min(1).max(500),
+          preview,
+        },
       },
-    },
-    ({ glade_id, updates, preview: wantPreview }) =>
-      guarded(() => edit(glade_id, wantPreview, async (room) => ({ batch: planUpdate(room.session, updates) }))),
+      ({ glade_id, edges, preview: wantPreview }) =>
+        guarded(() =>
+          edit(glade_id, wantPreview, async (room) => ({
+            batch: await planCreate(room.session, [], edges),
+          })),
+        ),
+    ),
+    'edit',
   )
 
-  server.registerTool(
-    'delete_objects',
-    {
-      title: 'Delete objects',
-      description: 'Remove objects by id. Arrows attached to a removed object keep a free end rather than disappearing.',
-      inputSchema: { glade_id: gladeId, ids: z.array(z.string()).min(1).max(500), preview },
-      annotations: { destructiveHint: true },
-    },
-    ({ glade_id, ids, preview: wantPreview }) =>
-      guarded(() => edit(glade_id, wantPreview, async (room) => ({ batch: planRemove(room.session, ids) }))),
-  )
-
-  server.registerTool(
-    'set_text',
-    {
-      title: 'Set text',
-      description: 'Replace the text of a shape, sticky, text object or arrow label. Accepts light Markdown unless markdown is false.',
-      inputSchema: {
-        glade_id: gladeId,
-        id: z.string(),
-        text: z.string(),
-        markdown: z.boolean().optional(),
-        preview,
-      },
-    },
-    ({ glade_id, id, text, markdown, preview: wantPreview }) =>
-      guarded(() =>
-        edit(glade_id, wantPreview, async (room) => {
-          if (!room.session.objects.has(id)) throw new PlanError(`no object with id ${id}`)
-          return { batch: { update: [{ id, patch: {}, text: textToRich(text, markdown ?? true) }] } }
-        }),
-      ),
-  )
-
-  server.registerTool(
-    'apply_diagram',
-    {
-      title: 'Apply a diagram',
-      description:
-        'Draw or extend a diagram from nodes and edges, or from Mermaid flowchart text. Nodes are matched to the glade by id, then by exact label; matched nodes are kept (and relabelled if the label changed), missing ones are created and laid out, and edges that already exist are not drawn twice. Nothing the diagram does not mention is removed.',
-      inputSchema: {
-        glade_id: gladeId,
-        diagram: z
-          .object({
-            direction: z.enum(['LR', 'TB']).optional(),
-            nodes: z.array(
+  gate(
+    server.registerTool(
+      'update_objects',
+      {
+        title: 'Update objects',
+        description:
+          'Change labels, position, size, rotation or colours by id. For arrows: label, direction, routing and stroke; their ends follow what they connect.',
+        inputSchema: {
+          glade_id: gladeId,
+          updates: z
+            .array(
               z.object({
-                key: z.string().describe('An existing object id, or a name edges use.'),
+                id: z.string(),
                 label: z.string().optional(),
-                type: nodeType.optional(),
-              }),
-            ),
-            edges: z.array(
-              z.object({
-                from: z.string(),
-                to: z.string(),
-                label: z.string().optional(),
+                x: z.number().optional(),
+                y: z.number().optional(),
+                w: z.number().positive().optional(),
+                h: z.number().positive().optional(),
+                rotation: z.number().optional().describe('Radians.'),
+                fill: colour.optional(),
+                stroke: colour.optional(),
+                text_color: colour.optional(),
+                font_size: z.number().min(6).max(288).optional(),
                 direction: direction.optional(),
-                type: z.enum(['arrow', 'line']).optional(),
+                routing: routing.optional(),
+                locked: z.boolean().optional(),
               }),
-            ),
-          })
-          .optional(),
-        mermaid: z.string().optional().describe('A Mermaid flowchart, used instead of diagram.'),
-        placement: z.object({ x: z.number(), y: z.number() }).optional(),
-        preview,
+            )
+            .min(1)
+            .max(500),
+          preview,
+        },
       },
-    },
-    ({ glade_id, diagram, mermaid, placement, preview: wantPreview }) =>
-      guarded(() =>
-        edit(glade_id, wantPreview, async (room) => {
-          if ((diagram === undefined) === (mermaid === undefined)) {
-            throw new PlanError('give exactly one of diagram or mermaid')
-          }
-          const spec: DiagramSpec = mermaid !== undefined ? parseMermaid(mermaid) : diagram!
-          const plan = await planDiagram(room.session, spec, placement)
-          return {
-            batch: plan.batch,
-            extra: { matched: plan.matched, existing_edges: plan.existingEdges },
-          }
-        }),
-      ),
+      ({ glade_id, updates, preview: wantPreview }) =>
+        guarded(() =>
+          edit(glade_id, wantPreview, async (room) => ({
+            batch: planUpdate(room.session, updates),
+          })),
+        ),
+    ),
+    'edit',
   )
 
-  server.registerTool(
-    'import_glade',
-    {
-      title: 'Import a glade file',
-      description:
-        'Create a new glade from a .meadow.json file, keeping every id. Needs a read-and-edit token not limited to particular glades.',
-      inputSchema: {
-        file: z.union([z.string(), z.record(z.unknown())]).describe('The file, as JSON text or an object.'),
-        title: z.string().min(1).max(200).optional(),
+  gate(
+    server.registerTool(
+      'delete_objects',
+      {
+        title: 'Delete objects',
+        description:
+          'Remove objects by id. Arrows attached to a removed object keep a free end rather than disappearing.',
+        inputSchema: {
+          glade_id: gladeId,
+          ids: z.array(z.string()).min(1).max(500),
+          preview,
+        },
+        annotations: { destructiveHint: true },
       },
-    },
-    ({ file, title }) =>
-      guarded(async () => {
-        const parsed = parseGladeFile(file)
-        if (!parsed.ok) return refused(`Not a glade file: ${parsed.error}`)
-        const account = await me()
-        if (account.default_workspace_id === null) return refused('This account has no workspace to create a glade in.')
-        const kind = parsed.file.board.kind === 'lea' ? 'lea' : 'glade'
-        const board = await api.createBoard(
-          account.default_workspace_id,
-          title ?? (parsed.file.board.title === '' ? 'Imported glade' : parsed.file.board.title),
-          kind,
-        )
-        const room = await openRoom(board.id)
-        if (room.readOnlyReason !== null) return refused(room.readOnlyReason)
-        const counts = importGlade(room.session, parsed.file)
-        await (await roomsFor()).flush(room)
-        return ok({
-          id: board.id,
-          title: board.title,
-          ...counts,
-          ...(gladeReportIsClean(parsed.report) ? {} : { repaired: parsed.report }),
-        })
-      }),
+      ({ glade_id, ids, preview: wantPreview }) =>
+        guarded(() =>
+          edit(glade_id, wantPreview, async (room) => ({
+            batch: planRemove(room.session, ids),
+          })),
+        ),
+    ),
+    'delete',
+  )
+
+  gate(
+    server.registerTool(
+      'set_text',
+      {
+        title: 'Set text',
+        description:
+          'Replace the text of a shape, sticky, text object or arrow label. Accepts light Markdown unless markdown is false.',
+        inputSchema: {
+          glade_id: gladeId,
+          id: z.string(),
+          text: z.string(),
+          markdown: z.boolean().optional(),
+          preview,
+        },
+      },
+      ({ glade_id, id, text, markdown, preview: wantPreview }) =>
+        guarded(() =>
+          edit(glade_id, wantPreview, async (room) => {
+            if (!room.session.objects.has(id)) throw new PlanError(`no object with id ${id}`)
+            return {
+              batch: {
+                update: [{ id, patch: {}, text: textToRich(text, markdown ?? true) }],
+              },
+            }
+          }),
+        ),
+    ),
+    'edit',
+  )
+
+  gate(
+    server.registerTool(
+      'apply_diagram',
+      {
+        title: 'Apply a diagram',
+        description:
+          'Draw or extend a diagram from nodes and edges, or from Mermaid flowchart text. Nodes are matched to the glade by id, then by exact label; matched nodes are kept (and relabelled if the label changed), missing ones are created and laid out, and edges that already exist are not drawn twice. Nothing the diagram does not mention is removed.',
+        inputSchema: {
+          glade_id: gladeId,
+          diagram: z
+            .object({
+              direction: z.enum(['LR', 'TB']).optional(),
+              nodes: z.array(
+                z.object({
+                  key: z.string().describe('An existing object id, or a name edges use.'),
+                  label: z.string().optional(),
+                  type: nodeType.optional(),
+                }),
+              ),
+              edges: z.array(
+                z.object({
+                  from: z.string(),
+                  to: z.string(),
+                  label: z.string().optional(),
+                  direction: direction.optional(),
+                  type: z.enum(['arrow', 'line']).optional(),
+                }),
+              ),
+            })
+            .optional(),
+          mermaid: z.string().optional().describe('A Mermaid flowchart, used instead of diagram.'),
+          placement: z.object({ x: z.number(), y: z.number() }).optional(),
+          preview,
+        },
+      },
+      ({ glade_id, diagram, mermaid, placement, preview: wantPreview }) =>
+        guarded(() =>
+          edit(glade_id, wantPreview, async (room) => {
+            if ((diagram === undefined) === (mermaid === undefined)) {
+              throw new PlanError('give exactly one of diagram or mermaid')
+            }
+            const spec: DiagramSpec = mermaid !== undefined ? parseMermaid(mermaid) : diagram!
+            const plan = await planDiagram(room.session, spec, placement)
+            return {
+              batch: plan.batch,
+              extra: {
+                matched: plan.matched,
+                existing_edges: plan.existingEdges,
+              },
+            }
+          }),
+        ),
+    ),
+    'edit',
+  )
+
+  gate(
+    server.registerTool(
+      'import_glade',
+      {
+        title: 'Import a glade file',
+        description:
+          'Create a new glade from a .meadow.json file, keeping every id. Needs a read-and-edit token not limited to particular glades.',
+        inputSchema: {
+          file: z
+            .union([z.string(), z.record(z.unknown())])
+            .describe('The file, as JSON text or an object.'),
+          title: z.string().min(1).max(200).optional(),
+        },
+      },
+      ({ file, title }) =>
+        guarded(async () => {
+          const parsed = parseGladeFile(file)
+          if (!parsed.ok) return refused(`Not a glade file: ${parsed.error}`)
+          const account = await me()
+          if (account.default_workspace_id === null)
+            return refused('This account has no workspace to create a glade in.')
+          const kind = parsed.file.board.kind === 'lea' ? 'lea' : 'glade'
+          const board = await api.createBoard(
+            account.default_workspace_id,
+            title ?? (parsed.file.board.title === '' ? 'Imported glade' : parsed.file.board.title),
+            kind,
+          )
+          const room = await openRoom(board.id)
+          const blocked = refusal(room, 'edit')
+          if (blocked !== null) return refused(blocked)
+          const counts = importGlade(room.session, parsed.file)
+          await (await roomsFor()).flush(room)
+          return ok({
+            id: board.id,
+            title: board.title,
+            ...counts,
+            ...(gladeReportIsClean(parsed.report) ? {} : { repaired: parsed.report }),
+          })
+        }),
+    ),
+    'create',
   )
 
   // --- resources ---------------------------------------------------------------------------
@@ -665,19 +887,43 @@ export function createServer({ api, idleMs }: ServerOptions): { server: McpServe
 
   server.registerResource(
     'glade',
-    new ResourceTemplate('meadow://glade/{glade_id}', { list: listTemplate('') }),
-    { title: 'Glade file', description: 'A glade as a lossless .meadow.json file.', mimeType: 'application/json' },
+    new ResourceTemplate('meadow://glade/{glade_id}', {
+      list: listTemplate(''),
+    }),
+    {
+      title: 'Glade file',
+      description: 'A glade as a lossless .meadow.json file.',
+      mimeType: 'application/json',
+    },
     async (uri, { glade_id }) => ({
-      contents: [{ uri: uri.href, mimeType: 'application/json', text: JSON.stringify(snapshot(await openRoom(String(glade_id)))) }],
+      contents: [
+        {
+          uri: uri.href,
+          mimeType: 'application/json',
+          text: JSON.stringify(snapshot(await openRoom(String(glade_id)))),
+        },
+      ],
     }),
   )
 
   server.registerResource(
     'glade-graph',
-    new ResourceTemplate('meadow://glade/{glade_id}/graph', { list: listTemplate('/graph') }),
-    { title: 'Glade graph', description: 'A glade as nodes and edges.', mimeType: 'application/json' },
+    new ResourceTemplate('meadow://glade/{glade_id}/graph', {
+      list: listTemplate('/graph'),
+    }),
+    {
+      title: 'Glade graph',
+      description: 'A glade as nodes and edges.',
+      mimeType: 'application/json',
+    },
     async (uri, { glade_id }) => ({
-      contents: [{ uri: uri.href, mimeType: 'application/json', text: JSON.stringify(graphOf(await openRoom(String(glade_id)))) }],
+      contents: [
+        {
+          uri: uri.href,
+          mimeType: 'application/json',
+          text: JSON.stringify(graphOf(await openRoom(String(glade_id)))),
+        },
+      ],
     }),
   )
 

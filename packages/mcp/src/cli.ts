@@ -12,13 +12,17 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto'
-import { type IncomingMessage, type ServerResponse, createServer as createHttpServer } from 'node:http'
+import {
+  type IncomingMessage,
+  type ServerResponse,
+  createServer as createHttpServer,
+} from 'node:http'
 
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
 
-import { MeadowApi } from './api'
+import { MeadowApi, type TokenInfo } from './api'
 import { type Config, ConfigError, parseConfig } from './config'
 import { VERSION, createServer } from './server'
 
@@ -30,15 +34,21 @@ async function stdio(config: Config): Promise<void> {
   const api = new MeadowApi(config.api, config.token as string)
   // Checked up front, so a wrong token is a clear message at startup rather than the
   // first tool call failing inside a client that may not show the reason.
+  let access: TokenInfo
   try {
-    const me = await api.me()
-    log(`${VERSION} connected to ${config.api} as ${me.display_name}`)
+    const [me, token] = await Promise.all([api.me(), api.currentToken()])
+    access = token
+    const scope =
+      token.kind === 'classic'
+        ? 'classic token, full access'
+        : `fine-grained token, ${token.grants?.length ?? 0} glade(s)`
+    log(`${VERSION} connected to ${config.api} as ${me.display_name} (${scope})`)
   } catch (error) {
     log(error instanceof Error ? error.message : String(error))
     process.exit(1)
   }
 
-  const { server, close } = createServer({ api, idleMs: config.idleMs })
+  const { server, close } = createServer({ api, idleMs: config.idleMs, access })
   const shutdown = (): void => {
     close()
     void server.close().finally(() => process.exit(0))
@@ -69,7 +79,12 @@ function bearer(request: IncomingMessage): string | null {
 
 const hashToken = (token: string): string => createHash('sha256').update(token).digest('hex')
 
-function reply(response: ServerResponse, status: number, message: string, headers: Record<string, string> = {}): void {
+function reply(
+  response: ServerResponse,
+  status: number,
+  message: string,
+  headers: Record<string, string> = {},
+): void {
   response.writeHead(status, { 'content-type': 'application/json', ...headers })
   response.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32000, message }, id: null }))
 }
@@ -115,9 +130,14 @@ async function http(config: Config): Promise<void> {
 
       const token = bearer(request)
       if (token === null) {
-        reply(response, 401, 'a Meadow access token is required as "Authorization: Bearer mdw_..."', {
-          'www-authenticate': 'Bearer',
-        })
+        reply(
+          response,
+          401,
+          'a Meadow access token is required as "Authorization: Bearer mdw_..."',
+          {
+            'www-authenticate': 'Bearer',
+          },
+        )
         return
       }
 
@@ -142,13 +162,18 @@ async function http(config: Config): Promise<void> {
       }
       const body = await readBody(request)
       if (!isInitializeRequest(body)) {
-        reply(response, typeof sessionId === 'string' ? 404 : 400, 'session not found; initialize again')
+        reply(
+          response,
+          typeof sessionId === 'string' ? 404 : 400,
+          'session not found; initialize again',
+        )
         return
       }
 
       const api = new MeadowApi(config.api, token)
+      let access: TokenInfo
       try {
-        await api.me()
+        access = await api.currentToken()
       } catch (error) {
         reply(response, 401, error instanceof Error ? error.message : 'access token refused', {
           'www-authenticate': 'Bearer',
@@ -156,7 +181,7 @@ async function http(config: Config): Promise<void> {
         return
       }
 
-      const { server: mcp, close } = createServer({ api, idleMs: config.idleMs })
+      const { server: mcp, close } = createServer({ api, idleMs: config.idleMs, access })
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
         onsessioninitialized: (id) => {
@@ -176,7 +201,9 @@ async function http(config: Config): Promise<void> {
   })
 
   server.listen(config.port, config.host, () => {
-    log(`${VERSION} serving Streamable HTTP on http://${config.host}:${config.port}/mcp for ${config.api}`)
+    log(
+      `${VERSION} serving Streamable HTTP on http://${config.host}:${config.port}/mcp for ${config.api}`,
+    )
   })
 
   const shutdown = (): void => {

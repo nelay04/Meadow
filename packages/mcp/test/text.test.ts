@@ -33,7 +33,11 @@ describe('textToRich', () => {
 
   it('groups bullets into a list and reads headings', () => {
     const nodes = textToRich('## Plan\n- one\n- two\nafter')
-    expect(nodes.map((node) => ('name' in node ? node.name : 'text'))).toEqual(['heading', 'bulletList', 'paragraph'])
+    expect(nodes.map((node) => ('name' in node ? node.name : 'text'))).toEqual([
+      'heading',
+      'bulletList',
+      'paragraph',
+    ])
   })
 
   it('keeps every character when markdown is off, and drops a trailing newline', () => {

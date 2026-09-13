@@ -82,7 +82,12 @@ export function graphToMermaid(graph: GladeGraph, direction: DiagramDirection = 
 
   const loose: string[] = []
   for (const edge of graph.edges) {
-    if (edge.from === null || edge.to === null || !present.has(edge.from) || !present.has(edge.to)) {
+    if (
+      edge.from === null ||
+      edge.to === null ||
+      !present.has(edge.from) ||
+      !present.has(edge.to)
+    ) {
       loose.push(edge.label === '' ? edge.id : `${edge.id} "${edge.label}"`)
       continue
     }
@@ -134,7 +139,9 @@ const LINK_WITH_TEXT = /^\s*(<?)(--|==|-\.)\s*([^->=.|][^|]*?)\s*(-->|==>|\.->|-
 function unquote(value: string): string {
   const trimmed = value.trim()
   const inner =
-    trimmed.length >= 2 && trimmed.startsWith('"') && trimmed.endsWith('"') ? trimmed.slice(1, -1) : trimmed
+    trimmed.length >= 2 && trimmed.startsWith('"') && trimmed.endsWith('"')
+      ? trimmed.slice(1, -1)
+      : trimmed
   return inner
     .replace(/#quot;/g, '"')
     .replace(/<br\s*\/?>/gi, '\n')

@@ -113,9 +113,33 @@ const session = (await rest('/auth/login', { method: 'POST', body: { email, pass
 const workspaceId = (await rest('/auth/me', { token: session })).body.default_workspace_id
 const board = (await rest('/boards', { method: 'POST', token: session, body: { workspace_id: workspaceId, title: 'MCP glade' } })).body
 
-const writeToken = await rest('/tokens', { method: 'POST', token: session, body: { name: 'e2e write', scope: 'write' } })
-const readToken = await rest('/tokens', { method: 'POST', token: session, body: { name: 'e2e read', scope: 'read' } })
-check('a session mints read and write access tokens', writeToken.status === 201 && readToken.status === 201)
+const other = (await rest('/boards', { method: 'POST', token: session, body: { workspace_id: workspaceId, title: 'Other glade' } })).body
+const hidden = (await rest('/boards', { method: 'POST', token: session, body: { workspace_id: workspaceId, title: 'Hidden glade' } })).body
+
+const writeToken = await rest('/tokens', { method: 'POST', token: session, body: { name: 'e2e classic', kind: 'classic' } })
+const readToken = await rest('/tokens', {
+  method: 'POST',
+  token: session,
+  body: { name: 'e2e reader', kind: 'fine_grained', grants: [{ board_id: board.id, read: true }] },
+})
+// Edit but not delete on the main glade, delete but not edit on the other, nothing on the third.
+const splitToken = await rest('/tokens', {
+  method: 'POST',
+  token: session,
+  body: {
+    name: 'e2e split',
+    kind: 'fine_grained',
+    grants: [
+      { board_id: board.id, read: true, edit: true },
+      { board_id: other.id, read: true, delete: true },
+    ],
+  },
+})
+check(
+  'a session mints classic and fine-grained access tokens',
+  writeToken.status === 201 && readToken.status === 201 && splitToken.status === 201,
+  `${writeToken.status} ${readToken.status} ${splitToken.status}`,
+)
 
 // --- the browser, watching ---------------------------------------------------------------
 
@@ -228,14 +252,60 @@ check('the glade now holds six objects', await waitForCount('6 objects'), await 
 const mermaid = await call(agent, 'export_mermaid', { glade_id: board.id })
 check('export_mermaid carries the labels', mermaid.text.includes('"Basket"') && mermaid.text.includes('|"no"|'), mermaid.text)
 
-// --- a read-only token ------------------------------------------------------------------------
+// --- fine-grained tokens --------------------------------------------------------------------
 
 const reader = await connectStdio(readToken.body.token)
+const readerTools = (await reader.listTools()).tools.map((tool) => tool.name)
+check(
+  'a read-only token is not offered tools it can use nowhere',
+  readerTools.includes('get_glade_graph') &&
+    !readerTools.includes('create_nodes') &&
+    !readerTools.includes('delete_objects') &&
+    !readerTools.includes('create_glade'),
+  readerTools.join(', '),
+)
+const readerInstructions = reader.getInstructions() ?? ''
+check(
+  'the instructions state the token boundaries',
+  readerInstructions.includes('fine-grained access token') && readerInstructions.includes('"MCP glade"'),
+  readerInstructions.slice(-400),
+)
 const summary = await call(reader, 'get_glade_summary', { glade_id: board.id })
-check('a read token reads the glade', !summary.error && summary.json?.objects === 6, summary.text.slice(0, 200))
-const refused = await call(reader, 'create_nodes', { glade_id: board.id, nodes: [{ label: 'nope' }] })
-check('a read token is refused a write, with the reason', refused.error && /read-only/.test(refused.text), refused.text)
+check(
+  'a read-only token reads its glade and is told it can only read',
+  !summary.error && summary.json?.objects === 6 && summary.json?.allowed === 'only read',
+  summary.text.slice(0, 300),
+)
+const readerList = await call(reader, 'list_glades', {})
+check('a fine-grained token lists only its glades', readerList.json?.length === 1, readerList.text.slice(0, 200))
 await reader.close()
+
+const splitter = await connectStdio(splitToken.body.token)
+const access = await call(splitter, 'get_my_access', {})
+check(
+  'get_my_access lists each glade with its own permissions',
+  access.json?.kind === 'fine_grained' &&
+    access.json.glades.some((g) => g.id === board.id && g.edit && !g.delete) &&
+    access.json.glades.some((g) => g.id === other.id && !g.edit && g.delete),
+  access.text.slice(0, 400),
+)
+const cannotDelete = await call(splitter, 'delete_objects', { glade_id: board.id, ids: [ids.done] })
+check(
+  'deleting where only edit was granted is refused, naming the boundary',
+  cannotDelete.error && /may read and edit, but not delete/.test(cannotDelete.text),
+  cannotDelete.text,
+)
+const canEdit = await call(splitter, 'update_objects', { glade_id: board.id, updates: [{ id: ids.done, label: 'Shipped' }] })
+check('editing where edit was granted works', !canEdit.error, canEdit.text.slice(0, 200))
+const cannotEdit = await call(splitter, 'create_nodes', { glade_id: other.id, nodes: [{ label: 'nope' }] })
+check(
+  'editing where only delete was granted is refused',
+  cannotEdit.error && /may read and delete, but not edit/.test(cannotEdit.text),
+  cannotEdit.text,
+)
+const notGranted = await call(splitter, 'get_glade_summary', { glade_id: hidden.id })
+check('a glade the token does not name cannot be opened', notGranted.error, notGranted.text)
+await splitter.close()
 
 // --- Streamable HTTP ---------------------------------------------------------------------------
 

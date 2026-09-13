@@ -175,6 +175,8 @@ async def mint_guest_ws_token(
         expires_in=settings.ws_token_ttl_seconds,
         role=role,
         can_write=role is BoardRole.editor and not locked,
+        can_edit=role is BoardRole.editor and not locked,
+        can_delete=role is BoardRole.editor and not locked,
         is_locked=locked,
     )
 

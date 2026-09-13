@@ -23,7 +23,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import ARRAY, CITEXT, INET, UUID
+from sqlalchemy.dialects.postgresql import CITEXT, INET, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from app.services.board_kinds import BOARD_KINDS, DEFAULT_BOARD_KIND
@@ -254,11 +254,15 @@ class RefreshToken(Base):
 class ApiToken(Base):
     """A personal access token, for a client that cannot hold a browser session.
 
-    MCP servers, scripts and coding agents. The token stands in for its owner and can
-    only ever narrow what the owner may do: `scope` switches writing off, and
-    `board_ids` shuts every board not named. Roles are still resolved live through
-    `app/services/permissions.py`; nothing here is a grant. See
-    `app/services/api_tokens.py` for which routes accept one.
+    MCP servers, scripts and coding agents. Two kinds, as GitHub has them:
+
+    - `classic`: everything the account can do, on every glade it can open.
+    - `fine_grained`: only the glades in `api_token_grants`, each with its own read, edit
+      and delete permissions.
+
+    Either way the token stands in for its owner and only narrows them. Roles are still
+    resolved live through `app/services/permissions.py`; a grant takes away from the
+    role and never adds to it. See `app/services/api_tokens.py`.
 
     Only the sha256 digest is stored, as with refresh tokens. `prefix` is the first few
     characters of the raw value, kept so the profile page can say which token is which
@@ -274,25 +278,40 @@ class ApiToken(Base):
     name: Mapped[str] = mapped_column(String, nullable=False)
     token_hash: Mapped[str] = mapped_column(String, nullable=False, unique=True)
     prefix: Mapped[str] = mapped_column(String, nullable=False)
-    scope: Mapped[str] = mapped_column(String, nullable=False)
-    # Null means every board the owner can open. An empty list is refused at issue time
-    # rather than stored, because a token that opens nothing is a mistake, not a choice.
-    board_ids: Mapped[list[uuid.UUID] | None] = mapped_column(
-        ARRAY(UUID(as_uuid=True)), nullable=True
-    )
+    kind: Mapped[str] = mapped_column(String, nullable=False)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = _created_at()
 
     __table_args__ = (
-        CheckConstraint("scope in ('read', 'write')", name="ck_api_tokens_scope"),
+        CheckConstraint("kind in ('classic', 'fine_grained')", name="ck_api_tokens_kind"),
         Index(
             "ix_api_tokens_user_live",
             "user_id",
             postgresql_where=text("revoked_at is null"),
         ),
     )
+
+
+class ApiTokenGrant(Base):
+    """One glade a fine-grained token may open, and what it may do there.
+
+    A row is a grant of read; edit and delete are each on top of it, never instead. There
+    is no row for "no access", because a glade with no row is exactly that. Deleting the
+    glade takes its grants with it, so a token's list never names a glade that is gone.
+    """
+
+    __tablename__ = "api_token_grants"
+
+    token_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("api_tokens.id", ondelete="CASCADE"), primary_key=True
+    )
+    board_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("boards.id", ondelete="CASCADE"), primary_key=True
+    )
+    can_edit: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    can_delete: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
 
 
 class Workspace(Base):
