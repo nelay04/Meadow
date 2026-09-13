@@ -38,6 +38,7 @@ import { type DiagramSpec, MermaidError, graphToMermaid, parseMermaid } from './
 import { PlanError, planCreate, planDiagram, planRemove, planUpdate } from './plan'
 import { type Action, type Room, RoomError, Rooms, allowedPhrase, refusal } from './room'
 import { textToRich } from './text'
+import { checkLayout, planTidy } from './tidy'
 
 export const VERSION: string = packageJson.version
 
@@ -48,7 +49,9 @@ How to work with it:
 - get_glade_graph reads it as nodes (shapes, stickies, text) and edges (arrows and lines, with the ids of what they connect). export_mermaid is a cheaper read of the same structure.
 - Every object keeps its id, so read first and then edit by id with update_objects, delete_objects and set_text.
 - To draw or extend a diagram, prefer apply_diagram: give nodes and edges (or Mermaid), and it matches existing nodes by id or label, adds what is missing and lays new nodes out beside the existing content. create_nodes and connect are the lower-level versions.
-- Leave out x and y and the server lays nodes out for you. Coordinates are world units: x grows right, y grows down.
+- Leave out x, y, w and h and the server lays nodes out and sizes them to their labels, and chooses where each arrow attaches and bends. Only give coordinates to match something already on the glade. Coordinates are world units: x grows right, y grows down.
+- Keep node labels short: a title, and at most a short second line. Put detail in a separate note rather than a bullet list inside a flowchart box.
+- Every write reports layout problems it left (text overflowing a shape, a line through a shape, overlapping lines or labels). When it does, or when a glade looks messy, call tidy_layout, then check_layout to confirm.
 - Pass preview: true to any write to see what it would do without changing the glade. A preview works even where the write itself is not allowed.
 - Labels accept light Markdown: **bold**, *italic*, # headings and - bullets.
 Edits appear live for anyone with the glade open.`
@@ -310,8 +313,25 @@ export function createServer({ api, idleMs, access: initialAccess }: ServerOptio
           }
     ;(await roomsFor()).show(room, touched, centre)
 
+    // Only what this write touched: a removal has nothing left to look at, and problems
+    // elsewhere on the glade are not this write's to report.
+    const problems =
+      touched.length === 0
+        ? {}
+        : Object.fromEntries(
+            Object.entries(checkLayout(room.session, touched).counts).filter(([, n]) => n > 0),
+          )
+
     return ok({
       ...extra,
+      ...(touched.length === 0
+        ? {}
+        : Object.keys(problems).length === 0
+          ? { layout: 'clean' }
+          : {
+              layout_problems: problems,
+              hint: 'check_layout lists them; tidy_layout fixes most.',
+            }),
       ids: result.ids,
       updated: result.updated,
       removed: result.removed,
@@ -827,6 +847,48 @@ export function createServer({ api, idleMs, access: initialAccess }: ServerOptio
               },
             }
           }),
+        ),
+    ),
+    'edit',
+  )
+
+  server.registerTool(
+    'check_layout',
+    {
+      title: 'Check a diagram layout',
+      description:
+        'Find what would look wrong on the canvas: text overflowing its shape, overlapping shapes, arrows running through shapes they do not connect, arrows drawn on top of each other, labels on labels or shapes, and arrows with a loose end. Checks the whole glade, or only the given ids and the arrows touching them.',
+      inputSchema: {
+        glade_id: gladeId,
+        ids: z.array(z.string()).max(2000).optional(),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    ({ glade_id, ids }) =>
+      guarded(async () => ok(checkLayout((await openRoom(glade_id)).session, ids))),
+  )
+
+  gate(
+    server.registerTool(
+      'tidy_layout',
+      {
+        title: 'Tidy a diagram layout',
+        description:
+          'Lay shapes out again as a clean layered diagram, grow shapes whose text does not fit, and re-attach their arrows so they do not share lines, stack labels or cross shapes. Applies to the given ids, or to every shape connected by an arrow. The block keeps its top-left corner unless placement is given. move: false only resizes and re-routes, keeping positions. Use preview first on a glade a person arranged by hand.',
+        inputSchema: {
+          glade_id: gladeId,
+          ids: z.array(z.string()).max(500).optional(),
+          direction: z.enum(['LR', 'TB']).optional().describe('Layout direction. Default LR.'),
+          placement: z.object({ x: z.number(), y: z.number() }).optional(),
+          move: z.boolean().optional(),
+          preview,
+        },
+      },
+      ({ glade_id, ids, direction: flow, placement, move, preview: wantPreview }) =>
+        guarded(() =>
+          edit(glade_id, wantPreview, async (room) => ({
+            batch: await planTidy(room.session, { ids, direction: flow, placement, move }),
+          })),
         ),
     ),
     'edit',

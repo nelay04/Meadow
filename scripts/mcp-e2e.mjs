@@ -114,6 +114,7 @@ const workspaceId = (await rest('/auth/me', { token: session })).body.default_wo
 const board = (await rest('/boards', { method: 'POST', token: session, body: { workspace_id: workspaceId, title: 'MCP glade' } })).body
 
 const other = (await rest('/boards', { method: 'POST', token: session, body: { workspace_id: workspaceId, title: 'Other glade' } })).body
+const layoutGlade = (await rest('/boards', { method: 'POST', token: session, body: { workspace_id: workspaceId, title: 'Layout glade' } })).body
 const hidden = (await rest('/boards', { method: 'POST', token: session, body: { workspace_id: workspaceId, title: 'Hidden glade' } })).body
 
 const writeToken = await rest('/tokens', { method: 'POST', token: session, body: { name: 'e2e classic', kind: 'classic' } })
@@ -251,6 +252,58 @@ check('the glade now holds six objects', await waitForCount('6 objects'), await 
 
 const mermaid = await call(agent, 'export_mermaid', { glade_id: board.id })
 check('export_mermaid carries the labels', mermaid.text.includes('"Basket"') && mermaid.text.includes('|"no"|'), mermaid.text)
+
+// --- layout ----------------------------------------------------------------------------------
+
+const drawn = await call(agent, 'apply_diagram', {
+  glade_id: layoutGlade.id,
+  diagram: {
+    direction: 'LR',
+    nodes: [
+      { key: 'member', label: 'Member', type: 'ellipse' },
+      { key: 'portal', label: 'Web / Kiosk Portal' },
+      { key: 'auth', label: 'Authentication\nlogin and roles' },
+      { key: 'avail', label: 'Copy available?', type: 'diamond' },
+      { key: 'circ', label: 'Circulation Service\nissue, return, renew' },
+      { key: 'hold', label: 'Reservation Queue' },
+      { key: 'db', label: 'Library DB\nbooks, copies, members, loans', type: 'cylinder' },
+    ],
+    edges: [
+      { from: 'member', to: 'portal', label: 'search / borrow' },
+      { from: 'portal', to: 'auth' },
+      { from: 'auth', to: 'avail' },
+      { from: 'avail', to: 'circ', label: 'yes: issue' },
+      { from: 'avail', to: 'hold', label: 'no: place hold' },
+      { from: 'circ', to: 'db' },
+      { from: 'hold', to: 'db' },
+      { from: 'auth', to: 'db', label: 'audit' },
+    ],
+  },
+})
+check('a laid-out diagram reports its layout as clean', !drawn.error && drawn.json?.layout === 'clean', drawn.text.slice(0, 400))
+
+const checked = await call(agent, 'check_layout', { glade_id: layoutGlade.id })
+check('check_layout reads the glade', !checked.error && typeof checked.json?.counts?.text_overflow === 'number', checked.text.slice(0, 300))
+
+const tidied = await call(agent, 'tidy_layout', { glade_id: layoutGlade.id })
+check('tidy_layout lays the glade out again', !tidied.error && (tidied.json?.updated?.length ?? 0) > 0, tidied.text.slice(0, 300))
+if (process.env.MCP_E2E_SHOT) {
+  // The drawn result on the real canvas, for a person to look at, then back to the glade
+  // the reload check below expects to be on.
+  const back = page.url()
+  await page.setViewportSize({ width: 1600, height: 700 })
+  await page.goto(`${webBase}/app#/glade/${layoutGlade.id}`, { waitUntil: 'load' })
+  await page.reload({ waitUntil: 'load' })
+  await page.waitForSelector('.canvas-host canvas', { timeout: 20000 })
+  await delay(2500)
+  await page.getByRole('button', { name: /fit/i }).first().click().catch(() => {})
+  await delay(800)
+  await page.screenshot({ path: process.env.MCP_E2E_SHOT })
+  await page.goto(back, { waitUntil: 'load' })
+  await page.reload({ waitUntil: 'load' })
+  await page.waitForSelector('.canvas-host canvas', { timeout: 20000 })
+  await page.setViewportSize({ width: 1280, height: 860 })
+}
 
 // --- fine-grained tokens --------------------------------------------------------------------
 

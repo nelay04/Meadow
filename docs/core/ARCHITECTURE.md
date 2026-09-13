@@ -648,9 +648,25 @@ diagram behind. It is a new mutation on the existing write path, not a schema ch
 - **Writes are planned, then applied.** `packages/mcp/src/plan.ts` turns tool input
   into an `EditBatch`. Every write takes `preview` and returns the plan instead. Nodes
   without coordinates are placed by an ELK layered layout, to the right of the existing
-  content. An edge running opposite to one already joining the same pair is curved so
-  the two do not overlap. `apply_diagram` matches by id, then by a unique exact label,
-  and never deletes.
+  content. `apply_diagram` matches by id, then by a unique exact label, and never
+  deletes.
+- **Layout is fitted to what the canvas can draw (1.5.0).** The canvas draws an elbow as
+  one Z that turns along whichever axis its endpoints are further apart on, and does not
+  avoid shapes (`routeOrthogonal`). The server cannot change that, so it chooses the
+  inputs instead:
+  - `sizing.ts` sizes nodes to their label. It estimates glyph widths and uses the
+    overlay's inscribed-rectangle ratios.
+  - `layout.ts` gives ELK the label sizes and widens a layer gap when an edge across it
+    drops further than the gap is wide.
+  - `route.ts` picks each edge's sides, a binding anchor per end (spread along a shared
+    side, ordered so neighbours do not cross), and the `elbow` fraction.
+
+  Every candidate is scored on `solveArrowEnds`, the solver reflow runs, so what is
+  scored is what gets drawn. `tidy.ts` holds `check_layout`, which reports overflow,
+  overlaps, lines through shapes and label collisions, and `tidy_layout`, which re-plans
+  an existing diagram. This replaced 1.4.0's curved return edge. Routes with more than
+  one bend would need stored waypoints and a canvas change, which is a separate
+  decision.
 - **Undo.** An agent's writes are `LOCAL_ORIGIN` in the agent's own process, so they
   sit on its own undo stack. A person's Ctrl+Z never reaches them, because each undo
   manager only tracks its own client's transactions. That is intended.

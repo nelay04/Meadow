@@ -9,11 +9,12 @@
 import {
   type EdgeDirection,
   type ObjectData,
-  STICKY_DEFAULT_SIZE,
-  TEXT_DEFAULT_SIZE,
+  arrowPolyline,
   isArrowLike,
   objectBounds,
+  readBinding,
   readObject,
+  resolveArrowProps,
 } from '@meadow/schema'
 
 import type {
@@ -25,6 +26,15 @@ import type {
 } from '../../../apps/web/src/doc/mutations'
 import { fragmentToPlainText } from '../../../apps/web/src/doc/richText'
 import { type Placed, layoutBlock } from './layout'
+import {
+  type Obstacles,
+  type RouteEdge,
+  asObject,
+  labelBoxOf,
+  routeEdges,
+  segmentsOf,
+} from './route'
+import { MIN_SIZES, edgeLabelSize, fitNodeSize } from './sizing'
 import type { DiagramDirection, DiagramSpec, SpecNodeType } from './mermaid'
 import { textToRich } from './text'
 
@@ -74,19 +84,6 @@ export type UpdateInput = {
   direction?: EdgeDirection
   routing?: 'straight' | 'curved' | 'orthogonal'
   locked?: boolean
-}
-
-const SIZES: Record<SpecNodeType, { w: number; h: number }> = {
-  rect: { w: 180, h: 80 },
-  ellipse: { w: 150, h: 90 },
-  diamond: { w: 170, h: 110 },
-  parallelogram: { w: 190, h: 80 },
-  triangle: { w: 140, h: 110 },
-  trapezoid: { w: 180, h: 80 },
-  polygon: { w: 150, h: 110 },
-  cylinder: { w: 140, h: 110 },
-  sticky: STICKY_DEFAULT_SIZE,
-  text: TEXT_DEFAULT_SIZE,
 }
 
 export function colour(value: string | undefined, field: string): number | undefined {
@@ -161,6 +158,59 @@ function besideContent(session: DocSession): { x: number; y: number } {
     : { x: Math.round(bounds.maxX + 160), y: Math.round(bounds.minY) }
 }
 
+/** Every shape on the board an edge could attach to or run through, by id. */
+export function boardNodes(session: DocSession): Map<string, ObjectData> {
+  const out = new Map<string, ObjectData>()
+  for (const [id, map] of session.objects.entries()) {
+    const object = readObject(map)
+    if (isArrowLike(object.type) || object.type === 'freedraw') continue
+    out.set(id, object)
+  }
+  return out
+}
+
+/** The arrows on the board as lines and label plates, leaving out any being redrawn. */
+export function boardObstacles(
+  session: DocSession,
+  except: ReadonlySet<string> = new Set(),
+): Obstacles {
+  const segments: number[][] = []
+  const labels: Obstacles['labels'] = []
+  for (const [id, map] of session.objects.entries()) {
+    if (except.has(id)) continue
+    const object = readObject(map)
+    if (!isArrowLike(object.type)) continue
+    const points = drawnPoints(object)
+    segments.push(...segmentsOf(points))
+    const box = labelBoxOf(points, edgeLabelSize(label(session, id)))
+    if (box !== null) labels.push(box)
+  }
+  return { segments, labels }
+}
+
+/** An arrow's path in world units, as the canvas draws it. */
+export function drawnPoints(object: ObjectData): number[] {
+  const style = resolveArrowProps(object)
+  const path = arrowPolyline(style.points, style.routing, style.curvature, style.curvatureEnd)
+  const out: number[] = []
+  for (let i = 0; i + 1 < path.length; i += 2) out.push(object.x + path[i], object.y + path[i + 1])
+  return out
+}
+
+/** Start and end targets per arrow id, from the bindings root. */
+export function arrowEnds(
+  session: DocSession,
+): Map<string, { start: string | null; end: string | null }> {
+  const ends = new Map<string, { start: string | null; end: string | null }>()
+  for (const map of session.bindings.values()) {
+    const binding = readBinding(map)
+    const entry = ends.get(binding.arrowId) ?? { start: null, end: null }
+    entry[binding.end] = binding.targetId
+    ends.set(binding.arrowId, entry)
+  }
+  return ends
+}
+
 function checkSize(count: number): void {
   if (count > MAX_OBJECTS_PER_CALL) {
     throw new PlanError(`at most ${MAX_OBJECTS_PER_CALL} objects per call; this asked for ${count}`)
@@ -206,16 +256,11 @@ export async function planCreate(
 
   const sized = nodes.map((node, index) => {
     const type = node.type ?? 'rect'
-    if (!(type in SIZES)) throw new PlanError(`unknown node type: ${type}`)
+    if (!(type in MIN_SIZES)) throw new PlanError(`unknown node type: ${type}`)
     for (const field of ['x', 'y', 'w', 'h', 'font_size'] as const) checkNumber(node[field], field)
-    const size = SIZES[type]
-    return {
-      ...node,
-      type,
-      ref: refOf(node.ref, `node${index + 1}`),
-      w: node.w ?? size.w,
-      h: node.h ?? size.h,
-    }
+    // Sized to the label, so the text a model writes stays inside the shape it wrote it in.
+    const size = fitNodeSize(type, node.label, { w: node.w, h: node.h, fontSize: node.font_size })
+    return { ...node, type, ref: refOf(node.ref, `node${index + 1}`), w: size.w, h: size.h }
   })
 
   const unplaced = sized.filter((node) => node.x === undefined || node.y === undefined)
@@ -223,7 +268,7 @@ export async function planCreate(
   if (unplaced.length > 0) {
     placed = await layoutBlock(
       unplaced.map((node) => ({ key: node.ref, w: node.w, h: node.h })),
-      edges.map((edge) => ({ from: edge.from, to: edge.to })),
+      edges.map((edge) => ({ from: edge.from, to: edge.to, label: edgeLabelSize(edge.label) })),
       options.direction ?? 'LR',
       options.placement ?? besideContent(session),
     )
@@ -247,51 +292,58 @@ export async function planCreate(
     }
   })
 
-  // Directed pairs already joined, on the board and earlier in this batch. An edge running
-  // the other way between the same two shapes would otherwise be drawn exactly on top of
-  // the first one, through both shapes, and neither label could be read.
-  const joined = new Set<string>()
-  const ends = new Map<string, { start: string | null; end: string | null }>()
-  for (const map of session.bindings.values()) {
-    const arrowId = String(map.get('arrowId'))
-    const entry = ends.get(arrowId) ?? { start: null, end: null }
-    entry[map.get('end') === 'end' ? 'end' : 'start'] =
-      (map.get('targetId') as string | null) ?? null
-    ends.set(arrowId, entry)
+  // Where each edge attaches and bends, against the shapes being created and the ones
+  // already on the board, so edges do not share a line, stack labels or cross a shape.
+  const boxes = boardNodes(session)
+  for (const entry of create) {
+    const { object } = entry
+    boxes.set(entry.ref, asObject(entry.ref, object.type, object as Required<typeof object>))
   }
-  for (const { start, end } of ends.values())
-    if (start !== null && end !== null) joined.add(`${start}>${end}`)
 
   const connect: EditConnect[] = []
+  const toRoute: RouteEdge[] = []
+  const planned: { ref: string; edge: EdgeInput; route: 'straight' | 'curved' | 'orthogonal' }[] =
+    []
   edges.forEach((edge, index) => {
     if (edge.from === edge.to) throw new PlanError(`an edge cannot connect ${edge.from} to itself`)
     const ref = refOf(edge.ref, `edge${index + 1}`)
+    const route = edge.routing ?? options.routing ?? 'orthogonal'
+    planned.push({ ref, edge, route })
+    if (route !== 'curved' && boxes.has(edge.from) && boxes.has(edge.to)) {
+      toRoute.push({
+        key: ref,
+        from: edge.from,
+        to: edge.to,
+        label: edgeLabelSize(edge.label),
+        routing: route,
+      })
+    }
+  })
+  const routes = routeEdges(boxes, toRoute, boardObstacles(session))
+
+  for (const { ref, edge, route } of planned) {
     const type = edge.type ?? 'arrow'
     const direction = edge.direction ?? (type === 'line' ? 'none' : 'forward')
     const stroke = colour(edge.stroke, 'stroke')
-    const returning = joined.has(`${edge.to}>${edge.from}`)
-    joined.add(`${edge.from}>${edge.to}`)
-    // A bow rather than a second straight line: both halves lean the same way, which is a
-    // C and not an S, so the return path clears the outgoing one along its whole length.
-    const route = edge.routing ?? (returning ? 'curved' : (options.routing ?? 'straight'))
+    const routed = routes.get(ref)
     create.push({
       ref,
       object: {
         type,
         props: {
           ...heads(direction),
-          routing: route,
-          ...(route === 'curved' && returning ? { curvature: 0.45, curvatureEnd: 0.45 } : {}),
+          routing: routed?.routing ?? route,
+          ...(routed === undefined ? {} : { elbow: routed.elbow }),
           ...(stroke === undefined ? {} : { stroke }),
         },
       },
       text: edge.label === undefined || edge.label === '' ? null : textToRich(edge.label, false),
     })
     connect.push(
-      { arrow: ref, end: 'start', target: edge.from },
-      { arrow: ref, end: 'end', target: edge.to },
+      { arrow: ref, end: 'start', target: edge.from, ...(routed ? { anchor: routed.start } : {}) },
+      { arrow: ref, end: 'end', target: edge.to, ...(routed ? { anchor: routed.end } : {}) },
     )
-  })
+  }
 
   return { create, connect }
 }

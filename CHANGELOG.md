@@ -11,6 +11,60 @@ away getting there.
 
 ---
 
+## [1.5.0] - [14-Sep-2026]
+
+### Added
+- **Diagrams an assistant draws come out clean.** Before, a diagram drawn through the MCP
+  server often had text spilling out of its boxes, arrows sharing one line, labels on top
+  of each other, and lines running straight through shapes. Now:
+  - **Shapes fit their labels.** A node created without a size is sized to its text,
+    including headings and bullet lines. A diamond, ellipse or cylinder gets the extra
+    room its shape needs, because the overlay only uses the rectangle inside it.
+  - **Room for labels and bends.** The layout reserves space between columns for edge
+    labels. It widens a gap when an edge across it drops further than the gap is wide,
+    because the canvas only bends an arrow the way it flows when the gap is wider than
+    the drop.
+  - **Arrows attach and bend where they read best.** The server picks the side of each
+    shape an edge uses and spreads edges out along that side, ordered so neighbours do
+    not cross. It also picks where each elbow turns. Candidates are scored on the path
+    the canvas will actually draw, penalising a line through a shape, a line on a line,
+    and a label on a label or a shape. When no bend is clear, a straight line is used.
+  - This applies to `create_nodes`, `connect` and `apply_diagram`. Edges now default to
+    elbows.
+- **`check_layout`.** Reports what would look wrong on the canvas: text overflowing its
+  shape, overlapping shapes, a line through a shape it does not connect, lines drawn on
+  top of each other, labels on labels or shapes, and loose arrow ends. Every write also
+  reports the problems it left, so an assistant finds out without looking.
+- **`tidy_layout`.** Lays out an existing diagram again with the same layout and routing.
+  It grows shapes whose text does not fit (never shrinks them) and re-attaches their
+  arrows. It works on the given ids or on every connected shape. It can keep positions
+  and only resize and re-route, and it can be previewed like any write.
+- **Tests.** `packages/mcp/test/layout.test.ts` covers sizing, ports spread on a shared
+  side, an edge that skips a column staying off the shape between, and a messy board
+  that `check_layout` flags and `tidy_layout` clears. `pnpm e2e:mcp` draws a diagram,
+  expects it to report clean, and checks and tidies it against a real API. Set
+  `MCP_E2E_SHOT` to a path to save a screenshot of the result on the canvas.
+
+### Changed
+- **The MCP server's instructions** now tell an assistant to leave out coordinates and
+  sizes, keep node labels short, and use `check_layout` and `tidy_layout` when a write
+  reports problems.
+
+### Reversed
+- **Curving a return edge (1.4.0).** An arrow back between two already-connected shapes
+  used to be drawn as a bow, so it did not lie on top of the first. It fixed only that
+  one case, and a curve among elbows reads as a different kind of connection. Spreading
+  ports along each side now keeps both edges apart as parallel elbows, so the special
+  case is gone. A caller can still ask for `routing: 'curved'`.
+
+### Known limitations
+- **One bend per arrow.** The canvas draws an elbow arrow with a single bend and does
+  not route around shapes. A long edge that skips several columns can still cross a
+  shape when no single bend is clear, and `check_layout` reports it. Routes with more
+  bends need a canvas change and are not in this release.
+
+---
+
 ## [1.4.0] - [13-Sep-2026]
 
 ### Added

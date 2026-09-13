@@ -166,6 +166,8 @@ node meadow-mcp.js --http --api https://meadow.example.com --host 127.0.0.1 --po
 | `delete_objects` | Remove objects; attached arrows keep a free end |
 | `set_text` | Replace an object's text (light Markdown) |
 | `apply_diagram` | Draw or extend a diagram from nodes and edges, or from Mermaid |
+| `check_layout` | What would look wrong on the canvas: overflowing text, overlaps, lines through shapes, stacked labels |
+| `tidy_layout` | Lay a diagram out again, grow shapes to fit their text, and re-attach its arrows |
 | `import_glade` | Create a glade from a `.meadow.json` file |
 
 Every write accepts `preview: true`, which returns the plan without changing anything.
@@ -173,7 +175,14 @@ Every write accepts `preview: true`, which returns the plan without changing any
 Some behaviour to know about:
 
 - **Layout.** Nodes created without `x` and `y` are laid out together (a layered layout)
-  and placed to the right of what is already on the glade.
+  and placed to the right of what is already on the glade. Nodes without `w` and `h` are
+  sized to their label.
+- **Arrows.** Edges default to elbows. The server picks which side of each shape an edge
+  uses, where along that side, and where it bends, so edges do not share a line, stack
+  labels or cross shapes where a single bend can avoid it.
+- **Layout problems.** Every write reports the problems it left. `check_layout` lists
+  them, and `tidy_layout` fixes most. Preview `tidy_layout` first on a glade a person
+  arranged by hand, since it moves shapes.
 - **Matching.** `apply_diagram` matches a node to an existing object by id, then by exact
   label when exactly one object has that label. It never removes anything the diagram
   does not mention.
@@ -195,7 +204,7 @@ Resources are also published: `meadow://glade/{id}` (the file) and
 ## Development
 
 ```bash
-pnpm --filter @meadow/mcp test      # planning, Mermaid, text and graph tests
+pnpm --filter @meadow/mcp test      # planning, layout, Mermaid, text and graph tests
 pnpm --filter @meadow/mcp start -- --api http://127.0.0.1:8012 --token mdw_...
 pnpm e2e:mcp                        # real API, the bundle over stdio and HTTP, and a browser
 ```

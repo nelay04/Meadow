@@ -9,6 +9,8 @@ import {
 } from '../../../apps/web/src/doc/mutations'
 import { PlanError, planCreate, planDiagram, planRemove, planUpdate } from '../src/plan'
 import { parseMermaid } from '../src/mermaid'
+import { drawnPoints } from '../src/plan'
+import { overlapLength, segmentsOf } from '../src/route'
 
 const fresh = () => createDocSession(new Y.Doc(), 'owner')
 
@@ -98,7 +100,7 @@ describe('planCreate', () => {
 })
 
 describe('return edges', () => {
-  it('bow away from an edge already joining the same pair the other way', async () => {
+  it('run beside an edge already joining the same pair the other way, not on top of it', async () => {
     const session = fresh()
     const first = applyEdits(
       session,
@@ -110,21 +112,15 @@ describe('return edges', () => {
     )
     const { ids } = applyEdits(
       session,
-      await planCreate(
-        session,
-        [],
-        [
-          { from: first.ids.b, to: first.ids.a },
-          { from: first.ids.b, to: first.ids.c },
-        ],
-      ),
+      await planCreate(session, [], [{ from: first.ids.b, to: first.ids.a }]),
     )
-    expect(readObjectById(session, ids.edge1)!.props).toMatchObject({
-      routing: 'curved',
-      curvature: 0.45,
-    })
-    // A pair with nothing between it yet is not a return, so it keeps the default.
-    expect(readObjectById(session, ids.edge2)!.props.routing).toBe('straight')
+    const there = segmentsOf(drawnPoints(readObjectById(session, first.ids.edge1)!))
+    const back = segmentsOf(drawnPoints(readObjectById(session, ids.edge1)!))
+    const shared = there.reduce(
+      (sum, s) => sum + back.reduce((inner, t) => inner + overlapLength(s, t, 3), 0),
+      0,
+    )
+    expect(shared).toBe(0)
   })
 })
 
