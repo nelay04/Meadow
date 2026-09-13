@@ -48,9 +48,23 @@ class SocketRegistry:
 
     def __init__(self) -> None:
         self._by_board: dict[str, set[WebSocket]] = defaultdict(set)
+        # Sockets opened through a personal access token, by token id. Revoking a token
+        # closes these and no others: the same person's browser on the same board was
+        # not opened by the token and keeps working.
+        self._by_token: dict[str, set[WebSocket]] = defaultdict(set)
 
-    def add(self, board_id: str, websocket: WebSocket) -> None:
+    def add(self, board_id: str, websocket: WebSocket, *, api_token_id: str | None = None) -> None:
         self._by_board[board_id].add(websocket)
+        if api_token_id is not None:
+            self._by_token[api_token_id].add(websocket)
+
+    def discard_token(self, api_token_id: str, websocket: WebSocket) -> None:
+        sockets = self._by_token.get(api_token_id)
+        if sockets is None:
+            return
+        sockets.discard(websocket)
+        if not sockets:
+            del self._by_token[api_token_id]
 
     def discard(self, board_id: str, websocket: WebSocket) -> None:
         sockets = self._by_board.get(board_id)
@@ -65,6 +79,18 @@ class SocketRegistry:
 
     def count(self, board_id: str) -> int:
         return len(self._by_board.get(board_id, ()))
+
+    async def evict_token(self, api_token_id: str, *, code: int, reason: str) -> int:
+        """Close every socket opened through one access token, on any board."""
+        sockets = list(self._by_token.get(api_token_id, ()))
+        for websocket in sockets:
+            with suppress(Exception):  # noqa: BLE001
+                await websocket.close(code=code, reason=reason)
+        if sockets:
+            logger.info(
+                "evicted %d socket(s) of api token %s: %s", len(sockets), api_token_id, reason
+            )
+        return len(sockets)
 
     async def evict(self, board_id: str, *, code: int, reason: str) -> int:
         """Close every socket on this board. Returns how many were closed.

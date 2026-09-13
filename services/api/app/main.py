@@ -23,7 +23,7 @@ from app.realtime.rooms import (
     SocketRegistry,
 )
 from app.realtime.server import FastAPIChannel, MeadowWebsocketServer, awareness_snapshot
-from app.services import board_password
+from app.services import api_tokens, board_password
 from app.services.permissions import Access, resolve_access
 
 logger = getLogger(__name__)
@@ -61,6 +61,48 @@ async def healthz() -> dict[str, str]:
     return {"status": "ok"}
 
 
+class _TokenRefused(Exception):
+    """The access token behind a ws-token is no longer good for this board."""
+
+    def __init__(self, code: int, reason: str) -> None:
+        super().__init__(reason)
+        self.code = code
+        self.reason = reason
+
+
+async def _resolve(claims: wstoken.WsTokenClaims) -> Access | None:
+    """Access for a ws-token's holder, as it stands now. The handshake and the watchdog.
+
+    One function for both so they cannot disagree. A socket minted through a personal
+    access token re-proves the token every time: revoked or expired is 4401, a board not
+    on its allow-list is 4403, and a read scope switches writing off inside
+    `resolve_access`, beside the lock, rather than in a check of its own.
+    """
+    board_uuid = uuid.UUID(claims.board_id)
+    async with SessionLocal() as session:
+        read_only = False
+        if claims.api_token_id is not None:
+            token = (
+                None
+                if claims.user_id is None
+                else await api_tokens.load_live(session, claims.api_token_id, claims.user_id)
+            )
+            if token is None:
+                raise _TokenRefused(WS_CLOSE_UNAUTHORIZED, "access token revoked")
+            if not api_tokens.allows_board(token, board_uuid):
+                raise _TokenRefused(WS_CLOSE_FORBIDDEN, "no access")
+            read_only = api_tokens.is_read_only(token)
+
+        return await resolve_access(
+            session,
+            board_id=board_uuid,
+            user_id=claims.user_id,
+            link_token=claims.link_token,
+            pass_version=claims.pass_version,
+            read_only=read_only,
+        )
+
+
 async def _watch_session(
     websocket: WebSocket, claims: wstoken.WsTokenClaims, granted: Access
 ) -> None:
@@ -81,8 +123,6 @@ async def _watch_session(
     through `app.state.sockets`. Fifteen minutes is right for a grant quietly revoked
     and much too slow for a button somebody just pressed.
     """
-    board_uuid = uuid.UUID(claims.board_id)
-
     while True:
         remaining = claims.session_expires_at - time.time()
         if remaining <= 0:
@@ -95,14 +135,11 @@ async def _watch_session(
             await _close(websocket, WS_CLOSE_UNAUTHORIZED, "session expired")
             return
 
-        async with SessionLocal() as session:
-            current = await resolve_access(
-                session,
-                board_id=board_uuid,
-                user_id=claims.user_id,
-                link_token=claims.link_token,
-                pass_version=claims.pass_version,
-            )
+        try:
+            current = await _resolve(claims)
+        except _TokenRefused as refused:
+            await _close(websocket, refused.code, refused.reason)
+            return
 
         # The role *and* the lock, because the read-only filter is chosen once at join
         # time from both of them. A board locked while this socket was open is a
@@ -166,7 +203,9 @@ async def board_socket(websocket: WebSocket, board_id: str, token: str = "") -> 
     await websocket.accept()
 
     try:
-        board_uuid = uuid.UUID(board_id)
+        # Parsed only to refuse a malformed id before touching Redis. `_resolve` parses
+        # the token's own copy, which the scope check has just proved is this one.
+        uuid.UUID(board_id)
     except ValueError:
         await _close(websocket, WS_CLOSE_FORBIDDEN, "no access")
         return
@@ -189,15 +228,13 @@ async def board_socket(websocket: WebSocket, board_id: str, token: str = "") -> 
     # about all three ways access is decided - membership, the public link, and the
     # owner's lock. The token proves who the caller is, never what they may do: it may
     # have been minted up to 60 seconds ago, and the board can have been deleted, the
-    # grant revoked, the link rotated or the board locked since.
-    async with SessionLocal() as session:
-        access = await resolve_access(
-            session,
-            board_id=board_uuid,
-            user_id=claims.user_id,
-            link_token=claims.link_token,
-            pass_version=claims.pass_version,
-        )
+    # grant revoked, the link rotated, the board locked, or the access token that minted
+    # it revoked since.
+    try:
+        access = await _resolve(claims)
+    except _TokenRefused as refused:
+        await _close(websocket, refused.code, refused.reason)
+        return
 
     if access is None:
         await _close(websocket, WS_CLOSE_FORBIDDEN, "no access")
@@ -229,7 +266,8 @@ async def board_socket(websocket: WebSocket, board_id: str, token: str = "") -> 
         channel = ReadOnlyChannel(websocket, path=board_id, log=logger)
 
     sockets: SocketRegistry = websocket.app.state.sockets
-    sockets.add(board_id, websocket)
+    token_key = None if claims.api_token_id is None else str(claims.api_token_id)
+    sockets.add(board_id, websocket, api_token_id=token_key)
     try:
         async with anyio.create_task_group() as task_group:
             task_group.start_soon(_watch_session, websocket, claims, access)
@@ -238,3 +276,5 @@ async def board_socket(websocket: WebSocket, board_id: str, token: str = "") -> 
             task_group.cancel_scope.cancel()
     finally:
         sockets.discard(board_id, websocket)
+        if token_key is not None:
+            sockets.discard_token(token_key, websocket)

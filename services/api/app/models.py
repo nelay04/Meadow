@@ -23,7 +23,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import CITEXT, INET, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, CITEXT, INET, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from app.services.board_kinds import BOARD_KINDS, DEFAULT_BOARD_KIND
@@ -246,6 +246,50 @@ class RefreshToken(Base):
             "ix_refresh_tokens_live",
             "user_id",
             "expires_at",
+            postgresql_where=text("revoked_at is null"),
+        ),
+    )
+
+
+class ApiToken(Base):
+    """A personal access token, for a client that cannot hold a browser session.
+
+    MCP servers, scripts and coding agents. The token stands in for its owner and can
+    only ever narrow what the owner may do: `scope` switches writing off, and
+    `board_ids` shuts every board not named. Roles are still resolved live through
+    `app/services/permissions.py`; nothing here is a grant. See
+    `app/services/api_tokens.py` for which routes accept one.
+
+    Only the sha256 digest is stored, as with refresh tokens. `prefix` is the first few
+    characters of the raw value, kept so the profile page can say which token is which
+    without being able to reproduce any of them.
+    """
+
+    __tablename__ = "api_tokens"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    token_hash: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    prefix: Mapped[str] = mapped_column(String, nullable=False)
+    scope: Mapped[str] = mapped_column(String, nullable=False)
+    # Null means every board the owner can open. An empty list is refused at issue time
+    # rather than stored, because a token that opens nothing is a mistake, not a choice.
+    board_ids: Mapped[list[uuid.UUID] | None] = mapped_column(
+        ARRAY(UUID(as_uuid=True)), nullable=True
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = _created_at()
+
+    __table_args__ = (
+        CheckConstraint("scope in ('read', 'write')", name="ck_api_tokens_scope"),
+        Index(
+            "ix_api_tokens_user_live",
+            "user_id",
             postgresql_where=text("revoked_at is null"),
         ),
     )

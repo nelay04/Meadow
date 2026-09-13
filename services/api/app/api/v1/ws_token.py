@@ -5,6 +5,11 @@ Minting resolves access exactly as the handshake does, through the same
 for a board they cannot open, and the handshake is what stops a credential obtained
 legitimately from being used after access is gone. Neither one alone is sufficient.
 
+A personal access token may mint here too, and it is the one route of the realtime path
+it reaches. The token's board allow-list is checked before anything is resolved, a
+read-scoped token resolves with writing switched off, and the token's id goes into the
+ws-token so the handshake can ask again whether it is still good.
+
 An anonymous visitor on a public link mints at `/share/{token}/ws-token` instead - see
 `app/api/v1/share.py`. The split is deliberate: this route requires a session, that one
 must not have one, and an `if authenticated` in the middle of the code path that hands
@@ -18,7 +23,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from app.auth.deps import CurrentUser, Session
+from app.auth.deps import CurrentPrincipal, Session
 from app.auth.tokens import AccessTokenError, decode_access_token
 from app.config import settings
 from app.realtime import wstoken
@@ -36,10 +41,11 @@ _bearer = HTTPBearer(auto_error=False)
 async def create_ws_token(
     body: WsTokenRequest,
     request: Request,
-    user: CurrentUser,
+    principal: CurrentPrincipal,
     session: Session,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)] = None,
 ) -> WsTokenOut:
+    user = principal.user
     if settings.rate_limit_enabled:
         allowed = await rate_limit_check(
             request.app.state.redis,
@@ -56,6 +62,11 @@ async def create_ws_token(
     # pass, or one that is forged, expired, or minted for another board or an older
     # password - every one of which means the same thing here, which is that they have
     # not proved it.
+    # Before resolving anything, and the same 403 as no access at all: a token scoped to
+    # other boards has no business learning whether this one exists.
+    if not principal.allows_board(body.board_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="no access")
+
     pass_version = (
         None
         if body.pass_token is None
@@ -72,6 +83,7 @@ async def create_ws_token(
         user_id=user.id,
         link_token=body.link_token,
         pass_version=pass_version,
+        read_only=principal.read_only,
     )
     if access is None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="no access")
@@ -90,8 +102,16 @@ async def create_ws_token(
     # longer-lived ws-token would be a way to launder an expiring session into a
     # connection that stays open past it.
     session_expires_at = int(time.time()) + settings.access_token_ttl_seconds
-    if credentials is not None:
-        # CurrentUser already decoded this successfully, so the suppress is only for
+    if principal.api_token is not None:
+        # A token has no session clock of its own, so the socket gets the same fifteen
+        # minutes a session would, and never past the token's own expiry. The watchdog
+        # re-checks the token on that clock; revoking it closes the socket at once.
+        if principal.api_token.expires_at is not None:
+            session_expires_at = min(
+                session_expires_at, int(principal.api_token.expires_at.timestamp())
+            )
+    elif credentials is not None:
+        # CurrentPrincipal already decoded this successfully, so the suppress is only for
         # the pathological case of the token expiring between the two decodes.
         with suppress(AccessTokenError):
             session_expires_at = decode_access_token(credentials.credentials).expires_at
@@ -109,6 +129,7 @@ async def create_ws_token(
             # seconds later, has to be able to ask whether the password it was minted
             # against is still the board's.
             pass_version=pass_version,
+            api_token_id=None if principal.api_token is None else principal.api_token.id,
         ),
         expires_in=settings.ws_token_ttl_seconds,
         role=access.role,

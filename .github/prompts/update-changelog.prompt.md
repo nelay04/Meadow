@@ -64,7 +64,8 @@ own version heading with a date, bumping PATCH, MINOR or MAJOR by the rule above
 the top entry is already this change's version (a follow-up fix in the same release),
 add to it rather than opening a new one. The version bump is not only the heading: it
 goes in the same change to `package.json`, `apps/web/package.json`,
-`packages/schema/package.json`, `services/api/pyproject.toml`, and `services/api/uv.lock`
+`packages/schema/package.json`, `packages/mcp/package.json`, `services/api/pyproject.toml`, and
+`services/api/uv.lock`
 (run `uv lock`), plus the current-release line in `README.md`.
 
 **Group by what changed for a user, not by file.** Under each version use only the

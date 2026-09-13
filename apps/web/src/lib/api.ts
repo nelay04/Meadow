@@ -325,6 +325,36 @@ export type AuthSession = {
   expires_at: string
 }
 
+/**
+ * A personal access token, as the profile page lists it. Never the secret.
+ *
+ * The credential an MCP client or a script holds instead of a session. It stands in for
+ * this account and can only narrow it: `read` switches writing off, and `board_ids`
+ * shuts every board it does not name.
+ */
+export type AccessToken = {
+  id: string
+  name: string
+  /** The first characters of the secret, so the list can say which token is which. */
+  prefix: string
+  scope: 'read' | 'write'
+  /** Null for every board the account can open. */
+  board_ids: string[] | null
+  created_at: string
+  expires_at: string | null
+  last_used_at: string | null
+}
+
+/** The one response that carries the secret. It is never sent again. */
+export type CreatedAccessToken = AccessToken & { token: string }
+
+export type AccessTokenCreate = {
+  name: string
+  scope: 'read' | 'write'
+  board_ids?: string[]
+  expires_in_days?: number
+}
+
 type AuthResponse = {
   access_token: string
   expires_in: number
@@ -577,6 +607,19 @@ export function revokeOtherSessions(): Promise<{ revoked: number }> {
 export const SESSIONS_STREAM_URL = `${BASE}/auth/sessions/stream`
 
 /** Throw away the in-memory access token, without telling the server anything. */
+export function listAccessTokens(): Promise<AccessToken[]> {
+  return call<AccessToken[]>('/tokens')
+}
+
+export function createAccessToken(body: AccessTokenCreate): Promise<CreatedAccessToken> {
+  return call<CreatedAccessToken>('/tokens', { method: 'POST', body: JSON.stringify(body) })
+}
+
+/** Revoke, which also closes every board connection the token has open. */
+export function revokeAccessToken(tokenId: string): Promise<void> {
+  return call<void>(`/tokens/${tokenId}`, { method: 'DELETE' })
+}
+
 export function clearAccessToken(): void {
   accessToken = null
 }

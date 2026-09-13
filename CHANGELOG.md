@@ -11,6 +11,60 @@ away getting there.
 
 ---
 
+## [1.4.0] - [13-Sep-2026]
+
+### Added
+- **AI assistants and coding agents can read and edit glades, through an MCP server.**
+  `packages/mcp` is a Model Context Protocol server that works with Claude Code, Codex,
+  VS Code, Antigravity and other MCP clients. Setup for each is in `docs/mcp.md`.
+  - **Reading.** An assistant reads a glade as nodes and edges: which shape is which,
+    what each arrow connects and which way it points, and what its label says. It can
+    also read the lossless file or a Mermaid flowchart, search by label, type or region,
+    and page through large boards.
+  - **Writing.** It can create glades and nodes, connect them, relabel, restyle, move and
+    delete by id, set rich text from light Markdown, import a `.meadow.json` file, and
+    draw or extend a diagram from nodes and edges or from Mermaid.
+    - `apply_diagram` matches existing nodes by id or unique label, adds only what is
+      missing, and never deletes.
+    - Nodes given without coordinates are laid out beside the existing content, and an
+      arrow back between two connected shapes is curved clear of the first.
+    - Every write can be previewed first, and each call lands in one transaction or not
+      at all.
+  - **A live peer.** The server joins the glade over the same websocket and handshake as
+    a browser. People with the glade open watch the edits arrive, and the assistant
+    appears among the wanderers while it works.
+  - **Two transports.** stdio for local clients, and Streamable HTTP served at `/mcp`
+    behind nginx by a new `mcp` service in `docker-compose.yml`.
+- **Personal access tokens, under Profile > Access tokens.**
+  - **Issuing.** A token is read-only or read-and-edit, and can expire. The secret is
+    shown once and only its digest is stored.
+  - **Narrowing only.** A token can never do more than its owner: a read-only token
+    cannot write even on the owner's own glades, and it cannot open a password-protected
+    glade.
+  - **Where it is accepted.** Only on reading the account, listing, reading and creating
+    glades, and minting a ws-token. Every other route refuses it. A token cannot manage
+    tokens or sessions.
+  - **Revoking.** Revoking takes effect immediately, including on glades the token has
+    open, and leaves the same person's browser connected.
+  - **Tests.** Written before the implementation in `services/api/tests/test_api_tokens.py`
+    (26 tests). `pnpm e2e:mcp` checks the whole path: real API, the built server over
+    stdio and HTTP, a browser watching live edits, a refused read-only write, revocation,
+    and persistence across a reload.
+
+### Changed
+- **The build order in ARCHITECTURE section 9 changed.** Agent access (1.3.0 and this
+  release) was built before the M6 deploy closed, ahead of the "LLM features after v1"
+  rule. The reason is recorded there. Nothing inside Meadow calls a model.
+
+### Known limitations
+- **Web connectors.** The claude.ai and ChatGPT custom connectors sign in with OAuth,
+  which is not built yet, so those two cannot connect. Clients that accept a bearer
+  header or a local command can.
+- **Undo.** A person's Ctrl+Z does not undo an assistant's edits, because undo only
+  tracks your own changes. This is intended.
+- **Allow-lists.** Limiting a token to named glades is supported by the API but not
+  offered on the profile page yet.
+
 ## [1.3.0] - [13-Sep-2026]
 
 ### Added

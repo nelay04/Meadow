@@ -1106,6 +1106,9 @@ label {
    compare at a glance instead of cards to page through. */
 .session-list {
   list-style: none;
+  /* The browser's own list indent, which nothing else resets. Without it the rows sit
+     two and a half rem in from every other control on the card. */
+  padding: 0;
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
@@ -1194,6 +1197,54 @@ label {
 
 .session-text .faint {
   font-size: 0.75rem;
+}
+
+/* Access tokens. The two option rows are the same segmented radios the appearance card
+   uses, shorter, because they sit under a form rather than being the whole card. */
+.token-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 1rem;
+}
+
+.token-options .theme-choices {
+  flex: 1 1 14rem;
+  margin-top: 0.6rem;
+}
+
+.token-options .theme-choice {
+  padding: 0.45rem 0.5rem;
+}
+
+/* The secret, once. Accent-tinted like the current session row: it is the one thing on
+   the card the reader has to act on before leaving. */
+.token-created {
+  margin-top: 0.9rem;
+  padding: 0.75rem;
+  border: 1px solid var(--accent);
+  border-radius: 0.5rem;
+  background: var(--accent-soft);
+  font-size: 0.85rem;
+}
+
+.token-secret {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.token-secret code {
+  flex: 1;
+  min-width: 0;
+  padding: 0.4rem 0.5rem;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.token-secret button {
+  flex: 0 0 auto;
+  gap: 0.35rem;
 }
 
 /* Its own margin, because it is no longer the borderless inline action it was and a

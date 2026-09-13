@@ -1,0 +1,35 @@
+{
+  "name": "@meadow/mcp",
+  "private": true,
+  "version": "1.4.0",
+  "license": "SEE LICENSE IN ../../LICENSE.md",
+  "description": "Model Context Protocol server for Meadow: read and edit glades as structured data.",
+  "type": "module",
+  "bin": {
+    "meadow-mcp": "./dist/meadow-mcp.js"
+  },
+  "scripts": {
+    "start": "tsx src/cli.ts",
+    "build": "node build.mjs",
+    "lint": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@meadow/schema": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "elkjs": "^0.12.0",
+    "ws": "^8.21.1",
+    "y-protocols": "^1.0.7",
+    "y-websocket": "^2.1.0",
+    "yjs": "^13.6.20",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/ws": "^8.5.13",
+    "esbuild": "^0.25.12",
+    "tsx": "^4.23.13",
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.10"
+  }
+}

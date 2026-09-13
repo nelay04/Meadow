@@ -1,0 +1,21 @@
+{
+  "inputs": [
+    {
+      "id": "meadow-local-token",
+      "type": "promptString",
+      "description": "Meadow local access token (mdw_...), from Profile > Access tokens",
+      "password": true
+    }
+  ],
+  "servers": {
+    "meadow-local": {
+      "type": "stdio",
+      "command": "/home/admin-snow/.nvm/versions/node/v22.21.1/bin/node",
+      "args": ["${workspaceFolder}/packages/mcp/dist/meadow-mcp.js"],
+      "env": {
+        "MEADOW_API_URL": "http://127.0.0.1:8012",
+        "MEADOW_TOKEN": "${input:meadow-local-token}"
+      }
+    }
+  }
+}

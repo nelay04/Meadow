@@ -149,6 +149,24 @@ server {
         proxy_send_timeout 3600s;
     }
 
+    # The MCP server's Streamable HTTP endpoint. A variable upstream, resolved per request
+    # through the resolver above, so nginx starts and serves the site even when the mcp
+    # container is down or not deployed; /mcp alone answers 502 then. Unbuffered with long
+    # timeouts because a session can hold an event stream open, like the sessions feed.
+    location = /mcp {
+        set $meadow_mcp http://${MEADOW_MCP_UPSTREAM};
+        proxy_pass $meadow_mcp;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header Connection "";
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $meadow_forwarded_proto;
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+
     # Vite fingerprints these, so the filename changes whenever the contents do.
     location /assets/ {
         expires 1y;

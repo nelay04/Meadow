@@ -12,12 +12,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response,
 from sqlalchemy import delete, or_, select
 
 from app.auth.deps import (
+    CurrentPrincipal,
     CurrentUser,
     Session,
     board_editor,
     board_owner,
     board_owner_trashed,
     board_viewer,
+    board_viewer_or_token,
 )
 from app.config import settings
 from app.models import (
@@ -76,7 +78,7 @@ MAX_THUMBNAIL_BYTES = 512 * 1024
 ALLOWED_THUMBNAIL_TYPES = frozenset({"image/webp", "image/png"})
 
 
-def _out(board: Board, role: BoardRole) -> BoardOut:
+def _out(board: Board, role: BoardRole, *, read_only: bool = False) -> BoardOut:
     # `can_write` is computed here rather than left to the client so the lock and the
     # role are answered together, in the same place and the same way the websocket
     # handshake answers them. A client deriving it from the two fields beside it would
@@ -96,7 +98,9 @@ def _out(board: Board, role: BoardRole) -> BoardOut:
         share_role=BoardRole(board.share_role),
         is_locked=locked,
         locked_by=board.locked_by,
-        can_write=can_write(role) and not locked,
+        # `read_only` is a read-scoped access token, which stops writing at any role for
+        # the same reason the lock does. See `resolve_access`.
+        can_write=can_write(role) and not locked and not read_only,
         # Only whether there is one. The board still appears in the list and still
         # answers with its title and its role: what the password holds back is the
         # document, and hiding the board's existence from people who were deliberately
@@ -129,7 +133,7 @@ async def _evict(request: Request, board_id: uuid.UUID, reason: str) -> None:
 
 @router.get("", response_model=list[BoardOut])
 async def list_boards(
-    user: CurrentUser,
+    principal: CurrentPrincipal,
     session: Session,
     workspace_id: Annotated[uuid.UUID | None, Query()] = None,
     archived: Annotated[bool, Query()] = False,
@@ -138,7 +142,10 @@ async def list_boards(
 
     The union matters: a board shared directly with someone outside the workspace is
     invisible if you only join on workspace membership.
+
+    A personal access token may list, and sees only the boards on its allow-list.
     """
+    user = principal.user
     query = (
         select(Board)
         .outerjoin(
@@ -165,9 +172,11 @@ async def list_boards(
     boards = list((await session.execute(query)).scalars())
     out = []
     for board in boards:
+        if not principal.allows_board(board.id):
+            continue
         role = await resolve_role(session, user_id=user.id, board_id=board.id)
         if role is not None:
-            out.append(_out(board, role))
+            out.append(_out(board, role, read_only=principal.read_only))
     return out
 
 
@@ -254,7 +263,20 @@ async def suggested_title(
 
 
 @router.post("", response_model=BoardOut, status_code=status.HTTP_201_CREATED)
-async def create_board(body: BoardCreate, user: CurrentUser, session: Session) -> BoardOut:
+async def create_board(
+    body: BoardCreate, principal: CurrentPrincipal, session: Session
+) -> BoardOut:
+    """Create a board, owned by the caller.
+
+    A personal access token may create one if it is write-scoped and not limited to
+    named boards. A board-scoped token would otherwise make a board it cannot open, or
+    quietly widen itself to include it, and neither is what its owner agreed to.
+    """
+    user = principal.user
+    if principal.api_token is not None and (
+        principal.read_only or principal.api_token.board_ids is not None
+    ):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="token may not create")
     member = await session.get(WorkspaceMember, (body.workspace_id, user.id))
     if member is None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="no access")
@@ -287,13 +309,14 @@ async def create_board(body: BoardCreate, user: CurrentUser, session: Session) -
 async def get_board(
     board_id: uuid.UUID,
     session: Session,
-    role: Annotated[BoardRole, Depends(board_viewer)],
+    principal: CurrentPrincipal,
+    role: Annotated[BoardRole, Depends(board_viewer_or_token)],
 ) -> BoardOut:
     """Metadata only, never content. Content arrives over the websocket."""
     board = await session.get(Board, board_id)
     if board is None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="no access")
-    return _out(board, role)
+    return _out(board, role, read_only=principal.read_only)
 
 
 @router.patch("/{board_id}", response_model=BoardOut)

@@ -769,6 +769,206 @@ export function importGlade(
   return { objects: file.objects.length, bindings: file.bindings.length }
 }
 
+// --- batched edits ------------------------------------------------------------
+//
+// For a caller that is not a pointer: the MCP server, where one tool call can create a
+// dozen shapes, label them, connect them, and take two others away. Each of those is a
+// mutation above, and calling them in turn would be one transaction per step - a peer
+// would watch the diagram assemble itself arrow by arrow, and a failure halfway would
+// leave half of it behind, because a Y.Doc has no rollback.
+//
+// So everything is checked first and written once. A reference the batch cannot
+// resolve is refused before anything is touched.
+
+/** One object to create. `ref` is the name the rest of the batch uses for it. */
+export type EditCreate = { ref: string; object: NewObject; text?: RichNode[] | null }
+
+/** One object to change. `text` replaces its text; omitted leaves the text alone. */
+export type EditUpdate = { id: string; patch: Partial<ObjectData>; text?: RichNode[] | null }
+
+/**
+ * Attach one arrow end. `arrow` and `target` are a ref from this batch's `create` or the
+ * id of an object already on the board; a null target frees the end.
+ */
+export type EditConnect = {
+  arrow: string
+  end: BindingData['end']
+  target: string | null
+  anchor?: { nx: number; ny: number }
+}
+
+export type EditBatch = {
+  remove?: readonly string[]
+  create?: readonly EditCreate[]
+  update?: readonly EditUpdate[]
+  connect?: readonly EditConnect[]
+}
+
+export type EditResult = {
+  /** Each `create` ref, and the id it was given. */
+  ids: Record<string, string>
+  removed: string[]
+  updated: string[]
+}
+
+/** A batch named something that is not there. Nothing was written. */
+export class EditReferenceError extends Error {
+  constructor(readonly reference: string, detail: string) {
+    super(`${detail}: ${reference}`)
+    this.name = 'EditReferenceError'
+  }
+}
+
+/**
+ * Apply a batch in one transaction: remove, then create, then update, then connect.
+ *
+ * In that order so each step can name what the one before produced, and so an update to
+ * an object the same batch removes is refused rather than resurrecting it. Arrows touched
+ * by any of it are re-solved once at the end, against final positions.
+ *
+ * Tracked on the undo stack like any local edit, which on an MCP peer is that peer's own
+ * stack: a person's Ctrl+Z in the browser never reaches it, because their undo manager
+ * only tracks their own client's transactions.
+ */
+export function applyEdits(session: DocSession, batch: EditBatch): EditResult {
+  const remove = batch.remove ?? []
+  const create = batch.create ?? []
+  const update = batch.update ?? []
+  const connect = batch.connect ?? []
+
+  // --- check everything before writing anything -----------------------------------
+  if (!session.canWrite) throw new ReadOnlyError(readOnlyReason(session))
+
+  const doomed = new Set(remove)
+  for (const id of doomed) {
+    if (!session.objects.has(id)) throw new EditReferenceError(id, 'no object to remove')
+  }
+
+  const ids: Record<string, string> = {}
+  for (const { ref, object } of create) {
+    if (ref in ids) throw new EditReferenceError(ref, 'ref used twice')
+    const id = object.id ?? nanoid()
+    if (session.objects.has(id)) throw new EditReferenceError(id, 'id already on the board')
+    ids[ref] = id
+  }
+  const createdIds = new Set(Object.values(ids))
+
+  const resolve = (reference: string, what: string): string => {
+    const id = ids[reference] ?? reference
+    if (doomed.has(id)) throw new EditReferenceError(reference, `${what} is being removed`)
+    if (!createdIds.has(id) && !session.objects.has(id)) {
+      throw new EditReferenceError(reference, `no such ${what}`)
+    }
+    return id
+  }
+
+  const typeOf = (id: string): ObjectType | undefined => {
+    const created = create.find((entry) => ids[entry.ref] === id)
+    if (created !== undefined) return created.object.type
+    const map = session.objects.get(id)
+    return map === undefined ? undefined : (String(map.get('type')) as ObjectType)
+  }
+
+  const objects = create.map(({ ref, object, text }) => {
+    const parentId =
+      object.parentId === undefined || object.parentId === null
+        ? null
+        : resolve(object.parentId, 'parent')
+    const data = objectData.parse({ x: 0, y: 0, w: 120, h: 80, ...object, id: ids[ref], parentId })
+    if (isArrowLike(data.type)) {
+      // Points and bounds are written together or not at all - see `arrowGeometry`. A
+      // caller that gave points relative to x,y and a box that does not match would put
+      // the arrow in the spatial index somewhere it is not drawn.
+      const style = resolveArrowProps(data)
+      const geometry = arrowGeometry(absolutePoints(data, style), style)
+      Object.assign(data, { x: geometry.x, y: geometry.y, w: geometry.w, h: geometry.h })
+      data.props = { ...data.props, points: geometry.points }
+    }
+    return { data, text: text ?? null }
+  })
+
+  const updates = update.map(({ id, patch, text }) => {
+    const target = resolve(id, 'object')
+    // Id and type are what an object *is*; changing either through a patch would be a
+    // delete and a create that nobody asked for, with none of the bindings rules.
+    const { id: _id, type: _type, ...rest } = patch
+    const parentId =
+      rest.parentId === undefined || rest.parentId === null
+        ? rest.parentId
+        : resolve(rest.parentId, 'parent')
+    return {
+      id: target,
+      patch: parentId === undefined ? rest : { ...rest, parentId },
+      text,
+    }
+  })
+
+  const bindings = connect.map(({ arrow, end, target, anchor }) => {
+    const arrowId = resolve(arrow, 'arrow')
+    const arrowType = typeOf(arrowId)
+    if (arrowType === undefined || !isArrowLike(arrowType)) {
+      throw new EditReferenceError(arrow, 'not an arrow or line')
+    }
+    const targetId = target === null ? null : resolve(target, 'target')
+    if (targetId !== null) {
+      const targetType = typeOf(targetId)
+      // Arrow-to-arrow is refused for the reason the arrow tool refuses it: the target
+      // has no interior to aim at, and a chain of them can cycle.
+      if (targetType === undefined || isArrowLike(targetType) || targetId === arrowId) {
+        throw new EditReferenceError(target ?? '', 'an arrow cannot attach to that')
+      }
+    }
+    return bindingData.parse({ id: nanoid(), arrowId, end, targetId, anchor })
+  })
+
+  // --- write -------------------------------------------------------------------------
+  return write(session, () => {
+    if (doomed.size > 0) purgeObjects(session, doomed)
+
+    for (const { data, text } of objects) {
+      session.objects.set(data.id, createObjectMap(data))
+      session.order.push([data.id])
+      if (text === null) continue
+      const fragment = objectText(session.objects.get(data.id) as Y.Map<unknown>)
+      if (fragment !== null) setFragmentNodes(fragment, text)
+    }
+
+    const touched = new Set<string>(createdIds)
+    for (const { id, patch, text } of updates) {
+      const map = session.objects.get(id) as Y.Map<unknown>
+      writeObject(map, patch)
+      touched.add(id)
+      if (text === undefined) continue
+      let fragment = objectText(map)
+      if (fragment === null && text !== null && isTextBearing(String(map.get('type')) as ObjectType)) {
+        fragment = new Y.XmlFragment()
+        map.set('text', fragment)
+      }
+      if (fragment !== null) setFragmentNodes(fragment, text ?? [])
+    }
+
+    for (const data of bindings) {
+      // One binding per arrow end, replacing, as `bindArrow` does.
+      for (const [key, map] of session.bindings.entries()) {
+        const existing = readBinding(map)
+        if (existing.arrowId === data.arrowId && existing.end === data.end) {
+          session.bindings.delete(key)
+        }
+      }
+      if (data.targetId !== null) session.bindings.set(data.id, createBindingMap(data))
+      touched.add(data.arrowId)
+    }
+
+    reflowArrows(session, touched)
+
+    return {
+      ids,
+      removed: [...doomed],
+      updated: updates.map((entry) => entry.id),
+    }
+  })
+}
+
 // --- text ---------------------------------------------------------------------
 
 /**

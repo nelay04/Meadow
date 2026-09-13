@@ -186,6 +186,7 @@ async def resolve_access(
     user_id: uuid.UUID | None = None,
     link_token: str | None = None,
     pass_version: int | None = None,
+    read_only: bool = False,
 ) -> Access | None:
     """The effective access a caller has to a board, or None for no access at all.
 
@@ -208,6 +209,11 @@ async def resolve_access(
     has proved - from a pass token at the REST mint, or carried in the ws-token at the
     handshake - and anything short of the board's current one leaves
     `password_required` set, whatever role was resolved above it.
+
+    `read_only` is a read-scoped personal access token. It is folded in here beside the
+    lock for the lock's reason: it is a thing that stops writing at any role, and a
+    caller that had to remember to check it separately would be the one that forgets.
+    It narrows only. The role reported is still the account's.
     """
     from app.models import Board
     from app.services import board_password, sharing
@@ -263,6 +269,6 @@ async def resolve_access(
         # otherwise - a caller who may not read the document cannot be told they may
         # write to it - and it means a caller that ignores `password_required` fails
         # closed rather than open.
-        can_write=can_write(role) and not locked and not password_required,
+        can_write=can_write(role) and not locked and not password_required and not read_only,
         password_required=password_required,
     )

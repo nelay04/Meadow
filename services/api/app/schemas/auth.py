@@ -175,3 +175,35 @@ class TokenPair(BaseModel):
 
 class AuthResponse(TokenPair):
     user: UserOut
+
+
+class ApiTokenCreate(BaseModel):
+    """A personal access token, as the profile page asks for one."""
+
+    name: str = Field(min_length=1, max_length=80)
+    scope: Literal["read", "write"] = "read"
+    #: The boards the token may open. Omitted or null for every board the account can
+    #: open; an empty list is refused, since a token that opens nothing is a mistake.
+    board_ids: list[uuid.UUID] | None = Field(default=None, min_length=1, max_length=100)
+    #: Days until it stops working. Null for never, which the page does not default to.
+    expires_in_days: int | None = Field(default=None, ge=1, le=366)
+
+
+class ApiTokenOut(BaseModel):
+    """One token, as the list shows it. Never the secret."""
+
+    id: uuid.UUID
+    name: str
+    #: The first characters of the raw token, so the person can tell which is which.
+    prefix: str
+    scope: Literal["read", "write"]
+    board_ids: list[uuid.UUID] | None = None
+    created_at: datetime
+    expires_at: datetime | None = None
+    last_used_at: datetime | None = None
+
+
+class ApiTokenCreated(ApiTokenOut):
+    """The response to issuing a token: the only time the secret is ever sent."""
+
+    token: str

@@ -24,6 +24,13 @@ sixty seconds between mint and connect has a new version, and the connection is 
 - which is what makes changing a password take effect on the people already inside
 rather than on the next person to arrive.
 
+`api_token_id` rides along when the mint was authorised by a personal access token
+rather than a session. The handshake reloads that token and refuses the connection if
+it has been revoked, has expired, or does not name this board, and a read-scoped one
+gets the read-only channel whatever the role. Without it a token revoked in the sixty
+seconds after a mint would still open a socket, and revoking could not find the sockets
+a token had opened to close them.
+
 `link_token` rides along for both. It is not a second credential so much as the reason
 the handshake should look at the share link at all, and it is re-checked at connect
 time exactly like a role: a link revoked or a board switched back to restricted between
@@ -107,6 +114,8 @@ class WsTokenClaims:
     #: The board password version proved at mint time, or None if none was presented.
     #: Compared against the board's own at connect and at every revalidation.
     pass_version: int | None
+    #: The personal access token this was minted through, or None for a session.
+    api_token_id: uuid.UUID | None
     expires_at: int
     session_expires_at: int
     jti: str
@@ -137,6 +146,7 @@ def _payload(
     guest: str,
     link: str,
     board_pass: str,
+    api_token: str,
     expires_at: int | str,
     session_expires_at: int | str,
     jti: str,
@@ -146,7 +156,8 @@ def _payload(
     # written. Parsing them to int first would silently canonicalise, and a payload that
     # differs from the one that was signed by even a leading zero fails to verify.
     return (
-        f"{board_id}.{user}.{guest}.{link}.{board_pass}.{expires_at}.{session_expires_at}.{jti}"
+        f"{board_id}.{user}.{guest}.{link}.{board_pass}.{api_token}"
+        f".{expires_at}.{session_expires_at}.{jti}"
     )
 
 
@@ -158,6 +169,7 @@ def mint(
     guest_id: str | None = None,
     link_token: str | None = None,
     pass_version: int | None = None,
+    api_token_id: uuid.UUID | None = None,
 ) -> str:
     """Issue a token. Exactly one of `user_id` and `guest_id` must be set."""
     if (user_id is None) == (guest_id is None):
@@ -171,6 +183,7 @@ def mint(
         guest_id or _ABSENT,
         link_token or _ABSENT,
         _ABSENT if pass_version is None else str(pass_version),
+        _ABSENT if api_token_id is None else str(api_token_id),
         expires_at,
         session_expires_at,
         jti,
@@ -181,7 +194,7 @@ def mint(
 async def verify(token: str, board_id: str, redis: Redis) -> WsTokenClaims:
     """Validate and consume a token. Raises TokenError on any rejection."""
     parts = token.split(".")
-    if len(parts) != 9:
+    if len(parts) != 10:
         raise TokenInvalid("malformed token")
 
     (
@@ -190,6 +203,7 @@ async def verify(token: str, board_id: str, redis: Redis) -> WsTokenClaims:
         raw_guest,
         raw_link,
         raw_pass,
+        raw_api_token,
         raw_expires,
         raw_session_expires,
         jti,
@@ -202,6 +216,7 @@ async def verify(token: str, board_id: str, redis: Redis) -> WsTokenClaims:
         raw_guest,
         raw_link,
         raw_pass,
+        raw_api_token,
         raw_expires,
         raw_session_expires,
         jti,
@@ -212,6 +227,7 @@ async def verify(token: str, board_id: str, redis: Redis) -> WsTokenClaims:
     try:
         user_id = None if raw_user == _ABSENT else uuid.UUID(raw_user)
         pass_version = None if raw_pass == _ABSENT else int(raw_pass)
+        api_token_id = None if raw_api_token == _ABSENT else uuid.UUID(raw_api_token)
         expires_at = int(raw_expires)
         session_expires_at = int(raw_session_expires)
     except ValueError as exc:
@@ -248,6 +264,7 @@ async def verify(token: str, board_id: str, redis: Redis) -> WsTokenClaims:
         guest_id=guest_id,
         link_token=None if raw_link == _ABSENT else raw_link,
         pass_version=pass_version,
+        api_token_id=api_token_id,
         expires_at=expires_at,
         session_expires_at=session_expires_at,
         jti=jti,

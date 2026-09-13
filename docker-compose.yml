@@ -212,6 +212,7 @@ services:
     restart: unless-stopped
     environment:
       MEADOW_API_UPSTREAM: api:8000
+      MEADOW_MCP_UPSTREAM: mcp:8765
       # Who may tell nginx the client's real address. The default matches nothing that
       # can arrive over the bridge, so X-Forwarded-For is ignored and the TCP peer is
       # the client. Set it to the bridge gateway only when a TLS terminator on the
@@ -231,6 +232,24 @@ services:
         # the pool would change on recreate and silently stop the proxy being trusted,
         # which fails closed: every client would look like it came from nginx.
         ipv4_address: 172.28.0.10
+
+  # The MCP server, for AI assistants that connect to a URL (claude.ai and ChatGPT
+  # connectors, Gemini, Copilot). Reached only through nginx at /mcp; every session brings
+  # its own personal access token, and the server talks to the API over this network as
+  # any other client would, through the same ws-token handshake. Not published.
+  mcp:
+    image: ${MEADOW_MCP_IMAGE:-meadow-mcp:local}
+    build:
+      context: .
+      dockerfile: docker/mcp/Dockerfile
+    restart: unless-stopped
+    environment:
+      MEADOW_API_URL: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      meadow:
 
   # Nightly pg_dump, 7-day retention. ARCHITECTURE 8: no WAL archiving and no PITR, so
   # this is the entire recovery story. Every dump is verified with pg_restore --list

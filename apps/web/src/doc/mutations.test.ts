@@ -11,8 +11,11 @@ import { describe, expect, it } from 'vitest'
 import * as Y from 'yjs'
 
 import {
+  EditReferenceError,
   ReadOnlyError,
   addObject,
+  applyEdits,
+  arrowBindings,
   addPage,
   addPageLines,
   bringForward,
@@ -25,6 +28,7 @@ import {
   joinTextInto,
   moveBehind,
   moveToDepth,
+  objectFragment,
   purgePage,
   readObjectById,
   readPages,
@@ -755,5 +759,126 @@ describe('pages', () => {
     expect(readObjectById(doc, second)?.w).toBeCloseTo(860, 5)
     // Page two's row is still on page two, at its own left edge.
     expect(readObjectById(doc, second)?.x).toBeCloseTo(2760, 5)
+  })
+})
+
+describe('applyEdits', () => {
+  const label = (value: string) => [{ name: 'paragraph', children: [{ text: [{ insert: value }] }] }]
+
+  it('creates, labels and connects in one transaction', () => {
+    const doc = session()
+    let transactions = 0
+    doc.doc.on('afterTransaction', () => {
+      transactions += 1
+    })
+
+    const result = applyEdits(doc, {
+      create: [
+        { ref: 'a', object: { type: 'rect', x: 0, y: 0, w: 100, h: 60 }, text: label('Start') },
+        { ref: 'b', object: { type: 'rect', x: 400, y: 0, w: 100, h: 60 }, text: label('End') },
+        { ref: 'link', object: { type: 'arrow' }, text: label('then') },
+      ],
+      connect: [
+        { arrow: 'link', end: 'start', target: 'a' },
+        { arrow: 'link', end: 'end', target: 'b' },
+      ],
+    })
+
+    expect(transactions).toBe(1)
+    expect(Object.keys(result.ids)).toEqual(['a', 'b', 'link'])
+    expect(doc.order.toArray()).toEqual([result.ids.a, result.ids.b, result.ids.link])
+    expect(fragmentToPlainText(objectFragment(doc, result.ids.a)!)).toBe('Start')
+    expect(fragmentToPlainText(objectFragment(doc, result.ids.link)!)).toBe('then')
+
+    const bindings = arrowBindings(doc, result.ids.link)
+    expect(bindings.start?.targetId).toBe(result.ids.a)
+    expect(bindings.end?.targetId).toBe(result.ids.b)
+
+    // Solved against the shapes: the arrow runs from a's right edge to b's left edge.
+    const arrow = readObjectById(doc, result.ids.link)!
+    const points = arrow.props.points as number[]
+    const startX = arrow.x + points[0]
+    const endX = arrow.x + points[points.length - 2]
+    expect(startX).toBeGreaterThanOrEqual(100)
+    expect(startX).toBeLessThan(120)
+    expect(endX).toBeLessThanOrEqual(400)
+    expect(endX).toBeGreaterThan(380)
+  })
+
+  it('connects objects already on the board', () => {
+    const doc = session()
+    const a = addObject(doc, { type: 'ellipse', x: 0, y: 0, w: 80, h: 80 })
+    const b = addObject(doc, { type: 'ellipse', x: 0, y: 300, w: 80, h: 80 })
+
+    const { ids } = applyEdits(doc, {
+      create: [{ ref: 'edge', object: { type: 'arrow' } }],
+      connect: [
+        { arrow: 'edge', end: 'start', target: a },
+        { arrow: 'edge', end: 'end', target: b },
+      ],
+    })
+    expect(arrowBindings(doc, ids.edge).end?.targetId).toBe(b)
+  })
+
+  it('writes nothing when any reference is wrong', () => {
+    const doc = session()
+    const kept = addObject(doc, { type: 'rect' })
+    const before = Y.encodeStateAsUpdate(doc.doc)
+
+    expect(() =>
+      applyEdits(doc, {
+        remove: [kept],
+        create: [{ ref: 'x', object: { type: 'rect' } }],
+        update: [{ id: 'missing', patch: { x: 5 } }],
+      }),
+    ).toThrow(EditReferenceError)
+    expect(Y.encodeStateAsUpdate(doc.doc)).toEqual(before)
+
+    expect(() => applyEdits(doc, { update: [{ id: kept, patch: { x: 1 } }], remove: [kept] })).toThrow(
+      /being removed/,
+    )
+    expect(() =>
+      applyEdits(doc, {
+        create: [{ ref: 'shape', object: { type: 'rect' } }],
+        connect: [{ arrow: 'shape', end: 'start', target: kept }],
+      }),
+    ).toThrow(/not an arrow/)
+    expect(doc.objects.size).toBe(1)
+  })
+
+  it('updates fields and text, and never an id or a type', () => {
+    const doc = session()
+    const id = addObject(doc, { type: 'sticky', x: 0, y: 0 })
+    applyEdits(doc, {
+      update: [{ id, patch: { x: 40, type: 'rect', id: 'other' } as never, text: label('Renamed') }],
+    })
+    const object = readObjectById(doc, id)!
+    expect(object.x).toBe(40)
+    expect(object.type).toBe('sticky')
+    expect(fragmentToPlainText(objectFragment(doc, id)!)).toBe('Renamed')
+  })
+
+  it('removes objects and frees arrow ends that pointed at them', () => {
+    const doc = session()
+    const { ids } = applyEdits(doc, {
+      create: [
+        { ref: 'a', object: { type: 'rect', x: 0, y: 0 } },
+        { ref: 'b', object: { type: 'rect', x: 300, y: 0 } },
+        { ref: 'e', object: { type: 'arrow' } },
+      ],
+      connect: [
+        { arrow: 'e', end: 'start', target: 'a' },
+        { arrow: 'e', end: 'end', target: 'b' },
+      ],
+    })
+    applyEdits(doc, { remove: [ids.b] })
+    expect(doc.objects.has(ids.e)).toBe(true)
+    expect(arrowBindings(doc, ids.e).end?.targetId ?? null).toBeNull()
+  })
+
+  it('refuses a viewer', () => {
+    expect(() => applyEdits(session('viewer'), { create: [{ ref: 'a', object: { type: 'rect' } }] })).toThrow(
+      ReadOnlyError,
+    )
   })
 })

@@ -1,0 +1,204 @@
+#!/usr/bin/env node
+/**
+ * `meadow-mcp`: stdio for local clients, Streamable HTTP for remote ones.
+ *
+ * stdio is one person, one token, one process: Claude Code, Codex, VS Code and the like
+ * start it as a subprocess. HTTP is for clients that connect to a URL (claude.ai and
+ * ChatGPT connectors, and anything behind a proxy): every session is opened with a bearer
+ * token and every later request on that session must bring the same one.
+ *
+ * Nothing is written to stdout in stdio mode except protocol messages, so every log line
+ * goes to stderr.
+ */
+
+import { createHash, randomUUID } from 'node:crypto'
+import { type IncomingMessage, type ServerResponse, createServer as createHttpServer } from 'node:http'
+
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
+import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
+
+import { MeadowApi } from './api'
+import { type Config, ConfigError, parseConfig } from './config'
+import { VERSION, createServer } from './server'
+
+const log = (message: string): void => {
+  process.stderr.write(`meadow-mcp: ${message}\n`)
+}
+
+async function stdio(config: Config): Promise<void> {
+  const api = new MeadowApi(config.api, config.token as string)
+  // Checked up front, so a wrong token is a clear message at startup rather than the
+  // first tool call failing inside a client that may not show the reason.
+  try {
+    const me = await api.me()
+    log(`${VERSION} connected to ${config.api} as ${me.display_name}`)
+  } catch (error) {
+    log(error instanceof Error ? error.message : String(error))
+    process.exit(1)
+  }
+
+  const { server, close } = createServer({ api, idleMs: config.idleMs })
+  const shutdown = (): void => {
+    close()
+    void server.close().finally(() => process.exit(0))
+  }
+  process.on('SIGINT', shutdown)
+  process.on('SIGTERM', shutdown)
+  process.stdin.on('close', shutdown)
+  await server.connect(new StdioServerTransport())
+}
+
+/** How long an HTTP session lives with no requests. A client that comes back later re-initialises. */
+const SESSION_IDLE_MS = 30 * 60_000
+const MAX_BODY_BYTES = 8 * 1024 * 1024
+
+type Session = {
+  transport: StreamableHTTPServerTransport
+  close: () => void
+  tokenHash: string
+  lastUsed: number
+}
+
+function bearer(request: IncomingMessage): string | null {
+  const header = request.headers.authorization
+  if (header === undefined) return null
+  const match = /^Bearer\s+(\S+)$/i.exec(header)
+  return match === null ? null : match[1]
+}
+
+const hashToken = (token: string): string => createHash('sha256').update(token).digest('hex')
+
+function reply(response: ServerResponse, status: number, message: string, headers: Record<string, string> = {}): void {
+  response.writeHead(status, { 'content-type': 'application/json', ...headers })
+  response.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32000, message }, id: null }))
+}
+
+async function readBody(request: IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = []
+  let size = 0
+  for await (const chunk of request) {
+    size += (chunk as Buffer).length
+    if (size > MAX_BODY_BYTES) throw new Error('request body too large')
+    chunks.push(chunk as Buffer)
+  }
+  const text = Buffer.concat(chunks).toString('utf8')
+  return text === '' ? undefined : JSON.parse(text)
+}
+
+async function http(config: Config): Promise<void> {
+  const sessions = new Map<string, Session>()
+
+  const sweeper = setInterval(() => {
+    const now = Date.now()
+    for (const [id, session] of sessions) {
+      if (now - session.lastUsed > SESSION_IDLE_MS) {
+        session.close()
+        void session.transport.close()
+        sessions.delete(id)
+      }
+    }
+  }, 60_000)
+  sweeper.unref()
+
+  const server = createHttpServer((request, response) => {
+    void (async () => {
+      const url = new URL(request.url ?? '/', 'http://localhost')
+      if (url.pathname === '/healthz') {
+        response.writeHead(200, { 'content-type': 'text/plain' }).end('ok')
+        return
+      }
+      if (url.pathname !== '/mcp') {
+        reply(response, 404, 'not found')
+        return
+      }
+
+      const token = bearer(request)
+      if (token === null) {
+        reply(response, 401, 'a Meadow access token is required as "Authorization: Bearer mdw_..."', {
+          'www-authenticate': 'Bearer',
+        })
+        return
+      }
+
+      const sessionId = request.headers['mcp-session-id']
+      const existing = typeof sessionId === 'string' ? sessions.get(sessionId) : undefined
+      if (existing !== undefined) {
+        // A session belongs to the token that opened it. Another token presenting its id
+        // gets nothing: not the session, and not a hint that it exists.
+        if (existing.tokenHash !== hashToken(token)) {
+          reply(response, 404, 'session not found')
+          return
+        }
+        existing.lastUsed = Date.now()
+        const body = request.method === 'POST' ? await readBody(request) : undefined
+        await existing.transport.handleRequest(request, response, body)
+        return
+      }
+
+      if (request.method !== 'POST') {
+        reply(response, 400, 'no session; send an initialize request first')
+        return
+      }
+      const body = await readBody(request)
+      if (!isInitializeRequest(body)) {
+        reply(response, typeof sessionId === 'string' ? 404 : 400, 'session not found; initialize again')
+        return
+      }
+
+      const api = new MeadowApi(config.api, token)
+      try {
+        await api.me()
+      } catch (error) {
+        reply(response, 401, error instanceof Error ? error.message : 'access token refused', {
+          'www-authenticate': 'Bearer',
+        })
+        return
+      }
+
+      const { server: mcp, close } = createServer({ api, idleMs: config.idleMs })
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: () => randomUUID(),
+        onsessioninitialized: (id) => {
+          sessions.set(id, { transport, close, tokenHash: hashToken(token), lastUsed: Date.now() })
+        },
+      })
+      transport.onclose = () => {
+        if (transport.sessionId !== undefined) sessions.delete(transport.sessionId)
+        close()
+      }
+      await mcp.connect(transport)
+      await transport.handleRequest(request, response, body)
+    })().catch((error: unknown) => {
+      log(error instanceof Error ? (error.stack ?? error.message) : String(error))
+      if (!response.headersSent) reply(response, 500, 'internal error')
+    })
+  })
+
+  server.listen(config.port, config.host, () => {
+    log(`${VERSION} serving Streamable HTTP on http://${config.host}:${config.port}/mcp for ${config.api}`)
+  })
+
+  const shutdown = (): void => {
+    for (const session of sessions.values()) {
+      session.close()
+      void session.transport.close()
+    }
+    server.close(() => process.exit(0))
+  }
+  process.on('SIGINT', shutdown)
+  process.on('SIGTERM', shutdown)
+}
+
+let config: Config
+try {
+  config = parseConfig(process.argv.slice(2), process.env)
+} catch (error) {
+  if (error instanceof ConfigError) {
+    process.stderr.write(`${error.message}\n`)
+    process.exit(error.message.startsWith('meadow-mcp:') ? 0 : 2)
+  }
+  throw error
+}
+
+await (config.transport === 'http' ? http(config) : stdio(config))

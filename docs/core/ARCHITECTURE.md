@@ -141,9 +141,10 @@ Docker Compose · nginx · GitHub Actions → GHCR → VPS over SSH · Sentry ·
 
 Single **public** monorepo. pnpm workspaces for JS, uv for Python.
 
-Two JS packages: `apps/web` and `packages/schema`. The schema package holds the CRDT
-document types and Zod validators — imported by the web app, and mirrored (not shared)
-in Python for export rendering.
+Three JS packages: `apps/web`, `packages/schema` and `packages/mcp`. The schema package
+holds the CRDT document types and Zod validators — imported by the web app, and mirrored
+(not shared) in Python for export rendering. The MCP server (1.4.0) imports both, and
+compiles in the web app's `src/doc` write path rather than having one of its own.
 
 ```
 meadow/
@@ -174,7 +175,11 @@ meadow/
 │           ├── arrowBinding.ts  # anchor resolution, outline intersection, routing
 │           ├── bindings.ts
 │           ├── doc.ts
+│           ├── interchange.ts   # the .meadow.json file format
+│           ├── graph.ts     # a glade as nodes and edges, for the MCP server
 │           └── index.ts
+│   └── mcp/                 # Model Context Protocol server; docs/mcp.md
+│       └── src/             # server (tools), plan, room (headless peer), mermaid, layout
 ├── services/
 │   └── api/
 │       ├── app/
@@ -193,6 +198,7 @@ meadow/
 ├── docker/
 │   ├── api/Dockerfile           # api, worker, and the one-shot migrator
 │   ├── web/Dockerfile           # SPA build baked into nginx
+│   ├── mcp/Dockerfile           # meadow-mcp over Streamable HTTP, at /mcp behind nginx
 │   ├── nginx/                   # base conf + the site template
 │   ├── backup/                  # pg_dump sidecar
 │   └── pgadmin/
@@ -610,6 +616,41 @@ representation of this section, not a change to it: the Y.Doc stays the state.
 - **Not on the undo stack.** The import writes under `IMPORT_ORIGIN`, one transaction, so
   a peer sees an empty board or the whole one, and Ctrl+Z does not empty a board that
   was just imported.
+
+### Batched edits and the MCP server (1.4.0)
+
+`applyEdits(session, { remove, create, update, connect })` in `mutations.ts` is the
+write a caller that is not a pointer makes: create, relabel, restyle, remove and attach
+arrow ends in **one transaction**, with `ref` names so later steps can refer to objects
+created earlier in the same batch. Every reference is checked before anything is
+written, because a Y.Doc has no rollback and a half-applied batch would leave half a
+diagram behind. It is a new mutation on the existing write path, not a schema change.
+
+`packages/mcp` is the Model Context Protocol server built on it (client setup in
+`docs/mcp.md`). What it does and does not do:
+
+- **It is a peer, not a second write path.** It joins a board over the websocket
+  through the ordinary ws-token handshake, keeps its own Y.Doc, and writes through the
+  web app's `mutations.ts`, compiled in from `apps/web/src/doc`. The server still has no
+  REST route that edits a document. Its presence is a wanderer named after the client
+  ("Claude Code (via MCP)"), keyed `<user id>:mcp` so it is not merged with the same
+  person's browser.
+- **Reads go through a graph.** `gladeToGraph` in `packages/schema/src/graph.ts` joins
+  objects, text, bindings and arrow heads into nodes and edges (`from`, `to`, `label`,
+  `direction`). It is lossy, one-way and pure. The full interchange file is also
+  available for a field the graph leaves out.
+- **Writes are planned, then applied.** `packages/mcp/src/plan.ts` turns tool input
+  into an `EditBatch`. Every write takes `preview` and returns the plan instead. Nodes
+  without coordinates are placed by an ELK layered layout, to the right of the existing
+  content. An edge running opposite to one already joining the same pair is curved so
+  the two do not overlap. `apply_diagram` matches by id, then by a unique exact label,
+  and never deletes.
+- **Undo.** An agent's writes are `LOCAL_ORIGIN` in the agent's own process, so they
+  sit on its own undo stack. A person's Ctrl+Z never reaches them, because each undo
+  manager only tracks its own client's transactions. That is intended.
+- **Not moved into a package.** `src/doc` stays in `apps/web`, and `packages/mcp`
+  imports it by relative path. Extracting `packages/doc` would be cleaner, but it moves
+  the only write path, so it is left as a decision to raise, not one taken in passing.
 
 ---
 
@@ -1286,7 +1327,19 @@ POST   /boards/{id}/export            { format: pdf|png|svg } -> job id
 GET    /jobs/{id}
 
 POST   /ws-token                      short-lived (60s) token for ws handshake
+
+-- personal access tokens (1.4.0). Session only: a token cannot manage tokens.
+GET    /tokens                        live tokens; never the secret
+POST   /tokens                        { name, scope: read|write, board_ids?, expires_in_days? }
+                                      -> the secret, once
+DELETE /tokens/{id}                   revoke; closes every socket it opened
 ```
+
+A personal access token (`mdw_...`) is accepted on exactly these routes and refused with
+401 on every other: `GET /auth/me`, `GET /boards`, `GET /boards/{id}`, `POST /boards`
+(write scope, no board list), and `POST /ws-token`. A route opts in by taking
+`CurrentPrincipal` instead of `CurrentUser`, so a route added later is closed to tokens
+until somebody decides otherwise.
 
 ### WebSocket
 
@@ -1594,6 +1647,31 @@ provider, no hash. If this ever needs reversing again, reverse it in
   provider's avatar keep following its account while a second provider linked later
   leaves it alone, and what keeps "initials" chosen through the next sign-in.
 - Rate limits: 20/min/IP on each of start and callback, per provider.
+
+### Personal access tokens (1.4.0)
+
+For clients that cannot hold a browser session: the MCP server, scripts. A row in
+`api_tokens`:
+
+- **Storage.** Only a sha256 digest and a display prefix are kept.
+- **Scope.** `read` or `write`.
+- **Boards.** An optional allow-list of board ids, which can only name boards the owner
+  can open at issue time.
+- **Lifetime.** An optional expiry, `last_used_at` written at most once a minute, and
+  `revoked_at`.
+
+A token **only narrows** its owner. The role is still resolved live by `resolve_role`.
+A read scope is folded into `resolve_access` as `read_only`, beside the lock, so
+`can_write` stays the one answer. The allow-list shuts other boards with the same 403
+as no access.
+
+The ws-token carries the id of the token that minted it (`api_token_id`). The handshake
+and the watchdog reload that token every time: revoked or expired closes with 4401, and
+a board not on its list with 4403. `SocketRegistry` also indexes sockets by token id,
+so revoking closes that token's sockets at once and leaves the same person's browser
+alone. Tokens cannot mint, list or revoke tokens, and cannot end sessions, so a stolen
+token cannot make itself permanent. Tests for all of this came first, in
+`tests/test_api_tokens.py`.
 
 ### Permission resolution
 
@@ -2045,6 +2123,15 @@ nothing.
 Tables · charts · frames/groups · images · export to PDF/PNG · full-text
 search · comments · LLM features (board summarisation, text→flowchart generation,
 pgvector semantic search)
+
+**Reordered in 1.4.0: agent access came before the deploy.** The glade interchange
+file (1.3.0) and the MCP server with personal access tokens (1.4.0) were built while the
+M6 deploy was still open. That was a deliberate call by the project owner, not a drift.
+It puts an LLM-facing feature ahead of v1 shipping, which the rule above says not to do.
+It contains no model inside Meadow: the server exposes glades to assistants people
+already use, and summarising or generating inside the app is still v2. OAuth for the
+claude.ai and ChatGPT web connectors (plan step 2.6) is **not built**. Until it is, those
+two clients cannot connect, and every other client uses a pasted token.
 
 *(`freedraw` was on this list and was pulled forward into M6. See the note there.)*
 

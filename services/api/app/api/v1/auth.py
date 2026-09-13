@@ -19,7 +19,7 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
 from app.auth import password as passwords
-from app.auth.deps import CurrentUser, Session
+from app.auth.deps import CurrentPrincipal, CurrentUser, Session
 from app.auth.session import clear_refresh_cookie, issue_session, session_user
 from app.auth.tokens import create_access_token, hash_refresh_token
 from app.config import settings
@@ -747,8 +747,9 @@ async def revoke_session(
 
 
 @router.get("/me", response_model=UserOut)
-async def me(user: CurrentUser, session: Session) -> UserOut:
-    return await accounts.build_user_out(session, user)
+async def me(principal: CurrentPrincipal, session: Session) -> UserOut:
+    """The caller's account. A personal access token may read it, never change it."""
+    return await accounts.build_user_out(session, principal.user)
 
 
 @router.patch("/me", response_model=UserOut)

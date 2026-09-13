@@ -235,7 +235,9 @@ touches() { printf '%s\n' "$STAGED" | grep -qE "$1"; }
 # packages/schema is in the web bucket because apps/web imports it through
 # `workspace:*` and tsc resolves straight into its source. A schema edit that breaks a
 # caller breaks it at the caller, so both are typechecked together or neither is.
-WEB=0; touches '^(apps/web|packages/schema)/' && WEB=1
+# packages/mcp is in it too: it compiles the web app's `src/doc` write path in, so a
+# change there can break the MCP server without touching a file under packages/mcp.
+WEB=0; touches '^(apps/web|packages/schema|packages/mcp)/' && WEB=1
 API=0; touches '^services/api/.*\.(py|toml)$' && API=1
 
 top "$(pick "Checking what is about to be committed ${GREY}(rules, types, tests)${NC}" 'Pre-commit checks')"
@@ -290,13 +292,13 @@ run_step "$(pick 'repo rules   : staged lines' 'repo rules')" node scripts/check
 # Subshells throughout, so a `cd` inside a step cannot leak into the next one. The
 # non-interactive branch of run_step calls these in the current shell.
 web_types() { ( pnpm -r --silent lint ); }
-web_tests() { ( pnpm --filter web --silent test ); }
+web_tests() { ( pnpm --filter web --silent test && pnpm --filter @meadow/mcp --silent test ); }
 
 if [ "$WEB" -eq 1 ]; then
-    run_step "$(pick 'types (web)  : tsc --noEmit, both packages' 'types (web)')" web_types
+    run_step "$(pick 'types (web)  : tsc --noEmit, every package' 'types (web)')" web_types
     run_step "$(pick 'tests (web)  : vitest run' 'tests (web)')" web_tests
 else
-    skip_step "$(pick 'types, tests : web' 'web')" 'nothing staged under apps/web or packages/schema'
+    skip_step "$(pick 'types, tests : web' 'web')" 'nothing staged under apps/web or packages'
 fi
 
 # ---- API: ruff, then mypy ----

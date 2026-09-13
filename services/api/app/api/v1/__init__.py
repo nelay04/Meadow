@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.v1 import auth, boards, config, oauth, share, workspaces, ws_token
+from app.api.v1 import auth, boards, config, oauth, share, tokens, workspaces, ws_token
 
 router = APIRouter(prefix="/api/v1")
 router.include_router(auth.router)
@@ -17,3 +17,5 @@ router.include_router(boards.router)
 # each of its routes is reachable without a session.
 router.include_router(share.router)
 router.include_router(ws_token.router)
+# Personal access tokens for MCP clients and scripts. Managed from a session only.
+router.include_router(tokens.router)

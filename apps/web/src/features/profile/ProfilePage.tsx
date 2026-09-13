@@ -31,6 +31,7 @@ import { ApiError } from '../../lib/api'
 import type { AuthSession, Identity, OAuthProvider, Providers } from '../../lib/api'
 import { useAuth } from '../auth/AuthContext'
 import { OAUTH_PROVIDERS } from '../auth/providers'
+import { AccessTokensCard } from './AccessTokensCard'
 
 type Props = {
   onBack: () => void
@@ -637,6 +638,10 @@ export default function ProfilePage({ onBack }: Props) {
             </p>
           )}
         </section>
+
+        {/* After Sessions: the other kind of credential this account hands out, and
+            revoked the same way. */}
+        <AccessTokensCard />
 
         {/*
           Appearance.

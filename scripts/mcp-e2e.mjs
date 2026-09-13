@@ -1,0 +1,286 @@
+/**
+ * End-to-end check of the Meadow MCP server.
+ *
+ * Real API, real web app, the built `meadow-mcp` bundle over stdio and over Streamable
+ * HTTP, and a browser with the glade open watching the agent's edits arrive. The unit
+ * tests in packages/mcp cover planning and parsing against a local Y.Doc; this is the
+ * only check that covers the access token, the handshake, the headless peer and
+ * persistence together.
+ *
+ * Requires postgres and redis: docker compose -f docker-compose.local.yml up -d
+ * and a built bundle: pnpm --filter @meadow/mcp build (this script builds it).
+ */
+
+import { spawn, spawnSync } from 'node:child_process'
+import { setTimeout as delay } from 'node:timers/promises'
+
+import { chromium } from 'playwright'
+
+const sdk = (path) =>
+  import(new URL(`../packages/mcp/node_modules/@modelcontextprotocol/sdk/dist/esm/${path}`, import.meta.url))
+const { Client } = await sdk('client/index.js')
+const { StdioClientTransport } = await sdk('client/stdio.js')
+const { StreamableHTTPClientTransport } = await sdk('client/streamableHttp.js')
+
+const API_PORT = process.env.E2E_API_PORT ?? '8016'
+const WEB_PORT = process.env.E2E_WEB_PORT ?? '3096'
+const MCP_PORT = process.env.E2E_MCP_PORT ?? '8766'
+const BUNDLE = new URL('../packages/mcp/dist/meadow-mcp.js', import.meta.url).pathname
+
+const failures = []
+const check = (name, ok, detail = '') => {
+  if (ok) console.log(`PASS  ${name}`)
+  else {
+    console.log(`FAIL  ${name}${detail === '' ? '' : ` -- ${detail}`}`)
+    failures.push(name)
+  }
+}
+
+const procs = []
+const stop = () => {
+  for (const proc of procs) proc.kill('SIGTERM')
+  procs.length = 0
+}
+process.on('exit', stop)
+
+const built = spawnSync('pnpm', ['--filter', '@meadow/mcp', 'build'], { stdio: 'inherit' })
+if (built.status !== 0) {
+  console.error('FAIL  building the MCP bundle')
+  process.exit(1)
+}
+
+// Mail off and rate limits off, for the reasons board-e2e.mjs gives.
+const api = spawn(
+  'bash',
+  ['-c', `cd services/api && exec .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port ${API_PORT} --log-level warning`],
+  {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: {
+      ...process.env,
+      MEADOW_RATE_LIMIT_ENABLED: 'false',
+      MEADOW_SMTP_HOST: '',
+      MEADOW_SMTP_FROM: '',
+      MEADOW_MAIL_PROVIDER: 'none',
+    },
+  },
+)
+procs.push(api)
+
+const web = spawn('pnpm', ['--filter', 'web', 'exec', 'vite', '--port', WEB_PORT, '--strictPort'], {
+  stdio: ['ignore', 'pipe', 'pipe'],
+  env: { ...process.env, API_PORT, WEB_PORT },
+})
+procs.push(web)
+
+async function waitFor(url, label) {
+  for (let i = 0; i < 80; i += 1) {
+    try {
+      if ((await fetch(url)).ok) return
+    } catch {
+      /* not up yet */
+    }
+    await delay(500)
+  }
+  throw new Error(`${label} did not start at ${url}`)
+}
+
+const apiBase = `http://127.0.0.1:${API_PORT}`
+const webBase = `http://127.0.0.1:${WEB_PORT}`
+await waitFor(`${apiBase}/healthz`, 'api')
+await waitFor(webBase, 'web')
+
+async function rest(path, { method = 'GET', body, token } = {}) {
+  const response = await fetch(`${apiBase}/api/v1${path}`, {
+    method,
+    headers: {
+      ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+      ...(token === undefined ? {} : { authorization: `Bearer ${token}` }),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  const text = await response.text()
+  return { status: response.status, body: text === '' ? null : JSON.parse(text) }
+}
+
+const email = `mcp-e2e-${Date.now()}@meadow.dev`
+const password = 'correct-horse-battery-staple'
+const registered = await rest('/auth/register', { method: 'POST', body: { email, password, display_name: 'MCP E2E' } })
+if (registered.status !== 202) {
+  console.error(`FAIL  register returned ${registered.status}. Is the database up and migrated?`)
+  process.exit(1)
+}
+const session = (await rest('/auth/login', { method: 'POST', body: { email, password } })).body.access_token
+const workspaceId = (await rest('/auth/me', { token: session })).body.default_workspace_id
+const board = (await rest('/boards', { method: 'POST', token: session, body: { workspace_id: workspaceId, title: 'MCP glade' } })).body
+
+const writeToken = await rest('/tokens', { method: 'POST', token: session, body: { name: 'e2e write', scope: 'write' } })
+const readToken = await rest('/tokens', { method: 'POST', token: session, body: { name: 'e2e read', scope: 'read' } })
+check('a session mints read and write access tokens', writeToken.status === 201 && readToken.status === 201)
+
+// --- the browser, watching ---------------------------------------------------------------
+
+const browser = await chromium.launch({ channel: 'chromium', args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] })
+const page = await browser.newPage({ viewport: { width: 1280, height: 860 } })
+await page.goto(`${webBase}/app`, { waitUntil: 'load' })
+await page.fill('input[type="email"]', email)
+await page.fill('input[type="password"]', password)
+await page.click('button[type="submit"]')
+await page.waitForSelector('text=MCP glade', { timeout: 20000 })
+await page.click('text=MCP glade')
+await page.waitForFunction(() => document.querySelector('.role')?.textContent?.trim() === 'owner', null, { timeout: 20000 })
+check('the owner has the glade open in a browser', true)
+
+const objectCount = () => page.textContent('[data-testid="object-count"]').then((text) => text?.trim())
+const waitForCount = (expected, timeout = 10000) =>
+  page
+    .waitForFunction((want) => document.querySelector('[data-testid="object-count"]')?.textContent?.trim() === want, expected, { timeout })
+    .then(() => true, () => false)
+
+// --- stdio ---------------------------------------------------------------------------------
+
+async function connectStdio(token) {
+  const client = new Client({ name: 'Meadow E2E', version: '1.0.0' })
+  await client.connect(
+    new StdioClientTransport({
+      command: process.execPath,
+      args: [BUNDLE],
+      env: { ...process.env, MEADOW_API_URL: apiBase, MEADOW_TOKEN: token },
+      stderr: 'pipe',
+    }),
+  )
+  return client
+}
+
+const call = async (client, name, args) => {
+  const result = await client.callTool({ name, arguments: args })
+  const text = result.content?.[0]?.text ?? ''
+  let json = null
+  try {
+    json = JSON.parse(text)
+  } catch {
+    /* plain text result */
+  }
+  return { error: result.isError === true, text, json }
+}
+
+const agent = await connectStdio(writeToken.body.token)
+const tools = (await agent.listTools()).tools.map((tool) => tool.name)
+check(
+  'the server lists its read and write tools',
+  ['list_glades', 'get_glade_graph', 'apply_diagram', 'update_objects', 'export_mermaid'].every((name) => tools.includes(name)),
+  tools.join(', '),
+)
+
+const listed = await call(agent, 'list_glades', {})
+check('list_glades finds the glade', listed.json?.some((entry) => entry.id === board.id), listed.text.slice(0, 200))
+
+const previewed = await call(agent, 'apply_diagram', {
+  glade_id: board.id,
+  mermaid: 'flowchart LR\n  cart[Cart] -->|checkout| paid{Paid?}\n  paid -->|yes| done((Done))',
+  preview: true,
+})
+check('a preview describes the plan', previewed.json?.preview === true && previewed.json.create.length === 5, previewed.text.slice(0, 300))
+await delay(1000)
+check('a preview leaves the glade untouched', (await objectCount()) === '0 objects', await objectCount())
+
+const applied = await call(agent, 'apply_diagram', {
+  glade_id: board.id,
+  mermaid: 'flowchart LR\n  cart[Cart] -->|checkout| paid{Paid?}\n  paid -->|yes| done((Done))',
+})
+check('apply_diagram draws three nodes and two arrows', !applied.error && Object.keys(applied.json?.ids ?? {}).length === 5, applied.text.slice(0, 300))
+check('the edit arrives in the open browser without a reload', await waitForCount('5 objects'), await objectCount())
+
+const face = await page
+  .waitForSelector('.wanderers [title*="via MCP"]', { timeout: 10000 })
+  .then(() => true, () => false)
+check('the agent shows up among the wanderers', face)
+
+const graph = await call(agent, 'get_glade_graph', { glade_id: board.id })
+const ids = applied.json.ids
+const checkout = graph.json?.edges.find((edge) => edge.label === 'checkout')
+check(
+  'the graph reads the arrow as Cart -> Paid?',
+  checkout?.from === ids.cart && checkout?.to === ids.paid && checkout?.direction === 'forward',
+  JSON.stringify(checkout),
+)
+
+const renamed = await call(agent, 'update_objects', { glade_id: board.id, updates: [{ id: ids.cart, label: 'Basket' }] })
+const relabelled = await page
+  .waitForFunction(
+    () => [...document.querySelectorAll('.meadow-overlay [data-object-id] .meadow-rt')].some((node) => node.textContent === 'Basket'),
+    null,
+    { timeout: 10000 },
+  )
+  .then(() => true, () => false)
+check('relabelling by id renders in the browser', !renamed.error && relabelled, renamed.text.slice(0, 200))
+
+const again = await call(agent, 'apply_diagram', {
+  glade_id: board.id,
+  mermaid: 'flowchart LR\n  b[Basket] -->|checkout| p[Paid?]\n  p -->|no| b',
+})
+check(
+  're-applying matches nodes by label and adds only the missing arrow',
+  !again.error && Object.keys(again.json?.matched ?? {}).length === 2 && Object.keys(again.json?.ids ?? {}).length === 1,
+  again.text.slice(0, 300),
+)
+check('the glade now holds six objects', await waitForCount('6 objects'), await objectCount())
+
+const mermaid = await call(agent, 'export_mermaid', { glade_id: board.id })
+check('export_mermaid carries the labels', mermaid.text.includes('"Basket"') && mermaid.text.includes('|"no"|'), mermaid.text)
+
+// --- a read-only token ------------------------------------------------------------------------
+
+const reader = await connectStdio(readToken.body.token)
+const summary = await call(reader, 'get_glade_summary', { glade_id: board.id })
+check('a read token reads the glade', !summary.error && summary.json?.objects === 6, summary.text.slice(0, 200))
+const refused = await call(reader, 'create_nodes', { glade_id: board.id, nodes: [{ label: 'nope' }] })
+check('a read token is refused a write, with the reason', refused.error && /read-only/.test(refused.text), refused.text)
+await reader.close()
+
+// --- Streamable HTTP ---------------------------------------------------------------------------
+
+const http = spawn(process.execPath, [BUNDLE, '--http', '--api', apiBase, '--port', MCP_PORT], { stdio: ['ignore', 'pipe', 'pipe'] })
+procs.push(http)
+await waitFor(`http://127.0.0.1:${MCP_PORT}/healthz`, 'mcp http')
+
+const remote = new Client({ name: 'Meadow E2E HTTP', version: '1.0.0' })
+await remote.connect(
+  new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${MCP_PORT}/mcp`), {
+    requestInit: { headers: { authorization: `Bearer ${writeToken.body.token}` } },
+  }),
+)
+const overHttp = await call(remote, 'find_objects', { glade_id: board.id, text: 'paid' })
+check('the HTTP transport serves tools with a bearer token', overHttp.json?.nodes?.length === 1, overHttp.text.slice(0, 200))
+await remote.close()
+
+const noToken = await fetch(`http://127.0.0.1:${MCP_PORT}/mcp`, {
+  method: 'POST',
+  headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+  body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }),
+})
+check('the HTTP transport refuses a request with no token', noToken.status === 401, `status ${noToken.status}`)
+
+// --- revocation and persistence ------------------------------------------------------------
+
+const revoked = await rest(`/tokens/${writeToken.body.id}`, { method: 'DELETE', token: session })
+check('revoking the write token succeeds', revoked.status === 204)
+await delay(500)
+const afterRevoke = await call(agent, 'create_nodes', { glade_id: board.id, nodes: [{ label: 'too late' }] })
+check('a revoked token cannot write again', afterRevoke.error, afterRevoke.text.slice(0, 200))
+await agent.close()
+
+await delay(1500)
+await page.reload({ waitUntil: 'load' })
+await page.waitForSelector('.canvas-host canvas', { timeout: 20000 })
+check('the agent’s edits survive a reload', await waitForCount('6 objects', 15000), await objectCount())
+
+if (process.env.E2E_SHOT) await page.screenshot({ path: process.env.E2E_SHOT })
+
+await browser.close()
+stop()
+if (failures.length > 0) {
+  console.log(`\n${failures.length} check(s) failed`)
+  process.exit(1)
+}
+console.log('\nall MCP checks passed')
+process.exit(0)
