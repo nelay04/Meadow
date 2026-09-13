@@ -166,6 +166,7 @@ node meadow-mcp.js --http --api https://meadow.example.com --host 127.0.0.1 --po
 | `delete_objects` | Remove objects; attached arrows keep a free end |
 | `set_text` | Replace an object's text (light Markdown) |
 | `apply_diagram` | Draw or extend a diagram from nodes and edges, or from Mermaid |
+| `get_glade_snapshot` | A PNG of the glade as the canvas draws it, optionally with the nodes and edges beside it. View access is enough |
 | `check_layout` | What would look wrong on the canvas: overflowing text, overlaps, lines through shapes, stacked labels |
 | `tidy_layout` | Lay a diagram out again, grow shapes to fit their text, and re-attach its arrows |
 | `import_glade` | Create a glade from a `.meadow.json` file |
@@ -180,6 +181,11 @@ Some behaviour to know about:
 - **Arrows.** Edges default to elbows. The server picks which side of each shape an edge
   uses, where along that side, and where it bends, so edges do not share a line, stack
   labels or cross shapes where a single bend can avoid it.
+- **Snapshots.** `get_glade_snapshot` draws the glade from its document inside the MCP
+  server; no browser is involved. It needs only view access, and it is refused wherever
+  a read would be. Pass `region` or `ids` for part of a large glade and `include_graph`
+  for the raw data in the same result. Text too small to read at the chosen width is
+  left out, so narrow the view to read labels on a big glade.
 - **Layout problems.** Every write reports the problems it left. `check_layout` lists
   them, and `tidy_layout` fixes most. Preview `tidy_layout` first on a glade a person
   arranged by hand, since it moves shapes.

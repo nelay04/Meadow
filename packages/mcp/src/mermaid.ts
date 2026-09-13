@@ -61,7 +61,7 @@ function quote(label: string): string {
 }
 
 /** A Mermaid id for a Meadow id. Meadow's are alphanumeric already; this is the guard. */
-function safeId(id: string): string {
+export function safeId(id: string): string {
   const cleaned = id.replace(/[^A-Za-z0-9_]/g, '_')
   return /^[A-Za-z]/.test(cleaned) ? cleaned : `n_${cleaned}`
 }

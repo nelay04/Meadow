@@ -50,7 +50,7 @@ export const MIN_SIZES: Record<SpecNodeType, Size> = {
 const MAX_TEXT_WIDTH = 240
 
 /** Fraction of the box a label may use on each axis. Mirrors `INSCRIBED` in textLayer.ts. */
-function inscribed(type: SpecNodeType, w: number, h: number): { x: number; y: number } {
+export function inscribed(type: SpecNodeType, w: number, h: number): { x: number; y: number } {
   const short = Math.min(w, h)
   switch (type) {
     case 'diamond':

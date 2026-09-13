@@ -667,6 +667,19 @@ diagram behind. It is a new mutation on the existing write path, not a schema ch
   an existing diagram. This replaced 1.4.0's curved return edge. Routes with more than
   one bend would need stored waypoints and a canvas change, which is a separate
   decision.
+- **Snapshots are drawn in the MCP server, from the document (1.6.0).**
+  `packages/mcp/src/snapshot.ts` builds SVG from the interchange file with the schema's
+  geometry (arrow routes, heads, shape outlines, ink outlines) and the canvas's theme
+  defaults, mirrored from `canvas/style.ts` because that module imports the renderer.
+  resvg compiled to WebAssembly turns the SVG into PNG, using the web app's fonts
+  converted to TrueType at build time. Two alternatives were rejected:
+  - a headless browser screenshot, because it is exact but ships Chromium and needs a
+    browser session made from a token;
+  - the stored thumbnail, because it is stale and only exists if a browser uploaded one.
+
+  Access is the room's: a snapshot is as visible as `export_glade`, so there is no new
+  route. The SVG is escaped text and finite numbers with no references, and output is
+  capped in pixels, objects and characters, rendered one at a time, and never stored.
 - **Undo.** An agent's writes are `LOCAL_ORIGIN` in the agent's own process, so they
   sit on its own undo stack. A person's Ctrl+Z never reaches them, because each undo
   manager only tracks its own client's transactions. That is intended.

@@ -3,6 +3,8 @@
 // are compiled in here; nothing outside this package is published.
 import { build } from 'esbuild'
 
+import { gatherAssets } from './assets.mjs'
+
 await build({
   entryPoints: ['src/cli.ts'],
   outfile: 'dist/meadow-mcp.js',
@@ -20,3 +22,6 @@ await build({
   legalComments: 'none',
   logLevel: 'info',
 })
+
+// The snapshot renderer's WebAssembly and fonts, beside the bundle where it looks for them.
+await gatherAssets('dist/assets')

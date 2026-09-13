@@ -11,6 +11,55 @@ away getting there.
 
 ---
 
+## [1.6.0] - [14-Sep-2026]
+
+### Added
+- **Assistants can look at a glade, not only read it.** `get_glade_snapshot` returns a
+  PNG of the glade as the canvas draws it: shapes, arrows with their heads and routes,
+  labels, stickies and ink. Pass `include_graph` to get the nodes and edges drawn in the
+  same result, with the ids to edit them by, so the picture and the raw data can be
+  checked side by side. A region or a set of ids shows part of a large glade, and a
+  light or dark theme can be chosen.
+  - **Drawn from the document, in the MCP server.** The picture is SVG built with the
+    same geometry functions the canvas uses, turned into PNG by resvg (WebAssembly)
+    with the canvas's own fonts. No browser is involved. Fonts and word wrapping can
+    differ slightly from the browser; positions, shapes and routes do not.
+  - **The same access as reading.** Anyone who can view a glade can take a snapshot,
+    fine-grained view-only tokens included, and nobody else can. It goes through the
+    same socket handshake as every read, so there is no new API route or permission.
+    A revoked token, a glade the token does not name, and a password-protected glade
+    are refused as they are for reads.
+  - **Nothing leaves except the picture.** Labels are escaped and the SVG carries no
+    links, styles or external references, so a label cannot become markup and nothing
+    is ever fetched. The image is returned inline and never stored, cached or given a
+    URL. Other people's cursors and selections are not in it.
+  - **Bounded.** 4096 pixels on each side at most, 5000 objects per picture, 2000
+    characters per label, and one render at a time. Text too small to read is left
+    out, which also keeps a 5000-object glade under a second.
+- **Tests.** Written before the tool: `pnpm e2e:mcp` checks that a view-only token gets
+  a snapshot, and that a glade the token does not name and a revoked token get an error
+  and no image. `packages/mcp/test/snapshot.test.ts` covers escaping hostile labels, no
+  external references in the markup, cropping, the object and size caps, text culling
+  and both themes. `MCP_E2E_SNAPSHOT` saves the e2e snapshot to a file.
+
+### Fixed
+- **A diagram read out as Mermaid and sent back could duplicate nodes (1.4.0).** Mermaid
+  ids cannot start with a digit or contain a dash, so `export_mermaid` rewrites those
+  ids (`0b-c` becomes `n_0b_c`), and `apply_diagram` did not map them back. About one
+  glade id in six starts with a digit. Those nodes matched by label when the label was
+  unique, and were drawn a second time when it was not. `apply_diagram` now maps an
+  exported id back to the object it came from. The Mermaid round-trip test used random
+  ids and failed only when one started with a digit; it now uses fixed ones, and a
+  regression test covers the match.
+
+### Changed
+- **The MCP image ships the snapshot assets.** The build decompresses the web app's
+  woff2 fonts to TrueType (resvg does not read woff2) and copies them, with resvg's
+  WebAssembly, to `dist/assets` beside the bundle. `pnpm --filter @meadow/mcp test` does
+  the same for the tests.
+
+---
+
 ## [1.5.0] - [14-Sep-2026]
 
 ### Added

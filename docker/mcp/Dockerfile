@@ -2,7 +2,7 @@
 #
 # Build context is the repo root, for the same reason as the web image: the server
 # compiles in `packages/schema` and the web app's `src/doc` write path, so it needs the
-# workspace to build. Only the single bundled file ships.
+# workspace to build. The bundled file and its snapshot assets are all that ship.
 #
 # Debian for the build stage for the web image's reason (the lockfile was resolved on
 # glibc). The runtime is the same base so nothing native differs between the two.
@@ -21,8 +21,11 @@ RUN pnpm install --frozen-lockfile --filter @meadow/mcp... --filter web...
 COPY packages packages
 COPY apps/web/src/doc apps/web/src/doc
 COPY apps/web/src/lib/api.ts apps/web/src/lib/api.ts
+# The fonts a snapshot is drawn with, decompressed to TrueType by the build.
+COPY apps/web/public/fonts apps/web/public/fonts
 
-# Typecheck, then bundle: a type error fails the image rather than a tool call later.
+# Typecheck, then bundle: a type error fails the image rather than a tool call later. The
+# build also writes dist/assets, the snapshot renderer's WebAssembly and fonts.
 RUN pnpm --filter @meadow/mcp lint && pnpm --filter @meadow/mcp build
 
 
@@ -30,6 +33,7 @@ FROM node:22-bookworm-slim AS runtime
 
 WORKDIR /app
 COPY --from=build /build/packages/mcp/dist/meadow-mcp.js /app/meadow-mcp.js
+COPY --from=build /build/packages/mcp/dist/assets /app/assets
 
 USER node
 ENV NODE_ENV=production

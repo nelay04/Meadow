@@ -38,6 +38,13 @@ import { type DiagramSpec, MermaidError, graphToMermaid, parseMermaid } from './
 import { PlanError, planCreate, planDiagram, planRemove, planUpdate } from './plan'
 import { type Action, type Room, RoomError, Rooms, allowedPhrase, refusal } from './room'
 import { textToRich } from './text'
+import {
+  DEFAULT_SNAPSHOT_WIDTH,
+  MAX_SNAPSHOT_OBJECTS,
+  MAX_SNAPSHOT_WIDTH,
+  rasterize,
+  renderSnapshot,
+} from './snapshot'
 import { checkLayout, planTidy } from './tidy'
 
 export const VERSION: string = packageJson.version
@@ -51,6 +58,7 @@ How to work with it:
 - To draw or extend a diagram, prefer apply_diagram: give nodes and edges (or Mermaid), and it matches existing nodes by id or label, adds what is missing and lays new nodes out beside the existing content. create_nodes and connect are the lower-level versions.
 - Leave out x, y, w and h and the server lays nodes out and sizes them to their labels, and chooses where each arrow attaches and bends. Only give coordinates to match something already on the glade. Coordinates are world units: x grows right, y grows down.
 - Keep node labels short: a title, and at most a short second line. Put detail in a separate note rather than a bullet list inside a flowchart box.
+- get_glade_snapshot returns a picture of the glade, optionally with its nodes and edges beside it. Look at it after drawing a diagram, before saying it is done.
 - Every write reports layout problems it left (text overflowing a shape, a line through a shape, overlapping lines or labels). When it does, or when a glade looks messy, call tidy_layout, then check_layout to confirm.
 - Pass preview: true to any write to see what it would do without changing the glade. A preview works even where the write itself is not allowed.
 - Labels accept light Markdown: **bold**, *italic*, # headings and - bullets.
@@ -850,6 +858,77 @@ export function createServer({ api, idleMs, access: initialAccess }: ServerOptio
         ),
     ),
     'edit',
+  )
+
+  server.registerTool(
+    'get_glade_snapshot',
+    {
+      title: 'Look at a glade',
+      description:
+        'A PNG picture of the glade as the canvas draws it: shapes, arrows, labels and ink, from the document itself. Use it to check how a diagram actually looks, beside get_glade_graph. Pass include_graph to get the nodes and edges in the picture in the same result, with the ids to edit them by. Show part of a large glade with region or ids. Needs only view access. Wrapping and fonts can differ slightly from the browser.',
+      inputSchema: {
+        glade_id: gladeId,
+        region: region.optional(),
+        ids: z
+          .array(z.string())
+          .max(2000)
+          .optional()
+          .describe('Frame these objects, with their surroundings.'),
+        max_width: z
+          .number()
+          .int()
+          .min(64)
+          .max(MAX_SNAPSHOT_WIDTH)
+          .optional()
+          .describe(`Picture width in pixels, default ${DEFAULT_SNAPSHOT_WIDTH}.`),
+        theme: z.enum(['light', 'dark']).optional().describe('Canvas theme. Default light.'),
+        include_graph: z
+          .boolean()
+          .optional()
+          .describe('Also return the nodes and edges drawn, as get_glade_graph has them.'),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    ({ glade_id, region: area, ids, max_width, theme, include_graph = false }) =>
+      guarded(async () => {
+        const room = await openRoom(glade_id)
+        const file = snapshot(room)
+        const picture = renderSnapshot(file, {
+          region: area,
+          ids,
+          maxWidth: max_width,
+          theme,
+          maxObjects: MAX_SNAPSHOT_OBJECTS,
+        })
+        const png = await rasterize(picture)
+        const shown = new Set(picture.ids)
+        const graph = include_graph ? gladeToGraph(file) : null
+        const details = {
+          glade: { id: room.board.id, title: room.board.title },
+          width: picture.width,
+          height: picture.height,
+          world_bounds: picture.bounds,
+          pixels_per_unit: picture.scale,
+          drawn: picture.drawn,
+          ...(picture.skipped > 0
+            ? { skipped: picture.skipped, hint: 'Too many objects; narrow it with region or ids.' }
+            : {}),
+          ...(graph === null
+            ? {}
+            : {
+                graph: {
+                  nodes: graph.nodes.filter((node) => shown.has(node.id)),
+                  edges: graph.edges.filter((edge) => shown.has(edge.id)),
+                },
+              }),
+        }
+        return {
+          content: [
+            { type: 'text', text: JSON.stringify(details, null, 2) },
+            { type: 'image', data: Buffer.from(png).toString('base64'), mimeType: 'image/png' },
+          ],
+        }
+      }),
   )
 
   server.registerTool(

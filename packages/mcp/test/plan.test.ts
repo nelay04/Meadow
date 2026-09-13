@@ -9,6 +9,7 @@ import {
 } from '../../../apps/web/src/doc/mutations'
 import { PlanError, planCreate, planDiagram, planRemove, planUpdate } from '../src/plan'
 import { parseMermaid } from '../src/mermaid'
+import { textToRich } from '../src/text'
 import { drawnPoints } from '../src/plan'
 import { overlapLength, segmentsOf } from '../src/route'
 
@@ -159,6 +160,25 @@ describe('planDiagram', () => {
     const types = [...session.objects.values()].map((map) => map.get('type'))
     expect(types.filter((type) => type === 'arrow')).toHaveLength(2)
     expect(types.filter((type) => type !== 'arrow')).toHaveLength(3)
+  })
+
+  it('matches ids that export_mermaid had to rewrite, instead of drawing them again', async () => {
+    const session = fresh()
+    applyEdits(session, {
+      create: [
+        { ref: 'a', object: { id: '7x-y', type: 'rect', x: 0, y: 0 }, text: textToRich('Same') },
+        { ref: 'b', object: { id: '_q', type: 'rect', x: 400, y: 0 }, text: textToRich('Same') },
+      ],
+    })
+    const before = session.objects.size
+    const plan = await planDiagram(
+      session,
+      parseMermaid('flowchart LR\n  n_7x_y["Same"] --> n__q["Same"]'),
+    )
+    expect(plan.matched).toEqual({ n_7x_y: '7x-y', n__q: '_q' })
+    applyEdits(session, plan.batch)
+    // Two shapes, plus the one new arrow between them.
+    expect(session.objects.size).toBe(before + 1)
   })
 
   it('refuses an ambiguous label by creating rather than guessing', async () => {

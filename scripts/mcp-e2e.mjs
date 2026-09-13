@@ -185,7 +185,15 @@ const call = async (client, name, args) => {
   } catch {
     /* plain text result */
   }
-  return { error: result.isError === true, text, json }
+  const image = result.content?.find((part) => part.type === 'image') ?? null
+  return { error: result.isError === true, text, json, image }
+}
+
+/** A PNG's width and height from its header, or null when the bytes are not a PNG. */
+const pngSize = (base64) => {
+  const bytes = Buffer.from(base64, 'base64')
+  if (bytes.length < 24 || bytes.toString('ascii', 1, 4) !== 'PNG') return null
+  return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) }
 }
 
 const agent = await connectStdio(writeToken.body.token)
@@ -287,6 +295,18 @@ check('check_layout reads the glade', !checked.error && typeof checked.json?.cou
 
 const tidied = await call(agent, 'tidy_layout', { glade_id: layoutGlade.id })
 check('tidy_layout lays the glade out again', !tidied.error && (tidied.json?.updated?.length ?? 0) > 0, tidied.text.slice(0, 300))
+const snap = await call(agent, 'get_glade_snapshot', { glade_id: layoutGlade.id, include_graph: true, max_width: 1200 })
+const snapSize = snap.image === null ? null : pngSize(snap.image.data)
+check(
+  'get_glade_snapshot returns a PNG with the graph beside it',
+  !snap.error && snap.image?.mimeType === 'image/png' && snapSize !== null && snapSize.width <= 1200 && snap.json?.graph?.nodes?.length === 7,
+  `${snap.text.slice(0, 200)} ${JSON.stringify(snapSize)}`,
+)
+if (process.env.MCP_E2E_SNAPSHOT && snap.image !== null) {
+  const { writeFileSync } = await import('node:fs')
+  writeFileSync(process.env.MCP_E2E_SNAPSHOT, Buffer.from(snap.image.data, 'base64'))
+}
+
 if (process.env.MCP_E2E_SHOT) {
   // The drawn result on the real canvas, for a person to look at, then back to the glade
   // the reload check below expects to be on.
@@ -328,6 +348,18 @@ check(
   'a read-only token reads its glade and is told it can only read',
   !summary.error && summary.json?.objects === 6 && summary.json?.allowed === 'only read',
   summary.text.slice(0, 300),
+)
+const readerSnap = await call(reader, 'get_glade_snapshot', { glade_id: board.id })
+check(
+  'a view-only token can take a snapshot of its glade',
+  !readerSnap.error && readerSnap.image !== null && pngSize(readerSnap.image.data) !== null,
+  readerSnap.text.slice(0, 200),
+)
+const readerSnapElsewhere = await call(reader, 'get_glade_snapshot', { glade_id: other.id })
+check(
+  'a snapshot of a glade the token does not name is refused, with no image',
+  readerSnapElsewhere.error && readerSnapElsewhere.image === null,
+  readerSnapElsewhere.text.slice(0, 200),
 )
 const readerList = await call(reader, 'list_glades', {})
 check('a fine-grained token lists only its glades', readerList.json?.length === 1, readerList.text.slice(0, 200))
@@ -390,6 +422,12 @@ check('revoking the write token succeeds', revoked.status === 204)
 await delay(500)
 const afterRevoke = await call(agent, 'create_nodes', { glade_id: board.id, nodes: [{ label: 'too late' }] })
 check('a revoked token cannot write again', afterRevoke.error, afterRevoke.text.slice(0, 200))
+const snapAfterRevoke = await call(agent, 'get_glade_snapshot', { glade_id: board.id })
+check(
+  'a revoked token cannot take a snapshot',
+  snapAfterRevoke.error && snapAfterRevoke.image === null,
+  snapAfterRevoke.text.slice(0, 200),
+)
 await agent.close()
 
 await delay(1500)

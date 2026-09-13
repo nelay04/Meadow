@@ -35,7 +35,7 @@ import {
   segmentsOf,
 } from './route'
 import { MIN_SIZES, edgeLabelSize, fitNodeSize } from './sizing'
-import type { DiagramDirection, DiagramSpec, SpecNodeType } from './mermaid'
+import { type DiagramDirection, type DiagramSpec, type SpecNodeType, safeId } from './mermaid'
 import { textToRich } from './text'
 
 /** Per call. A model that means to draw more can call again; one that did not mean to stops. */
@@ -446,6 +446,19 @@ export async function planDiagram(
     bindingsByArrow.set(arrowId, entry)
   }
 
+  // An id as `export_mermaid` writes it, back to the id. Mermaid ids cannot start with a
+  // digit or hold a dash, and glade ids can do both, so a flowchart read out and sent back
+  // names those objects by their Mermaid form. Without this they matched nothing by id and
+  // were either matched by label or drawn a second time. A form two ids share is left out.
+  const byMermaidId = new Map<string, string | null>()
+  for (const id of session.objects.keys()) {
+    const form = safeId(id)
+    if (form === id) continue
+    byMermaidId.set(form, byMermaidId.has(form) ? null : id)
+  }
+  const idOf = (key: string): string | undefined =>
+    session.objects.has(key) ? key : (byMermaidId.get(key) ?? undefined)
+
   const matched: Record<string, string> = {}
   const fresh: NodeInput[] = []
   const updates: UpdateInput[] = []
@@ -454,7 +467,7 @@ export async function planDiagram(
   for (const node of spec.nodes) {
     if (seen.has(node.key)) throw new PlanError(`node key used twice: ${node.key}`)
     seen.add(node.key)
-    const byId = session.objects.has(node.key) ? node.key : undefined
+    const byId = idOf(node.key)
     const candidates = node.label === undefined ? [] : (byLabel.get(norm(node.label)) ?? [])
     const existing = byId ?? (candidates.length === 1 ? candidates[0] : undefined)
     if (existing !== undefined) {
@@ -470,7 +483,8 @@ export async function planDiagram(
   const resolve = (key: string): string => {
     if (matched[key] !== undefined) return matched[key]
     if (seen.has(key)) return key
-    if (session.objects.has(key)) return key
+    const id = idOf(key)
+    if (id !== undefined) return id
     // An edge naming a node the spec never declared is a node with that name.
     seen.add(key)
     fresh.push({ ref: key, label: key })

@@ -62,8 +62,13 @@ describe('graphToMermaid', () => {
     const session = createDocSession(new Y.Doc(), 'owner')
     const { ids } = applyEdits(session, {
       create: [
-        { ref: 'a', object: { type: 'rect', x: 0, y: 0 }, text: textToRich('Say "hi"') },
-        { ref: 'b', object: { type: 'diamond', x: 300, y: 0 }, text: textToRich('Ok?') },
+        // Fixed ids: one a Mermaid id can hold as it is, and one it cannot.
+        { ref: 'a', object: { id: 'Abc', type: 'rect', x: 0, y: 0 }, text: textToRich('Say "hi"') },
+        {
+          ref: 'b',
+          object: { id: '0b-c', type: 'diamond', x: 300, y: 0 },
+          text: textToRich('Ok?'),
+        },
         {
           ref: 'e',
           object: { type: 'arrow', props: { startHead: 'open', endHead: 'none' } },
@@ -81,13 +86,14 @@ describe('graphToMermaid', () => {
     expect(text).toContain('%% arrows with a free end')
 
     const spec = parseMermaid(text)
+    expect(ids.b).toBe('0b-c')
     expect(spec.nodes).toEqual([
-      { key: ids.a, label: 'Say "hi"', type: 'rect' },
-      { key: ids.b, label: 'Ok?', type: 'diamond' },
+      { key: 'Abc', label: 'Say "hi"', type: 'rect' },
+      { key: 'n_0b_c', label: 'Ok?', type: 'diamond' },
     ])
     // A back-pointing arrow is written the way it reads.
     expect(spec.edges).toEqual([
-      { from: ids.b, to: ids.a, label: 'back', direction: 'forward', type: 'arrow' },
+      { from: 'n_0b_c', to: 'Abc', label: 'back', direction: 'forward', type: 'arrow' },
     ])
   })
 })
