@@ -781,29 +781,6 @@ export default function BoardsPage({ onOpen }: Props) {
               were thrown away, which is the only order anybody looks for here. */}
           {!showingTrash && (
             <>
-              {/* The one way to start a board from here. Unlike New, it has no
-                  question to ask first: the file says what kind of board it is. */}
-              <button
-                type="button"
-                className="dropdown-button"
-                title="Import a glade from a .meadow.json file"
-                onClick={() => importInput.current?.click()}
-              >
-                <IconUpload size={16} />
-                Import
-              </button>
-              <input
-                ref={importInput}
-                type="file"
-                accept=".json,application/json,application/vnd.meadow.glade+json"
-                hidden
-                onChange={(event) => {
-                  const file = event.target.files?.[0]
-                  // Cleared, so picking the same file again after a refusal still fires.
-                  event.target.value = ''
-                  if (file !== undefined) void importFile(file)
-                }}
-              />
               <Dropdown label="Show" value={owner} options={OWNERS} onChange={setOwner} />
               <Dropdown label="Sort by" value={sort} options={SORTS} onChange={setSort} />
             </>
@@ -827,6 +804,30 @@ export default function BoardsPage({ onOpen }: Props) {
                 onChange={(event) => setTitle(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter') void create(composing.id, title)
+                }}
+              />
+              {/* Beside Create, because it is the other way to start a board. It asks
+                  nothing first: the file says what kind of board it is and what it is
+                  called, so a lea's file imported from the Glades page is still a lea. */}
+              <button
+                type="button"
+                className="dropdown-button"
+                title="Import a board from a .meadow.json file"
+                onClick={() => importInput.current?.click()}
+              >
+                <IconUpload size={16} />
+                Import
+              </button>
+              <input
+                ref={importInput}
+                type="file"
+                accept=".json,application/json,application/vnd.meadow.glade+json"
+                hidden
+                onChange={(event) => {
+                  const file = event.target.files?.[0]
+                  // Cleared, so picking the same file again after a refusal still fires.
+                  event.target.value = ''
+                  if (file !== undefined) void importFile(file)
                 }}
               />
               <button

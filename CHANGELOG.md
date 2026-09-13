@@ -34,6 +34,12 @@ away getting there.
 - **Pasting a glade file as text into a board adds its contents** as an ordinary paste,
   with fresh ids, so a file copied out of an editor or a chat lands on a board that
   already has things on it.
+- **The site shows it working.** `/features/` has a section, "Take any board away as a
+  file", with a small glade beside its `.meadow.json` file: each shape, the arrow and
+  their entries in the file light up together in turn, and hovering either half picks
+  one, with no script. The home page gets the same demo as a full-width highlight tile.
+  The FAQ gains "Can I get my boards out of Meadow?" (sixteen questions, structured data
+  matching), and `llms.txt` links the file schema.
 
 ### Known limitations
 - Images and frames are in the object type list but not built yet, so the file's

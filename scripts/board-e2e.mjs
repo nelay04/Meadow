@@ -306,6 +306,10 @@ await page.evaluate(() => {
   location.hash = ''
 })
 await page.waitForSelector('text=E2E glade', { timeout: 20000 })
+// Import sits beside Create in the composer, which only a kind's own view has.
+await page.click('.sidebar-groups button:has-text("Glades")')
+await page.waitForSelector('.composer button:has-text("Import")', { timeout: 10000 })
+if (process.env.E2E_IMPORT_SHOT) await page.locator('.composer').screenshot({ path: process.env.E2E_IMPORT_SHOT })
 await page.setInputFiles('input[type="file"][accept*="meadow"]', importPath)
 await page.waitForFunction(
   () => document.querySelector('.role')?.textContent?.trim() === 'owner',

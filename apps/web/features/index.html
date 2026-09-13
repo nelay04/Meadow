@@ -361,6 +361,7 @@
           <a href="#glades">Glades</a>
           <a href="#leas">Leas</a>
           <a href="#languages">Languages</a>
+          <a href="#files">Files</a>
           <a href="#everywhere">Everywhere</a>
           <a href="#shortcuts">Shortcuts</a>
         </div>
@@ -791,6 +792,87 @@
                 <tr><th scope="row">Telugu</th><td class="native" lang="te">తెలుగు</td><td>namaskaram</td><td class="native" lang="te">నమస్కారం</td></tr>
               </tbody>
             </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="sec" id="files">
+        <div class="wrap">
+          <div class="group-head">
+            <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-file" /></svg></div>
+            <h2>Take any board away as a file</h2>
+            <p class="lede">
+              Export a glade or a lea to a .meadow.json file, import it, and the same board
+              comes back with nothing lost. The file is the board as data rather than as a
+              picture: which shape an arrow holds on to, what is written where, and what sits
+              on top of what.
+            </p>
+          </div>
+
+          <div class="panel rt">
+            <div class="rt-panes">
+              <figure class="rt-pane rt-board">
+                <figcaption>On the glade</figcaption>
+                <div class="stage">
+                  <svg viewBox="0 0 340 172" role="img" aria-label="A glade with three shapes: Cart, an arrow to a diamond labelled Paid?, and an arrow labelled yes from there to Ship.">
+                    <path class="rt-link" d="M96 86H126M119 80L127 86L119 92" />
+                    <g data-part="cart"><rect class="rt-node" x="12" y="62" width="84" height="48" rx="8" /><text x="54" y="86">Cart</text></g>
+                    <g data-part="paid"><path class="rt-node" d="M176 42L224 86L176 130L128 86Z" /><text x="176" y="86">Paid?</text></g>
+                    <g data-part="yes"><path class="rt-link" d="M224 86H262M255 80L263 86L255 92" /><text x="243" y="72">yes</text></g>
+                    <g data-part="ship"><ellipse class="rt-node" cx="300" cy="86" rx="34" ry="24" /><text x="300" y="86">Ship</text></g>
+                  </svg>
+                </div>
+              </figure>
+              <div class="rt-swap" aria-hidden="true">
+                <span>Export <svg class="icon"><use href="#i-arrow" /></svg></span>
+                <span><svg class="icon back"><use href="#i-arrow" /></svg> Import</span>
+              </div>
+              <figure class="rt-pane">
+                <figcaption>In the .meadow.json file, abridged</figcaption>
+                <pre class="rt-code"><code><span>{</span><span>  "format": "meadow.glade", "version": 1,</span><span>  "board": { "title": "Checkout", "kind": "glade" },</span><span>  "objects": [</span><span data-part="cart">    { "id": "kP3xQ9aLm2Ta", "type": "rect", "x": 12, "y": 62,
+      "w": 84, "h": 48, "text": [ <span class="omit">…</span> "Cart" <span class="omit">…</span> ] },</span><span data-part="paid">    { "id": "V7wnB2rTe0Qs", "type": "diamond", "x": 128, "y": 42,
+      "w": 96, "h": 88, "text": [ <span class="omit">…</span> "Paid?" <span class="omit">…</span> ] },</span><span data-part="yes">    { "id": "Hq81mZc4LpXa", "type": "arrow", "x": 224, "y": 86,
+      "props": { "endHead": "triangle" }, "text": [ <span class="omit">…</span> "yes" <span class="omit">…</span> ] },</span><span data-part="ship">    { "id": "d5RtyU0iWc3N", "type": "ellipse", "x": 266, "y": 62,
+      "w": 68, "h": 48, "text": [ <span class="omit">…</span> "Ship" <span class="omit">…</span> ] }</span><span>  ],</span><span>  "bindings": [</span><span data-part="yes">    { "arrowId": "Hq81mZc4LpXa", "end": "start",
+      "targetId": "V7wnB2rTe0Qs" },</span><span data-part="yes">    { "arrowId": "Hq81mZc4LpXa", "end": "end",
+      "targetId": "d5RtyU0iWc3N" }</span><span>  ], <span class="omit">…</span></span><span>}</span></code></pre>
+              </figure>
+            </div>
+            <p class="rt-hint">Each shape and its entry in the file light up together. Hover either half to pick one.</p>
+          </div>
+
+          <div class="grid rt-facts">
+            <div class="card">
+              <div class="card-head">
+                <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-restore" /></svg></div>
+                <h3>Nothing lost</h3>
+              </div>
+              <p>
+                Every shape, word and mark, every arrow attachment, every page and the order
+                things are stacked in. Export the imported board and you get the same file,
+                byte for byte.
+              </p>
+            </div>
+            <div class="card">
+              <div class="card-head">
+                <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-terminal" /></svg></div>
+                <h3>Readable by other tools</h3>
+              </div>
+              <p>
+                Plain JSON with a published schema, so a script, another app or a language
+                model can read a board, or write one for Meadow to open.
+              </p>
+            </div>
+            <div class="card">
+              <div class="card-head">
+                <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-merge" /></svg></div>
+                <h3>Paste it into any board</h3>
+              </div>
+              <p>
+                Copy a file's text and paste it onto a glade that already has things on it.
+                Its contents land as a copy beside them.
+              </p>
+            </div>
           </div>
         </div>
       </section>
