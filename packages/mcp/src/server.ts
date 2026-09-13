@@ -31,23 +31,18 @@ import {
   applyEdits,
   importGlade,
 } from '../../../apps/web/src/doc/mutations'
-import packageJson from '../package.json' with { type: 'json' }
 import { type ToolNeeds, describeBoundaries, usable } from './access'
 import { MeadowApi, MeadowApiError, type TokenInfo } from './api'
 import { type DiagramSpec, MermaidError, graphToMermaid, parseMermaid } from './mermaid'
 import { PlanError, planCreate, planDiagram, planRemove, planUpdate } from './plan'
 import { type Action, type Room, RoomError, Rooms, allowedPhrase, refusal } from './room'
 import { textToRich } from './text'
-import {
-  DEFAULT_SNAPSHOT_WIDTH,
-  MAX_SNAPSHOT_OBJECTS,
-  MAX_SNAPSHOT_WIDTH,
-  rasterize,
-  renderSnapshot,
-} from './snapshot'
+import { VERSION } from './version'
+import { type Look, lookAt, previewCopy } from './look'
+import { DEFAULT_SNAPSHOT_WIDTH, MAX_SNAPSHOT_WIDTH } from './snapshot'
 import { checkLayout, planTidy } from './tidy'
 
-export const VERSION: string = packageJson.version
+export { VERSION }
 
 const INSTRUCTIONS = `Meadow is an infinite-canvas whiteboard. A board is called a glade.
 
@@ -58,11 +53,15 @@ How to work with it:
 - To draw or extend a diagram, prefer apply_diagram: give nodes and edges (or Mermaid), and it matches existing nodes by id or label, adds what is missing and lays new nodes out beside the existing content. create_nodes and connect are the lower-level versions.
 - Leave out x, y, w and h and the server lays nodes out and sizes them to their labels, and chooses where each arrow attaches and bends. Only give coordinates to match something already on the glade. Coordinates are world units: x grows right, y grows down.
 - Keep node labels short: a title, and at most a short second line. Put detail in a separate note rather than a bullet list inside a flowchart box.
-- get_glade_snapshot returns a picture of the glade, optionally with its nodes and edges beside it. Look at it after drawing a diagram, before saying it is done.
+- get_glade_snapshot returns a picture of the glade, optionally with its nodes and edges beside it.
 - Every write reports layout problems it left (text overflowing a shape, a line through a shape, overlapping lines or labels). When it does, or when a glade looks messy, call tidy_layout, then check_layout to confirm.
 - Pass preview: true to any write to see what it would do without changing the glade. A preview works even where the write itself is not allowed.
 - Labels accept light Markdown: **bold**, *italic*, # headings and - bullets.
 Edits appear live for anyone with the glade open.`
+
+const LOOKING = `Looking at the result:
+- Writes that add or change objects, and their previews, return a picture of the area they touched beside the JSON. Look at it every time before saying a diagram is done: check that text fits, lines do not cross shapes and labels are readable, and fix what you see.
+- Pass snapshot: false on a write to leave the picture out, for example during a long run of small edits, and look once at the end with get_glade_snapshot.`
 
 type Json = Record<string, unknown> | unknown[]
 
@@ -99,6 +98,13 @@ const preview = z
   .boolean()
   .optional()
   .describe('Return what would change without changing the glade.')
+const snapshotArg = z
+  .boolean()
+  .optional()
+  .describe('Attach a picture of the result. Default true; false leaves it out.')
+
+/** Writes carry a smaller picture than get_glade_snapshot: enough to judge, cheaper to read. */
+const WRITE_SNAPSHOT_WIDTH = 1000
 const region = z
   .object({ x: z.number(), y: z.number(), w: z.number(), h: z.number() })
   .describe('Only objects that overlap this rectangle, in world units.')
@@ -207,6 +213,11 @@ export type ServerOptions = {
   idleMs: number
   /** The token describing itself, read before the server is built so the instructions carry it. */
   access: TokenInfo
+  /**
+   * Attach a picture to writes and previews. On unless the operator turns it off for
+   * clients that cannot show images (`--no-snapshots`).
+   */
+  snapshots?: boolean
 }
 
 /** What a batch would need: edit for anything it creates, changes or connects; delete for removals. */
@@ -218,13 +229,20 @@ function needsOf(batch: EditBatch): Action[] {
   return needs
 }
 
-export function createServer({ api, idleMs, access: initialAccess }: ServerOptions): {
+export function createServer({
+  api,
+  idleMs,
+  access: initialAccess,
+  snapshots = true,
+}: ServerOptions): {
   server: McpServer
   close: () => void
 } {
   const server = new McpServer(
     { name: 'meadow', version: VERSION },
-    { instructions: `${INSTRUCTIONS}\n\n${describeBoundaries(initialAccess)}` },
+    {
+      instructions: `${INSTRUCTIONS}${snapshots ? `\n${LOOKING}` : ''}\n\n${describeBoundaries(initialAccess)}`,
+    },
   )
 
   let access = initialAccess
@@ -283,26 +301,74 @@ export function createServer({ api, idleMs, access: initialAccess }: ServerOptio
 
   const openRoom = async (id: string): Promise<Room> => (await roomsFor()).get(id)
 
+  /**
+   * A picture of some objects, for a tool result. A picture that fails to render never
+   * fails the write it belongs to; the result says why it is missing instead.
+   */
+  const picture = async (
+    session: Room['session'],
+    room: Room,
+    ids: readonly string[],
+  ): Promise<{ look: Look | null; note?: string }> => {
+    if (ids.length === 0) return { look: null }
+    try {
+      const look = await lookAt(
+        session,
+        { title: room.board.title, kind: room.board.kind },
+        { ids, maxWidth: WRITE_SNAPSHOT_WIDTH },
+      )
+      return { look }
+    } catch (error) {
+      return { look: null, note: `No picture: ${(error as Error).message}` }
+    }
+  }
+
+  /** A JSON result, with a picture after it when there is one. */
+  const withPicture = (value: Json, look: { look: Look | null; note?: string }): CallToolResult => {
+    const body =
+      look.look === null
+        ? look.note === undefined
+          ? value
+          : { ...value, snapshot: look.note }
+        : { ...value, snapshot: look.look.details }
+    const result = ok(body as Json)
+    if (look.look !== null) result.content.push(look.look.image)
+    return result
+  }
+
   /** Plan, then preview or apply, then point the cursor at the result. */
   const edit = async (
     id: string,
     wantPreview: boolean | undefined,
     plan: (room: Room) => Promise<{ batch: EditBatch; extra?: Record<string, unknown> }>,
+    wantSnapshot?: boolean,
   ): Promise<CallToolResult> => {
     const room = await openRoom(id)
     const { batch, extra } = await plan(room)
+    const look = snapshots && wantSnapshot !== false
     // After planning, so the refusal names exactly what the batch needed. Checked here
     // so a model gets a reason; the server drops the write regardless.
     const blocked = needsOf(batch)
       .map((action) => refusal(room, action))
       .filter((reason): reason is string => reason !== null)
     if (wantPreview === true) {
-      return ok({
+      const described = {
         preview: true,
         ...(blocked.length === 0 ? {} : { would_be_refused: blocked }),
         ...extra,
         ...describeBatch(batch),
-      })
+      }
+      if (!look) return ok(described)
+      // Drawn from a copy with the plan applied; the glade itself is not touched.
+      let drawn: { look: Look | null; note?: string }
+      try {
+        const { copy, result } = previewCopy(room.session, batch)
+        drawn = await picture(copy, room, [...Object.values(result.ids), ...result.updated])
+        copy.doc.destroy()
+      } catch (error) {
+        drawn = { look: null, note: `No picture: ${(error as Error).message}` }
+      }
+      return withPicture(described, drawn)
     }
     if (blocked.length > 0) return refused(blocked.join('\n'))
 
@@ -330,22 +396,25 @@ export function createServer({ api, idleMs, access: initialAccess }: ServerOptio
             Object.entries(checkLayout(room.session, touched).counts).filter(([, n]) => n > 0),
           )
 
-    return ok({
-      ...extra,
-      ...(touched.length === 0
-        ? {}
-        : Object.keys(problems).length === 0
-          ? { layout: 'clean' }
-          : {
-              layout_problems: problems,
-              hint: 'check_layout lists them; tidy_layout fixes most.',
-            }),
-      ids: result.ids,
-      updated: result.updated,
-      removed: result.removed,
-      nodes: placed,
-      edges: graph.edges.filter((edge) => touched.includes(edge.id)),
-    })
+    return withPicture(
+      {
+        ...extra,
+        ...(touched.length === 0
+          ? {}
+          : Object.keys(problems).length === 0
+            ? { layout: 'clean' }
+            : {
+                layout_problems: problems,
+                hint: 'check_layout lists them; tidy_layout fixes most.',
+              }),
+        ids: result.ids,
+        updated: result.updated,
+        removed: result.removed,
+        nodes: placed,
+        edges: graph.edges.filter((edge) => touched.includes(edge.id)),
+      },
+      look ? await picture(room.session, room, touched) : { look: null },
+    )
   }
 
   // --- reading ---------------------------------------------------------------------------
@@ -480,12 +549,24 @@ export function createServer({ api, idleMs, access: initialAccess }: ServerOptio
           .describe('Nodes per page, default 300.'),
         region: region.optional(),
         include_freedraw: z.boolean().optional(),
+        include_snapshot: z
+          .boolean()
+          .optional()
+          .describe('Also return a picture of the nodes on this page.'),
       },
       annotations: { readOnlyHint: true },
     },
-    ({ glade_id, offset = 0, limit = 300, region: area, include_freedraw = false }) =>
+    ({
+      glade_id,
+      offset = 0,
+      limit = 300,
+      region: area,
+      include_freedraw = false,
+      include_snapshot = false,
+    }) =>
       guarded(async () => {
-        const graph = graphOf(await openRoom(glade_id))
+        const room = await openRoom(glade_id)
+        const graph = graphOf(room)
         const nodes = graph.nodes.filter(
           (node) =>
             (include_freedraw || node.type !== 'freedraw') &&
@@ -499,7 +580,7 @@ export function createServer({ api, idleMs, access: initialAccess }: ServerOptio
             (edge.to !== null && onPage.has(edge.to)) ||
             (offset === 0 && area === undefined && edge.from === null && edge.to === null),
         )
-        return ok({
+        const body = {
           title: graph.title,
           kind: graph.kind,
           total_nodes: nodes.length,
@@ -509,7 +590,21 @@ export function createServer({ api, idleMs, access: initialAccess }: ServerOptio
           nodes: page,
           edges,
           groups: graph.groups.filter((group) => onPage.has(group.id)),
-        })
+        }
+        if (!include_snapshot || !snapshots) {
+          return ok({
+            ...body,
+            ...(snapshots ? { see_it: 'get_glade_snapshot, or include_snapshot: true' } : {}),
+          })
+        }
+        return withPicture(
+          body,
+          await picture(
+            room.session,
+            room,
+            page.map((node) => node.id),
+          ),
+        )
       }),
   )
 
@@ -669,16 +764,30 @@ export function createServer({ api, idleMs, access: initialAccess }: ServerOptio
             .optional()
             .describe('Top-left of the laid-out block.'),
           preview,
+          snapshot: snapshotArg,
         },
       },
-      ({ glade_id, nodes, edges, direction: flow, placement, preview: wantPreview }) =>
+      ({
+        glade_id,
+        nodes,
+        edges,
+        direction: flow,
+        placement,
+        preview: wantPreview,
+        snapshot: wantSnapshot,
+      }) =>
         guarded(() =>
-          edit(glade_id, wantPreview, async (room) => ({
-            batch: await planCreate(room.session, nodes, edges ?? [], {
-              direction: flow,
-              placement,
+          edit(
+            glade_id,
+            wantPreview,
+            async (room) => ({
+              batch: await planCreate(room.session, nodes, edges ?? [], {
+                direction: flow,
+                placement,
+              }),
             }),
-          })),
+            wantSnapshot,
+          ),
         ),
     ),
     'edit',
@@ -695,13 +804,19 @@ export function createServer({ api, idleMs, access: initialAccess }: ServerOptio
           glade_id: gladeId,
           edges: z.array(edgeInput).min(1).max(500),
           preview,
+          snapshot: snapshotArg,
         },
       },
-      ({ glade_id, edges, preview: wantPreview }) =>
+      ({ glade_id, edges, preview: wantPreview, snapshot: wantSnapshot }) =>
         guarded(() =>
-          edit(glade_id, wantPreview, async (room) => ({
-            batch: await planCreate(room.session, [], edges),
-          })),
+          edit(
+            glade_id,
+            wantPreview,
+            async (room) => ({
+              batch: await planCreate(room.session, [], edges),
+            }),
+            wantSnapshot,
+          ),
         ),
     ),
     'edit',
@@ -738,13 +853,19 @@ export function createServer({ api, idleMs, access: initialAccess }: ServerOptio
             .min(1)
             .max(500),
           preview,
+          snapshot: snapshotArg,
         },
       },
-      ({ glade_id, updates, preview: wantPreview }) =>
+      ({ glade_id, updates, preview: wantPreview, snapshot: wantSnapshot }) =>
         guarded(() =>
-          edit(glade_id, wantPreview, async (room) => ({
-            batch: planUpdate(room.session, updates),
-          })),
+          edit(
+            glade_id,
+            wantPreview,
+            async (room) => ({
+              batch: planUpdate(room.session, updates),
+            }),
+            wantSnapshot,
+          ),
         ),
     ),
     'edit',
@@ -787,18 +908,24 @@ export function createServer({ api, idleMs, access: initialAccess }: ServerOptio
           text: z.string(),
           markdown: z.boolean().optional(),
           preview,
+          snapshot: snapshotArg,
         },
       },
-      ({ glade_id, id, text, markdown, preview: wantPreview }) =>
+      ({ glade_id, id, text, markdown, preview: wantPreview, snapshot: wantSnapshot }) =>
         guarded(() =>
-          edit(glade_id, wantPreview, async (room) => {
-            if (!room.session.objects.has(id)) throw new PlanError(`no object with id ${id}`)
-            return {
-              batch: {
-                update: [{ id, patch: {}, text: textToRich(text, markdown ?? true) }],
-              },
-            }
-          }),
+          edit(
+            glade_id,
+            wantPreview,
+            async (room) => {
+              if (!room.session.objects.has(id)) throw new PlanError(`no object with id ${id}`)
+              return {
+                batch: {
+                  update: [{ id, patch: {}, text: textToRich(text, markdown ?? true) }],
+                },
+              }
+            },
+            wantSnapshot,
+          ),
         ),
     ),
     'edit',
@@ -837,24 +964,30 @@ export function createServer({ api, idleMs, access: initialAccess }: ServerOptio
           mermaid: z.string().optional().describe('A Mermaid flowchart, used instead of diagram.'),
           placement: z.object({ x: z.number(), y: z.number() }).optional(),
           preview,
+          snapshot: snapshotArg,
         },
       },
-      ({ glade_id, diagram, mermaid, placement, preview: wantPreview }) =>
+      ({ glade_id, diagram, mermaid, placement, preview: wantPreview, snapshot: wantSnapshot }) =>
         guarded(() =>
-          edit(glade_id, wantPreview, async (room) => {
-            if ((diagram === undefined) === (mermaid === undefined)) {
-              throw new PlanError('give exactly one of diagram or mermaid')
-            }
-            const spec: DiagramSpec = mermaid !== undefined ? parseMermaid(mermaid) : diagram!
-            const plan = await planDiagram(room.session, spec, placement)
-            return {
-              batch: plan.batch,
-              extra: {
-                matched: plan.matched,
-                existing_edges: plan.existingEdges,
-              },
-            }
-          }),
+          edit(
+            glade_id,
+            wantPreview,
+            async (room) => {
+              if ((diagram === undefined) === (mermaid === undefined)) {
+                throw new PlanError('give exactly one of diagram or mermaid')
+              }
+              const spec: DiagramSpec = mermaid !== undefined ? parseMermaid(mermaid) : diagram!
+              const plan = await planDiagram(room.session, spec, placement)
+              return {
+                batch: plan.batch,
+                extra: {
+                  matched: plan.matched,
+                  existing_edges: plan.existingEdges,
+                },
+              }
+            },
+            wantSnapshot,
+          ),
         ),
     ),
     'edit',
@@ -892,40 +1025,22 @@ export function createServer({ api, idleMs, access: initialAccess }: ServerOptio
     ({ glade_id, region: area, ids, max_width, theme, include_graph = false }) =>
       guarded(async () => {
         const room = await openRoom(glade_id)
-        const file = snapshot(room)
-        const picture = renderSnapshot(file, {
-          region: area,
-          ids,
-          maxWidth: max_width,
-          theme,
-          maxObjects: MAX_SNAPSHOT_OBJECTS,
-        })
-        const png = await rasterize(picture)
-        const shown = new Set(picture.ids)
-        const graph = include_graph ? gladeToGraph(file) : null
-        const details = {
-          glade: { id: room.board.id, title: room.board.title },
-          width: picture.width,
-          height: picture.height,
-          world_bounds: picture.bounds,
-          pixels_per_unit: picture.scale,
-          drawn: picture.drawn,
-          ...(picture.skipped > 0
-            ? { skipped: picture.skipped, hint: 'Too many objects; narrow it with region or ids.' }
-            : {}),
-          ...(graph === null
-            ? {}
-            : {
-                graph: {
-                  nodes: graph.nodes.filter((node) => shown.has(node.id)),
-                  edges: graph.edges.filter((edge) => shown.has(edge.id)),
-                },
-              }),
-        }
+        const look = await lookAt(
+          room.session,
+          { title: room.board.title, kind: room.board.kind },
+          { region: area, ids, maxWidth: max_width, theme, includeGraph: include_graph },
+        )
         return {
           content: [
-            { type: 'text', text: JSON.stringify(details, null, 2) },
-            { type: 'image', data: Buffer.from(png).toString('base64'), mimeType: 'image/png' },
+            {
+              type: 'text',
+              text: JSON.stringify(
+                { glade: { id: room.board.id, title: room.board.title }, ...look.details },
+                null,
+                2,
+              ),
+            },
+            look.image,
           ],
         }
       }),
@@ -961,13 +1076,27 @@ export function createServer({ api, idleMs, access: initialAccess }: ServerOptio
           placement: z.object({ x: z.number(), y: z.number() }).optional(),
           move: z.boolean().optional(),
           preview,
+          snapshot: snapshotArg,
         },
       },
-      ({ glade_id, ids, direction: flow, placement, move, preview: wantPreview }) =>
+      ({
+        glade_id,
+        ids,
+        direction: flow,
+        placement,
+        move,
+        preview: wantPreview,
+        snapshot: wantSnapshot,
+      }) =>
         guarded(() =>
-          edit(glade_id, wantPreview, async (room) => ({
-            batch: await planTidy(room.session, { ids, direction: flow, placement, move }),
-          })),
+          edit(
+            glade_id,
+            wantPreview,
+            async (room) => ({
+              batch: await planTidy(room.session, { ids, direction: flow, placement, move }),
+            }),
+            wantSnapshot,
+          ),
         ),
     ),
     'edit',

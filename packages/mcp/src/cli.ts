@@ -48,7 +48,12 @@ async function stdio(config: Config): Promise<void> {
     process.exit(1)
   }
 
-  const { server, close } = createServer({ api, idleMs: config.idleMs, access })
+  const { server, close } = createServer({
+    api,
+    idleMs: config.idleMs,
+    access,
+    snapshots: config.snapshots,
+  })
   const shutdown = (): void => {
     close()
     void server.close().finally(() => process.exit(0))
@@ -181,7 +186,12 @@ async function http(config: Config): Promise<void> {
         return
       }
 
-      const { server: mcp, close } = createServer({ api, idleMs: config.idleMs, access })
+      const { server: mcp, close } = createServer({
+        api,
+        idleMs: config.idleMs,
+        access,
+        snapshots: config.snapshots,
+      })
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
         onsessioninitialized: (id) => {

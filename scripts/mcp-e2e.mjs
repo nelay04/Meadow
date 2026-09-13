@@ -288,7 +288,31 @@ const drawn = await call(agent, 'apply_diagram', {
     ],
   },
 })
+check(
+  'a diagram write attaches a picture of what it drew, by default',
+  !drawn.error && drawn.image?.mimeType === 'image/png' && pngSize(drawn.image.data) !== null,
+  drawn.text.slice(0, 200),
+)
 check('a laid-out diagram reports its layout as clean', !drawn.error && drawn.json?.layout === 'clean', drawn.text.slice(0, 400))
+
+const countBefore = (await call(agent, 'get_glade_summary', { glade_id: layoutGlade.id })).json?.objects
+const previewed2 = await call(agent, 'create_nodes', {
+  glade_id: layoutGlade.id,
+  nodes: [{ ref: 'extra', label: 'Only a preview' }],
+  preview: true,
+})
+const countAfter = (await call(agent, 'get_glade_summary', { glade_id: layoutGlade.id })).json?.objects
+check(
+  'a preview attaches a picture of the result without changing the glade',
+  !previewed2.error && previewed2.json?.preview === true && previewed2.image !== null && countBefore === countAfter,
+  `${previewed2.text.slice(0, 160)} ${countBefore} -> ${countAfter}`,
+)
+const quiet = await call(agent, 'update_objects', {
+  glade_id: layoutGlade.id,
+  updates: [{ id: drawn.json.ids.member, label: 'Library member' }],
+  snapshot: false,
+})
+check('snapshot: false leaves the picture out', !quiet.error && quiet.image === null, quiet.text.slice(0, 160))
 
 const checked = await call(agent, 'check_layout', { glade_id: layoutGlade.id })
 check('check_layout reads the glade', !checked.error && typeof checked.json?.counts?.text_overflow === 'number', checked.text.slice(0, 300))

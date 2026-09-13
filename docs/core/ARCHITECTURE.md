@@ -677,6 +677,12 @@ diagram behind. It is a new mutation on the existing write path, not a schema ch
     browser session made from a token;
   - the stored thumbnail, because it is stale and only exists if a browser uploaded one.
 
+  Writes attach a picture of what they touched by default (`look.ts`), and a preview
+  draws a throwaway Y.Doc copy with the plan applied. The copy has no provider, so it
+  cannot sync. The default is deliberate: looking has to be the path of least resistance
+  or a model will not do it. Operators can turn it off for clients without image
+  support.
+
   Access is the room's: a snapshot is as visible as `export_glade`, so there is no new
   route. The SVG is escaped text and finite numbers with no references, and output is
   capped in pixels, objects and characters, rendered one at a time, and never stored.

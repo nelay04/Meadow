@@ -19,6 +19,8 @@ export type Config = {
   port: number
   /** How long an idle board connection is kept open, in milliseconds. */
   idleMs: number
+  /** Attach pictures to writes and previews. */
+  snapshots: boolean
 }
 
 export class ConfigError extends Error {}
@@ -31,6 +33,8 @@ const USAGE = `meadow-mcp: the Meadow MCP server
                      token as "Authorization: Bearer mdw_..."
   --host <host>      http only, default 127.0.0.1 (env MEADOW_MCP_HOST)
   --port <port>      http only, default 8765 (env MEADOW_MCP_PORT)
+  --no-snapshots     do not attach pictures to writes, for clients that cannot show
+                     images (env MEADOW_MCP_SNAPSHOTS=off)
 
 Create a token under Profile > Access tokens.`
 
@@ -41,7 +45,7 @@ export function parseConfig(argv: readonly string[], env: NodeJS.ProcessEnv): Co
     if (arg === '--help' || arg === '-h') throw new ConfigError(USAGE)
     if (!arg.startsWith('--')) throw new ConfigError(`unexpected argument ${arg}\n\n${USAGE}`)
     const [name, inline] = arg.slice(2).split('=', 2)
-    if (name === 'http') {
+    if (name === 'http' || name === 'no-snapshots') {
       flags.set(name, true)
       continue
     }
@@ -85,5 +89,8 @@ export function parseConfig(argv: readonly string[], env: NodeJS.ProcessEnv): Co
     host: text('host', 'MEADOW_MCP_HOST') ?? '127.0.0.1',
     port,
     idleMs: 60_000,
+    snapshots:
+      flags.get('no-snapshots') !== true &&
+      !['off', 'false', '0', 'no'].includes((env.MEADOW_MCP_SNAPSHOTS ?? '').trim().toLowerCase()),
   }
 }

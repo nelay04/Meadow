@@ -36,9 +36,25 @@ away getting there.
   - **Bounded.** 4096 pixels on each side at most, 5000 objects per picture, 2000
     characters per label, and one render at a time. Text too small to read is left
     out, which also keeps a 5000-object glade under a second.
+- **Writes come back with a picture.** Looking at the result is now the default rather
+  than a step an assistant has to remember.
+  - `create_nodes`, `connect`, `update_objects`, `set_text`, `apply_diagram` and
+    `tidy_layout` return a 1000-pixel picture of the area they touched, after the JSON.
+  - A preview returns a picture too. It is drawn from a private copy of the glade with
+    the plan applied, never sent anywhere, so the result can be seen before it is written.
+  - The server instructions ask the assistant to check the picture (text fits, lines
+    clear of shapes, labels readable) before calling a diagram done.
+  - `snapshot: false` leaves the picture out of one call. `get_glade_graph` takes
+    `include_snapshot: true`. `--no-snapshots` or `MEADOW_MCP_SNAPSHOTS=off` turns
+    pictures off for a client that cannot show images.
+  - A picture that fails to render never fails the write; the result says why it is
+    missing instead.
 - **Tests.** Written before the tool: `pnpm e2e:mcp` checks that a view-only token gets
   a snapshot, and that a glade the token does not name and a revoked token get an error
-  and no image. `packages/mcp/test/snapshot.test.ts` covers escaping hostile labels, no
+  and no image, that a diagram write and a preview both carry a picture while the preview
+  leaves the glade unchanged, and that `snapshot: false` leaves it out.
+  `packages/mcp/test/look.test.ts` checks that a preview copy never touches the glade,
+  even for a viewer. `packages/mcp/test/snapshot.test.ts` covers escaping hostile labels, no
   external references in the markup, cropping, the object and size caps, text culling
   and both themes. `MCP_E2E_SNAPSHOT` saves the e2e snapshot to a file.
 

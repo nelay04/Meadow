@@ -72,6 +72,9 @@ Every config below runs `node /path/to/meadow-mcp.js` with two settings:
 - `MEADOW_API_URL`: your Meadow address, e.g. `https://meadow.example.com`
 - `MEADOW_TOKEN`: your access token
 
+Optionally, `MEADOW_MCP_SNAPSHOTS=off` (or the `--no-snapshots` flag) stops pictures being
+attached to writes, for a client that cannot show images in tool results.
+
 **Claude Code**
 
 ```bash
@@ -181,6 +184,12 @@ Some behaviour to know about:
 - **Arrows.** Edges default to elbows. The server picks which side of each shape an edge
   uses, where along that side, and where it bends, so edges do not share a line, stack
   labels or cross shapes where a single bend can avoid it.
+- **Pictures with writes.** Every write that adds or changes objects returns a picture
+  of the area it touched after the JSON, and so does its preview. A preview is drawn
+  from a private copy with the plan applied, so the glade is not changed. The server
+  instructions tell the assistant to look at the picture before calling a diagram done.
+  `snapshot: false` leaves it out for one call, and `get_glade_graph` takes
+  `include_snapshot: true`.
 - **Snapshots.** `get_glade_snapshot` draws the glade from its document inside the MCP
   server; no browser is involved. It needs only view access, and it is refused wherever
   a read would be. Pass `region` or `ids` for part of a large glade and `include_graph`
