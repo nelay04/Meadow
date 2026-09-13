@@ -19,8 +19,9 @@
  * some other build of this app, or by another program entirely, or by hand.
  */
 
-import { bindingData, objectData } from '@meadow/schema'
+import { GLADE_FORMAT, bindingData, objectData, parseGladeFile } from '@meadow/schema'
 
+import { gladeToSnapshot } from './interchange'
 import type { DocSnapshot, ObjectSnapshot } from './mutations'
 
 /**
@@ -154,7 +155,25 @@ export function writeClipboard(
 export function readClipboard(data: DataTransfer | null): DocSnapshot | null {
   const raw = data?.getData(CLIPBOARD_TYPE) ?? ''
   if (raw !== '') return decodeSnapshot(raw)
+  const glade = decodeGladeText(data?.getData('text/plain') ?? '')
+  if (glade !== null) return glade
   return held
+}
+
+/**
+ * A whole glade file pasted as text, as a snapshot, or null for any other text.
+ *
+ * This is how a file reaches a glade that already has things on it: copied out of an
+ * editor, or out of a chat with a model that wrote it. It pastes like a copy, ids
+ * remapped, because the board it lands on is not empty. The cheap checks come first so
+ * an ordinary paste of a sentence never reaches a JSON parser.
+ */
+export function decodeGladeText(text: string): DocSnapshot | null {
+  const trimmed = text.trimStart()
+  if (!trimmed.startsWith('{') || !trimmed.includes(GLADE_FORMAT)) return null
+  const parsed = parseGladeFile(trimmed)
+  if (!parsed.ok || parsed.file.objects.length === 0) return null
+  return gladeToSnapshot(parsed.file)
 }
 
 /** Whether a paste would have anything to insert without a ClipboardEvent to read. */

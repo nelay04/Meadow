@@ -11,7 +11,7 @@
 import { describe, expect, it } from 'vitest'
 import * as Y from 'yjs'
 
-import { decodeSnapshot, encodeSnapshot, snapshotBounds } from './clipboard'
+import { decodeGladeText, decodeSnapshot, encodeSnapshot, snapshotBounds } from './clipboard'
 import {
   addObject,
   bindArrow,
@@ -196,5 +196,29 @@ describe('the clipboard payload', () => {
     const decoded = decodeSnapshot(JSON.stringify(payload))
     expect(decoded?.objects).toHaveLength(1)
     expect(decoded?.objects[0].object.type).toBe('rect')
+  })
+})
+
+describe('a glade file pasted as text', () => {
+  const file = (objects: unknown[]) =>
+    JSON.stringify({ format: 'meadow.glade', version: 1, objects })
+
+  it('pastes as a copy, with fresh ids', () => {
+    const doc = session()
+    const existing = addObject(doc, { type: 'rect' })
+    const snapshot = decodeGladeText(
+      file([{ id: existing, type: 'sticky', x: 0, y: 0, w: 10, h: 10 }]),
+    )
+    expect(snapshot?.objects).toHaveLength(1)
+
+    const pasted = insertSnapshot(doc, snapshot as NonNullable<typeof snapshot>, NO_OFFSET)
+    expect(pasted[0]).not.toBe(existing)
+    expect(readObjectById(doc, existing)?.type).toBe('rect')
+  })
+
+  it('leaves ordinary text alone', () => {
+    expect(decodeGladeText('hello')).toBeNull()
+    expect(decodeGladeText('{"not": "a glade"}')).toBeNull()
+    expect(decodeGladeText(file([]))).toBeNull()
   })
 })

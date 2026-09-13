@@ -17,6 +17,7 @@
 
 import {
   type BindingData,
+  type GladeFile,
   type ObjectData,
   type ObjectType,
   type ArrowRoutingPatch,
@@ -41,6 +42,7 @@ import {
 import * as Y from 'yjs'
 
 import type { BoardRole } from '../lib/api'
+import { buildYValue } from './interchange'
 import {
   type RichNode,
   fragmentToNodes,
@@ -60,6 +62,15 @@ export const LOCAL_ORIGIN = 'local'
  * not on the undo stack, which is what a page removal has to be: see `removePage`.
  */
 export const PAGE_ORIGIN = 'page'
+
+/**
+ * Origin tag for a whole glade read in from a file. See `importGlade`.
+ *
+ * Untracked for the same reason as `PAGE_ORIGIN`: Ctrl+Z on a board that was just
+ * imported would otherwise empty it, and leave its `meta` behind because `meta` is not
+ * on the undo stack at all. What was imported is where the board starts, not an edit.
+ */
+export const IMPORT_ORIGIN = 'import'
 
 /** Why a write was refused, in the order the session checks them. */
 export type ReadOnlyReason = 'role' | 'board-locked' | 'locked'
@@ -689,6 +700,73 @@ export function insertSnapshot(
 
     return created
   })
+}
+
+// --- importing a glade --------------------------------------------------------
+
+/** Why an import did not happen, when the reason is the document rather than the file. */
+export class ImportTargetError extends Error {
+  constructor() {
+    super('A glade can only be imported into an empty one.')
+    this.name = 'ImportTargetError'
+  }
+}
+
+/**
+ * Write a whole glade file into an empty document, exactly as the file says.
+ *
+ * Ids are kept, which is why the document has to be empty: an id already present would
+ * be overwritten rather than duplicated. Putting a file into a glade that has things in
+ * it is `insertSnapshot`, through `gladeToSnapshot`, which remaps.
+ *
+ * Nothing is solved or tidied on the way in. Arrows are not reflowed and the order is
+ * not rebuilt, because the file holds geometry that was already solved, and re-solving
+ * it is exactly how an import would stop being a copy. `parseGladeFile` has already
+ * repaired anything that needed it.
+ *
+ * One transaction under `IMPORT_ORIGIN`, so a peer joining halfway sees an empty board
+ * or the whole one, and undo does not take it back.
+ */
+export function importGlade(
+  session: DocSession,
+  file: GladeFile,
+): { objects: number; bindings: number } {
+  if (!session.canWrite) throw new ReadOnlyError(readOnlyReason(session))
+  if (session.objects.size > 0 || session.bindings.size > 0 || session.order.length > 0) {
+    throw new ImportTargetError()
+  }
+
+  session.doc.transact(() => {
+    for (const { text, ...fields } of file.objects) {
+      const map = createObjectMap(fields)
+      session.objects.set(fields.id, map)
+      // `createObjectMap` gives every text-bearing type an empty fragment. A file entry
+      // with no text is an object that had none, and giving it one would make the next
+      // export differ from this file.
+      if (text === null) {
+        if (map.has('text')) map.delete('text')
+        continue
+      }
+      let fragment = objectText(map)
+      if (fragment === null) {
+        fragment = new Y.XmlFragment()
+        map.set('text', fragment)
+      }
+      setFragmentNodes(fragment, text)
+    }
+
+    if (file.order.length > 0) session.order.push(file.order)
+
+    for (const binding of file.bindings) {
+      session.bindings.set(binding.id, createBindingMap(binding))
+    }
+
+    for (const [key, value] of Object.entries(file.meta)) {
+      session.meta.set(key, buildYValue(value))
+    }
+  }, IMPORT_ORIGIN)
+
+  return { objects: file.objects.length, bindings: file.bindings.length }
 }
 
 // --- text ---------------------------------------------------------------------

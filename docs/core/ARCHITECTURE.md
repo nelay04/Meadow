@@ -479,6 +479,9 @@ reach. `meta` is deliberately outside the UndoManager's scope - undo is for what
 wrote, and Ctrl+Z shortening the paper under writing that is already on it would be
 worse than not being able to undo it at all.
 
+(See "Interchange file" at the end of this section for how the document is written out
+as a file.)
+
 The single-page keys that came first - `pageLines`, `pageSubject`, `pageDate` - are
 still read when there is no `pages` array, as that document's one page, and the first
 write materialises them into the list. They are never written again: two copies of one
@@ -564,6 +567,49 @@ Only undoing *your own* delete brings an object back, because the undo re-insert
 an insert beats a tombstone. Restoring a field value does not restore the map that
 held it. Worth stating precisely: the loose version implies undo is hazardous near any
 concurrent delete, and it is not.
+
+### Interchange file (1.3.0)
+
+A whole glade as one JSON file, `.meadow.json`, format `meadow.glade` version 1. It is a
+representation of this section, not a change to it: the Y.Doc stays the state.
+
+```jsonc
+{
+  "format": "meadow.glade", "version": 1, "exportedAt": "...", "app": "meadow-web 1.3.0",
+  "board":    { "title": "...", "kind": "glade" },
+  "meta":     { "pagePaper": "cream", "pages": { "$y": "array", "value": [ ... ] } },
+  "order":    ["id", ...],                            // z-order, bottom to top
+  "objects":  [{ ...ObjectData, "text": RichNode[] | null }],
+  "bindings": [BindingData],
+  "assets":   {}                                      // reserved for images
+}
+```
+
+- **Where it lives.** Schema and validation in `packages/schema/src/interchange.ts`, with
+  `packages/schema/glade.schema.json` generated from it for readers outside this code.
+  Reading a document into a file is `apps/web/src/doc/interchange.ts`; writing a file
+  into a document is `importGlade` in `mutations.ts`, like every other write. None of it
+  needs a DOM.
+- **The promise is an exact round trip**: export, import, export gives the same bytes.
+  So import writes what the file says and solves nothing. Arrows are not reflowed, order
+  is not rebuilt, and an object with no fragment is kept apart from one with an empty
+  fragment.
+- **Ids are kept**, so `importGlade` only writes into an empty document. A file dropped
+  onto a board with content goes through `insertSnapshot` (via `gladeToSnapshot`, or a
+  paste of the file's text), which remaps ids like any paste and ignores `meta`.
+- **`meta` is written tagged.** JSON cannot tell a Y.Map from an object, and reading one
+  back as the other would change how concurrent edits to it merge, so shared types are
+  `{ "$y": "map" | "array" | "text" | "xml", "value": ... }` and plain values are written
+  as themselves.
+- **Unknown data survives.** `props` is carried verbatim, so a newer build's styling
+  passes through an older one.
+- **Validation per entry (section 12).** A malformed object, binding or `meta` key is
+  dropped and counted, a binding whose target is missing becomes a free end, and `order`
+  is repaired the way `reconcileOrder` repairs it. The import reports what it did. A
+  non-glade, an unknown version, or more than 50,000 objects is refused outright.
+- **Not on the undo stack.** The import writes under `IMPORT_ORIGIN`, one transaction, so
+  a peer sees an empty board or the whole one, and Ctrl+Z does not empty a board that
+  was just imported.
 
 ---
 

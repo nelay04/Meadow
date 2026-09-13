@@ -59,6 +59,9 @@ const api = spawn(
       // relay the account is opened immediately instead.
       MEADOW_SMTP_HOST: '',
       MEADOW_SMTP_FROM: '',
+      // The same switch for the other provider. A .env that chose Resend ignores the
+      // SMTP settings above, and an unrecognised provider is the documented no-mail path.
+      MEADOW_MAIL_PROVIDER: 'none',
     },
   },
 )
@@ -168,7 +171,9 @@ const page = await browser.newPage({ viewport: { width: 1280, height: 860 } })
 const pageErrors = []
 page.on('pageerror', (error) => pageErrors.push(error.message))
 
-await page.goto(webBase, { waitUntil: 'load' })
+// /app, not the root: since the landing page split the root is a static page with no
+// sign-in form on it.
+await page.goto(`${webBase}/app`, { waitUntil: 'load' })
 
 // Log in through the UI, so the auth wiring is exercised rather than bypassed.
 await page.fill('input[type="email"]', email)
@@ -266,6 +271,81 @@ check(
   'the typed text survives a reload, so the fragment reached Postgres',
   reloadedTexts.includes(TYPED),
   `overlay read ${JSON.stringify(reloadedTexts)}`,
+)
+
+/*
+ * Export the board as a glade file, import it as a new board, and check the copy.
+ *
+ * The unit tests prove the file round-trips against a local Y.Doc. This is the part they
+ * cannot: the download a person actually gets, a board created for the file over REST,
+ * the import written through a real socket, and the copy still there after a reload,
+ * which can only come from Postgres.
+ */
+await page.click('button[aria-label^="More"]')
+const [download] = await Promise.all([
+  page.waitForEvent('download', { timeout: 10000 }),
+  page.click('text=Export as a file…'),
+])
+check('export offers a .meadow.json download', download.suggestedFilename() === 'E2E glade.meadow.json', download.suggestedFilename())
+
+const { readFile, writeFile } = await import('node:fs/promises')
+const exported = JSON.parse(await readFile(await download.path(), 'utf8'))
+check(
+  'the exported file holds both objects and the typed text',
+  exported.format === 'meadow.glade' &&
+    exported.objects.length === 2 &&
+    JSON.stringify(exported.objects).includes(TYPED),
+  `objects ${exported.objects?.length}`,
+)
+
+const IMPORTED = 'E2E imported'
+const importPath = `${await download.path()}.meadow.json`
+await writeFile(importPath, JSON.stringify({ ...exported, board: { ...exported.board, title: IMPORTED } }))
+
+await page.evaluate(() => {
+  location.hash = ''
+})
+await page.waitForSelector('text=E2E glade', { timeout: 20000 })
+await page.setInputFiles('input[type="file"][accept*="meadow"]', importPath)
+await page.waitForFunction(
+  () => document.querySelector('.role')?.textContent?.trim() === 'owner',
+  null,
+  { timeout: 20000 },
+)
+await page.waitForFunction(
+  () => document.querySelector('[data-testid="object-count"]')?.textContent?.trim() === '2 objects',
+  null,
+  { timeout: 20000 },
+)
+check('importing opens a new board with both objects on it', true)
+
+await delay(2500)
+await page.reload({ waitUntil: 'load' })
+await page.waitForSelector('.canvas-host canvas', { timeout: 20000 })
+await delay(2500)
+const importedCount = await page.textContent('[data-testid="object-count"]')
+const importedTexts = await page.evaluate(
+  (contentClass) =>
+    [...document.querySelectorAll(`.meadow-overlay [data-object-id] .${contentClass}`)].map(
+      (node) => node.textContent,
+    ),
+  CONTENT_CLASS,
+)
+check(
+  'the imported board survives a reload, text included',
+  importedCount?.trim() === '2 objects' && importedTexts.includes(TYPED),
+  `count "${importedCount?.trim()}", overlay ${JSON.stringify(importedTexts)}`,
+)
+
+const boards = await (
+  await fetch(`${apiBase}/api/v1/boards?archived=false`, {
+    headers: { authorization: `Bearer ${accessToken}` },
+  })
+).json()
+check(
+  'the imported board is a second board, named from the file',
+  Array.isArray(boards) && boards.some((board) => board.title === IMPORTED) && boards.length === 2,
+  JSON.stringify(Array.isArray(boards) ? boards.map((board) => board.title) : boards),
 )
 
 check('no uncaught page errors', pageErrors.length === 0, pageErrors.join('; '))

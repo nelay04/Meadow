@@ -16,6 +16,7 @@ import {
   IconPencil,
   IconRestore,
   IconTrash,
+  IconUpload,
 } from '../../ui/icons'
 import { useConfirm } from '../../ui/ConfirmDialog'
 import { usePrompt } from '../../ui/PromptDialog'
@@ -25,6 +26,7 @@ import { roleCanWrite } from '../../doc/mutations'
 import * as api from '../../lib/api'
 import type { Board, BoardKind, TrashedBoard } from '../../lib/api'
 import { useTrashRetentionHours } from '../../lib/appConfig'
+import { readGladeFile, stashImport } from '../../lib/gladeFile'
 import { useAuth } from '../auth/AuthContext'
 import { BOARD_KINDS, boardKind } from './kinds'
 
@@ -382,6 +384,35 @@ export default function BoardsPage({ onOpen }: Props) {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [navOpen])
+
+  /*
+   * Importing a glade file: a new board of the file's kind, with the file written into it.
+   *
+   * No naming dialog, unlike creating one. The file already carries the name it was
+   * exported under, and it is editable on the board the moment it opens. The board is
+   * made here and filled by the board view once its document has synced (see
+   * `stashImport`), because writing a document needs the connection that view owns.
+   */
+  const importInput = useRef<HTMLInputElement>(null)
+  const importFile = async (file: File) => {
+    if (user?.default_workspace_id == null) return
+    const parsed = await readGladeFile(file)
+    if (!parsed.ok) {
+      toast.error(parsed.error)
+      return
+    }
+
+    const spec = boardKind(parsed.file.board.kind)
+    const named = parsed.file.board.title.trim()
+    const title = named !== '' ? named : file.name.replace(/(\.meadow)?\.json$/i, '')
+    try {
+      const board = await api.createBoard(user.default_workspace_id, title, spec.id)
+      stashImport(board.id, parsed.file, parsed.report)
+      onOpen(board.id, board.kind)
+    } catch {
+      toast.error(`Could not create a ${spec.label.toLowerCase()} for that file.`)
+    }
+  }
 
   /*
    * Naming happens before the board exists, in a dialog with a name already in it.
@@ -750,6 +781,29 @@ export default function BoardsPage({ onOpen }: Props) {
               were thrown away, which is the only order anybody looks for here. */}
           {!showingTrash && (
             <>
+              {/* The one way to start a board from here. Unlike New, it has no
+                  question to ask first: the file says what kind of board it is. */}
+              <button
+                type="button"
+                className="dropdown-button"
+                title="Import a glade from a .meadow.json file"
+                onClick={() => importInput.current?.click()}
+              >
+                <IconUpload size={16} />
+                Import
+              </button>
+              <input
+                ref={importInput}
+                type="file"
+                accept=".json,application/json,application/vnd.meadow.glade+json"
+                hidden
+                onChange={(event) => {
+                  const file = event.target.files?.[0]
+                  // Cleared, so picking the same file again after a refusal still fires.
+                  event.target.value = ''
+                  if (file !== undefined) void importFile(file)
+                }}
+              />
               <Dropdown label="Show" value={owner} options={OWNERS} onChange={setOwner} />
               <Dropdown label="Sort by" value={sort} options={SORTS} onChange={setSort} />
             </>

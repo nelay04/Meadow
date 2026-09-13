@@ -11,6 +11,36 @@ away getting there.
 
 ---
 
+## [1.3.0] - [13-Sep-2026]
+
+### Added
+- **A glade can be saved as a file and opened again with nothing lost.** "Export as a
+  file..." in a board's More menu downloads `<title>.meadow.json`, and Import on the
+  board list makes a new board of the file's kind with everything in it. The file holds
+  every object with its fields, props and rich text, every arrow binding with its anchor
+  and gap, the z-order, and the board's `meta` (a lea's pages, torn-out ones included,
+  and its paper). Ids are kept. Exporting, importing and exporting again gives a
+  byte-identical file, which `apps/web/src/doc/interchange.test.ts` checks against a
+  board holding every object type, all three arrow routings, a free arrow end, rotation,
+  a negative width and every text mark. `pnpm e2e:board` checks the same through a real
+  browser, socket and Postgres, across a reload.
+- **The format is documented for tools outside Meadow.** `packages/schema/glade.schema.json`
+  is a JSON Schema generated from the zod schema, and a test fails if the two drift. A
+  file written by hand or by another program is validated entry by entry: a malformed
+  object, binding or setting is skipped and counted, a binding to a missing object
+  becomes a free end, and the import says what it skipped. A file that is not a glade,
+  has an unknown format version, has more than 50,000 objects or is over 64 MiB is
+  refused with the reason.
+- **Pasting a glade file as text into a board adds its contents** as an ordinary paste,
+  with fresh ids, so a file copied out of an editor or a chat lands on a board that
+  already has things on it.
+
+### Known limitations
+- Images and frames are in the object type list but not built yet, so the file's
+  `assets` section is reserved and empty.
+- A reload between choosing a file on the board list and the new board opening loses the
+  import and leaves the new board empty.
+
 ## [1.2.0] - [12-Sep-2026]
 
 ### Added

@@ -792,6 +792,26 @@ export function IconShare(props: IconProps) {
   )
 }
 
+export function IconDownload(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M12 4v11" />
+      <path d="m8.5 11.5 3.5 3.5 3.5-3.5" />
+      <path d="M5.5 15.5V18a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-2.5" />
+    </Svg>
+  )
+}
+
+export function IconUpload(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M12 15V4" />
+      <path d="m8.5 7.5 3.5-3.5 3.5 3.5" />
+      <path d="M5.5 15.5V18a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-2.5" />
+    </Svg>
+  )
+}
+
 export function IconLink(props: IconProps) {
   return (
     <Svg {...props}>

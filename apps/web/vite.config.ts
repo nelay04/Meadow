@@ -214,6 +214,12 @@ function serviceWorker(): Plugin {
 // is one place to change them.
 const repoRoot = fileURLToPath(new URL('../../', import.meta.url))
 
+// The version a glade file records as the build that wrote it. Read from this package
+// rather than hard-coded, because every release bumps it and a second copy would lag.
+const appVersion = (
+  JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string }
+).version
+
 export default defineConfig(({ mode }) => {
   // Prefix '' means real environment variables are merged in as well as .env, which is
   // how the container overrides the host defaults below without a second config file.
@@ -236,6 +242,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react(), appEntry(), sitePartials(), serviceWorker()],
+    define: { 'import.meta.env.MEADOW_VERSION': JSON.stringify(appVersion) },
     envDir: repoRoot,
     build: {
       rollupOptions: {

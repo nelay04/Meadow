@@ -48,6 +48,7 @@ import {
   IconCursor,
   IconCylinder,
   IconDiamond,
+  IconDownload,
   IconDuplicate,
   IconFit,
   IconEye,
@@ -95,11 +96,17 @@ import { useConfirm } from '../../ui/ConfirmDialog'
 import { usePrompt } from '../../ui/PromptDialog'
 import { isPhone, usePhone } from '../../ui/viewport'
 import { useToast } from '../../ui/Toaster'
-import { createDocSession, roleCanWrite } from '../../doc/mutations'
+import {
+  ImportTargetError,
+  createDocSession,
+  importGlade,
+  roleCanWrite,
+} from '../../doc/mutations'
 import { EDITOR_ORIGIN } from '../../overlay/textEditor'
 import type { BoardKind, BoardRole, ShareMode } from '../../lib/api'
 import * as api from '../../lib/api'
 import { useTrashRetentionHours } from '../../lib/appConfig'
+import { describeReport, downloadGlade, hasPendingImport, takeImport } from '../../lib/gladeFile'
 import { clearShareToken, shareToken } from '../../lib/shareLink'
 import { boardKind, boardPath } from '../boards/kinds'
 import { type PresenceHandle, colorFor, trackPresence } from '../../sync/awareness'
@@ -1367,6 +1374,35 @@ export default function BoardPage({ boardId, kindHint, onBack }: Props) {
    * and it is why it only happened on a lea you had not typed into yet.
    */
   const openedInto = useRef('')
+
+  /*
+   * A glade file chosen on the board list, written into the board made for it.
+   *
+   * Declared before the writing row below and latching the same ref, because a lea
+   * imported from a file is empty for exactly one render: without the latch the row
+   * would open onto the first line of the imported page as though nobody had written on
+   * it. Waits for the document, as that effect does, and for the role to say this client
+   * may write, which on a board just created arrives with the connection.
+   */
+  useEffect(() => {
+    if (!docReady || !session.canWrite || !hasPendingImport(boardId)) return
+    const entry = takeImport(boardId)
+    if (entry === null) return
+    openedInto.current = boardId
+
+    try {
+      const { objects } = importGlade(session, entry.file)
+      const skipped = describeReport(entry.report)
+      if (skipped === null) {
+        toast.success(`Imported ${objects} object${objects === 1 ? '' : 's'}.`)
+      } else {
+        toast.info(skipped)
+      }
+    } catch (error) {
+      toast.error(error instanceof ImportTargetError ? error.message : `Could not import into this ${noun}.`)
+    }
+  }, [boardId, docReady, session, toast, noun])
+
   useEffect(() => {
     if (spec.column === null || !docReady || !canWrite || !empty) return
     if (openedInto.current === boardId) return
@@ -1850,6 +1886,22 @@ export default function BoardPage({ boardId, kindHint, onBack }: Props) {
                   <span>Remove the password</span>
                 </button>
               )}
+
+              {/* Anybody who can see the board, because a file holds nothing the
+                  canvas is not already showing them. A link visitor included: they
+                  could copy every object off the page by hand. */}
+              <button
+                type="button"
+                role="menuitem"
+                className="menu-item"
+                onClick={() => {
+                  setMoreOpen(false)
+                  downloadGlade(session, { title: title.trim() || savedTitle.current, kind })
+                }}
+              >
+                <IconDownload size={16} />
+                <span>Export as a file…</span>
+              </button>
 
               {/* Both of these belong to a diary and to nothing else: a glade has no
                   pages to list and no stationery to choose. */}

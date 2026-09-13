@@ -1,0 +1,394 @@
+{
+  "title": "Meadow glade, format version 1",
+  "description": "One Meadow board (a glade) as JSON: every object with its fields and rich text, arrow bindings, z-order and board metadata. Exporting, importing and exporting again produces the same file.",
+  "$ref": "#/definitions/GladeFile",
+  "definitions": {
+    "GladeFile": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "type": "string",
+          "const": "meadow.glade"
+        },
+        "version": {
+          "type": "number",
+          "const": 1
+        },
+        "exportedAt": {
+          "type": "string"
+        },
+        "app": {
+          "type": "string"
+        },
+        "board": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "default": ""
+            },
+            "kind": {
+              "type": "string",
+              "default": "glade"
+            }
+          },
+          "additionalProperties": false
+        },
+        "meta": {
+          "type": "object",
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "$y": {
+                    "type": "string",
+                    "const": "map"
+                  },
+                  "value": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "$ref": "#/definitions/GladeFile/properties/meta/additionalProperties"
+                    }
+                  }
+                },
+                "required": [
+                  "$y",
+                  "value"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "$y": {
+                    "type": "string",
+                    "const": "array"
+                  },
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/definitions/GladeFile/properties/meta/additionalProperties"
+                    }
+                  }
+                },
+                "required": [
+                  "$y",
+                  "value"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "$y": {
+                    "type": "string",
+                    "const": "text"
+                  },
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "insert": {
+                          "type": "string"
+                        },
+                        "attributes": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        }
+                      },
+                      "required": [
+                        "insert"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "$y",
+                  "value"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "$y": {
+                    "type": "string",
+                    "const": "xml"
+                  },
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "text": {
+                              "type": "array",
+                              "items": {
+                                "$ref": "#/definitions/GladeFile/properties/meta/additionalProperties/anyOf/2/properties/value/items"
+                              }
+                            }
+                          },
+                          "required": [
+                            "text"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "attributes": {
+                              "type": "object",
+                              "additionalProperties": {
+                                "type": "string"
+                              }
+                            },
+                            "children": {
+                              "type": "array",
+                              "items": {
+                                "$ref": "#/definitions/GladeFile/properties/meta/additionalProperties/anyOf/3/properties/value/items"
+                              }
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "children"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "$y",
+                  "value"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/definitions/GladeFile/properties/meta/additionalProperties/anyOf/4"
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": {
+                      "$ref": "#/definitions/GladeFile/properties/meta/additionalProperties/anyOf/4"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "order": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "objects": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "text",
+                  "sticky",
+                  "rect",
+                  "ellipse",
+                  "diamond",
+                  "parallelogram",
+                  "triangle",
+                  "trapezoid",
+                  "polygon",
+                  "cylinder",
+                  "line",
+                  "arrow",
+                  "freedraw",
+                  "image",
+                  "table",
+                  "chart",
+                  "frame",
+                  "embed"
+                ]
+              },
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              },
+              "w": {
+                "type": "number"
+              },
+              "h": {
+                "type": "number"
+              },
+              "rotation": {
+                "type": "number",
+                "default": 0
+              },
+              "opacity": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "default": 1
+              },
+              "locked": {
+                "type": "boolean",
+                "default": false
+              },
+              "parentId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "createdBy": {
+                "type": "string",
+                "default": ""
+              },
+              "props": {
+                "type": "object",
+                "additionalProperties": {},
+                "default": {}
+              },
+              "text": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/definitions/GladeFile/properties/meta/additionalProperties/anyOf/3/properties/value/items"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "type",
+              "x",
+              "y",
+              "w",
+              "h",
+              "text"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "bindings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "arrowId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "end": {
+                "type": "string",
+                "enum": [
+                  "start",
+                  "end"
+                ]
+              },
+              "targetId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "anchor": {
+                "type": "object",
+                "properties": {
+                  "nx": {
+                    "type": "number"
+                  },
+                  "ny": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "nx",
+                  "ny"
+                ],
+                "additionalProperties": false,
+                "default": {
+                  "nx": 0.5,
+                  "ny": 0.5
+                }
+              },
+              "gap": {
+                "type": "number",
+                "default": 4
+              }
+            },
+            "required": [
+              "id",
+              "arrowId",
+              "end"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "assets": {
+          "type": "object",
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "format",
+        "version",
+        "exportedAt",
+        "app",
+        "board",
+        "meta",
+        "order",
+        "objects",
+        "bindings",
+        "assets"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}
