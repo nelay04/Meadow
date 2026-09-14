@@ -36,6 +36,13 @@ describe('describeBoundaries', () => {
   it('says a classic token has the account', () => {
     expect(describeBoundaries(classic)).toContain('anything the account can do')
   })
+
+  it('says a fine-grained token may create when it was allowed to', () => {
+    const text = describeBoundaries({ ...fine, can_create_glades: true })
+    expect(text).toContain('It can create and import glades')
+    expect(text).toContain('joins this list with edit and delete')
+    expect(text).not.toContain('cannot create or import glades')
+  })
 })
 
 describe('usable', () => {
@@ -50,7 +57,12 @@ describe('usable', () => {
     expect(usable(fine, 'edit')).toBe(true)
     expect(usable(fine, 'delete')).toBe(true)
     expect(usable(fine, 'create')).toBe(false)
+    expect(usable({ ...fine, can_create_glades: true }, 'create')).toBe(true)
     expect(usable(classic, 'create')).toBe(true)
+    // A token that can make glades can edit them, even before it has made any: the
+    // create tool would be pointless otherwise, and the glade it makes is editable.
+    expect(usable({ ...fine, grants: [], can_create_glades: true }, 'edit')).toBe(true)
+    expect(usable({ ...fine, grants: [], can_create_glades: true }, 'delete')).toBe(true)
   })
 })
 

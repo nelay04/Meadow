@@ -422,7 +422,123 @@ def test_a_fine_grained_token_sees_only_its_glades(client: TestClient, owner: Ac
         json={"workspace_id": owner.workspace_id, "title": "x"},
         headers=holder.auth,
     )
-    assert made.status_code == 403, "a fine-grained token cannot widen itself with a new glade"
+    assert made.status_code == 403, "a fine-grained token without the permission cannot create"
+
+
+def test_a_fine_grained_token_can_be_allowed_to_create_glades(
+    client: TestClient, owner: Actor
+) -> None:
+    """The create permission, and the grant the new glade comes with.
+
+    A token minted with no glades at all: it can reach nothing until it makes something,
+    and then only what it made. That is the whole point of giving an assistant this
+    rather than a classic token.
+    """
+    existing = owner.create_board("Not yours")
+    created = _mint(client, owner, {"kind": "fine_grained", "grants": [], "can_create": True})
+    assert created["can_create"] is True
+    assert created["grants"] == []
+    holder = _as_token(client, owner, created["token"])
+
+    assert client.get("/api/v1/tokens/current", headers=holder.auth).json()["can_create_glades"]
+    assert client.get("/api/v1/boards", headers=holder.auth).json() == []
+    assert client.get(f"/api/v1/boards/{existing}", headers=holder.auth).status_code == 403
+
+    made = client.post(
+        "/api/v1/boards",
+        json={"workspace_id": owner.workspace_id, "title": "Made by the agent"},
+        headers=holder.auth,
+    )
+    assert made.status_code == 201, made.text
+    board_id = made.json()["id"]
+
+    # The glade it just made is its to work on, fully, and nothing else has changed.
+    current = client.get("/api/v1/tokens/current", headers=holder.auth).json()
+    assert current["grants"] == [
+        {
+            "board_id": board_id,
+            "title": "Made by the agent",
+            "read": True,
+            "edit": True,
+            "delete": True,
+        }
+    ]
+    assert client.get(f"/api/v1/boards/{board_id}", headers=holder.auth).status_code == 200
+    assert client.get(f"/api/v1/boards/{existing}", headers=holder.auth).status_code == 403
+
+    # And it can actually write to it over the socket, which is where a missing grant
+    # would show up rather than in the REST answer above.
+    _change(client, holder.ws_token(board_id)["token"], board_id, _add("made-it"))
+    assert "made-it" in _read(client, owner, board_id)
+
+
+def test_the_create_permission_can_be_granted_and_taken_away(
+    client: TestClient, owner: Actor
+) -> None:
+    board = owner.create_board("Alpha")
+    created = _fine(client, owner, {board: {"read", "edit"}})
+    holder = _as_token(client, owner, created["token"])
+    assert created["can_create"] is False
+
+    def make(title: str) -> int:
+        return client.post(
+            "/api/v1/boards",
+            json={"workspace_id": owner.workspace_id, "title": title},
+            headers=holder.auth,
+        ).status_code
+
+    assert make("no") == 403
+    granted = client.patch(
+        f"/api/v1/tokens/{created['id']}", json={"can_create": True}, headers=owner.auth
+    )
+    assert granted.status_code == 200, granted.text
+    assert granted.json()["can_create"] is True
+    assert make("yes") == 201
+
+    taken = client.patch(
+        f"/api/v1/tokens/{created['id']}", json={"can_create": False}, headers=owner.auth
+    )
+    assert taken.status_code == 200, taken.text
+    assert make("no again") == 403
+    # Taking the permission away does not take back what it already made: that glade is
+    # on its list now, and removing it is done by editing the list.
+    titles = {b["title"] for b in client.get("/api/v1/boards", headers=holder.auth).json()}
+    assert titles == {"Alpha", "yes"}
+
+
+def test_a_classic_token_is_not_asked_about_creating(client: TestClient, owner: Actor) -> None:
+    """It may already. Offering the flag would suggest there is a classic token that cannot."""
+    refused = client.post(
+        "/api/v1/tokens",
+        json={"name": "x", "kind": "classic", "can_create": True},
+        headers=owner.auth,
+    )
+    assert refused.status_code == 422, refused.text
+
+    created = _classic(client, owner)
+    assert created["can_create"] is True
+    patched = client.patch(
+        f"/api/v1/tokens/{created['id']}", json={"can_create": False}, headers=owner.auth
+    )
+    assert patched.status_code == 422, patched.text
+
+
+def test_a_token_that_cannot_create_still_needs_a_glade(client: TestClient, owner: Actor) -> None:
+    """Emptying the list is only allowed for a token that can fill it itself."""
+    board = owner.create_board("Alpha")
+    created = _fine(client, owner, {board: {"read"}})
+    emptied = client.patch(
+        f"/api/v1/tokens/{created['id']}", json={"grants": []}, headers=owner.auth
+    )
+    assert emptied.status_code == 422, emptied.text
+
+    both = client.patch(
+        f"/api/v1/tokens/{created['id']}",
+        json={"grants": [], "can_create": True},
+        headers=owner.auth,
+    )
+    assert both.status_code == 200, both.text
+    assert both.json()["grants"] == []
 
 
 def test_the_handshake_checks_the_grant_too(client: TestClient, owner: Actor) -> None:

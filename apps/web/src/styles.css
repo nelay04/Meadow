@@ -1337,6 +1337,22 @@ label {
   color: var(--muted);
 }
 
+/* The create permission, below the glade list: it is about glades that do not exist
+   yet, so it sits outside the rows rather than becoming a fourth toggle in them. */
+.token-create {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-top: 0.6rem;
+}
+
+.token-create .hint {
+  margin: 0;
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
 .token-actions {
   display: flex;
   gap: 0.35rem;

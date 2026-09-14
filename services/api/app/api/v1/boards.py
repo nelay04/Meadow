@@ -282,13 +282,34 @@ async def create_board(
 ) -> BoardOut:
     """Create a board, owned by the caller.
 
-    A classic access token may create one. A fine-grained token may not: the new glade
-    is not on its list, so it would either make a glade it cannot open or quietly widen
-    itself to include it, and neither is what its owner agreed to.
+    A classic access token may create one. A fine-grained token may only when it was
+    given the permission, and then the glade it makes is added to its own list with edit
+    and delete - see `api_tokens.grant_created`. Without that grant the token would make
+    a glade it could not then open, which is worse than refusing.
+
+    The workspace is still the account's to write in: a token narrows its owner and never
+    reaches past them, so a workspace they are not a member of answers 403 here as it
+    does for a session.
     """
     user = principal.user
-    if principal.api_token is not None and not api_tokens.is_classic(principal.api_token):
+    token = principal.api_token
+    if token is not None and not api_tokens.can_create_glades(token):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="token may not create")
+    # The list a fine-grained token names is capped, and creating is the one way it grows
+    # by itself. Refusing at the cap keeps that growth bounded, and says why: the answer
+    # is to prune the token's glades, not to retry.
+    if (
+        token is not None
+        and not api_tokens.is_classic(token)
+        and await api_tokens.grant_count(session, token) >= api_tokens.MAX_GRANTS
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"this token already names {api_tokens.MAX_GRANTS} glades; "
+                "remove one before creating another"
+            ),
+        )
     member = await session.get(WorkspaceMember, (body.workspace_id, user.id))
     if member is None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="no access")
@@ -312,6 +333,10 @@ async def create_board(
     # Explicit owner grant for the creator. Workspace membership alone would make a
     # plain `member` an editor on a board they created, unable to delete it.
     session.add(BoardMember(board_id=board.id, user_id=user.id, role=BoardRole.owner))
+    # In the same transaction as the board: a glade made through a fine-grained token and
+    # left ungranted would be one its own maker cannot open.
+    if token is not None:
+        api_tokens.grant_created(session, token, board.id)
     await session.commit()
     await session.refresh(board)
     return _out(board, BoardRole.owner)

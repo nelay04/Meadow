@@ -44,6 +44,7 @@ def _out(row: ApiToken, grants: list[tuple[uuid.UUID, str, TokenGrant]]) -> ApiT
         prefix=row.prefix,
         kind=TokenKind(row.kind).value,
         grants=None if classic else _grants_out(grants),
+        can_create=api_tokens.can_create_glades(row),
         created_at=row.created_at,
         expires_at=row.expires_at,
         last_used_at=row.last_used_at,
@@ -94,6 +95,7 @@ async def create_token(
         name=body.name.strip() or "Access token",
         kind=TokenKind(body.kind),
         grants=grants,
+        can_create=body.can_create,
         expires_in_days=body.expires_in_days,
     )
     titles = await api_tokens.grant_titles(session, [issued.row.id])
@@ -128,7 +130,7 @@ async def current_token(principal: CurrentPrincipal, session: Session) -> ApiTok
         name=token.name,
         kind=TokenKind(token.kind).value,
         expires_at=token.expires_at,
-        can_create_glades=classic,
+        can_create_glades=api_tokens.can_create_glades(token),
         grants=None if classic else _grants_out(entries),
     )
 
@@ -137,7 +139,7 @@ async def current_token(principal: CurrentPrincipal, session: Session) -> ApiTok
 async def update_token(
     token_id: uuid.UUID, body: ApiTokenPatch, request: Request, user: CurrentUser, session: Session
 ) -> ApiTokenOut:
-    """Rename a token, or change a fine-grained token's glades and permissions.
+    """Rename a token, or change a fine-grained token's glades, permissions and creating.
 
     A changed grant closes the token's open sockets with 4403, the same code a changed
     role gets, so a client re-mints and the handshake applies the new grant. Leaving them
@@ -146,14 +148,33 @@ async def update_token(
     token = await api_tokens.load_owned(session, user.id, token_id)
     if token is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no such token")
-    if body.grants is not None and api_tokens.is_classic(token):
+    classic = api_tokens.is_classic(token)
+    if body.grants is not None and classic:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="a classic token has no grants; create a fine-grained token instead",
         )
+    if body.can_create is not None and classic:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="a classic token may already create glades",
+        )
+
+    # What the token will be able to do once this patch lands, not what it does now: a
+    # patch that clears the glade list and grants creating in one call is a token that
+    # names nothing yet and fills its list itself, which is allowed.
+    will_create = token.can_create if body.can_create is None else body.can_create
+    if body.grants is not None and not body.grants and not (classic or will_create):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="a fine-grained token needs at least one glade, or leave to create them",
+        )
 
     if body.name is not None:
         token.name = body.name.strip() or token.name
+        await session.commit()
+    if body.can_create is not None:
+        token.can_create = body.can_create
         await session.commit()
     if body.grants is not None:
         await api_tokens.replace_grants(

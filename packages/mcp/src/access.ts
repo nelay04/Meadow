@@ -44,7 +44,9 @@ export function describeBoundaries(info: TokenInfo): string {
     ...(lines.length === 0
       ? ['- none (every glade it named has been deleted or is no longer open to the account)']
       : lines),
-    'Every other glade is invisible to it, and it cannot create or import glades.',
+    info.can_create_glades
+      ? 'Every other glade is invisible to it. It can create and import glades, and a glade it makes joins this list with edit and delete, so it can go on working with what it just made.'
+      : 'Every other glade is invisible to it, and it cannot create or import glades.',
     'Do not attempt an edit or a deletion on a glade where it is not allowed: the server refuses it.',
     "The account's role and the owner's lock can narrow this further. Call get_my_access for the current, exact permissions.",
   ].join('\n')
@@ -57,6 +59,10 @@ export function usable(info: TokenInfo, needs: ToolNeeds): boolean {
   if (needs === 'read') return true
   if (info.kind === 'classic') return true
   if (needs === 'create') return info.can_create_glades
+  // A token allowed to create can edit and delete too, whatever its list says today: the
+  // glade it makes is granted back to it with both. Keeping the edit tools hidden until
+  // it had made something would hide them from a client that never asks again.
+  if (info.can_create_glades) return true
   const grants = info.grants ?? []
   return grants.some((grant) => (needs === 'edit' ? grant.edit : grant.delete))
 }

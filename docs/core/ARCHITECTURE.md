@@ -1703,6 +1703,16 @@ For clients that cannot hold a browser session: the MCP server, scripts. A row i
   edit or delete without reading. A glade with no row answers exactly as a glade that
   does not exist. Grants cascade with the board.
 
+**Creating (1.7.0).** `api_tokens.can_create` is the one permission that is not about a
+glade that exists. A classic token has it implicitly. A fine-grained token has it only
+when its owner granted it, and then `POST /boards` writes the new board's grant into
+`api_token_grants` with edit and delete, in the same transaction as the board: a glade
+made through a token that could not then open it would be worse than a refusal. That is
+the only way a token's list grows without its owner editing it, and it is bounded -
+creating is refused at `MAX_GRANTS`. A fine-grained token may hold create with no grants
+at all, which is the narrowest useful shape for an assistant: it can reach only what it
+made itself.
+
 Only a sha256 digest and a display prefix are stored. Tokens have an optional expiry,
 `last_used_at` is written at most once a minute, and `revoked_at` marks revocation.
 
@@ -1729,7 +1739,8 @@ viewer's edit grant edits nothing.
 **Where a token is accepted.** A route opts in by taking `CurrentPrincipal` rather than
 `CurrentUser`, and must apply `Principal.grant_for` to every glade it touches. Today that
 is `GET /auth/me`, `GET /boards` (only granted glades), `GET /boards/{id}`, `POST /boards`
-(classic only), `POST /ws-token`, and `GET /tokens/current`. Token management and
+(a classic token, or a fine-grained one with `can_create`), `POST /ws-token`, and
+`GET /tokens/current`. Token management and
 sessions are session only, so a token cannot widen itself.
 
 **Revocation and change.**

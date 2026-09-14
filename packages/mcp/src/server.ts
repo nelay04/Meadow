@@ -723,7 +723,7 @@ export function createServer({
       {
         title: 'Create a glade',
         description:
-          'A new, empty glade owned by the token holder. Needs a read-and-edit token not limited to particular glades.',
+          'A new, empty glade owned by the token holder. Needs a token allowed to create: a classic one, or a fine-grained one given the create permission. The new glade is editable through this token straight away.',
         inputSchema: {
           title: z.string().min(1).max(200),
           kind: z
@@ -738,6 +738,10 @@ export function createServer({
           if (account.default_workspace_id === null)
             return refused('This account has no workspace to create a glade in.')
           const board = await api.createBoard(account.default_workspace_id, title, kind ?? 'glade')
+          // The new glade is on a fine-grained token's list now, so what the token may
+          // do has just changed: re-read it, or the edit tools stay switched off for a
+          // token whose only editable glade is the one it just made.
+          await refreshAccess()
           return ok({ id: board.id, title: board.title, kind: board.kind })
         }),
     ),
@@ -1129,6 +1133,7 @@ export function createServer({
             title ?? (parsed.file.board.title === '' ? 'Imported glade' : parsed.file.board.title),
             kind,
           )
+          await refreshAccess()
           const room = await openRoom(board.id)
           const blocked = refusal(room, 'edit')
           if (blocked !== null) return refused(blocked)

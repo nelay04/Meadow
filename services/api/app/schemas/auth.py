@@ -213,6 +213,9 @@ class ApiTokenCreate(BaseModel):
     kind: Literal["classic", "fine_grained"]
     #: Required for a fine-grained token, and refused on a classic one.
     grants: list[ApiTokenGrantIn] | None = Field(default=None, max_length=100)
+    #: Whether a fine-grained token may make new glades. A glade it makes is added to its
+    #: own grants with edit and delete. Refused on a classic token, which may already.
+    can_create: bool = False
     #: Days until it stops working. Null for never, which the page does not default to.
     expires_in_days: int | None = Field(default=None, ge=1, le=366)
 
@@ -220,17 +223,25 @@ class ApiTokenCreate(BaseModel):
     def _grants_match_kind(self) -> "ApiTokenCreate":
         if self.kind == "classic" and self.grants is not None:
             raise ValueError("a classic token has no grants; it can do what the account can")
-        if self.kind == "fine_grained" and not self.grants:
-            raise ValueError("a fine-grained token needs at least one glade")
+        if self.kind == "classic" and self.can_create:
+            raise ValueError("a classic token may already create glades")
+        if self.kind == "fine_grained" and not self.grants and not self.can_create:
+            raise ValueError("a fine-grained token needs at least one glade, or leave to create")
         _unique_grants(self.grants)
         return self
 
 
 class ApiTokenPatch(BaseModel):
-    """Rename a token, or change which glades a fine-grained one may open and how."""
+    """Rename a token, or change what a fine-grained one may open, do and create."""
 
     name: str | None = Field(default=None, min_length=1, max_length=80)
-    grants: list[ApiTokenGrantIn] | None = Field(default=None, min_length=1, max_length=100)
+    #: An empty list is allowed only for a token that may create: it then names nothing
+    #: yet and fills its own list with the glades it makes. The router checks that,
+    #: because it is the only side that knows what the token may do.
+    grants: list[ApiTokenGrantIn] | None = Field(default=None, max_length=100)
+    #: Whether a fine-grained token may make new glades. Null leaves it as it is; taking
+    #: it away does not take back the glades it already made, which are on its list.
+    can_create: bool | None = None
 
     @model_validator(mode="after")
     def _unique(self) -> "ApiTokenPatch":
@@ -256,6 +267,8 @@ class ApiTokenOut(BaseModel):
     kind: Literal["classic", "fine_grained"]
     #: Null for a classic token, which names no glades because it has all of them.
     grants: list[ApiTokenGrantOut] | None = None
+    #: Whether it may make new glades. Always true for a classic token.
+    can_create: bool = False
     created_at: datetime
     expires_at: datetime | None = None
     last_used_at: datetime | None = None
@@ -279,7 +292,8 @@ class ApiTokenCurrent(BaseModel):
     name: str
     kind: Literal["classic", "fine_grained"]
     expires_at: datetime | None = None
-    #: Only a classic token may create glades: a new glade is not on a fine-grained
-    #: token's list, and adding it would be the token widening itself.
+    #: Whether this token may make a glade. Always true for a classic token; true for a
+    #: fine-grained one that was given the permission, and a glade it makes joins its own
+    #: list with edit and delete.
     can_create_glades: bool
     grants: list[ApiTokenGrantOut] | None = None

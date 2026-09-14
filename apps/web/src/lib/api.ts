@@ -349,6 +349,11 @@ export type AccessToken = {
   kind: 'classic' | 'fine_grained'
   /** Null for a classic token, which names no glades because it has all of them. */
   grants: AccessTokenGrant[] | null
+  /**
+   * Whether it may make new glades. Always true for a classic token. A glade a
+   * fine-grained token makes joins its own grants with edit and delete.
+   */
+  can_create: boolean
   created_at: string
   expires_at: string | null
   last_used_at: string | null
@@ -366,7 +371,14 @@ export type AccessTokenGrantInput = {
 
 export type AccessTokenCreate =
   | { name: string; kind: 'classic'; expires_in_days?: number }
-  | { name: string; kind: 'fine_grained'; grants: AccessTokenGrantInput[]; expires_in_days?: number }
+  | {
+      name: string
+      kind: 'fine_grained'
+      grants: AccessTokenGrantInput[]
+      /** May make glades. With no grants, the token starts empty and fills its own list. */
+      can_create?: boolean
+      expires_in_days?: number
+    }
 
 type AuthResponse = {
   access_token: string
@@ -628,10 +640,13 @@ export function createAccessToken(body: AccessTokenCreate): Promise<CreatedAcces
   return call<CreatedAccessToken>('/tokens', { method: 'POST', body: JSON.stringify(body) })
 }
 
-/** Rename a token, or replace a fine-grained token's glades. Open connections re-check. */
+/**
+ * Rename a token, replace a fine-grained token's glades, or change whether it may make
+ * new ones. Open connections re-check.
+ */
 export function updateAccessToken(
   tokenId: string,
-  patch: { name?: string; grants?: AccessTokenGrantInput[] },
+  patch: { name?: string; grants?: AccessTokenGrantInput[]; can_create?: boolean },
 ): Promise<AccessToken> {
   return call<AccessToken>(`/tokens/${tokenId}`, { method: 'PATCH', body: JSON.stringify(patch) })
 }

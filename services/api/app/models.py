@@ -258,7 +258,9 @@ class ApiToken(Base):
 
     - `classic`: everything the account can do, on every glade it can open.
     - `fine_grained`: only the glades in `api_token_grants`, each with its own read, edit
-      and delete permissions.
+      and delete permissions, and `can_create` for whether it may make new ones. A glade
+      it makes is added to its own grants with edit and delete, so the token can go on
+      working with what it just made and with nothing else.
 
     Either way the token stands in for its owner and only narrows them. Roles are still
     resolved live through `app/services/permissions.py`; a grant takes away from the
@@ -279,6 +281,10 @@ class ApiToken(Base):
     token_hash: Mapped[str] = mapped_column(String, nullable=False, unique=True)
     prefix: Mapped[str] = mapped_column(String, nullable=False)
     kind: Mapped[str] = mapped_column(String, nullable=False)
+    #: Whether a fine-grained token may make new glades. Always true in effect for a
+    #: classic token, which may do anything its owner may. A glade made through a token
+    #: is granted back to it in `api_token_grants`, so the token can open what it made.
+    can_create: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

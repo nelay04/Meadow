@@ -25,9 +25,18 @@ creating and importing glades. Use it for your own agent on your own machine.
 | Delete | Removing objects |
 
 For example, with glades A to E you might choose A, C and D: view and edit on A, view only
-on D, view and delete on C. B and E do not exist for that token. A fine-grained token
-cannot create or import glades. You can change a token's glades later with
-**Change glades**, and anything using it picks up the change straight away.
+on D, view and delete on C. B and E do not exist for that token.
+
+**Create glades** is the one permission that is not about a particular glade, so it sits
+below the list rather than in it. With it on, the token can make new glades and import
+them, and each glade it makes is added to its own list with view, edit and delete, so it
+can go on working with what it just made. Nothing else it can reach changes. A token with
+create on and no glades at all is a useful shape: an assistant that can only ever touch
+what it made itself.
+
+Turning create off later stops it making more; it does not take back the glades it already
+made, which are on its list like any other. You can change any of this with **Change
+permissions**, and anything using the token picks up the change straight away.
 
 The token (`mdw_...`) is shown once. Copy it straight into the client config below.
 
@@ -48,7 +57,9 @@ does not allow.
 - a `get_my_access` tool.
 
 Tools the token cannot use on any glade are not offered at all. For example, a view-only
-token does not see `create_nodes` or `delete_objects`. When a call is refused, the refusal
+token does not see `create_nodes` or `delete_objects`. A token that may create sees the
+editing tools whether or not it has a glade yet, since the glade it makes will be its to
+edit. When a call is refused, the refusal
 names the missing permission.
 
 ## 2. Connect a client

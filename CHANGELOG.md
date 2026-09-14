@@ -11,6 +11,32 @@ away getting there.
 
 ---
 
+## [1.7.0] - [14-Sep-2026]
+
+### Added
+- **A fine-grained token can be allowed to make glades.** Until now only a classic token
+  could, so an assistant that needed a new glade had to be handed the whole account to
+  get one. **Create glades** is now a permission of its own, below the glade list on the
+  token, and off unless it is turned on.
+  - **What it makes is its own.** A glade created through a fine-grained token is added
+    to that token's list straight away with view, edit and delete, so the assistant can
+    fill in what it just asked for. Nothing else it can reach changes, and it is the one
+    way a token's list grows without its owner editing it.
+  - **A token with create and no glades at all.** The narrowest useful shape for an
+    assistant: it starts able to reach nothing, and can only ever touch what it made
+    itself. The create form and **Change permissions** both accept it.
+  - **Bounded and reversible.** Creating is refused once the token names as many glades
+    as one may hold, so the list cannot grow without limit. Turning the permission off
+    stops it making more; the glades it already made stay on its list until they are
+    removed from it.
+- **The assistant is told about it.** `get_my_access` and the MCP server's instructions
+  say whether the token may create, and the editing tools are offered to a token that
+  may create even before it has a glade, since the glade it makes will be its to edit.
+
+### Changed
+- **Change glades** on a token is now **Change permissions**, since it changes creating
+  as well as the glade list.
+
 ## [1.6.0] - [14-Sep-2026]
 
 ### Added

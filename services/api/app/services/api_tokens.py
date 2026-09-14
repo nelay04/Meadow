@@ -9,7 +9,9 @@ Two kinds, as GitHub has them:
 - **classic**: everything the owner can do, on every glade the owner can open.
 - **fine-grained**: only the glades it names, each with its own permissions. Read comes
   with naming a glade; edit and delete are each on top of it. A glade it does not name
-  answers exactly as a glade that does not exist.
+  answers exactly as a glade that does not exist. It may also be given `can_create`,
+  which lets it make new glades; each one it makes is added to its own list with edit and
+  delete, so it can work on what it made and still on nothing else.
 
 Where a token is accepted is decided by the route, not by this module, and the default
 is no. `app/auth/deps.py::current_user` refuses a token outright; only routes that ask
@@ -30,7 +32,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import ApiToken, ApiTokenGrant, Board
@@ -98,6 +100,45 @@ def is_live(token: ApiToken, now: datetime | None = None) -> bool:
 
 def is_classic(token: ApiToken) -> bool:
     return token.kind == TokenKind.classic
+
+
+def can_create_glades(token: ApiToken) -> bool:
+    """Whether this token may make a new glade.
+
+    A classic token may, because it may do whatever its owner may. A fine-grained one may
+    only when it was given the permission: making a glade adds it to the token's own
+    list, and a token that widened itself without its owner ever agreeing to it would be
+    a fine-grained token in name only.
+    """
+    return is_classic(token) or token.can_create
+
+
+def grant_created(session: AsyncSession, token: ApiToken, board_id: uuid.UUID) -> None:
+    """Give a fine-grained token full access to a glade it just made.
+
+    Read, edit and delete: the token made this glade, so withholding any of them would
+    leave it unable to fill in what it just asked for. It is the one way a token's list
+    grows without its owner editing it, and it is bounded - `create_board` refuses once
+    the list is full - so a token cannot grow its reach without limit by making glades.
+
+    Committed by the caller, inside the transaction that creates the glade, so a glade
+    made through a token is never left without the grant that opens it.
+    """
+    if is_classic(token):
+        return
+    session.add(
+        ApiTokenGrant(token_id=token.id, board_id=board_id, can_edit=True, can_delete=True)
+    )
+
+
+async def grant_count(session: AsyncSession, token: ApiToken) -> int:
+    return (
+        await session.execute(
+            select(func.count())
+            .select_from(ApiTokenGrant)
+            .where(ApiTokenGrant.token_id == token.id)
+        )
+    ).scalar_one()
 
 
 async def grant_for(
@@ -179,6 +220,7 @@ async def issue(
     name: str,
     kind: TokenKind,
     grants: list[GrantSpec],
+    can_create: bool,
     expires_in_days: int | None,
 ) -> IssuedToken:
     raw = TOKEN_PREFIX + secrets.token_urlsafe(32)
@@ -189,6 +231,7 @@ async def issue(
         token_hash=hash_token(raw),
         prefix=raw[:DISPLAY_LENGTH],
         kind=kind.value,
+        can_create=can_create,
         expires_at=(
             None if expires_in_days is None else datetime.now(UTC) + timedelta(days=expires_in_days)
         ),

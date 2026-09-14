@@ -159,6 +159,36 @@ function GladePicker({ boards, grants, onChange }: PickerProps) {
 }
 
 /**
+ * Whether a fine-grained token may make new glades.
+ *
+ * Its own control rather than a fourth column in the picker: making a glade is not
+ * something done *to* a glade, and what it grants is on glades that do not exist yet. A
+ * glade the token makes joins its list with edit and delete, which is said here rather
+ * than left to be discovered, since it is the one way a token's reach grows without its
+ * owner editing it.
+ */
+function CreateToggle({ on, onChange }: { on: boolean; onChange: (on: boolean) => void }) {
+  return (
+    <div className="token-create">
+      <button
+        type="button"
+        role="switch"
+        aria-checked={on}
+        className={on ? 'grant-toggle on' : 'grant-toggle'}
+        onClick={() => onChange(!on)}
+      >
+        Create glades
+      </button>
+      <span className="hint">
+        {on
+          ? 'It can make new glades in your workspace. Each one it makes is added above, with edit and delete.'
+          : 'It can only work on the glades listed above.'}
+      </span>
+    </div>
+  )
+}
+
+/**
  * Personal access tokens, for AI assistants and scripts.
  *
  * Its own component because the page it sits on is already long, and because this card
@@ -175,6 +205,9 @@ export function AccessTokensCard() {
   const [name, setName] = useState('')
   const [kind, setKind] = useState<Kind>('fine_grained')
   const [grants, setGrants] = useState<Grants>({})
+  // Whether a new fine-grained token may make glades. Off by default: a token that can
+  // make things is a wider token, so it is asked for rather than assumed.
+  const [mayCreate, setMayCreate] = useState(false)
   const [lifetime, setLifetime] = useState<number | null>(90)
   const [creating, setCreating] = useState(false)
   const [created, setCreated] = useState<CreatedAccessToken | null>(null)
@@ -182,6 +215,7 @@ export function AccessTokensCard() {
   // The token whose glades are being changed, and the draft of them.
   const [editing, setEditing] = useState<string | null>(null)
   const [draft, setDraft] = useState<Grants>({})
+  const [draftCreate, setDraftCreate] = useState(false)
   const [saving, setSaving] = useState(false)
 
   const reload = async (): Promise<void> => {
@@ -198,8 +232,12 @@ export function AccessTokensCard() {
     api.listBoards().then(setBoards, () => setBoards([]))
   }, [])
 
+  // A fine-grained token has to be able to reach something: either glades it names, or
+  // leave to make its own.
   const canCreate =
-    name.trim() !== '' && !creating && (kind === 'classic' || Object.keys(grants).length > 0)
+    name.trim() !== '' &&
+    !creating &&
+    (kind === 'classic' || mayCreate || Object.keys(grants).length > 0)
 
   const create = async (event: FormEvent) => {
     event.preventDefault()
@@ -210,11 +248,12 @@ export function AccessTokensCard() {
       const token = await api.createAccessToken(
         kind === 'classic'
           ? { name: name.trim(), kind, ...expiry }
-          : { name: name.trim(), kind, grants: toInput(grants), ...expiry },
+          : { name: name.trim(), kind, grants: toInput(grants), can_create: mayCreate, ...expiry },
       )
       setCreated(token)
       setName('')
       setGrants({})
+      setMayCreate(false)
       await reload()
     } catch (caught) {
       toast.error(
@@ -229,6 +268,7 @@ export function AccessTokensCard() {
 
   const startEditing = (token: AccessToken) => {
     setEditing(token.id)
+    setDraftCreate(token.can_create)
     setDraft(
       Object.fromEntries(
         (token.grants ?? []).map((grant) => [
@@ -240,10 +280,13 @@ export function AccessTokensCard() {
   }
 
   const saveGrants = async (token: AccessToken) => {
-    if (Object.keys(draft).length === 0) return
+    if (Object.keys(draft).length === 0 && !draftCreate) return
     setSaving(true)
     try {
-      await api.updateAccessToken(token.id, { grants: toInput(draft) })
+      await api.updateAccessToken(token.id, {
+        grants: toInput(draft),
+        can_create: draftCreate,
+      })
       toast.success(
         `${token.name} was updated. Anything using it picks up the change straight away.`,
       )
@@ -367,7 +410,10 @@ export function AccessTokensCard() {
             fine-grained token when an assistant only needs a few.
           </p>
         ) : (
-          <GladePicker boards={boards} grants={grants} onChange={setGrants} />
+          <>
+            <GladePicker boards={boards} grants={grants} onChange={setGrants} />
+            <CreateToggle on={mayCreate} onChange={setMayCreate} />
+          </>
         )}
       </form>
 
@@ -400,10 +446,13 @@ export function AccessTokensCard() {
                   <span>
                     {token.grants === null
                       ? 'All glades'
-                      : token.grants.length === 1
-                        ? '1 glade'
-                        : `${token.grants.length} glades`}
+                      : token.grants.length === 0
+                        ? 'No glades yet'
+                        : token.grants.length === 1
+                          ? '1 glade'
+                          : `${token.grants.length} glades`}
                   </span>
+                  {token.kind === 'fine_grained' && token.can_create && <span>Can create</span>}
                   <span
                     title={
                       token.last_used_at === null ? undefined : absoluteTime(token.last_used_at)
@@ -438,7 +487,7 @@ export function AccessTokensCard() {
                     className="ghost profile-connect"
                     onClick={() => startEditing(token)}
                   >
-                    Change glades
+                    Change permissions
                   </button>
                 )}
                 <button
@@ -453,6 +502,7 @@ export function AccessTokensCard() {
               {editing === token.id && (
                 <div className="token-edit">
                   <GladePicker boards={boards} grants={draft} onChange={setDraft} />
+                  <CreateToggle on={draftCreate} onChange={setDraftCreate} />
                   <div className="token-edit-actions">
                     <button type="button" className="ghost" onClick={() => setEditing(null)}>
                       Cancel
@@ -460,7 +510,7 @@ export function AccessTokensCard() {
                     <button
                       type="button"
                       className="primary"
-                      disabled={saving || Object.keys(draft).length === 0}
+                      disabled={saving || (Object.keys(draft).length === 0 && !draftCreate)}
                       onClick={() => void saveGrants(token)}
                     >
                       {saving ? 'Saving...' : 'Save permissions'}

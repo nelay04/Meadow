@@ -77,7 +77,7 @@ function explain(status: number, detail: string): string {
     return 'This glade has a password, and access tokens cannot open password-protected glades.'
   }
   if (detail.includes('token may not create')) {
-    return 'This access token cannot create glades: only a classic token can.'
+    return 'This access token cannot create glades. A classic token can, and so can a fine-grained one given the create permission under Profile > Access tokens.'
   }
   if (status === 403)
     return 'This access token has no access to that glade. Call get_my_access to see which glades it can open.'
