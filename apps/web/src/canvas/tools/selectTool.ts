@@ -20,9 +20,11 @@ import {
   curvatureAt,
   elbowAxis,
   elbowFor,
+  elbowSlide,
   isArrowLike,
   resolveArrowProps,
   routeOrthogonal,
+  solveArrowEnds,
 } from '@meadow/schema'
 
 import type { Point, WorldRect } from '../camera'
@@ -97,7 +99,13 @@ type Gesture =
       symmetric: boolean
     }
   /** Sliding an elbow's dogleg along the axis it turns on. */
-  | { kind: 'elbow'; arrowId: string; start: Point; end: Point }
+  | { kind: 'elbow'; arrowId: string; start: Point; end: Point; axis: 'x' | 'y' }
+
+/** The axis an orthogonal arrow's drawn middle segment slides along, if it has one. */
+function elbowAxisOf(arrow: ObjectData): 'x' | 'y' | null {
+  const props = resolveArrowProps(arrow)
+  return elbowSlide(props.points)?.axis ?? null
+}
 
 export function createSelectTool(context: ToolContext): Tool {
   let gesture: Gesture = { kind: 'none' }
@@ -273,6 +281,9 @@ export function createSelectTool(context: ToolContext): Tool {
             arrowId: arrow.id,
             start: handles.start,
             end: handles.end,
+            // Captured at the press: sliding the segment can change which route the
+            // solver picks, and the axis must not flip under the pointer mid-drag.
+            axis: elbowAxisOf(arrow) ?? elbowAxis(handles.start, handles.end),
           }
           return
         }
@@ -404,7 +415,10 @@ export function createSelectTool(context: ToolContext): Tool {
             // The dogleg only slides one way, so the cursor says which. Read from the
             // same function the route uses, not from a second comparison here.
             const ends = arrowHandles(arrow)
-            cursor = elbowAxis(ends.start, ends.end) === 'x' ? 'ew-resize' : 'ns-resize'
+            cursor =
+              (elbowAxisOf(arrow) ?? elbowAxis(ends.start, ends.end)) === 'x'
+                ? 'ew-resize'
+                : 'ns-resize'
           } else if (handle !== null) cursor = 'crosshair'
         }
 
@@ -440,7 +454,41 @@ export function createSelectTool(context: ToolContext): Tool {
         // about on release.
         const preview = previewBind(context, event.world, active.arrowId, active.anchorPoint)
         const moving = preview.point
-        if (active.end === 'start') writeEnds(active.arrowId, moving, active.anchorPoint)
+        const dragged = context.object(active.arrowId)
+        if (dragged !== undefined && resolveArrowProps(dragged).routing === 'orthogonal') {
+          // An elbow's route depends on the sides both ends attach to, so the preview is
+          // solved exactly as the document will solve it on release. Routing it from
+          // the two points alone drew one shape during the drag and snapped to another.
+          const other = context.arrowBindings(active.arrowId)[active.end === 'start' ? 'end' : 'start']
+          const otherTarget =
+            other?.targetId == null ? null : (context.object(other.targetId) ?? null)
+          const otherBinding = otherTarget === null ? null : other
+          const target = preview.targetId === null ? null : (context.object(preview.targetId) ?? null)
+          const binding = target === null ? null : { anchor: preview.anchor, gap: BIND_GAP }
+          const elbow = resolveArrowProps(dragged).elbow
+          context.setArrowPoints(
+            active.arrowId,
+            active.end === 'start'
+              ? solveArrowEnds(
+                  [moving.x, moving.y, active.anchorPoint.x, active.anchorPoint.y],
+                  target,
+                  binding,
+                  otherTarget,
+                  otherBinding,
+                  'orthogonal',
+                  elbow,
+                )
+              : solveArrowEnds(
+                  [active.anchorPoint.x, active.anchorPoint.y, moving.x, moving.y],
+                  otherTarget,
+                  otherBinding,
+                  target,
+                  binding,
+                  'orthogonal',
+                  elbow,
+                ),
+          )
+        } else if (active.end === 'start') writeEnds(active.arrowId, moving, active.anchorPoint)
         else writeEnds(active.arrowId, active.anchorPoint, moving)
 
         context.setHoverTarget(preview.targetId)
@@ -451,7 +499,7 @@ export function createSelectTool(context: ToolContext): Tool {
       if (gesture.kind === 'elbow') {
         const active = gesture
         context.setArrowRouting(active.arrowId, {
-          elbow: elbowFor(active.start, active.end, event.world),
+          elbow: elbowFor(active.start, active.end, event.world, active.axis),
         })
         context.requestRender()
         return

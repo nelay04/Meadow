@@ -56,6 +56,12 @@ export async function layoutBlock(
       // keep it rather than being shuffled.
       'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
       'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
+      // A loop has to be cut somewhere to put nodes in columns. The default greedy cut
+      // can pick an edge in the middle of the main flow, which moves everything after it
+      // to the start of the diagram and sends long arrows back across it. Cutting the
+      // edges that point back up the listed order keeps the flow the model described and
+      // leaves the feedback edge ("live updates") as the one that runs backwards.
+      'elk.layered.cycleBreaking.strategy': 'MODEL_ORDER',
     },
     children: nodes.map((node) => ({ id: node.key, width: node.w, height: node.h })),
     // Only edges with both ends in the block shape it. An edge to an existing node still
@@ -95,11 +101,10 @@ const MAX_LAYER_GAP = 340
 /**
  * Widen the gap between two layers until the edges crossing it can bend the way they flow.
  *
- * The canvas turns an orthogonal arrow along whichever axis its ends are further apart
- * on. Between two columns of a left-to-right diagram that means an edge dropping further
- * than the gap is wide leaves its shape sideways and comes in from above, however
- * cleanly ELK routed it. Ports can slide along a side to take up some of the drop; the
- * rest has to be width.
+ * An elbow leaves and enters square to the sides it is attached to, so an edge between
+ * two columns that drops a long way needs horizontal room for its stubs, its turn and
+ * its label, or its vertical run crowds the shapes beside it. Ports can slide along a
+ * side to take up some of the drop; the rest has to be width.
  */
 function widenLayers(
   boxes: Map<string, Box>,

@@ -19,6 +19,7 @@ import {
   CURVE_HANDLE_TS,
   type ObjectData,
   arrowPolyline,
+  elbowSlide,
   pointAlongPath,
   pointOnCurve,
   resolveArrowProps,
@@ -72,14 +73,15 @@ export function arrowHandles(arrow: ObjectData): ArrowHandlePoints {
    * the board.
    *
    * The handle sits on the middle of the crossing segment, which is the segment the
-   * fraction actually controls.
+   * fraction actually controls. A route with no such segment, a straight line or a
+   * single L, has nothing to slide and gets no handle.
    */
   if (props.routing === 'orthogonal') {
-    if (path.length < 8) return { start, end, bends: [] }
-    const corner = 2
+    const slide = elbowSlide(path)
+    if (slide === null) return { start, end, bends: [] }
     const middle = {
-      x: (path[corner] + path[corner + 2]) / 2 + arrow.x,
-      y: (path[corner + 1] + path[corner + 3]) / 2 + arrow.y,
+      x: (slide.from.x + slide.to.x) / 2 + arrow.x,
+      y: (slide.from.y + slide.to.y) / 2 + arrow.y,
     }
     return { start, end, bends: [{ id: 'elbow', at: middle, t: 0.5 }] }
   }

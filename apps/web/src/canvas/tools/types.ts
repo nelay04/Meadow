@@ -141,6 +141,8 @@ export type ToolContext = {
   setArrowPoints(id: string, absolute: readonly number[]): void
   /** Attach an arrow end to an object. Replaces any existing binding on that end. */
   bindArrow(input: Omit<BindingData, 'id'>): void
+  /** What each end of an arrow is attached to right now. */
+  arrowBindings(id: string): { start: BindingData | null; end: BindingData | null }
   /**
    * Change how an arrow is routed. Bounds are re-derived with it, because a curved
    * arrow does not fit inside the box its two endpoints span.

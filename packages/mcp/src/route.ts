@@ -1,13 +1,13 @@
 /**
  * Where each arrow attaches and where it bends, chosen so the drawn result is clean.
  *
- * The canvas draws an orthogonal arrow as one Z between its two endpoints: it leaves
- * along whichever axis the endpoints are further apart on and turns once, at a stored
- * fraction (`elbow`). It does not avoid shapes, and every centre-anchored arrow on a
- * side meets it at the same point. Left alone, a diagram's edges share trunks, stack
- * their labels and run through whatever sits between two columns.
+ * The canvas draws an orthogonal arrow square to the sides its ends are attached to,
+ * turning where a stored fraction (`elbow`) says, and avoids only the two shapes it
+ * connects. Every centre-anchored arrow on a side meets it at the same point. Left alone,
+ * a diagram's edges share trunks, stack their labels and run through whatever sits
+ * between two columns.
  *
- * The canvas cannot draw a better route, but it can be handed better inputs: which side
+ * So the canvas is handed better inputs: which side
  * of each shape an edge uses, where along that side (a binding anchor), and where the Z
  * turns. This picks those. Sides first, then ports spread along each side in the order
  * of what they lead to so neighbours do not cross, then per edge a bend chosen from a

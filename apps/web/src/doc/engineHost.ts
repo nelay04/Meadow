@@ -28,6 +28,7 @@ import {
   type DocSnapshot,
   ReadOnlyError,
   addObject,
+  arrowBindings,
   bindArrow,
   bringForward,
   bringToFront,
@@ -236,6 +237,10 @@ export class DocEngineHost implements EngineHost {
 
   bindArrow(input: Omit<BindingData, 'id'>): void {
     this.guard(() => bindArrow(this.session, input), undefined)
+  }
+
+  arrowBindings(id: string): { start: BindingData | null; end: BindingData | null } {
+    return arrowBindings(this.session, id)
   }
 
   setArrowRouting(id: string, patch: ArrowRoutingPatch): void {

@@ -450,6 +450,7 @@ export type EngineHost = {
   sendToBack(ids: readonly string[]): void
   setArrowPoints(id: string, absolute: readonly number[]): void
   bindArrow(input: Omit<BindingData, 'id'>): void
+  arrowBindings(id: string): { start: BindingData | null; end: BindingData | null }
   setArrowRouting(id: string, patch: ArrowRoutingPatch): void
   /** Static HTML for a text-bearing object, for the idle overlay. */
   textHtml(id: string): string
@@ -2652,6 +2653,7 @@ export class CanvasEngine {
       applyPatches: (patches) => this.host.applyPatches(patches),
       setArrowPoints: (id, absolute) => this.host.setArrowPoints(id, absolute),
       bindArrow: (input) => this.host.bindArrow(input),
+      arrowBindings: (id) => this.host.arrowBindings(id),
       setArrowRouting: (id, patch) => this.host.setArrowRouting(id, patch),
       get polygonSides(): number {
         return engine.polygonSides

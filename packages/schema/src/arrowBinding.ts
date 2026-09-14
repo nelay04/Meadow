@@ -221,54 +221,302 @@ export function solveArrowEnds(
   const points = Array.from(current)
   const last = points.length - 2
 
-  const startPoint = { x: points[0], y: points[1] }
-  const endPoint = { x: points[last], y: points[last + 1] }
-
-  /*
-   * An elbow arrives square to an edge, so its endpoint is aimed square too.
-   *
-   * A centre anchor means "aim at the middle and stop at the outline", and aiming at
-   * the far end is right for a line that actually travels that way. An orthogonal
-   * route does not: its last segment is horizontal or vertical, so an endpoint solved
-   * against the diagonal lands off to one side and the route arrives past the corner,
-   * visibly floating beside the shape it is pointing at. Flattening the aim onto the
-   * dominant axis puts it in the middle of the edge the route will approach from.
-   *
-   * Only for a centre anchor. An explicit one is a point the user chose, and it is
-   * already square when it came from a connector dot.
-   */
-  const aim = (target: ObjectData, toward: Point): Point => {
-    if (routing !== 'orthogonal') return toward
-    const centreX = target.x + target.w / 2
-    const centreY = target.y + target.h / 2
-    return Math.abs(toward.x - centreX) >= Math.abs(toward.y - centreY)
-      ? { x: toward.x, y: centreY }
-      : { x: centreX, y: toward.y }
+  if (routing === 'orthogonal') {
+    return solveElbow(points, startTarget, startBinding, endTarget, endBinding, elbow)
   }
 
   // Aim each end at the far end's *pre-solve* position, so the two are symmetric and
   // the result does not depend on which one is computed first.
+  const startPoint = { x: points[0], y: points[1] }
+  const endPoint = { x: points[last], y: points[last + 1] }
   if (startTarget !== null && startBinding !== null) {
-    const solved = resolveBoundPoint(startTarget, startBinding, aim(startTarget, endPoint))
+    const solved = resolveBoundPoint(startTarget, startBinding, endPoint)
     points[0] = solved.x
     points[1] = solved.y
   }
   if (endTarget !== null && endBinding !== null) {
-    const solved = resolveBoundPoint(endTarget, endBinding, aim(endTarget, startPoint))
+    const solved = resolveBoundPoint(endTarget, endBinding, startPoint)
     points[last] = solved.x
     points[last + 1] = solved.y
   }
 
-  if (routing === 'orthogonal') {
-    const tail = points.length - 2
-    return routeOrthogonal(
-      { x: points[0], y: points[1] },
-      { x: points[tail], y: points[tail + 1] },
-      elbow,
+  return points
+}
+
+export type Side = 'left' | 'right' | 'top' | 'bottom'
+
+/** How far an elbow runs straight out of a shape before it may turn. */
+export const ELBOW_STUB = 20
+
+const NORMALS: Record<Side, Point> = {
+  left: { x: -1, y: 0 },
+  right: { x: 1, y: 0 },
+  top: { x: 0, y: -1 },
+  bottom: { x: 0, y: 1 },
+}
+
+type Bounds = { left: number; top: number; right: number; bottom: number }
+
+const boundsOf = (o: ObjectData): Bounds => ({
+  left: o.x,
+  top: o.y,
+  right: o.x + o.w,
+  bottom: o.y + o.h,
+})
+
+const pointBounds = (p: Point): Bounds => ({ left: p.x, top: p.y, right: p.x, bottom: p.y })
+
+function snapSide(vx: number, vy: number): Side {
+  if (Math.abs(vx) >= Math.abs(vy)) return vx >= 0 ? 'right' : 'left'
+  return vy >= 0 ? 'bottom' : 'top'
+}
+
+/**
+ * The side of a box that faces another box or point.
+ *
+ * Decided on the gap between the two boxes, not between their centres. A wide shape
+ * above a narrow one offset to its side has centres further apart across than down, but
+ * the space between them is below it, and that is the side a connector belongs on.
+ */
+function facingSide(own: Bounds, other: Bounds): Side {
+  const gapRight = other.left - own.right
+  const gapLeft = own.left - other.right
+  const gapDown = other.top - own.bottom
+  const gapUp = own.top - other.bottom
+  const across = Math.max(gapRight, gapLeft)
+  const down = Math.max(gapDown, gapUp)
+  if (across <= 0 && down <= 0) {
+    return snapSide(
+      (other.left + other.right - own.left - own.right) / 2,
+      (other.top + other.bottom - own.top - own.bottom) / 2,
     )
   }
+  if (across >= down) return gapRight >= gapLeft ? 'right' : 'left'
+  return gapDown >= gapUp ? 'bottom' : 'top'
+}
 
-  return points
+/**
+ * The side an explicit anchor sits on: the nearest edge, and among a tie (a corner) the
+ * one facing the other end. Turned with the shape, then snapped back to an axis, since
+ * an elbow only runs horizontally and vertically.
+ */
+function anchorSide(target: ObjectData, anchor: { nx: number; ny: number }, other: Bounds): Side {
+  const distance: Record<Side, number> = {
+    left: anchor.nx,
+    right: 1 - anchor.nx,
+    top: anchor.ny,
+    bottom: 1 - anchor.ny,
+  }
+  const nearest = Math.min(...Object.values(distance))
+  const tied = (Object.keys(distance) as Side[]).filter((side) => distance[side] <= nearest + 0.01)
+  const facing = facingSide(boundsOf(target), other)
+  const side = tied.includes(facing) ? facing : tied[0]
+  if (target.rotation === 0) return side
+  const turned = rotate(NORMALS[side].x, NORMALS[side].y, target.rotation)
+  return snapSide(turned.x, turned.y)
+}
+
+type Elbow = {
+  point: Point
+  /** The way the route leaves this end (start) or the way it came in reversed (end). */
+  normal: Point
+  stub: number
+  bounds: Bounds | null
+}
+
+function solveElbow(
+  current: readonly number[],
+  startTarget: ObjectData | null,
+  startBinding: Pick<BindingData, 'anchor' | 'gap'> | null,
+  endTarget: ObjectData | null,
+  endBinding: Pick<BindingData, 'anchor' | 'gap'> | null,
+  at: number,
+): number[] {
+  const last = current.length - 2
+  const rawStart = { x: current[0], y: current[1] }
+  const rawEnd = { x: current[last], y: current[last + 1] }
+  const startBound = startTarget !== null && startBinding !== null
+  const endBound = endTarget !== null && endBinding !== null
+  const startBox = startBound ? boundsOf(startTarget) : pointBounds(rawStart)
+  const endBox = endBound ? boundsOf(endTarget) : pointBounds(rawEnd)
+
+  const bound = (
+    target: ObjectData,
+    binding: Pick<BindingData, 'anchor' | 'gap'>,
+    other: Bounds,
+  ): Elbow => {
+    const centreX = target.x + target.w / 2
+    const centreY = target.y + target.h / 2
+    if (isCentreAnchor(binding.anchor)) {
+      const side = facingSide(boundsOf(target), other)
+      const reach = target.w + target.h + 1
+      const point = resolveBoundPoint(target, binding, {
+        x: centreX + NORMALS[side].x * reach,
+        y: centreY + NORMALS[side].y * reach,
+      })
+      return { point, normal: NORMALS[side], stub: ELBOW_STUB, bounds: boundsOf(target) }
+    }
+    const side = anchorSide(target, binding.anchor, other)
+    const point = resolveBoundPoint(target, binding, { x: centreX, y: centreY })
+    return { point, normal: NORMALS[side], stub: ELBOW_STUB, bounds: boundsOf(target) }
+  }
+
+  let start: Elbow | null = startBound ? bound(startTarget, startBinding, endBox) : null
+  let end: Elbow | null = endBound ? bound(endTarget, endBinding, startBox) : null
+
+  // A free end has no side of its own. It takes the axis the route travels on toward
+  // it, with no stub, which for two free ends is the plain Z it always was.
+  const startPoint = start?.point ?? rawStart
+  const endPoint = end?.point ?? rawEnd
+  if (start === null) {
+    const side = snapSide(endPoint.x - startPoint.x, endPoint.y - startPoint.y)
+    start = { point: startPoint, normal: NORMALS[side], stub: 0, bounds: null }
+  }
+  if (end === null) {
+    const side = snapSide(startPoint.x - endPoint.x, startPoint.y - endPoint.y)
+    end = { point: endPoint, normal: NORMALS[side], stub: 0, bounds: null }
+  }
+
+  return elbowRoute(start, end, at)
+}
+
+// Costs for choosing among candidate routes. A backtrack or a line through either
+// shape is never worth a shorter path; among clean routes, fewer turns then shorter.
+const COST_REVERSAL = 100_000
+const COST_THROUGH_SHAPE = 10_000
+const COST_BEND = 30
+const COST_UNSTEERED = 0.5
+const COST_WRONG_END = 1_000
+
+function elbowRoute(start: Elbow, end: Elbow, at: number): number[] {
+  const p0 = start.point
+  const q0 = end.point
+  const p1 = { x: p0.x + start.normal.x * start.stub, y: p0.y + start.normal.y * start.stub }
+  const q1 = { x: q0.x + end.normal.x * end.stub, y: q0.y + end.normal.y * end.stub }
+  const fraction = Math.min(0.98, Math.max(0.02, at))
+
+  const between = (a: number, b: number, lo: number, hi: number): number =>
+    Math.min(Math.max(a + (b - a) * fraction, Math.min(lo, hi)), Math.max(lo, hi))
+  const midX = between(p0.x, q0.x, p1.x, q1.x)
+  const midY = between(p0.y, q0.y, p1.y, q1.y)
+
+  const boxes = [start.bounds, end.bounds].filter((box): box is Bounds => box !== null)
+  const all = boxes.length === 0 ? [pointBounds(p1), pointBounds(q1)] : boxes
+  const outer = {
+    left: Math.min(p1.x, q1.x, ...all.map((b) => b.left)) - ELBOW_STUB,
+    right: Math.max(p1.x, q1.x, ...all.map((b) => b.right)) + ELBOW_STUB,
+    top: Math.min(p1.y, q1.y, ...all.map((b) => b.top)) - ELBOW_STUB,
+    bottom: Math.max(p1.y, q1.y, ...all.map((b) => b.bottom)) + ELBOW_STUB,
+  }
+
+  const candidates: { via: Point[]; cost: number }[] = [
+    { via: [{ x: midX, y: p1.y }, { x: midX, y: q1.y }], cost: 0 },
+    { via: [{ x: p1.x, y: midY }, { x: q1.x, y: midY }], cost: 0 },
+    { via: [{ x: p1.x, y: q1.y }], cost: COST_UNSTEERED },
+    { via: [{ x: q1.x, y: p1.y }], cost: COST_UNSTEERED },
+    ...[outer.top, outer.bottom].map((y) => ({
+      via: [{ x: p1.x, y }, { x: q1.x, y }],
+      cost: COST_UNSTEERED,
+    })),
+    ...[outer.left, outer.right].map((x) => ({
+      via: [{ x, y: p1.y }, { x, y: q1.y }],
+      cost: COST_UNSTEERED,
+    })),
+  ]
+
+  let best: number[] | null = null
+  let bestCost = Infinity
+  for (const candidate of candidates) {
+    const { route, reversals } = simplify([p0, p1, ...candidate.via, q1, q0])
+    let cost = candidate.cost + reversals * COST_REVERSAL
+    const bends = route.length / 2 - 2
+    cost += Math.max(0, bends) * COST_BEND
+    // Leaving and arriving the way each end faces. A bound end's stub already makes this
+    // true; for a free end it keeps the plain Z, whose dogleg has a handle, over an L.
+    const n = route.length
+    if (!heads(route[0], route[1], route[2], route[3], start.normal)) cost += COST_WRONG_END
+    if (!heads(route[n - 2], route[n - 1], route[n - 4], route[n - 3], end.normal)) {
+      cost += COST_WRONG_END
+    }
+    for (let i = 0; i + 3 < route.length; i += 2) {
+      cost += Math.abs(route[i + 2] - route[i]) + Math.abs(route[i + 3] - route[i + 1])
+      for (const box of boxes) {
+        if (segmentThrough(route[i], route[i + 1], route[i + 2], route[i + 3], box)) {
+          cost += COST_THROUGH_SHAPE
+        }
+      }
+    }
+    if (cost < bestCost) {
+      bestCost = cost
+      best = route
+    }
+  }
+  return best ?? [p0.x, p0.y, q0.x, q0.y]
+}
+
+/**
+ * Drop zero-length segments and merge runs in one direction, counting every place the
+ * path turns straight back on itself. A reversal is kept as a turn so it is visible to
+ * the cost rather than hidden inside a merged line.
+ */
+function simplify(path: readonly Point[]): { route: number[]; reversals: number } {
+  const kept: Point[] = [path[0]]
+  let previous: Point | null = null
+  let reversals = 0
+  for (let i = 1; i < path.length; i += 1) {
+    const from = kept[kept.length - 1]
+    const to = path[i]
+    const dx = to.x - from.x
+    const dy = to.y - from.y
+    if (Math.abs(dx) < 1e-9 && Math.abs(dy) < 1e-9) continue
+    const direction = { x: Math.sign(dx), y: Math.sign(dy) }
+    if (previous !== null && direction.x === previous.x && direction.y === previous.y) {
+      kept[kept.length - 1] = to
+      continue
+    }
+    if (previous !== null && direction.x === -previous.x && direction.y === -previous.y) {
+      reversals += 1
+    }
+    kept.push(to)
+    previous = direction
+  }
+  const route: number[] = []
+  for (const point of kept) route.push(point.x, point.y)
+  if (route.length === 2) route.push(route[0], route[1])
+  return { route, reversals }
+}
+
+/** Whether a segment from one point to the next runs along a direction. */
+function heads(x0: number, y0: number, x1: number, y1: number, normal: Point): boolean {
+  return (x1 - x0) * normal.x + (y1 - y0) * normal.y > 1e-9
+}
+
+function segmentThrough(x0: number, y0: number, x1: number, y1: number, box: Bounds): boolean {
+  const inset = 1
+  return (
+    Math.max(x0, x1) > box.left + inset &&
+    Math.min(x0, x1) < box.right - inset &&
+    Math.max(y0, y1) > box.top + inset &&
+    Math.min(y0, y1) < box.bottom - inset
+  )
+}
+
+/**
+ * The segment an elbow's handle slides, and the axis it slides along.
+ *
+ * The middle segment of a route with an odd number of segments, which is the one the
+ * elbow fraction positions. Read from the drawn points, so the handle, the cursor and
+ * the drag agree with whatever route the solver chose.
+ */
+export function elbowSlide(
+  route: readonly number[],
+): { from: Point; to: Point; axis: 'x' | 'y' } | null {
+  const segments = route.length / 2 - 1
+  if (segments < 3 || segments % 2 === 0) return null
+  const index = ((segments - 1) / 2) * 2
+  const from = { x: route[index], y: route[index + 1] }
+  const to = { x: route[index + 2], y: route[index + 3] }
+  return { from, to, axis: Math.abs(to.x - from.x) < 1e-6 ? 'x' : 'y' }
 }
 
 /**
@@ -326,8 +574,12 @@ export function elbowAxis(start: Point, end: Point): 'x' | 'y' {
  * reason the curve handles are: a drag that does not track the cursor exactly reads as
  * the shape fighting you, and over a long drag an accumulated offset drifts.
  */
-export function elbowFor(start: Point, end: Point, through: Point): number {
-  const axis = elbowAxis(start, end)
+export function elbowFor(
+  start: Point,
+  end: Point,
+  through: Point,
+  axis: 'x' | 'y' = elbowAxis(start, end),
+): number {
   const span = axis === 'x' ? end.x - start.x : end.y - start.y
   if (Math.abs(span) < 1e-6) return 0.5
   const travelled = axis === 'x' ? through.x - start.x : through.y - start.y

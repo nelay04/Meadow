@@ -650,14 +650,16 @@ diagram behind. It is a new mutation on the existing write path, not a schema ch
   without coordinates are placed by an ELK layered layout, to the right of the existing
   content. `apply_diagram` matches by id, then by a unique exact label, and never
   deletes.
-- **Layout is fitted to what the canvas can draw (1.5.0).** The canvas draws an elbow as
-  one Z that turns along whichever axis its endpoints are further apart on, and does not
-  avoid shapes (`routeOrthogonal`). The server cannot change that, so it chooses the
-  inputs instead:
+- **Layout is fitted to what the canvas can draw (1.5.0).** At 1.5.0 the canvas drew an
+  elbow as one Z along the longer axis; since 1.11.1 it routes square to the sides it is
+  attached to (see the arrows section), but it still avoids only the two shapes it
+  connects, so the server chooses the inputs:
   - `sizing.ts` sizes nodes to their label. It estimates glyph widths and uses the
     overlay's inscribed-rectangle ratios.
   - `layout.ts` gives ELK the label sizes and widens a layer gap when an edge across it
-    drops further than the gap is wide.
+    drops further than the gap is wide. Loops are cut by the listed node order
+    (1.11.1): ELK's default greedy cut could reverse an edge in the middle of the flow and
+    move every node after it to the start of the diagram.
   - `route.ts` picks each edge's sides, a binding anchor per end (spread along a shared
     side, ordered so neighbours do not cross), and the `elbow` fraction.
 
@@ -1095,11 +1097,24 @@ stored on the arrow, not a waypoint, for the same reason the bows are fractions:
 waypoint is a second source for a shape that is regenerated on every solve, and the two
 disagree the moment an endpoint moves.
 
-Its centre-anchored endpoints are aimed along the dominant axis
-rather than at the far end, so the last segment meets the outline square instead of
-arriving past a corner; that is not the full solve of the anchor against the route and
-the route against the anchor, which is genuinely circular, but it covers the case that
-looked broken.
+**Elbows are side-aware (1.11.1), reversing the single Z.** The elbow used to be one Z
+turning along whichever axis its endpoints were further apart on, with centre anchors
+aimed along that axis. That ignored which side an end was attached to: an arrow on a
+shape's top connector, with the shapes further apart sideways, arrived horizontally
+along the top edge, and since the head follows the last segment it pointed along the
+edge instead of into the shape. Dragging made it worse, because the axis flipped as the
+distances crossed over. It also left the MCP router scoring around a drawing limit.
+
+Now each bound end has a side: the nearest edge of an explicit anchor, or for a centre
+anchor the side facing the other end, judged on the gap between the two boxes rather
+than their centres. The route leaves and enters square to those sides with a 20-unit
+stub, and `elbowRoute` in `arrowBinding.ts` picks among a few candidates (two doglegs
+steered by the `elbow` fraction, two single corners, four detours outside both shapes)
+by cost: a backtrack or a line through either connected shape is never chosen over a
+clean route, then fewer bends, then length. Still derived on every solve and never
+stored, and still not avoiding shapes other than the two it connects. The elbow handle
+sits on the middle segment of whatever route was chosen (`elbowSlide`), and a single
+corner has none.
 
 Dragging a bend handle *solves* for the bow rather than accumulating a delta. At
 parameter `t` the offset from the chord is `(B1(t)·c0 + B2(t)·c1)·length`, which inverts

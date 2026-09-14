@@ -302,6 +302,125 @@ describe('routeOrthogonal', () => {
   })
 })
 
+type Dir = 'left' | 'right' | 'up' | 'down'
+
+/** The direction of each segment of a route, after dropping zero-length ones. */
+function directions(route: readonly number[]): Dir[] {
+  const out: Dir[] = []
+  for (let i = 0; i + 3 < route.length; i += 2) {
+    const dx = route[i + 2] - route[i]
+    const dy = route[i + 3] - route[i + 1]
+    if (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) continue
+    expect(Math.abs(dx) < 1e-6 || Math.abs(dy) < 1e-6).toBe(true)
+    out.push(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : dy > 0 ? 'down' : 'up')
+  }
+  return out
+}
+
+/** Whether any segment runs through the inside of a box. */
+function crosses(route: readonly number[], box: ObjectData): boolean {
+  for (let i = 0; i + 3 < route.length; i += 2) {
+    const x0 = Math.min(route[i], route[i + 2])
+    const x1 = Math.max(route[i], route[i + 2])
+    const y0 = Math.min(route[i + 1], route[i + 3])
+    const y1 = Math.max(route[i + 1], route[i + 3])
+    if (x1 > box.x + 1 && x0 < box.x + box.w - 1 && y1 > box.y + 1 && y0 < box.y + box.h - 1) {
+      return true
+    }
+  }
+  return false
+}
+
+const edge = (nx: number, ny: number) => ({ anchor: { nx, ny }, gap: 0 })
+
+describe('side-aware elbows', () => {
+  it('arrives into a top connector from above, whichever axis is longer', () => {
+    // The reported case: far to the left and a little above, attached to the top edge.
+    // A Z along the longer axis arrived sideways and drew the head pointing along the
+    // edge instead of into the shape.
+    const from = object({ id: 'from', x: 0, y: 0, w: 120, h: 60 })
+    const to = object({ id: 'to', x: 600, y: 120, w: 120, h: 60 })
+    const route = solveArrowEnds([0, 0, 0, 0], from, edge(1, 0.5), to, edge(0.5, 0), 'orthogonal')
+
+    const dirs = directions(route)
+    expect(dirs[0]).toBe('right')
+    expect(dirs[dirs.length - 1]).toBe('down')
+    expect(route[route.length - 2]).toBeCloseTo(660, 6)
+    expect(route[route.length - 1]).toBeCloseTo(120, 6)
+    expect(crosses(route, from) || crosses(route, to)).toBe(false)
+  })
+
+  it('leaves a bottom connector downwards and enters a left one moving right', () => {
+    const from = object({ id: 'from', x: 0, y: 0, w: 120, h: 60 })
+    const to = object({ id: 'to', x: 400, y: 300, w: 120, h: 60 })
+    const route = solveArrowEnds([0, 0, 0, 0], from, edge(0.5, 1), to, edge(0, 0.5), 'orthogonal')
+
+    const dirs = directions(route)
+    expect(dirs[0]).toBe('down')
+    expect(dirs[dirs.length - 1]).toBe('right')
+  })
+
+  it('never backs out over the stub it just left along', () => {
+    // Both on the right-hand side, one above the other: out, down, and back in.
+    const from = object({ id: 'from', x: 0, y: 0, w: 120, h: 60 })
+    const to = object({ id: 'to', x: 0, y: 200, w: 120, h: 60 })
+    const route = solveArrowEnds([0, 0, 0, 0], from, edge(1, 0.5), to, edge(1, 0.5), 'orthogonal')
+
+    expect(directions(route)).toEqual(['right', 'down', 'left'])
+    expect(crosses(route, from) || crosses(route, to)).toBe(false)
+  })
+
+  it('goes around when an arrow must leave away from its target', () => {
+    // Out of the left side of a shape whose target is to its right.
+    const from = object({ id: 'from', x: 0, y: 0, w: 120, h: 60 })
+    const to = object({ id: 'to', x: 400, y: 0, w: 120, h: 60 })
+    const route = solveArrowEnds([0, 0, 0, 0], from, edge(0, 0.5), to, edge(0, 0.5), 'orthogonal')
+
+    const dirs = directions(route)
+    expect(dirs[0]).toBe('left')
+    expect(dirs[dirs.length - 1]).toBe('right')
+    expect(crosses(route, from) || crosses(route, to)).toBe(false)
+    for (let i = 1; i < dirs.length; i += 1) {
+      const opposite = { left: 'right', right: 'left', up: 'down', down: 'up' }[dirs[i - 1]]
+      expect(dirs[i]).not.toBe(opposite)
+    }
+  })
+
+  it('points centre-anchored ends at the sides that face each other', () => {
+    // Further apart vertically than horizontally, counting the gap between the boxes
+    // rather than between their centres.
+    const from = object({ id: 'from', x: 0, y: 0, w: 300, h: 60 })
+    const to = object({ id: 'to', x: 340, y: 260, w: 120, h: 60 })
+    const binding = { anchor: CENTRE, gap: 0 }
+    const route = solveArrowEnds([0, 0, 0, 0], from, binding, to, binding, 'orthogonal')
+
+    const dirs = directions(route)
+    expect(dirs[0]).toBe('down')
+    expect(dirs[dirs.length - 1]).toBe('down')
+    expect(route[1]).toBeCloseTo(60, 6)
+    expect(route[route.length - 1]).toBeCloseTo(260, 6)
+  })
+
+  it('draws a straight line between facing sides that line up', () => {
+    const from = object({ id: 'from', x: 0, y: 0, w: 100, h: 60 })
+    const to = object({ id: 'to', x: 300, y: 0, w: 100, h: 60 })
+    const binding = { anchor: CENTRE, gap: 0 }
+    expect(solveArrowEnds([0, 0, 0, 0], from, binding, to, binding, 'orthogonal')).toEqual([
+      100, 30, 300, 30,
+    ])
+  })
+
+  it('slides the crossing segment with the elbow fraction', () => {
+    const from = object({ id: 'from', x: 0, y: 0, w: 100, h: 60 })
+    const to = object({ id: 'to', x: 500, y: 200, w: 100, h: 60 })
+    const early = solveArrowEnds([0, 0, 0, 0], from, edge(1, 0.5), to, edge(0, 0.5), 'orthogonal', 0.25)
+    const late = solveArrowEnds([0, 0, 0, 0], from, edge(1, 0.5), to, edge(0, 0.5), 'orthogonal', 0.75)
+
+    expect(directions(early)).toEqual(['right', 'down', 'right'])
+    expect(early[2]).toBeLessThan(late[2])
+  })
+})
+
 describe('hit-testing an arrow', () => {
   const arrow = object({
     type: 'arrow',

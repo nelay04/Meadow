@@ -635,11 +635,12 @@ check(
 // connector across the board.
 await page.evaluate((id) => window.__canvas.engine.setArrowRouting(id, 'orthogonal'), handleArrowId)
 await delay(250)
+
 const elbowHandles = await page.evaluate((id) => window.__doc.handles(id), handleArrowId)
 check(
   'an elbow has exactly one handle, on its dogleg',
   elbowHandles.bends.length === 1 && elbowHandles.bends[0].id === 'elbow',
-  JSON.stringify(elbowHandles.bends),
+  `${JSON.stringify(elbowHandles.bends)} on ${JSON.stringify(await page.evaluate((id) => window.__doc.points(id), handleArrowId))}`,
 )
 
 const beforeSlide = await page.evaluate((id) => window.__doc.points(id), handleArrowId)

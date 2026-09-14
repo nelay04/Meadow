@@ -53,6 +53,8 @@ How to work with it:
 - To draw or extend a diagram, prefer apply_diagram: give nodes and edges (or Mermaid), and it matches existing nodes by id or label, adds what is missing and lays new nodes out beside the existing content. create_nodes and connect are the lower-level versions.
 - Leave out x, y, w and h and the server lays nodes out and sizes them to their labels, and chooses where each arrow attaches and bends. Only give coordinates to match something already on the glade. Coordinates are world units: x grows right, y grows down.
 - Keep node labels short: a title, and at most a short second line. Put detail in a separate note rather than a bullet list inside a flowchart box.
+- Diagrams look clean when the server does the geometry. Leave edges on their default elbow routing: do not pass routing curved for a diagram, and do not add coordinates, frames or extra boxes to steer arrows. A feedback or return edge (a response, "live updates") is an ordinary edge; list the nodes in the order the flow runs and the layout routes the return edge around the rest.
+- To fix a messy glade, call tidy_layout rather than moving shapes one by one, then check_layout.
 - get_glade_snapshot returns a picture of the glade, optionally with its nodes and edges beside it.
 - Every write reports layout problems it left (text overflowing a shape, a line through a shape, overlapping lines or labels). When it does, or when a glade looks messy, call tidy_layout, then check_layout to confirm.
 - Pass preview: true to any write to see what it would do without changing the glade. A preview works even where the write itself is not allowed.
@@ -130,7 +132,9 @@ const direction = z
   .describe('Arrowheads: forward points from -> to. Default forward for arrows, none for lines.')
 const routing = z
   .enum(['straight', 'curved', 'orthogonal'])
-  .describe('Path style. orthogonal draws elbows.')
+  .describe(
+    'Path style. orthogonal (the default) draws elbows that leave and enter shapes square to a side; use it for every flowchart, architecture and process diagram. straight only for two shapes in line. curved is for a loose annotation on a sketch, never for a diagram edge, and never mixed with elbows in one diagram.',
+  )
 
 const nodeInput = z.object({
   ref: z

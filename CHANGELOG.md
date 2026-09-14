@@ -11,6 +11,42 @@ away getting there.
 
 ---
 
+## [1.11.1] - [15-Sep-2026]
+
+### Fixed
+- **Elbow arrowheads pointed the wrong way.** An elbow was always one Z along whichever
+  axis its ends were further apart on, whatever side it was attached to. An arrow on a
+  shape's top or bottom connector, with the shapes further apart sideways, ran along the
+  edge and drew its head pointing sideways instead of into the shape. Elbows now leave
+  and enter square to the side each end is attached to, so the head always points into
+  the shape. A centre-attached end uses the side facing the other shape, judged on the gap
+  between the two shapes rather than their centres.
+- **Elbows no longer double back or run through the shapes they connect.** Attached to
+  sides that face away from each other, an elbow goes around the shapes instead of
+  cutting through them or backing over itself.
+- **Dragging an elbow's end no longer jumps on release.** The preview during the drag is
+  solved exactly as the glade solves it afterwards. The dogleg handle sits on the segment
+  it slides, and a route that is a single corner has no handle, since there is nothing
+  to slide.
+- **Diagrams with a loop put nodes in the wrong place.** Laying out a diagram with a
+  return edge, such as "live updates" back to the client, could reverse an edge in the
+  middle of the flow and move everything after it to the start, sending long arrows back
+  across the diagram. Loops are now cut by the order the nodes were listed, so the return
+  edge is the one that runs backwards.
+
+### Changed
+- The MCP server tells assistants to keep diagram edges on elbows, never curved, not to
+  steer arrows with coordinates or extra boxes, and to use `tidy_layout` to clean up a
+  messy glade.
+
+### Reversed
+- **The single-Z elbow.** Routing along the longer axis was simple and predictable to
+  code, and it cost arrowheads pointing the wrong way and routes that changed shape
+  under a drag. The MCP router had been working around it by guessing sides; it now
+  scores against routes that honour them.
+
+---
+
 ## [1.11.0] - [15-Sep-2026]
 
 ### Added
