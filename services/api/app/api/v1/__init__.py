@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.v1 import auth, boards, config, oauth, share, tokens, workspaces, ws_token
+from app.api.v1 import auth, boards, config, connect, oauth, share, tokens, workspaces, ws_token
 
 router = APIRouter(prefix="/api/v1")
 router.include_router(auth.router)
@@ -19,3 +19,6 @@ router.include_router(share.router)
 router.include_router(ws_token.router)
 # Personal access tokens for MCP clients and scripts. Managed from a session only.
 router.include_router(tokens.router)
+# Assistants connecting by signing in with OAuth. The discovery documents are served at
+# the site root from `connect.well_known`, mounted in `app/main.py`.
+router.include_router(connect.router)

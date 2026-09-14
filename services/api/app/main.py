@@ -12,6 +12,7 @@ from pycrdt.websocket import YRoom
 from redis.asyncio import Redis
 
 from app.api.v1 import router as api_router
+from app.api.v1.connect import well_known as connect_well_known
 from app.config import settings
 from app.db import SessionLocal, engine
 from app.realtime import wstoken
@@ -54,6 +55,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="Meadow API", lifespan=lifespan)
 app.include_router(api_router)
+app.include_router(connect_well_known)
 
 
 @app.get("/healthz")

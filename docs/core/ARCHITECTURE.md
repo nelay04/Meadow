@@ -2214,8 +2214,27 @@ M6 deploy was still open. That was a deliberate call by the project owner, not a
 It puts an LLM-facing feature ahead of v1 shipping, which the rule above says not to do.
 It contains no model inside Meadow: the server exposes glades to assistants people
 already use, and summarising or generating inside the app is still v2. OAuth for the
-claude.ai and ChatGPT web connectors (plan step 2.6) is **not built**. Until it is, those
-two clients cannot connect, and every other client uses a pasted token.
+web connectors (plan step 2.6) was **built in 1.9.0**; see "Connecting by signing in"
+below.
+
+**Connecting by signing in (1.9.0).** Meadow is its own OAuth authorization server for
+`/mcp`, in `app/services/connect.py`. The decision that shaped it: what OAuth issues is an
+ordinary fine-grained `api_tokens` row, so nothing downstream of the sign-in changed.
+`resolve_access`, the grant guard at the socket, revocation and **Change permissions** all
+apply unmodified, and there is no second permission model to drift.
+- Registration (RFC 7591) is open and grants nothing; consent is per connection.
+- Pending requests (10 minutes) and codes (60 seconds) live in Redis and are taken with
+  `GETDEL`, so each is single use. The chosen glades travel inside the code, so a code
+  nobody redeems leaves no token behind.
+- The access token's secret lasts an hour (`api_tokens.access_expires_at`); the refresh
+  token rotates it in place on the same row, so a month of refreshes is one token on the
+  profile page, not seven hundred against the 25-token cap. A spent refresh token
+  presented again revokes the row.
+- Approving takes `CurrentUser`, which refuses access tokens, so a token cannot consent
+  on its own behalf.
+- Not built: client ID metadata documents (a client identified by a URL Meadow fetches).
+  Deferred because fetching a caller-supplied URL needs SSRF guards, and automatic
+  registration already covers the clients that exist.
 
 *(`freedraw` was on this list and was pulled forward into M6. See the note there.)*
 

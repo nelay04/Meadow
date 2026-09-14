@@ -655,6 +655,18 @@ label {
   box-shadow: var(--shadow-lg);
 }
 
+/* The consent screen holds a glade picker, which needs more room than a login form. */
+.auth-card.connect-card {
+  max-width: 34rem;
+}
+
+.connect-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1.25rem;
+}
+
 .brand {
   display: flex;
   align-items: center;

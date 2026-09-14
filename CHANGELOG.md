@@ -11,6 +11,55 @@ away getting there.
 
 ---
 
+## [1.9.0] - [15-Sep-2026]
+
+### Added
+- **Assistants can connect by signing in.** Adding `https://<host>/mcp` to a web
+  assistant's connectors now sends you to Meadow to sign in and choose what it may reach,
+  with no token to copy. This is what lets ChatGPT connect, since its connector has no
+  place for a pasted token, and it gives claude.ai a sign-in as well.
+  - **What you approve is a fine-grained token.** The consent screen starts with nothing
+    picked: tick glades, edit and delete on each, and whether it may create glades. It
+    names the assistant and the address the answer goes to. The connection appears under
+    **Profile > Access tokens** as "Connected by signing in" and is changed or revoked
+    there like any token.
+  - **Short secrets, rotating refresh.** The access token lasts an hour and is renewed
+    with a refresh token good for thirty days from its last use. Renewing replaces the
+    secret on the same token, so the profile page shows one connection however often it
+    renews. A refresh token presented after it was used revokes the connection.
+  - **Standard discovery.** The MCP server's 401 points at
+    `/.well-known/oauth-protected-resource/mcp`, which names the authorization server at
+    `/.well-known/oauth-authorization-server`. Registration is automatic (RFC 7591) and
+    the code flow requires PKCE with S256.
+  - **A token cannot consent.** Approving takes a signed-in session and refuses an access
+    token, so no token can mint itself a sibling.
+- `pnpm e2e:connect` runs the whole flow: discovery, registration, a browser signing in
+  and picking a glade, the code exchange, the token over MCP seeing only that glade, and a
+  refresh.
+
+### Changed
+- nginx routes `/.well-known/oauth-*` to the API. Migration `0017_oauth_connect` adds
+  `oauth_clients`, `oauth_refresh_tokens`, and two columns on `api_tokens`.
+
+### Reversed
+- **Web assistants only through a pasted header.** 1.8.1 documented a pasted token as the
+  only way in for claude.ai and none for ChatGPT. Both now sign in; the header still works.
+
+---
+
+## [1.8.1] - [15-Sep-2026]
+
+### Fixed
+- **The MCP guide said claude.ai could not connect.** It can: its custom connector now
+  sends request headers, so a Meadow token goes in an `authorization` header with
+  "No sign-in" chosen. `docs/mcp.md` gives the steps, and it and the design record now
+  name ChatGPT as the one web client still waiting on OAuth.
+
+### Reversed
+- Nothing.
+
+---
+
 ## [1.8.0] - [15-Sep-2026]
 
 ### Changed

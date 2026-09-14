@@ -14,7 +14,7 @@ import { roleCanWrite } from '../../doc/mutations'
 type Kind = AccessToken['kind']
 type Permission = 'read' | 'edit' | 'delete'
 /** Glade id to what is granted on it. A glade that is not a key is not granted. */
-type Grants = Record<string, { edit: boolean; delete: boolean }>
+export type Grants = Record<string, { edit: boolean; delete: boolean }>
 
 const KINDS: { id: Kind; label: string; hint: string }[] = [
   { id: 'classic', label: 'Classic', hint: 'Everything you can do, on every glade' },
@@ -66,7 +66,7 @@ function toggle(grants: Grants, boardId: string, permission: Permission): Grants
   return next
 }
 
-function toInput(grants: Grants): AccessTokenGrantInput[] {
+export function toInput(grants: Grants): AccessTokenGrantInput[] {
   return Object.entries(grants).map(([board_id, grant]) => ({ board_id, read: true, ...grant }))
 }
 
@@ -83,7 +83,7 @@ type PickerProps = {
  * where your own role cannot write: the token could never do more than you, and a toggle
  * that silently does nothing is worse than one that says so.
  */
-function GladePicker({ boards, grants, onChange }: PickerProps) {
+export function GladePicker({ boards, grants, onChange }: PickerProps) {
   const [filter, setFilter] = useState('')
   const visible = useMemo(() => {
     const needle = filter.trim().toLowerCase()
@@ -167,7 +167,7 @@ function GladePicker({ boards, grants, onChange }: PickerProps) {
  * than left to be discovered, since it is the one way a token's reach grows without its
  * owner editing it.
  */
-function CreateToggle({ on, onChange }: { on: boolean; onChange: (on: boolean) => void }) {
+export function CreateToggle({ on, onChange }: { on: boolean; onChange: (on: boolean) => void }) {
   return (
     <div className="token-create">
       <button
@@ -453,6 +453,7 @@ export function AccessTokensCard() {
                           : `${token.grants.length} glades`}
                   </span>
                   {token.kind === 'fine_grained' && token.can_create && <span>Can create</span>}
+                  {token.client_name !== null && <span>Connected by signing in</span>}
                   <span
                     title={
                       token.last_used_at === null ? undefined : absoluteTime(token.last_used_at)

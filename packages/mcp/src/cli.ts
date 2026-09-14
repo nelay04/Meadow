@@ -82,6 +82,18 @@ function bearer(request: IncomingMessage): string | null {
   return match === null ? null : match[1]
 }
 
+/**
+ * Where a client finds out how to sign in (RFC 9728). Built from the forwarded host and
+ * scheme nginx sets, so it names the public address rather than this container's.
+ */
+function challenge(request: IncomingMessage): string {
+  const forwarded = request.headers['x-forwarded-proto']
+  const scheme = typeof forwarded === 'string' && forwarded !== '' ? forwarded.split(',')[0] : 'http'
+  const host = request.headers.host
+  if (host === undefined || !/^[A-Za-z0-9.:\[\]-]+$/.test(host)) return 'Bearer'
+  return `Bearer resource_metadata="${scheme}://${host}/.well-known/oauth-protected-resource/mcp"`
+}
+
 const hashToken = (token: string): string => createHash('sha256').update(token).digest('hex')
 
 function reply(
@@ -140,7 +152,7 @@ async function http(config: Config): Promise<void> {
           401,
           'a Meadow access token is required as "Authorization: Bearer mdw_..."',
           {
-            'www-authenticate': 'Bearer',
+            'www-authenticate': challenge(request),
           },
         )
         return
@@ -181,7 +193,7 @@ async function http(config: Config): Promise<void> {
         access = await api.currentToken()
       } catch (error) {
         reply(response, 401, error instanceof Error ? error.message : 'access token refused', {
-          'www-authenticate': 'Bearer',
+          'www-authenticate': challenge(request),
         })
         return
       }

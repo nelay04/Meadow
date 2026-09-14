@@ -23,7 +23,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import CITEXT, INET, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, CITEXT, INET, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from app.services.board_kinds import BOARD_KINDS, DEFAULT_BOARD_KIND
@@ -285,6 +285,16 @@ class ApiToken(Base):
     #: classic token, which may do anything its owner may. A glade made through a token
     #: is granted back to it in `api_token_grants`, so the token can open what it made.
     can_create: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    #: The assistant this token was issued to by signing in, or None for one made on the
+    #: profile page. See `app/services/connect.py`.
+    oauth_client_id: Mapped[str | None] = mapped_column(
+        String, ForeignKey("oauth_clients.id", ondelete="SET NULL"), nullable=True
+    )
+    #: When the current secret stops working, for a token issued by signing in. Its
+    #: refresh token replaces the secret before then; `expires_at` is the connection.
+    access_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -298,6 +308,43 @@ class ApiToken(Base):
             postgresql_where=text("revoked_at is null"),
         ),
     )
+
+
+class OAuthClient(Base):
+    """An assistant registered to connect by signing in (RFC 7591).
+
+    Registration is open, as the MCP authorization spec expects, so a row grants nothing:
+    a person still has to approve each connection, and what they approve is an ordinary
+    fine-grained token. Only a secret's digest is kept, for the clients that asked for one.
+    """
+
+    __tablename__ = "oauth_clients"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    redirect_uris: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False)
+    secret_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = _created_at()
+
+
+class OAuthRefreshToken(Base):
+    """One refresh token for a signed-in assistant's access token, spent ones kept.
+
+    Spent rows stay for the reason `refresh_tokens` keeps them: a spent token presented
+    again is how theft is noticed, and that needs the evidence.
+    """
+
+    __tablename__ = "oauth_refresh_tokens"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    api_token_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("api_tokens.id", ondelete="CASCADE"), nullable=False
+    )
+    client_id: Mapped[str] = mapped_column(String, nullable=False)
+    token_hash: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    spent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = _created_at()
 
 
 class ApiTokenGrant(Base):

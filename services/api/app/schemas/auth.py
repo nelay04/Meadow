@@ -272,6 +272,8 @@ class ApiTokenOut(BaseModel):
     created_at: datetime
     expires_at: datetime | None = None
     last_used_at: datetime | None = None
+    #: The assistant it was issued to by signing in, or null for one made by hand.
+    client_name: str | None = None
 
 
 class ApiTokenCreated(ApiTokenOut):
@@ -297,3 +299,32 @@ class ApiTokenCurrent(BaseModel):
     #: list with edit and delete.
     can_create_glades: bool
     grants: list[ApiTokenGrantOut] | None = None
+
+
+class ConnectRequestOut(BaseModel):
+    """What the consent screen shows about an assistant asking to connect."""
+
+    client_name: str
+    #: Where the answer goes. Shown because the name is whatever the client registered
+    #: with, and the address is the part it cannot choose freely.
+    redirect_host: str
+
+
+class ConnectApproval(BaseModel):
+    """What a person grants an assistant: a fine-grained token's glades and creating."""
+
+    grants: list[ApiTokenGrantIn] = Field(default_factory=list, max_length=100)
+    can_create: bool = False
+
+    @model_validator(mode="after")
+    def _grants_something(self) -> "ConnectApproval":
+        if not self.grants and not self.can_create:
+            raise ValueError("pick at least one glade, or allow creating glades")
+        _unique_grants(self.grants)
+        return self
+
+
+class ConnectRedirect(BaseModel):
+    """Where the browser goes next: back to the assistant, with a code or an error."""
+
+    redirect_url: str

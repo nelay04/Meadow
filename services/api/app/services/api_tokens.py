@@ -98,6 +98,26 @@ def is_live(token: ApiToken, now: datetime | None = None) -> bool:
     return token.expires_at is None or token.expires_at > now
 
 
+def secret_is_live(token: ApiToken, now: datetime | None = None) -> bool:
+    """The token is live and its current secret has not run out.
+
+    Only a token issued by signing in has a separate secret expiry; its refresh token
+    replaces the secret, so the connection outlives any one secret.
+    """
+    now = now or datetime.now(UTC)
+    if not is_live(token, now):
+        return False
+    return token.access_expires_at is None or token.access_expires_at > now
+
+
+def rotate_secret(token: ApiToken) -> str:
+    """Give a token a new secret, in place. The old one stops working when committed."""
+    raw = TOKEN_PREFIX + secrets.token_urlsafe(32)
+    token.token_hash = hash_token(raw)
+    token.prefix = raw[:DISPLAY_LENGTH]
+    return raw
+
+
 def is_classic(token: ApiToken) -> bool:
     return token.kind == TokenKind.classic
 
@@ -259,7 +279,7 @@ async def authenticate(session: AsyncSession, raw: str) -> ApiToken | None:
     token = (
         await session.execute(select(ApiToken).where(ApiToken.token_hash == hash_token(raw)))
     ).scalar_one_or_none()
-    if token is None or not is_live(token):
+    if token is None or not secret_is_live(token):
         return None
 
     now = datetime.now(UTC)
@@ -280,7 +300,7 @@ async def load_live(
     socket another account's token.
     """
     token = await session.get(ApiToken, token_id)
-    if token is None or token.user_id != user_id or not is_live(token):
+    if token is None or token.user_id != user_id or not secret_is_live(token):
         return None
     return token
 

@@ -7,6 +7,7 @@ import { PromptProvider } from './ui/PromptDialog'
 import { ToastProvider } from './ui/Toaster'
 import { AuthProvider, useAuth } from './features/auth/AuthContext'
 import LoginPage from './features/auth/LoginPage'
+import ConnectPage from './features/connect/ConnectPage'
 import ResetPasswordPage from './features/auth/ResetPasswordPage'
 import BoardsPage from './features/boards/BoardsPage'
 import { BOARD_PATH_SEGMENTS, boardPath } from './features/boards/kinds'
@@ -24,6 +25,7 @@ type Route =
   | { name: 'profile' }
   | { name: 'reset'; token: string }
   | { name: 'join'; token: string }
+  | { name: 'connect'; requestId: string }
 
 /*
  * One route per kind of board, all matching the same view.
@@ -58,6 +60,8 @@ function routeFromHash(): Route {
   // anywhere, so there is no reason to put it in a request line.
   const join = /^#\/join\/([A-Za-z0-9_-]{16,256})$/.exec(location.hash)
   if (join !== null) return { name: 'join', token: join[1] }
+  const connect = /^#\/connect\/([A-Za-z0-9_-]{16,64})$/.exec(location.hash)
+  if (connect !== null) return { name: 'connect', requestId: connect[1] }
   return { name: 'boards' }
 }
 
@@ -128,7 +132,17 @@ function Shell() {
      * the ws-token mint and again at the handshake, and a token for a board that is no
      * longer public opens an empty view that says so.
      */
-    page = <LoginPage />
+    // An assistant's sign-in request comes back here after a provider sign-in too.
+    page = <LoginPage next={route.name === 'connect' ? location.hash : undefined} />
+  } else if (route.name === 'connect') {
+    page = (
+      <ConnectPage
+        requestId={route.requestId}
+        onDone={() => {
+          location.hash = ''
+        }}
+      />
+    )
   } else if (route.name === 'board') {
     page = (
       <BoardPage

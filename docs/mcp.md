@@ -152,8 +152,41 @@ claude mcp add --transport http meadow https://meadow.example.com/mcp \
   --header "Authorization: Bearer mdw_..."
 ```
 
-The claude.ai and ChatGPT custom connectors sign in with OAuth rather than a pasted
-header. Meadow does not offer OAuth yet, so those two cannot connect until it does.
+### Clients that sign in (OAuth)
+
+Web assistants connect by signing in instead of taking a pasted token. You add the URL,
+the assistant sends you to Meadow, you sign in and pick what it may reach, and it is
+connected. No token to copy.
+
+What you pick on that screen is a fine-grained token, starting with nothing chosen: tick
+the glades it may open, with edit or delete on each, and **Create glades** if it should
+make its own. It shows up under **Profile > Access tokens** marked "Connected by signing
+in", where **Change permissions** and **Revoke** work as for any other token.
+
+**ChatGPT** (Settings > Connectors > Create):
+
+1. Connection: Server URL, `https://meadow.example.com/mcp`
+2. Authentication: **OAuth**
+
+**claude.ai** (Settings > Connectors > Add custom connector):
+
+1. URL: `https://meadow.example.com/mcp`
+2. Authentication: **Sign in now**
+3. OAuth client: **Register automatically**. "Use Claude's published identity" is not
+   supported yet.
+
+A pasted token still works in claude.ai: choose **No sign-in** and add a request header
+named `authorization` with the value `Bearer mdw_...`.
+
+The access token lasts an hour and the assistant renews it with a refresh token that
+lasts thirty days from its last use, so a connection used at least once a month stays
+connected. If a used refresh token is ever presented a second time, Meadow treats it as
+stolen and revokes the connection.
+
+How it works: `/.well-known/oauth-protected-resource/mcp` and
+`/.well-known/oauth-authorization-server` describe the server; clients register at
+`/api/v1/connect/register`, send people to `/api/v1/connect/authorize` (code flow, PKCE
+with S256 required) and exchange at `/api/v1/connect/token`.
 
 To run the HTTP server yourself, outside compose:
 

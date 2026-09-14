@@ -285,6 +285,7 @@ export default defineConfig(({ mode }) => {
         // Same-origin in dev, so the httpOnly refresh cookie is sent without CORS
         // credentials handling or a SameSite=None relaxation.
         '/api': { target: apiOrigin, changeOrigin: true },
+        '/.well-known/oauth-': { target: apiOrigin, changeOrigin: false },
         '/ws': { target: wsOrigin, ws: true },
       },
     },

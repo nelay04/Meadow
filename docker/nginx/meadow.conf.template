@@ -132,6 +132,17 @@ server {
         proxy_read_timeout 60s;
     }
 
+    # OAuth discovery for assistants that connect by signing in. The documents name the
+    # API's /api/v1/connect routes, which the /api/ block above already serves.
+    location /.well-known/oauth- {
+        proxy_pass http://meadow_api;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header Connection "";
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $meadow_forwarded_proto;
+    }
+
     location /ws/ {
         proxy_pass http://meadow_api;
         proxy_http_version 1.1;

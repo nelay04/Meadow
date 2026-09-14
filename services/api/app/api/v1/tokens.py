@@ -22,7 +22,7 @@ from app.schemas.auth import (
     ApiTokenOut,
     ApiTokenPatch,
 )
-from app.services import api_tokens
+from app.services import api_tokens, connect
 from app.services.api_tokens import GrantSpec, TokenKind
 from app.services.permissions import TokenGrant, resolve_role
 
@@ -36,7 +36,11 @@ def _grants_out(entries: list[tuple[uuid.UUID, str, TokenGrant]]) -> list[ApiTok
     ]
 
 
-def _out(row: ApiToken, grants: list[tuple[uuid.UUID, str, TokenGrant]]) -> ApiTokenOut:
+def _out(
+    row: ApiToken,
+    grants: list[tuple[uuid.UUID, str, TokenGrant]],
+    client_names: dict[str, str] | None = None,
+) -> ApiTokenOut:
     classic = api_tokens.is_classic(row)
     return ApiTokenOut(
         id=row.id,
@@ -48,6 +52,11 @@ def _out(row: ApiToken, grants: list[tuple[uuid.UUID, str, TokenGrant]]) -> ApiT
         created_at=row.created_at,
         expires_at=row.expires_at,
         last_used_at=row.last_used_at,
+        client_name=(
+            None
+            if row.oauth_client_id is None or client_names is None
+            else client_names.get(row.oauth_client_id)
+        ),
     )
 
 
@@ -76,7 +85,10 @@ async def list_tokens(user: CurrentUser, session: Session) -> list[ApiTokenOut]:
     """Live tokens, newest first. Revoked and expired ones are gone from the list."""
     rows = await api_tokens.list_live(session, user.id)
     grants = await api_tokens.grant_titles(session, [row.id for row in rows])
-    return [_out(row, grants.get(row.id, [])) for row in rows]
+    names = await connect.client_names(
+        session, [row.oauth_client_id for row in rows if row.oauth_client_id is not None]
+    )
+    return [_out(row, grants.get(row.id, []), names) for row in rows]
 
 
 @router.post("", response_model=ApiTokenCreated, status_code=status.HTTP_201_CREATED)
@@ -184,7 +196,10 @@ async def update_token(
 
     await session.refresh(token)
     titles = await api_tokens.grant_titles(session, [token.id])
-    return _out(token, titles.get(token.id, []))
+    names = await connect.client_names(
+        session, [] if token.oauth_client_id is None else [token.oauth_client_id]
+    )
+    return _out(token, titles.get(token.id, []), names)
 
 
 @router.delete("/{token_id}", status_code=status.HTTP_204_NO_CONTENT)

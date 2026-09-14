@@ -360,6 +360,8 @@ export type AccessToken = {
   created_at: string
   expires_at: string | null
   last_used_at: string | null
+  /** The assistant it was issued to by signing in, or null for one made by hand. */
+  client_name: string | null
 }
 
 /** The one response that carries the secret. It is never sent again. */
@@ -682,6 +684,34 @@ export async function restoreSession(): Promise<User | null> {
 }
 
 // --- boards ---
+
+/** An assistant asking to connect, as the consent screen shows it. */
+export type ConnectRequest = {
+  client_name: string
+  redirect_host: string
+}
+
+export function getConnectRequest(requestId: string): Promise<ConnectRequest> {
+  return call<ConnectRequest>(`/connect/requests/${encodeURIComponent(requestId)}`)
+}
+
+/** Approve with the glades picked. Answers where to send the browser: back to the assistant. */
+export function approveConnectRequest(
+  requestId: string,
+  body: { grants: AccessTokenGrantInput[]; can_create: boolean },
+): Promise<{ redirect_url: string }> {
+  return call<{ redirect_url: string }>(
+    `/connect/requests/${encodeURIComponent(requestId)}/approve`,
+    { method: 'POST', body: JSON.stringify(body) },
+  )
+}
+
+export function denyConnectRequest(requestId: string): Promise<{ redirect_url: string }> {
+  return call<{ redirect_url: string }>(
+    `/connect/requests/${encodeURIComponent(requestId)}/deny`,
+    { method: 'POST' },
+  )
+}
 
 export function listBoards(archived = false): Promise<Board[]> {
   return call<Board[]>(`/boards?archived=${archived}`)
