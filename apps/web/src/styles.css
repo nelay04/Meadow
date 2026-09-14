@@ -660,6 +660,17 @@ label {
   max-width: 34rem;
 }
 
+.connect-identity {
+  margin: 0.4rem 0 0.75rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.connect-identity.verified {
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .connect-actions {
   display: flex;
   justify-content: flex-end;

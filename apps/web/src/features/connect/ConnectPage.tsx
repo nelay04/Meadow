@@ -109,6 +109,11 @@ export default function ConnectPage({ requestId, onDone }: Props) {
         {!missing && request !== null && (
           <>
             <h1 className="join-title">{request.client_name} wants to use Meadow as you</h1>
+            <p className={request.client_host === null ? 'connect-identity' : 'connect-identity verified'}>
+              {request.client_host === null
+                ? 'Meadow cannot confirm who this is. The name is what the assistant called itself.'
+                : `Verified as ${request.client_host}`}
+            </p>
             <p className="join-body">
               It gets a token that reaches only what you pick below, and never more than you
               can do yourself. The answer goes to <strong>{request.redirect_host}</strong>.

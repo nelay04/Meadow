@@ -2232,9 +2232,14 @@ apply unmodified, and there is no second permission model to drift.
   presented again revokes the row.
 - Approving takes `CurrentUser`, which refuses access tokens, so a token cannot consent
   on its own behalf.
-- Not built: client ID metadata documents (a client identified by a URL Meadow fetches).
-  Deferred because fetching a caller-supplied URL needs SSRF guards, and automatic
-  registration already covers the clients that exist.
+- **Client ID metadata documents (1.11.0).** A client may use an https URL as its id;
+  Meadow fetches the document there (`app/services/client_metadata.py`) and the consent
+  screen shows the domain as verified, which a registered client's self-chosen name
+  cannot be. The fetch is the SSRF surface, so the address check lives in the network
+  backend at connect time, on the IP DNS returned, not on the name beforehand (DNS
+  rebinding). https only, no redirects, 5 s, 5 KB, public clients only, cached 15 minutes.
+  A URL client is always resolved from its document; the `oauth_clients` row written when
+  a token is issued is a label for the profile page and never decides where codes go.
 
 *(`freedraw` was on this list and was pulled forward into M6. See the note there.)*
 

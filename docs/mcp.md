@@ -172,11 +172,18 @@ in", where **Change permissions** and **Revoke** work as for any other token.
 
 1. URL: `https://meadow.example.com/mcp`
 2. Authentication: **Sign in now**
-3. OAuth client: **Register automatically**. "Use Claude's published identity" is not
-   supported yet.
+3. OAuth client: **Use Claude's published identity** (the default). **Register
+   automatically** works too; the difference is on Meadow's consent screen, below.
 
 A pasted token still works in claude.ai: choose **No sign-in** and add a request header
 named `authorization` with the value `Bearer mdw_...`.
+
+**Verified or not.** An assistant can identify itself two ways, and the consent screen
+says which. A *published* assistant uses a URL as its client ID and serves a small JSON
+document there naming itself and its redirect addresses; Meadow fetches it, so the domain
+is proved by TLS and the screen says "Verified as claude.ai". A *registered* assistant
+chose its own name when it registered, so the screen says Meadow cannot confirm who it is.
+Check that line before allowing an assistant that claims a familiar name.
 
 The access token lasts an hour and the assistant renews it with a refresh token that
 lasts thirty days from its last use, so a connection used at least once a month stays

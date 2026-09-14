@@ -305,6 +305,9 @@ class ConnectRequestOut(BaseModel):
     """What the consent screen shows about an assistant asking to connect."""
 
     client_name: str
+    #: The domain a published client proved by serving its metadata document there. Null
+    #: for a registered client, whose name nobody has checked.
+    client_host: str | None = None
     #: Where the answer goes. Shown because the name is whatever the client registered
     #: with, and the address is the part it cannot choose freely.
     redirect_host: str

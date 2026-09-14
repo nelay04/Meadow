@@ -11,6 +11,32 @@ away getting there.
 
 ---
 
+## [1.11.0] - [15-Sep-2026]
+
+### Added
+- **Assistants can connect with a published identity.** An assistant may identify itself
+  with an https URL instead of registering, and Meadow reads the small document it serves
+  there for its name and redirect addresses. This is claude.ai's default choice when
+  adding a connector, which until now failed and had to be switched to automatic
+  registration.
+- **The consent screen says who is really asking.** For a published assistant it shows
+  "Verified as" the domain its document came from, which TLS proves. For a registered one
+  it says Meadow cannot confirm who it is, since a registration can call itself anything.
+
+### Security
+- The document fetch refuses private, loopback, link-local and shared addresses, checked
+  at connect time on the address DNS returned rather than on the name beforehand, so a
+  record that changes in between cannot reach an internal service. https only with the
+  certificate verified, no redirects, a 5 second limit, a 5 KB body, and public clients
+  only. Documents are cached for fifteen minutes.
+
+### Reversed
+- **Client ID metadata documents left for later.** 1.9.0 deferred them to avoid fetching
+  URLs a client supplies. The guards above are that cost paid, and the default claude.ai
+  option no longer fails.
+
+---
+
 ## [1.10.0] - [15-Sep-2026]
 
 ### Added

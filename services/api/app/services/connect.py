@@ -27,9 +27,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from ipaddress import ip_address
 from typing import Any
-from urllib.parse import urlsplit
 
 from redis.asyncio import Redis
 from sqlalchemy import select
@@ -37,8 +35,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.models import ApiToken, OAuthClient, OAuthRefreshToken
-from app.services import api_tokens
+from app.services import api_tokens, client_metadata
 from app.services.api_tokens import GrantSpec, TokenKind
+from app.services.connect_urls import MAX_CLIENT_NAME
 
 ACCESS_TTL = timedelta(hours=1)
 REFRESH_TTL = timedelta(days=30)
@@ -49,11 +48,6 @@ AUTH_METHODS = ("none", "client_secret_post", "client_secret_basic")
 
 _REQUEST_KEY = "connect:request:{}"
 _CODE_KEY = "connect:code:{}"
-
-#: A client's name is shown on the consent screen and the profile page. Bounded so a
-#: registration cannot fill either with a paragraph.
-MAX_CLIENT_NAME = 80
-MAX_REDIRECT_URIS = 10
 
 
 def issuer() -> str:
@@ -66,28 +60,6 @@ def resource() -> str:
 
 def _hash(raw: str) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
-
-
-def valid_redirect(uri: str) -> bool:
-    """https anywhere, or http on a loopback address for a client on this machine.
-
-    No fragment, as RFC 6749 requires, and a host is always named.
-    """
-    if len(uri) > 2000:
-        return False
-    parts = urlsplit(uri)
-    if parts.fragment or not parts.hostname:
-        return False
-    if parts.scheme == "https":
-        return True
-    if parts.scheme != "http":
-        return False
-    if parts.hostname == "localhost":
-        return True
-    try:
-        return ip_address(parts.hostname).is_loopback
-    except ValueError:
-        return False
 
 
 def pkce_matches(verifier: str, challenge: str) -> bool:
@@ -122,10 +94,40 @@ async def register(
     return Registered(client=client, secret=secret)
 
 
-async def load_client(session: AsyncSession, client_id: str) -> OAuthClient | None:
-    if not client_id or len(client_id) > 64:
+@dataclass(frozen=True)
+class Client:
+    """A client as a request sees it, however it was identified."""
+
+    row: OAuthClient
+    #: The domain proved by a metadata document's URL. None for a registered client,
+    #: whose name is only what it said when it registered.
+    verified_host: str | None = None
+
+
+async def resolve_client(session: AsyncSession, redis: Redis, client_id: str) -> Client | None:
+    """A registered client from its row, or a published one from its document.
+
+    A URL is always answered from the document, never from the row stored for it when a
+    token was issued: the row is a label for the profile page, and the document is what
+    says where codes may go.
+    """
+    if client_id.startswith("https://"):
+        metadata = await client_metadata.resolve(redis, client_id)
+        if metadata is None:
+            return None
+        return Client(
+            row=OAuthClient(
+                id=metadata.client_id,
+                name=metadata.name,
+                redirect_uris=metadata.redirect_uris,
+                secret_hash=None,
+            ),
+            verified_host=metadata.host,
+        )
+    if not client_id.startswith("mdwc_") or len(client_id) > 64:
         return None
-    return await session.get(OAuthClient, client_id)
+    row = await session.get(OAuthClient, client_id)
+    return None if row is None else Client(row=row)
 
 
 def client_secret_ok(client: OAuthClient, secret: str | None) -> bool:
@@ -253,6 +255,17 @@ def _new_refresh(token: ApiToken, client_id: str, now: datetime) -> tuple[OAuthR
 
 
 async def connect(session: AsyncSession, client: OAuthClient, approval: Approval) -> IssuedPair:
+    if client.id.startswith("https://"):
+        # The foreign key needs a row, and the profile page reads the name from it.
+        await session.merge(
+            OAuthClient(
+                id=client.id,
+                name=client.name,
+                redirect_uris=client.redirect_uris,
+                secret_hash=None,
+            )
+        )
+        await session.flush()
     issued = await api_tokens.issue(
         session,
         user_id=approval.user_id,

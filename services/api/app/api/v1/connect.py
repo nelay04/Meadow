@@ -26,6 +26,7 @@ from app.config import settings
 from app.realtime.rooms import WS_CLOSE_UNAUTHORIZED, SocketRegistry
 from app.schemas.auth import ConnectApproval, ConnectRedirect, ConnectRequestOut
 from app.services import api_tokens, connect
+from app.services.connect_urls import MAX_REDIRECT_URIS, valid_redirect
 from app.services.ratelimit import check as rate_limit_check
 
 router = APIRouter(prefix="/connect", tags=["connect"])
@@ -76,11 +77,11 @@ async def register_client(request: Request, session: Session) -> JSONResponse:
     if (
         not isinstance(uris, list)
         or not uris
-        or len(uris) > connect.MAX_REDIRECT_URIS
+        or len(uris) > MAX_REDIRECT_URIS
         or not all(isinstance(uri, str) for uri in uris)
     ):
         return _error("invalid_redirect_uri", "redirect_uris must list at least one address")
-    if not all(connect.valid_redirect(uri) for uri in uris):
+    if not all(valid_redirect(uri) for uri in uris):
         return _error(
             "invalid_redirect_uri", "redirect addresses must be https, or http on loopback"
         )
@@ -118,9 +119,12 @@ async def register_client(request: Request, session: Session) -> JSONResponse:
 async def authorize(request: Request, session: Session) -> JSONResponse | RedirectResponse:
     """Check the request, hold it, and send the browser to the consent screen."""
     params = request.query_params
-    client = await connect.load_client(session, params.get("client_id", ""))
-    if client is None:
+    resolved = await connect.resolve_client(
+        session, request.app.state.redis, params.get("client_id", "")
+    )
+    if resolved is None:
         return _error("invalid_client", "unknown client", status.HTTP_400_BAD_REQUEST)
+    client = resolved.row
     redirect_uri = params.get("redirect_uri") or (
         client.redirect_uris[0] if len(client.redirect_uris) == 1 else ""
     )
@@ -166,21 +170,26 @@ async def authorize(request: Request, session: Session) -> JSONResponse | Redire
 
 async def _pending_client(
     request: Request, session: Session, request_id: str
-) -> tuple[connect.PendingRequest, str]:
-    pending = await connect.read_request(request.app.state.redis, request_id)
-    client = None if pending is None else await connect.load_client(session, pending.client_id)
+) -> tuple[connect.PendingRequest, connect.Client]:
+    redis = request.app.state.redis
+    pending = await connect.read_request(redis, request_id)
+    client = (
+        None if pending is None else await connect.resolve_client(session, redis, pending.client_id)
+    )
     if pending is None or client is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no such request")
-    return pending, client.name
+    return pending, client
 
 
 @router.get("/requests/{request_id}", response_model=ConnectRequestOut)
 async def read_request(
     request_id: str, request: Request, user: CurrentUser, session: Session
 ) -> ConnectRequestOut:
-    pending, name = await _pending_client(request, session, request_id)
+    pending, client = await _pending_client(request, session, request_id)
     return ConnectRequestOut(
-        client_name=name, redirect_host=urlsplit(pending.redirect_uri).hostname or ""
+        client_name=client.row.name,
+        client_host=client.verified_host,
+        redirect_host=urlsplit(pending.redirect_uri).hostname or "",
     )
 
 
@@ -269,7 +278,8 @@ async def token(request: Request, session: Session) -> JSONResponse:
     basic = _basic_credentials(request)
     client_id = basic[0] if basic is not None else form.get("client_id", "")
     secret = basic[1] if basic is not None else form.get("client_secret")
-    client = await connect.load_client(session, client_id)
+    resolved = await connect.resolve_client(session, request.app.state.redis, client_id)
+    client = None if resolved is None else resolved.row
     if client is None or not connect.client_secret_ok(client, secret):
         return _error("invalid_client", "client authentication failed", 401)
 
@@ -328,6 +338,7 @@ async def authorization_server() -> dict[str, Any]:
         "grant_types_supported": ["authorization_code", "refresh_token"],
         "code_challenge_methods_supported": ["S256"],
         "token_endpoint_auth_methods_supported": list(connect.AUTH_METHODS),
+        "client_id_metadata_document_supported": True,
         "service_documentation": f"{base}/source/",
     }
 

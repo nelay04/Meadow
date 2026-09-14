@@ -7,8 +7,10 @@ twice, a redirect that does not match, an approval made by anything but a signed
 person, and a refresh token presented after it was rotated.
 """
 
+import asyncio
 import base64
 import hashlib
+import json
 import secrets
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
@@ -429,3 +431,161 @@ def test_a_client_registered_with_a_secret_must_send_it(client: TestClient, owne
         headers={"Authorization": f"Basic {basic}"},
     )
     assert with_basic.status_code == 200, with_basic.text
+
+
+# --- client ID metadata documents -----------------------------------------------------
+
+DOC_URL = "https://assistant.example/oauth/client.json"
+
+
+def _document(**overrides: Any) -> dict[str, Any]:
+    return {
+        "client_id": DOC_URL,
+        "client_name": "Published Assistant",
+        "redirect_uris": [REDIRECT],
+        "token_endpoint_auth_method": "none",
+        **overrides,
+    }
+
+
+@pytest.fixture
+def published(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """Serve metadata documents from a dict instead of the network, counting fetches."""
+    from app.services import client_metadata
+
+    served: dict[str, Any] = {"documents": {DOC_URL: _document()}, "fetches": 0}
+
+    async def download(url: str) -> bytes:
+        served["fetches"] += 1
+        document = served["documents"].get(url)
+        if document is None:
+            raise client_metadata.MetadataError("not found")
+        return json.dumps(document).encode()
+
+    monkeypatch.setattr(client_metadata, "download", download)
+    return served
+
+
+def test_the_server_says_it_reads_metadata_documents(client: TestClient) -> None:
+    meta = client.get("/.well-known/oauth-authorization-server").json()
+    assert meta["client_id_metadata_document_supported"] is True
+
+
+@pytest.mark.parametrize(
+    ("url", "ok"),
+    [
+        (DOC_URL, True),
+        ("https://assistant.example/", False),
+        ("https://assistant.example", False),
+        ("http://assistant.example/client.json", False),
+        ("https://user:pass@assistant.example/client.json", False),
+        ("https://assistant.example/client.json#frag", False),
+        ("https://assistant.example/a/../client.json", False),
+        ("https://assistant.example/" + "a" * 600, False),
+    ],
+)
+def test_which_urls_can_be_client_ids(url: str, ok: bool) -> None:
+    from app.services import client_metadata
+
+    assert client_metadata.valid_client_id(url) is ok
+
+
+@pytest.mark.parametrize(
+    ("address", "public"),
+    [
+        ("8.8.8.8", True),
+        ("2606:4700:4700::1111", True),
+        ("127.0.0.1", False),
+        ("10.0.0.5", False),
+        ("192.168.1.1", False),
+        ("169.254.169.254", False),
+        ("100.64.0.1", False),
+        ("::1", False),
+        ("fd00::1", False),
+        ("::ffff:127.0.0.1", False),
+        ("0.0.0.0", False),
+    ],
+)
+def test_only_public_addresses_are_fetched_from(address: str, public: bool) -> None:
+    from app.services import client_metadata
+
+    assert client_metadata.is_public_address(address) is public
+
+
+def test_a_fetch_to_a_private_address_is_refused_before_connecting() -> None:
+    """The guard is at connect time, on the address DNS actually returned."""
+    from app.services import client_metadata
+
+    for url in ("https://localhost/client.json", "https://127.0.0.1/client.json"):
+        with pytest.raises(client_metadata.MetadataError, match="not a public address"):
+            asyncio.run(client_metadata.download(url))
+
+
+def test_a_published_client_connects_without_registering(
+    client: TestClient, owner: Actor, published: dict[str, Any]
+) -> None:
+    glade = owner.create_board()
+    verifier, challenge = _pkce()
+    request_id = _request_id(_authorize(client, DOC_URL, challenge))
+
+    details = client.get(f"/api/v1/connect/requests/{request_id}", headers=owner.auth).json()
+    assert details["client_name"] == "Published Assistant"
+    assert details["client_host"] == "assistant.example"
+
+    approved = _approve(client, owner, request_id, grants=[{"board_id": glade}], can_create=False)
+    code = _query(approved.json()["redirect_url"])["code"]
+    tokens = _exchange(client, DOC_URL, code, verifier)
+    assert tokens.status_code == 200, tokens.text
+
+    listed = client.get("/api/v1/tokens", headers=owner.auth).json()
+    assert [row["client_name"] for row in listed] == ["Published Assistant"]
+
+    refreshed = _refresh(client, DOC_URL, tokens.json()["refresh_token"])
+    assert refreshed.status_code == 200, refreshed.text
+    # Fetched once and then read from the cache, not once per request.
+    assert published["fetches"] == 1
+
+
+def test_a_registered_client_is_not_verified(client: TestClient, owner: Actor) -> None:
+    client_id = _register(client, client_name="Published Assistant")["client_id"]
+    _verifier, challenge = _pkce()
+    request_id = _request_id(_authorize(client, client_id, challenge))
+
+    details = client.get(f"/api/v1/connect/requests/{request_id}", headers=owner.auth).json()
+    assert details["client_host"] is None
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        _document(client_id="https://assistant.example/someone-else.json"),
+        _document(redirect_uris=["https://assistant.example/elsewhere"]),
+        _document(token_endpoint_auth_method="client_secret_basic"),
+        _document(redirect_uris=["http://evil.example/cb"]),
+        None,
+    ],
+)
+def test_a_document_that_does_not_hold_up_is_refused(
+    client: TestClient, published: dict[str, Any], document: dict[str, Any] | None
+) -> None:
+    if document is None:
+        published["documents"].clear()
+    else:
+        published["documents"][DOC_URL] = document
+    _verifier, challenge = _pkce()
+
+    response = _authorize(client, DOC_URL, challenge)
+    assert response.status_code == 400
+    assert "location" not in response.headers
+
+
+def test_a_published_client_cannot_be_impersonated_by_a_registration(
+    client: TestClient, published: dict[str, Any]
+) -> None:
+    """The stored row for a published client is never what decides where codes go."""
+    refused = client.post(
+        "/api/v1/connect/register",
+        json={"client_id": DOC_URL, "client_name": "Imposter", "redirect_uris": [REDIRECT]},
+    )
+    assert refused.status_code == 201
+    assert refused.json()["client_id"] != DOC_URL

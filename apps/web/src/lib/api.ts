@@ -688,6 +688,8 @@ export async function restoreSession(): Promise<User | null> {
 /** An assistant asking to connect, as the consent screen shows it. */
 export type ConnectRequest = {
   client_name: string
+  /** The domain a published assistant proved; null when its name is unchecked. */
+  client_host: string | null
   redirect_host: string
 }
 
