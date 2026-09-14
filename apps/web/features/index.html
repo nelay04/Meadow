@@ -325,6 +325,10 @@
         color: var(--muted);
         font-size: 13px;
       }
+
+      .note-more {
+        margin: 22px 0 0;
+      }
     </style>
   </head>
 
@@ -362,6 +366,7 @@
           <a href="#leas">Leas</a>
           <a href="#languages">Languages</a>
           <a href="#files">Files</a>
+          <a href="#assistants">AI assistants</a>
           <a href="#everywhere">Everywhere</a>
           <a href="#shortcuts">Shortcuts</a>
         </div>
@@ -874,6 +879,61 @@
               </p>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section class="sec" id="assistants">
+        <div class="wrap">
+          <div class="group-head">
+            <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-zap" /></svg></div>
+            <h2>Let an AI assistant work on a glade</h2>
+            <p class="lede">
+              Meadow runs an MCP server, so an assistant you already use can read a glade as
+              shapes and arrows, draw a diagram on it and tidy it up. It edits live, alongside
+              everyone else on the glade, and reaches only what you allowed.
+            </p>
+          </div>
+
+          <div class="grid">
+            <div class="card">
+              <div class="card-head">
+                <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-link" /></svg></div>
+                <h3>Connect by signing in</h3>
+              </div>
+              <p>
+                Add Meadow to an assistant's connectors and it sends you here to sign in and tick
+                the glades it may open. No token to copy, and the consent screen says whether
+                Meadow could verify who is asking.
+              </p>
+            </div>
+            <div class="card">
+              <div class="card-head">
+                <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-key" /></svg></div>
+                <h3>Classic or fine-grained tokens</h3>
+              </div>
+              <p>
+                For coding agents and scripts, create an access token in your profile. A classic
+                token can do what you can; a fine-grained one opens only the glades you pick,
+                with view, edit and delete set for each. Revoking is immediate.
+              </p>
+            </div>
+            <div class="card">
+              <div class="card-head">
+                <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-canvas" /></svg></div>
+                <h3>Clean diagrams, checked</h3>
+              </div>
+              <p>
+                Meadow lays out the diagrams an assistant draws and routes their arrows, then
+                hands back a picture and any layout problems, so it can see and fix what it made.
+              </p>
+            </div>
+          </div>
+          <p class="note-more">
+            <a class="btn btn-secondary" href="/connect/">
+              Connect your assistant
+              <svg class="icon arrow" aria-hidden="true"><use href="#i-arrow" /></svg>
+            </a>
+          </p>
         </div>
       </section>
 

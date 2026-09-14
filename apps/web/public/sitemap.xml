@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
   Every indexable document at this origin: the landing page, the features and
-  collaboration pages, the FAQ and the source page. The app at /app is noindex, and its
+  collaboration pages, the FAQ, the source page and the page on connecting an assistant. The app at /app is noindex, and its
   routes live in the URL fragment, which is never a separate URL to a crawler. Padding
   this with #section anchors would list the same page several times.
 
@@ -38,5 +38,11 @@
     <lastmod>2026-09-12</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://meadow.creara.in/connect/</loc>
+    <lastmod>2026-09-15</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
   </url>
 </urlset>

@@ -1,0 +1,563 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Connect an AI Assistant to Meadow | MCP Setup for Every Platform</title>
+    <meta
+      name="description"
+      content="Let an AI assistant read and edit your Meadow glades through the MCP server. Sign in with OAuth or use a classic or fine-grained access token, with steps for each platform."
+    />
+    <link rel="canonical" href="https://meadow.creara.in/connect/" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Meadow" />
+    <meta property="og:url" content="https://meadow.creara.in/connect/" />
+    <meta property="og:title" content="Connect an AI Assistant to Meadow | MCP Setup for Every Platform" />
+    <meta
+      property="og:description"
+      content="Connect an assistant by signing in, or with a token that reaches only the glades you pick. Step-by-step setup for each platform."
+    />
+    <meta property="og:image" content="https://meadow.creara.in/brand/og-cover.png" />
+    <meta property="og:image:width" content="1535" />
+    <meta property="og:image:height" content="863" />
+    <meta property="og:locale" content="en_US" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <!--
+      The steps here are the public copy of docs/mcp.md. When a connector form, a token
+      rule or a lifetime changes, both change together. This is one of the two places a
+      client may be named (CLAUDE.md rule 11): only in its own connection steps.
+    -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "BreadcrumbList",
+            "itemListElement": [
+              { "@type": "ListItem", "position": 1, "name": "Home", "item": "https://meadow.creara.in/" },
+              { "@type": "ListItem", "position": 2, "name": "Connect an assistant", "item": "https://meadow.creara.in/connect/" }
+            ]
+          },
+          {
+            "@type": "TechArticle",
+            "@id": "https://meadow.creara.in/connect/#page",
+            "url": "https://meadow.creara.in/connect/",
+            "headline": "Connect an AI assistant to Meadow",
+            "about": { "@id": "https://meadow.creara.in/#app" },
+            "isPartOf": { "@id": "https://meadow.creara.in/#website" }
+          }
+        ]
+      }
+    </script>
+
+    <!-- site:head -->
+
+    <style>
+      /* This page's own: the jump row, the steps, the labelled code blocks. */
+      .jump {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 22px;
+      }
+
+      #platforms .grid,
+      #ways .grid {
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr));
+      }
+
+      .platform {
+        scroll-margin-top: 88px;
+      }
+
+      .platform .how {
+        margin: 2px 0 0;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .steps {
+        display: grid;
+        gap: 8px;
+        margin: 14px 0 0;
+        padding-left: 22px;
+      }
+
+      .steps li::marker {
+        color: var(--muted);
+        font-weight: 700;
+      }
+
+      .card .or {
+        margin: 18px 0 4px;
+        color: var(--muted);
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      .code {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        margin-top: 14px;
+        overflow: hidden;
+        background: var(--surface-2);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+      }
+
+      .code::before {
+        content: attr(data-label);
+        grid-area: 1 / 1;
+        padding-left: 14px;
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .code .btn {
+        grid-area: 1 / 2;
+        height: 28px;
+        margin: 5px;
+        padding: 0 10px;
+      }
+
+      .code pre {
+        grid-column: 1 / -1;
+        grid-row: 2;
+        margin: 0;
+        padding: 12px 14px 14px;
+        overflow-x: auto;
+        border-top: 1px solid var(--line);
+        color: var(--fg);
+        font: 13.5px/1.7 var(--mono);
+      }
+
+      .note {
+        margin: 16px 0 0;
+        max-width: 70ch;
+        color: var(--muted);
+        font-size: 15px;
+      }
+
+      .table-wrap {
+        margin-top: 8px;
+      }
+
+      .list {
+        display: grid;
+        gap: 10px;
+        margin: 12px 0 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .list li {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+      }
+
+      .list .icon {
+        margin-top: 3px;
+        stroke-width: 2.4;
+        color: var(--success);
+      }
+    </style>
+  </head>
+
+  <body>
+    <!-- site:sprite -->
+    <!-- site:header connect -->
+
+    <main id="main">
+      <div class="band">
+        <div class="wrap page-hero">
+          <nav class="crumbs" aria-label="Breadcrumb">
+            <a href="/">Home</a>
+            <span aria-hidden="true">/</span>
+            <span aria-current="page">Connect an assistant</span>
+          </nav>
+          <p class="eyebrow">Resources</p>
+          <h1>Connect an AI assistant to your glades</h1>
+          <p class="lede">
+            Meadow runs an MCP server, so an assistant you already use can read a glade as
+            shapes and arrows, draw diagrams on it and tidy them up. It edits live, like one
+            more person on the glade, and it can never reach more than you allow.
+          </p>
+          <div class="cta">
+            <a class="btn btn-lg btn-primary" href="#platforms">
+              Pick your assistant
+              <svg class="icon arrow" aria-hidden="true"><use href="#i-arrow" /></svg>
+            </a>
+            <a class="btn btn-lg btn-secondary" href="/app#/profile">
+              <svg class="icon" aria-hidden="true"><use href="#i-key" /></svg>
+              Create an access token
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <section class="sec" id="ways">
+        <div class="wrap">
+          <div class="sec-head">
+            <p class="eyebrow">Two ways in</p>
+            <h2>Sign in, or paste a token</h2>
+            <p class="lede">
+              Both end in the same place: a token that acts as you, narrowed to what you chose.
+              The server address is <code>https://meadow.creara.in/mcp</code>, or your own
+              address followed by <code>/mcp</code> if you run Meadow yourself.
+            </p>
+          </div>
+
+          <div class="grid">
+            <div class="card">
+              <div class="card-head">
+                <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-link" /></svg></div>
+                <h3>Sign in (OAuth)</h3>
+              </div>
+              <p>
+                For assistants that connect from a web page. Add the server address, and the
+                assistant sends you to Meadow. Sign in, tick the glades it may open and what it
+                may do on each, and choose Allow. Nothing to copy, and nothing to paste.
+              </p>
+              <ul class="list">
+                <li><svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>Starts with no glades picked, so it gets only what you tick</li>
+                <li><svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>Its access renews by itself; a connection unused for thirty days has to sign in again</li>
+                <li><svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>The consent screen shows whether Meadow could verify who is asking</li>
+              </ul>
+            </div>
+            <div class="card">
+              <div class="card-head">
+                <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-key" /></svg></div>
+                <h3>An access token</h3>
+              </div>
+              <p>
+                For coding agents, editors and scripts. In Meadow, open
+                <strong>Profile, Access tokens</strong>, name the token after what will use it,
+                and create it. It starts with <code>mdw_</code> and is shown once, so copy it
+                straight into the assistant's settings.
+              </p>
+              <ul class="list">
+                <li><svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>Classic or fine-grained, explained below</li>
+                <li><svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>Expires after 30 days, 90 days, a year, or never</li>
+                <li><svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>Sent as <code>Authorization: Bearer mdw_...</code></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="sec" id="tokens">
+        <div class="wrap">
+          <div class="sec-head">
+            <p class="eyebrow">Tokens</p>
+            <h2>Classic and fine-grained tokens</h2>
+            <p class="lede">
+              A classic token is everything your account can do, on every glade you can open,
+              including making and importing glades. Use it for your own agent on your own
+              machine. A fine-grained token opens only the glades you pick, each with its own
+              permissions, and is what signing in gives an assistant.
+            </p>
+          </div>
+
+          <div class="table-wrap">
+            <table class="table">
+              <thead>
+                <tr><th scope="col">Permission</th><th scope="col">Fine-grained token</th><th scope="col">Classic token</th></tr>
+              </thead>
+              <tbody>
+                <tr><th scope="row">View</th><td>Reading a glade you picked. Always on for a picked glade</td><td>Every glade you can open</td></tr>
+                <tr><th scope="row">Edit</th><td>Adding, changing, moving, relabelling and connecting objects, per glade</td><td>Wherever you can edit</td></tr>
+                <tr><th scope="row">Delete</th><td>Removing objects, per glade</td><td>Wherever you can edit</td></tr>
+                <tr><th scope="row">Create glades</th><td>Off unless turned on. A glade it makes joins its own list with view, edit and delete</td><td>Always</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p class="note">
+            For example, with glades A to E you might pick A, C and D: view and edit on A, view
+            only on D, view and delete on C. B and E do not exist for that token. A token with
+            Create glades on and no glades at all can only ever touch what it made itself.
+          </p>
+          <p class="note">
+            Whatever the kind, a token never does more than you can: if you are a viewer on a
+            glade, or its owner has locked it, the token cannot edit it either, and a glade
+            with a password cannot be opened with a token. The server enforces this on every
+            change, not the assistant. Change a token's permissions or revoke it under
+            <strong>Profile, Access tokens</strong>, and anything using it picks that up
+            straight away, including a glade it has open.
+          </p>
+        </div>
+      </section>
+
+      <section class="sec" id="platforms">
+        <div class="wrap">
+          <div class="sec-head">
+            <p class="eyebrow">Setup</p>
+            <h2>Connect your assistant</h2>
+            <p class="lede">
+              Web assistants sign in. Coding agents and editors take the server address with a
+              token, or run the server on your machine.
+            </p>
+            <nav class="jump" aria-label="Platforms">
+              <a class="btn btn-sm btn-secondary" href="#chatgpt">ChatGPT</a>
+              <a class="btn btn-sm btn-secondary" href="#claude">Claude</a>
+              <a class="btn btn-sm btn-secondary" href="#claude-code">Claude Code</a>
+              <a class="btn btn-sm btn-secondary" href="#vscode">VS Code</a>
+              <a class="btn btn-sm btn-secondary" href="#codex">Codex</a>
+              <a class="btn btn-sm btn-secondary" href="#json">Cursor and others</a>
+            </nav>
+          </div>
+
+          <div class="grid">
+            <div class="card platform" id="chatgpt">
+              <div class="card-head">
+                <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-globe" /></svg></div>
+                <div>
+                  <h3>ChatGPT</h3>
+                  <p class="how">Signs in with OAuth</p>
+                </div>
+              </div>
+              <ol class="steps">
+                <li>Open ChatGPT's settings, go to <strong>Connectors</strong> and create one.</li>
+                <li>Name it Meadow. Under <strong>Connection</strong> choose Server URL and enter <code>https://meadow.creara.in/mcp</code>.</li>
+                <li>Set <strong>Authentication</strong> to <strong>OAuth</strong>, confirm the notice about custom servers, and choose Create.</li>
+                <li>Choose <strong>Sign in with Meadow</strong>, sign in, pick the glades and permissions, and choose Allow.</li>
+              </ol>
+            </div>
+
+            <div class="card platform" id="claude">
+              <div class="card-head">
+                <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-globe" /></svg></div>
+                <div>
+                  <h3>Claude, on the web and desktop</h3>
+                  <p class="how">Signs in with OAuth, or takes a token</p>
+                </div>
+              </div>
+              <ol class="steps">
+                <li>Open <strong>Settings, Connectors</strong> and choose <strong>Add custom connector</strong>.</li>
+                <li>Enter <code>https://meadow.creara.in/mcp</code>.</li>
+                <li>Leave <strong>Authentication</strong> on <strong>Sign in now</strong> and <strong>OAuth client</strong> on <strong>Use Claude's published identity</strong>. <strong>Register automatically</strong> works too.</li>
+                <li>Add it, choose Connect, sign in to Meadow, pick the glades and permissions, and choose Allow.</li>
+              </ol>
+              <p class="or">Or with a token</p>
+              <p>
+                Choose <strong>No sign-in</strong>, and under <strong>Request headers</strong>
+                add <code>authorization</code> with your token as the value, written as
+                <code>Bearer mdw_...</code>
+              </p>
+            </div>
+
+            <div class="card platform" id="claude-code">
+              <div class="card-head">
+                <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-terminal" /></svg></div>
+                <div>
+                  <h3>Claude Code</h3>
+                  <p class="how">A token in a header</p>
+                </div>
+              </div>
+              <div class="code" data-label="Terminal">
+                <pre><code>claude mcp add --transport http meadow https://meadow.creara.in/mcp \
+  --header "Authorization: Bearer mdw_..."</code></pre>
+                <button class="btn btn-sm btn-secondary" type="button" data-copy>Copy</button>
+              </div>
+            </div>
+
+            <div class="card platform" id="vscode">
+              <div class="card-head">
+                <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-laptop" /></svg></div>
+                <div>
+                  <h3>VS Code</h3>
+                  <p class="how">Copilot agent mode, a token asked for once</p>
+                </div>
+              </div>
+              <p>Add this to <code>.vscode/mcp.json</code>. VS Code asks for the token the first time and keeps it out of the file.</p>
+              <div class="code" data-label=".vscode/mcp.json">
+                <pre><code>{
+  "inputs": [
+    { "id": "meadow-token", "type": "promptString", "description": "Meadow access token", "password": true }
+  ],
+  "servers": {
+    "meadow": {
+      "type": "http",
+      "url": "https://meadow.creara.in/mcp",
+      "headers": { "Authorization": "Bearer ${input:meadow-token}" }
+    }
+  }
+}</code></pre>
+                <button class="btn btn-sm btn-secondary" type="button" data-copy>Copy</button>
+              </div>
+            </div>
+
+            <div class="card platform" id="codex">
+              <div class="card-head">
+                <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-terminal" /></svg></div>
+                <div>
+                  <h3>Codex</h3>
+                  <p class="how">The server on your machine, with a token</p>
+                </div>
+              </div>
+              <p>Build the server once from the <a href="/source/">source</a> (<code>pnpm install</code>, then <code>pnpm --filter @meadow/mcp build</code>), then add:</p>
+              <div class="code" data-label="~/.codex/config.toml">
+                <pre><code>[mcp_servers.meadow]
+command = "node"
+args = ["/path/to/meadow-mcp.js"]
+env = { MEADOW_API_URL = "https://meadow.creara.in", MEADOW_TOKEN = "mdw_..." }</code></pre>
+                <button class="btn btn-sm btn-secondary" type="button" data-copy>Copy</button>
+              </div>
+            </div>
+
+            <div class="card platform" id="json">
+              <div class="card-head">
+                <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-file" /></svg></div>
+                <div>
+                  <h3>Cursor, Antigravity and other JSON configs</h3>
+                  <p class="how">The server on your machine, with a token</p>
+                </div>
+              </div>
+              <p>With the server built as for Codex, add it to the client's MCP settings file:</p>
+              <div class="code" data-label="mcp.json">
+                <pre><code>{
+  "mcpServers": {
+    "meadow": {
+      "command": "node",
+      "args": ["/path/to/meadow-mcp.js"],
+      "env": { "MEADOW_API_URL": "https://meadow.creara.in", "MEADOW_TOKEN": "mdw_..." }
+    }
+  }
+}</code></pre>
+                <button class="btn btn-sm btn-secondary" type="button" data-copy>Copy</button>
+              </div>
+            </div>
+          </div>
+
+          <p class="note">
+            A client that cannot show pictures in tool results can turn off the snapshots
+            attached to writes with <code>MEADOW_MCP_SNAPSHOTS=off</code>. The full reference,
+            including running the HTTP server yourself, is the
+            <a href="https://github.com/nelay04/Meadow/blob/main/docs/mcp.md" target="_blank" rel="noopener">MCP guide<span class="sr-only"> (opens in a new tab)</span></a>.
+          </p>
+        </div>
+      </section>
+
+      <section class="sec" id="tools">
+        <div class="wrap">
+          <div class="sec-head">
+            <p class="eyebrow">Once connected</p>
+            <h2>What an assistant can do</h2>
+            <p class="lede">
+              Tools a token cannot use on any glade are not offered at all, and a refusal names
+              the permission that is missing.
+            </p>
+          </div>
+
+          <div class="grid">
+            <div class="card">
+              <div class="card-head">
+                <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-search" /></svg></div>
+                <h3>Read</h3>
+              </div>
+              <p>
+                List the glades it can open, read one as nodes and arrows with what each arrow
+                connects, search by label, export a glade as a .meadow.json file or a Mermaid
+                flowchart, and take a picture of it. View access is enough.
+              </p>
+            </div>
+            <div class="card">
+              <div class="card-head">
+                <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-pen" /></svg></div>
+                <h3>Draw</h3>
+              </div>
+              <p>
+                Add shapes, sticky notes and text, connect them, relabel and move them, or draw a
+                whole diagram from a list of nodes and edges or from Mermaid. Leave out positions
+                and Meadow lays the diagram out and routes its arrows.
+              </p>
+            </div>
+            <div class="card">
+              <div class="card-head">
+                <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-check" /></svg></div>
+                <h3>Check its work</h3>
+              </div>
+              <p>
+                Every write comes back with a picture and a list of layout problems: text that
+                overflows, lines through shapes, labels on labels. It can tidy a messy diagram in
+                one call, and preview any change before making it.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="sec" id="safety">
+        <div class="wrap">
+          <div class="sec-head">
+            <p class="eyebrow">In control</p>
+            <h2>What you can count on</h2>
+          </div>
+
+          <div class="grid">
+            <div class="card">
+              <div class="card-head">
+                <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-shield" /></svg></div>
+                <h3>You see who is asking</h3>
+              </div>
+              <p>
+                When an assistant identifies itself with an address it controls, the consent
+                screen says Verified with that address. When it registered itself instead, the
+                screen says Meadow cannot confirm who it is, since a name can be anything. Check
+                that line before allowing an assistant that claims a familiar name.
+              </p>
+            </div>
+            <div class="card">
+              <div class="card-head">
+                <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-users" /></svg></div>
+                <h3>Its edits are visible</h3>
+              </div>
+              <p>
+                The assistant joins the glade among the people there, named after itself, and
+                its edits arrive live. Your undo tracks only your own changes, so to take back an
+                assistant's edit, ask it to, or delete what it made.
+              </p>
+            </div>
+            <div class="card">
+              <div class="card-head">
+                <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-lock" /></svg></div>
+                <h3>Revoking is immediate</h3>
+              </div>
+              <p>
+                Revoke a token or a signed-in connection under Profile, Access tokens and it
+                stops at once, including on a glade it has open. Signed-in connections renew
+                their access every hour, and if an old renewal is ever used twice, Meadow treats
+                it as stolen and ends the connection.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="sec">
+        <div class="wrap">
+          <div class="closing">
+            <h2>Start with a glade to point it at</h2>
+            <p>Make a glade, then ask your assistant to read it, draw on it or tidy it up.</p>
+            <div class="cta">
+              <a class="btn btn-lg btn-primary" href="/app">
+                Open Meadow
+                <svg class="icon arrow" aria-hidden="true"><use href="#i-arrow" /></svg>
+              </a>
+              <a class="btn btn-lg btn-secondary" href="/faq/#assistants">Assistant questions</a>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- site:footer -->
+  </body>
+</html>

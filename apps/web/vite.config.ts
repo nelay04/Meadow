@@ -247,13 +247,13 @@ export default defineConfig(({ mode }) => {
     build: {
       rollupOptions: {
         /*
-         * Six documents, not one.
+         * Seven documents, not one.
          *
-         * `index.html` and the four pages under it are hand-written static pages and the
+         * `index.html` and the five pages under it are hand-written static pages and the
          * only things at this origin a search engine can read: the app renders into an
          * empty div behind a sign-in form, so a crawler that got the SPA got nothing.
          * `app/index.html` is that SPA, moved down a path and marked noindex, and vite
-         * emits it to dist/app/index.html so nginx can serve it at /app. The static five
+         * emits it to dist/app/index.html so nginx can serve it at /app. The static six
          * share their chrome through sitePartials() above.
          *
          * Old links to /#/glade/<uuid> still land on the landing page, which forwards
@@ -265,6 +265,7 @@ export default defineConfig(({ mode }) => {
           collaboration: fileURLToPath(new URL('./collaboration/index.html', import.meta.url)),
           faq: fileURLToPath(new URL('./faq/index.html', import.meta.url)),
           source: fileURLToPath(new URL('./source/index.html', import.meta.url)),
+          connect: fileURLToPath(new URL('./connect/index.html', import.meta.url)),
           app: fileURLToPath(new URL('./app/index.html', import.meta.url)),
         },
       },

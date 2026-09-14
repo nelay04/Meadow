@@ -115,7 +115,7 @@
                 "name": "Do the people I share with need an account?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "Not always. When you turn on a board's link, anyone holding it can open the board, signed in or not, as a viewer or an editor, whichever you choose. You can also invite an email address: one with an account is given access straight away, and for one without, you get a sign-up link to pass on yourself."
+                  "text": "Not always. When you turn on a board's link, anyone holding it can open the board without signing in. On a link that lets people edit, they sign in to edit, and until then they can view. You can also invite an email address: one with an account is given access straight away, and for one without, you get a sign-up link to pass on yourself."
                 }
               },
               {
@@ -156,6 +156,30 @@
                 "acceptedAnswer": {
                   "@type": "Answer",
                   "text": "Yes. Export any glade or lea as a .meadow.json file from its More menu, and import the file from the board list to get the same board back with nothing lost. The file is plain JSON with a published schema, so other tools and language models can read it, and pasting a file's text into a board adds its contents."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Can an AI assistant read and edit my boards?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Yes, if you connect one. Meadow runs an MCP server, so an assistant can read a glade as shapes and arrows, draw diagrams on it and tidy them up, live alongside everyone else. It reaches only the glades you allow, and never more than you can do yourself. The connect page has the steps for each assistant."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "What is the difference between a classic and a fine-grained access token?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "A classic token can do everything your account can, on every glade you can open, including making glades. A fine-grained token opens only the glades you pick, with view, edit and delete set for each, and can be allowed to make glades of its own. Create, change and revoke both under Profile, Access tokens; revoking takes effect immediately."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Can I connect an assistant without copying a token?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Yes. Assistants that connect from the web sign in with OAuth: you add Meadow's address to the assistant, sign in to Meadow, tick the glades it may open and choose Allow. The connection renews itself and shows up under Profile, Access tokens, where you can change or revoke it."
                 }
               },
               {
@@ -363,8 +387,8 @@
           <p class="eyebrow">FAQ</p>
           <h1>Questions about Meadow</h1>
           <p class="lede">
-            How the canvas works, who can see your boards, what happens when you go offline, and
-            what the licence allows.
+            How the canvas works, who can see your boards, what happens when you go offline,
+            connecting an AI assistant, and what the licence allows.
           </p>
 
           <div class="faq-tools js-only">
@@ -384,6 +408,7 @@
           <a href="#basics">The basics</a>
           <a href="#together">Working together</a>
           <a href="#privacy">Privacy and access</a>
+          <a href="#assistants">AI assistants</a>
           <a href="#licence">Licence and hosting</a>
         </nav>
 
@@ -471,9 +496,10 @@
                 <summary><h3>Do the people I share with need an account?</h3><svg class="icon" aria-hidden="true"><use href="#i-chevron" /></svg></summary>
                 <p>
                   Not always. When you turn on a board's link, anyone holding it can open the
-                  board, signed in or not, as a viewer or an editor, whichever you choose. You can
-                  also invite an email address: one with an account is given access straight away,
-                  and for one without, you get a sign-up link to pass on yourself.
+                  board without signing in. On a link that lets people edit, they sign in to
+                  edit, and until then they can view. You can also invite an email address: one
+                  with an account is given access straight away, and for one without, you get a
+                  sign-up link to pass on yourself.
                 </p>
               </details>
             </div>
@@ -522,6 +548,41 @@
                   lost. The file is plain JSON with a published schema, so other tools and
                   language models can read it, and pasting a file's text into a board adds its
                   contents.
+                </p>
+              </details>
+            </div>
+          </div>
+
+          <div class="faq-group" id="assistants">
+            <h2>AI assistants</h2>
+            <div class="faq">
+              <details>
+                <summary><h3>Can an AI assistant read and edit my boards?</h3><svg class="icon" aria-hidden="true"><use href="#i-chevron" /></svg></summary>
+                <p>
+                  Yes, if you connect one. Meadow runs an MCP server, so an assistant can read a
+                  glade as shapes and arrows, draw diagrams on it and tidy them up, live alongside
+                  everyone else. It reaches only the glades you allow, and never more than you can
+                  do yourself. The <a href="/connect/">connect page</a> has the steps for each
+                  assistant.
+                </p>
+              </details>
+              <details>
+                <summary><h3>What is the difference between a classic and a fine-grained access token?</h3><svg class="icon" aria-hidden="true"><use href="#i-chevron" /></svg></summary>
+                <p>
+                  A classic token can do everything your account can, on every glade you can open,
+                  including making glades. A fine-grained token opens only the glades you pick,
+                  with view, edit and delete set for each, and can be allowed to make glades of its
+                  own. Create, change and revoke both under Profile, Access tokens; revoking takes
+                  effect immediately.
+                </p>
+              </details>
+              <details>
+                <summary><h3>Can I connect an assistant without copying a token?</h3><svg class="icon" aria-hidden="true"><use href="#i-chevron" /></svg></summary>
+                <p>
+                  Yes. Assistants that connect from the web sign in with OAuth: you add Meadow's
+                  address to the assistant, sign in to Meadow, tick the glades it may open and
+                  choose Allow. The connection renews itself and shows up under Profile, Access
+                  tokens, where you can change or revoke it.
                 </p>
               </details>
             </div>

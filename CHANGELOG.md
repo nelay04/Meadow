@@ -11,6 +11,37 @@ away getting there.
 
 ---
 
+## [1.12.0] - [15-Sep-2026]
+
+### Added
+- **A public page for connecting an AI assistant, at `/connect/`.** It explains the MCP
+  server and the two ways in, signing in with OAuth or pasting an access token; what
+  classic and fine-grained tokens can do, as a table of view, edit, delete and create
+  glades; and the connection steps for each assistant, with configs to copy. It ends
+  with what an assistant can do once connected and what stays in your control: the
+  verified or unverified line on the consent screen, live and visible edits, and
+  immediate revocation. Linked from the footer's Resources, the sitemap and `llms.txt`.
+- **Assistants on the features page and in the FAQ.** A features section on letting an
+  assistant work on a glade, and an FAQ group answering whether an assistant can read and
+  edit boards, the difference between classic and fine-grained tokens, and connecting
+  without copying a token.
+
+### Fixed
+- **The public pages still said editor links work without an account.** Since 1.8.0 a
+  visitor who is not signed in can only view through a link, and signs in to edit. The
+  landing page, the collaboration page and the FAQ answer, with its structured data, now
+  say so.
+
+### Changed
+- The rule against naming other products now allows an assistant's name in its own
+  connection steps on `/connect/`, as it already did in `docs/mcp.md`, since a reader
+  cannot follow setup steps that do not say which assistant they are for.
+
+### Reversed
+- Nothing.
+
+---
+
 ## [1.11.1] - [15-Sep-2026]
 
 ### Fixed
