@@ -218,6 +218,11 @@ export type ServerOptions = {
    * clients that cannot show images (`--no-snapshots`).
    */
   snapshots?: boolean
+  /**
+   * The public address of the Meadow site, for the icon and link clients show beside the
+   * server's name. Left out when it is not known, and clients fall back to a letter.
+   */
+  site?: string
 }
 
 /** What a batch would need: edit for anything it creates, changes or connects; delete for removals. */
@@ -234,12 +239,26 @@ export function createServer({
   idleMs,
   access: initialAccess,
   snapshots = true,
+  site,
 }: ServerOptions): {
   server: McpServer
   close: () => void
 } {
   const server = new McpServer(
-    { name: 'meadow', version: VERSION },
+    {
+      name: 'meadow',
+      title: 'Meadow',
+      version: VERSION,
+      ...(site === undefined
+        ? {}
+        : {
+            websiteUrl: site,
+            icons: [
+              { src: `${site}/brand/icon-512.png`, mimeType: 'image/png', sizes: ['512x512'] },
+              { src: `${site}/brand/icon-192.png`, mimeType: 'image/png', sizes: ['192x192'] },
+            ],
+          }),
+    },
     {
       instructions: `${INSTRUCTIONS}${snapshots ? `\n${LOOKING}` : ''}\n\n${describeBoundaries(initialAccess)}`,
     },

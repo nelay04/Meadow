@@ -11,6 +11,22 @@ away getting there.
 
 ---
 
+## [1.10.0] - [15-Sep-2026]
+
+### Added
+- **Meadow's icon beside its name in assistants.** The MCP server now introduces itself
+  with a title, the site's address and the Meadow icon, so a client that lists its
+  connectors can show the icon instead of a letter. Over HTTP the address comes from the
+  public host the request arrived on; over stdio it is the configured Meadow address.
+- **`/favicon.ico`.** The site had icons linked from its pages but nothing at the one
+  address tools ask for when they have only a domain, which answered 404. It now serves
+  the Meadow icon at sizes from 16 to 256 pixels.
+
+### Reversed
+- Nothing.
+
+---
+
 ## [1.9.0] - [15-Sep-2026]
 
 ### Added

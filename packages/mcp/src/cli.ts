@@ -53,6 +53,7 @@ async function stdio(config: Config): Promise<void> {
     idleMs: config.idleMs,
     access,
     snapshots: config.snapshots,
+    site: config.api.replace(/\/+$/, ''),
   })
   const shutdown = (): void => {
     close()
@@ -86,12 +87,18 @@ function bearer(request: IncomingMessage): string | null {
  * Where a client finds out how to sign in (RFC 9728). Built from the forwarded host and
  * scheme nginx sets, so it names the public address rather than this container's.
  */
-function challenge(request: IncomingMessage): string {
+function publicOrigin(request: IncomingMessage): string | undefined {
   const forwarded = request.headers['x-forwarded-proto']
-  const scheme = typeof forwarded === 'string' && forwarded !== '' ? forwarded.split(',')[0] : 'http'
+  const scheme = forwarded === 'https' || forwarded === 'http' ? forwarded : 'http'
   const host = request.headers.host
-  if (host === undefined || !/^[A-Za-z0-9.:\[\]-]+$/.test(host)) return 'Bearer'
-  return `Bearer resource_metadata="${scheme}://${host}/.well-known/oauth-protected-resource/mcp"`
+  if (host === undefined || !/^[A-Za-z0-9.:\[\]-]+$/.test(host)) return undefined
+  return `${scheme}://${host}`
+}
+
+function challenge(request: IncomingMessage): string {
+  const origin = publicOrigin(request)
+  if (origin === undefined) return 'Bearer'
+  return `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/mcp"`
 }
 
 const hashToken = (token: string): string => createHash('sha256').update(token).digest('hex')
@@ -203,6 +210,7 @@ async function http(config: Config): Promise<void> {
         idleMs: config.idleMs,
         access,
         snapshots: config.snapshots,
+        site: publicOrigin(request),
       })
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),

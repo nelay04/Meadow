@@ -219,6 +219,7 @@ const issued = await (
 ).json()
 check('the code becomes an access token and a refresh token', issued.access_token?.startsWith('mdw_') && typeof issued.refresh_token === 'string', JSON.stringify(issued))
 
+let serverInfo = null
 const listedBy = async (token) => {
   const client = new Client({ name: 'Meadow connect E2E', version: '1.0.0' })
   await client.connect(
@@ -226,6 +227,7 @@ const listedBy = async (token) => {
       requestInit: { headers: { authorization: `Bearer ${token}` } },
     }),
   )
+  serverInfo = client.getServerVersion()
   const result = await client.callTool({ name: 'list_glades', arguments: {} })
   await client.close()
   return JSON.parse(result.content?.[0]?.text ?? '[]')
@@ -235,6 +237,11 @@ const glades = await listedBy(issued.access_token)
 const ids = glades.map((glade) => glade.id)
 check('over MCP the token sees the picked glade', ids.includes(picked.id), JSON.stringify(ids))
 check('and not the one left out', !ids.includes(hidden.id), JSON.stringify(ids))
+check(
+  'the server introduces itself with a title and an icon',
+  serverInfo?.title === 'Meadow' && serverInfo?.icons?.[0]?.src?.endsWith('/brand/icon-512.png'),
+  JSON.stringify(serverInfo),
+)
 
 const refreshed = await (
   await exchange({ grant_type: 'refresh_token', refresh_token: issued.refresh_token, client_id: registered.client_id })
