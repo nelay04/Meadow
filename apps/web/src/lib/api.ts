@@ -173,7 +173,10 @@ export type SharedBoard = {
   id: string
   title: string
   kind: BoardKind
+  /** What the visitor holds without an account: never more than viewer. */
   role: BoardRole
+  /** What the link grants once signed in. Editor with a viewer `role` means "sign in to edit". */
+  link_role: BoardRole
   is_locked: boolean
   can_write: boolean
   /** Whether the visitor will be asked for a password before anything opens. */

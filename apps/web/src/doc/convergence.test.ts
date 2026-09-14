@@ -196,7 +196,7 @@ describe('two peers', () => {
     sync()
 
     // The undo re-inserts, and an insert beats a tombstone, so it comes back for
-    // everyone rather than only locally. Accepted behaviour; Figma does the same.
+    // everyone rather than only locally. Accepted behaviour.
     // Asserted rather than merely written down, so a future change to undo scoping
     // cannot alter it silently.
     expect(alice.objects.has('thing')).toBe(true)

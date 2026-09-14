@@ -11,6 +11,47 @@ away getting there.
 
 ---
 
+## [1.8.0] - [15-Sep-2026]
+
+### Changed
+- **Editing through a share link needs an account.** A board or lea shared as "Anyone
+  with the link can edit" still opens for anyone holding the link, but somebody who is
+  not signed in gets it as a viewer. Signed in, the same link edits as before.
+  - **Enforced on the server, not only in the view.** `link_role` in `permissions.py`
+    is the one rule, and `resolve_access`, the public board route and the guest
+    ws-token mint all go through it, so a scripted guest's writes are dropped at the
+    socket like any viewer's.
+  - **Sign in to edit.** A signed-out visitor on an editor link sees a button beside
+    the viewer badge. It opens sign-in on the same address, with a way back to keep
+    viewing, and lands back on the board able to edit. A sign-in through a provider
+    keeps the link across the round trip too.
+  - **The owner is told.** The share dialog adds "Editing asks them to sign in." when
+    the link grants editing.
+- `GET /share/{token}` answers `role` for the signed-out caller and adds `link_role`,
+  what the link grants once signed in.
+
+### Reversed
+- **Anonymous editing through a link.** Editor links used to let anyone edit with no
+  account. Edits with no account behind them cannot be attributed, rate-limited per
+  person or answered for, so the link now needs a sign-in for that.
+
+---
+
+## [1.7.1] - [15-Sep-2026]
+
+### Changed
+- **No other product's name in Meadow.** Code comments, the design record and earlier
+  changelog entries described behaviour by comparing it to other whiteboard and notes
+  apps; they now describe the behaviour itself. The access-token name placeholder
+  suggests "AI assistant on my laptop" instead of naming one. Names that do something
+  stay: share targets, sign-in providers, standard meta tags, and each client's own
+  setup steps in `docs/mcp.md`.
+
+### Reversed
+- Nothing.
+
+---
+
 ## [1.7.0] - [14-Sep-2026]
 
 ### Added
@@ -1423,8 +1464,8 @@ the thing in production.
 - README architecture diagram and the CRDT-versus-OT rationale.
 - A design system in `apps/web/src/styles.css`: one token layer for surfaces, ink,
   lines, accent, radii and shadows, with light and dark expressed through CSS
-  `light-dark()` rather than a duplicated palette. The palette follows Microsoft
-  Copilot: warm cream in light, deep desaturated navy in dark, one flat blue accent.
+  `light-dark()` rather than a duplicated palette. The palette is warm
+  cream in light, deep desaturated navy in dark, one flat blue accent.
 - A theme control in the header. System, light or dark, remembered across sessions, and
   applied to the root's `color-scheme` before React mounts so a dark-theme user never
   sees a frame of cream. The canvas is told separately, because WebGL cannot read CSS.
@@ -1470,7 +1511,7 @@ the thing in production.
   flattened path, so it is tessellated for the zoom it is drawn at and keeps its shape
   when either end moves.
 - A routing picker floating over the selected arrow: straight, curved, elbow. Three,
-  because that is all FigJam has and nothing is missing from it. The elbow routing
+  because nothing is missing from it. The elbow routing
   existed in the schema and had never been reachable.
 - **Labels on arrows.** Double-click a connector and type. Half of what an arrow means
   on a diagram is written on the arrow, and a floating text object parked near one is
@@ -1761,7 +1802,7 @@ the thing in production.
   object that never chose a family now measures against a different face.
 - Default object fills and the canvas chrome retuned to the app palette, and unstyled
   shapes get a small corner radius instead of a hard 90-degree corner.
-- **Rotation moved from a dot above the box to the corners.** Figma's arrangement: the
+- **Rotation moved from a dot above the box to the corners.** The
   gesture lives in the empty space just outside each corner and is advertised by the
   cursor. One less piece of chrome to draw, four places to start it instead of one, and
   it stops occupying the spot a user reaching for the top edge expects to be empty.

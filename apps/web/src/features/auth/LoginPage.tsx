@@ -12,7 +12,14 @@ import { OAUTH_PROVIDERS } from './providers'
 
 type Mode = 'login' | 'register'
 
-export default function LoginPage() {
+type Props = {
+  /** A hash route to come back to after a provider sign-in. */
+  next?: string
+  /** Offered as a way back when sign-in was asked for from somewhere, not forced. */
+  onCancel?: () => void
+}
+
+export default function LoginPage({ next, onCancel }: Props = {}) {
   const { login, register, signInError, clearSignInError, signInNotice, clearSignInNotice } =
     useAuth()
   /*
@@ -324,7 +331,7 @@ export default function LoginPage() {
                   type="button"
                   className="oauth-btn"
                   onClick={() => {
-                    location.href = api.oauthSignInUrl(id, { intent: mode })
+                    location.href = api.oauthSignInUrl(id, { intent: mode, next })
                   }}
                 >
                   <Icon size={18} />
@@ -333,6 +340,12 @@ export default function LoginPage() {
               ))}
             </div>
           </>
+        )}
+
+        {onCancel !== undefined && (
+          <button type="button" className="link" onClick={onCancel}>
+            Keep viewing without signing in
+          </button>
         )}
       </div>
     </main>

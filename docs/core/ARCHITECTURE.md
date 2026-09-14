@@ -1,7 +1,7 @@
 # Meadow — Architecture & Implementation Plan
 
-> **Meadow** — an infinite-canvas collaborative notes app: OneNote-style freeform
-> editing combined with FigJam-style whiteboarding. Text, tables, shapes, arrows,
+> **Meadow** — an infinite-canvas collaborative notes app: freeform notebook
+> editing combined with whiteboarding. Text, tables, shapes, arrows,
 > charts, and diagrams all live as objects on one shared surface.
 >
 > Naming: repo/package slug `meadow`, board unit called a **glade**, cursor presence
@@ -15,7 +15,7 @@
 > beside **wanderers**. `board_id` in the DB and the API is unchanged, as is the
 > route's old `#/field/<id>` spelling, which still resolves.
 >
-> This document is the source of truth for Claude Code. Read it before writing code.
+> This document is the source of truth for anyone, human or agent, writing code here. Read it before writing code.
 > If a decision here conflicts with something you'd do by default, follow this doc
 > or raise the conflict explicitly.
 
@@ -27,7 +27,7 @@
 
 Everything the user creates is an *object* positioned on an infinite 2D surface.
 A "note" is not a document — it is a text object placed at (x, y). A table is an
-object. A chart is an object. This is the OneNote/FigJam model, and it means:
+object. A chart is an object. This is the freeform-canvas model, and it means:
 
 - One object model
 - One selection system
@@ -558,7 +558,7 @@ Use `Y.UndoManager` scoped to the local client's origin, tracking `objects`,
 CRDT state under concurrency.
 
 Known sharp edge to document in the README: local undo can resurrect an object a
-remote user deleted. Accept it, document it; Figma has the same behaviour.
+remote user deleted. Accept it, document it; it is common to collaborative editors.
 
 **Measured in M5, and narrower than that sentence implies.** Only one of the three
 plausible readings is true, per `apps/web/src/doc/convergence.test.ts`:
@@ -633,7 +633,7 @@ diagram behind. It is a new mutation on the existing write path, not a schema ch
   through the ordinary ws-token handshake, keeps its own Y.Doc, and writes through the
   web app's `mutations.ts`, compiled in from `apps/web/src/doc`. The server still has no
   REST route that edits a document. Its presence is a wanderer named after the client
-  ("Claude Code (via MCP)"), keyed `<user id>:mcp` so it is not merged with the same
+  ("<client> (via MCP)"), keyed `<user id>:mcp` so it is not merged with the same
   person's browser.
 - **Reads go through a graph.** `gladeToGraph` in `packages/schema/src/graph.ts` joins
   objects, text, bindings and arrow heads into nodes and edges (`from`, `to`, `label`,
@@ -758,7 +758,7 @@ Past roughly 400 arrows this wants dirty-rect rebuilding. That would be a change
 
 **Arrows always draw above shapes.** The pass is a sibling of the batch, added after,
 so z-order between an individual arrow and an individual rectangle is not expressible.
-Figma and most whiteboards behave the same way, and users essentially never want a
+Most whiteboards behave the same way, and users essentially never want a
 connector tucked behind a box.
 
 > **Known constraint, chosen rather than inherited.** A global arrows-on-top layer
@@ -921,7 +921,7 @@ pointer sample, each rewriting the whole points array, for a shape that is not f
 until the pointer lifts.
 
 What that costs is that a peer sees a stroke when it is finished rather than as it is
-drawn. Excalidraw makes the same trade; tldraw does not. It is worth accepting here
+drawn. It is worth accepting here
 because presence still shows the hand moving, so nobody is watching a frozen board, and
 because the alternative buys smoother spectating at the price of the two things that
 matter more: one object per stroke and one undo step per stroke. A sketch should undo a
@@ -1112,7 +1112,7 @@ span, so an arrow bounded by its endpoints is culled while the bulge is still on
 and unclickable where it is painted. `arrowGeometry` takes the curve and measures the
 flattened path; the stored points stay the endpoints.
 
-**Rotation moved to the corners.** Figma's arrangement: the gesture lives in the empty
+**Rotation moved to the corners.** The gesture lives in the empty
 quarter-square just outside each corner, past the resize handle on both axes and within
 reach on both. Bounding it on both axes rather than using a radius is what keeps it off
 the edge handles on a small selection. There is no affordance drawn for it; the cursor
@@ -2310,7 +2310,7 @@ stops, regardless of ordering. Drive real `yjs` clients, as the M0 gate does.
   ends up absent from `order`, which would make it invisible and unclickable while
   still occupying the map.
 - **Undo across peers.** Local undo can resurrect an object a remote user deleted. This
-  is inherent to `Y.UndoManager` and Figma behaves the same way. Assert the documented
+  is inherent to `Y.UndoManager`. Assert the documented
   behaviour so a future change to undo scoping cannot alter it unnoticed.
 - **Offline divergence.** Two peers both go offline, both edit, both return. Neither
   set of edits may be lost.

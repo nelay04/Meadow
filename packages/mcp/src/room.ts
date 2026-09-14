@@ -50,7 +50,7 @@ export type Room = {
 
 export type Identity = {
   userId: string
-  /** "Claude (via MCP)", from the client's own name. Read lazily: it arrives after connect. */
+  /** "<client> (via MCP)", from the client's own name. Read lazily: it arrives after connect. */
   name: () => string
 }
 

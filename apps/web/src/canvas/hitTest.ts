@@ -211,7 +211,7 @@ export function corners(object: ObjectData): Point[] {
 /**
  * Is the object fully inside the rectangle?
  *
- * Marquee selection uses containment rather than intersection, matching Figma: a drag
+ * Marquee selection uses containment rather than intersection: a drag
  * across a crowded board should not sweep up every object it grazes.
  */
 export function containedBy(object: ObjectData, rect: WorldRect): boolean {

@@ -29,7 +29,48 @@ function read(): string | null {
   return trimmed === '' || trimmed.length > 128 ? null : trimmed
 }
 
-token = read()
+/*
+ * Signing in with a provider leaves the site and returns with only a hash route, so the
+ * token is held in this tab's session storage across the trip and put back in the
+ * address bar on return. It is only restored onto the same route it was held for.
+ */
+const HELD_KEY = 'meadow-share-held'
+
+export function holdForSignIn(): void {
+  if (token === null) return
+  try {
+    sessionStorage.setItem(HELD_KEY, JSON.stringify({ token, hash: location.hash }))
+  } catch {
+    // Without storage a provider sign-in lands on the app instead of this board.
+  }
+}
+
+function takeHeld(): string | null {
+  try {
+    const raw = sessionStorage.getItem(HELD_KEY)
+    if (raw === null) return null
+    sessionStorage.removeItem(HELD_KEY)
+    const held: unknown = JSON.parse(raw)
+    if (typeof held !== 'object' || held === null) return null
+    const { token: value, hash } = held as { token?: unknown; hash?: unknown }
+    if (typeof value !== 'string' || hash !== location.hash) return null
+    if (value === '' || value.length > 128) return null
+    return value
+  } catch {
+    return null
+  }
+}
+
+function restore(value: string): string {
+  const params = new URLSearchParams(location.search)
+  params.set(KEY, value)
+  history.replaceState(null, '', `${location.pathname}?${params.toString()}${location.hash}`)
+  return value
+}
+
+const held = takeHeld()
+const arrived = read()
+token = arrived ?? (held === null ? null : restore(held))
 
 /** The token in the address bar, or null. */
 export function shareToken(): string | null {

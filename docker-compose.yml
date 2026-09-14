@@ -233,8 +233,8 @@ services:
         # which fails closed: every client would look like it came from nginx.
         ipv4_address: 172.28.0.10
 
-  # The MCP server, for AI assistants that connect to a URL (claude.ai and ChatGPT
-  # connectors, Gemini, Copilot). Reached only through nginx at /mcp; every session brings
+  # The MCP server, for AI assistants that connect to a URL (web
+  # assistant connectors). Reached only through nginx at /mcp; every session brings
   # its own personal access token, and the server talks to the API over this network as
   # any other client would, through the same ws-token handshake. Not published.
   mcp:

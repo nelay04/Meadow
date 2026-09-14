@@ -64,6 +64,11 @@ function routeFromHash(): Route {
 function Shell() {
   const { user, loading, justRegistered, clearJustRegistered } = useAuth()
   const [route, setRoute] = useState<Route>(routeFromHash)
+  const [signingIn, setSigningIn] = useState(false)
+
+  useEffect(() => {
+    if (user !== null) setSigningIn(false)
+  }, [user])
 
   useEffect(() => {
     const onHashChange = () => setRoute(routeFromHash())
@@ -109,6 +114,10 @@ function Shell() {
     )
   } else if (loading) {
     page = null
+  } else if (user === null && signingIn) {
+    // Asked for from a shared board. Same address throughout, so signing in lands back
+    // on the board, now able to edit if the link allows it.
+    page = <LoginPage next={location.hash} onCancel={() => setSigningIn(false)} />
   } else if (user === null && !(route.name === 'board' && shareToken() !== null)) {
     /*
      * The one place a signed-out visitor is let past.
@@ -128,6 +137,7 @@ function Shell() {
         onBack={() => {
           location.hash = ''
         }}
+        onSignIn={() => setSigningIn(true)}
       />
     )
   } else if (route.name === 'profile') {

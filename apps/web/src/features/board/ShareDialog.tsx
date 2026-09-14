@@ -675,7 +675,9 @@ export function ShareDialog({ boardId, title, noun, onClose, onChanged }: Props)
                   */}
                   {isPublic
                     ? `Anyone who has the link opens this ${noun} as a guest, with no
-                       sign-in${share.has_password ? ' - after typing the password' : ''}.`
+                       sign-in${share.has_password ? ' - after typing the password' : ''}.${
+                         share.role === 'editor' ? ' Editing asks them to sign in.' : ''
+                       }`
                     : `Only the people listed below can open it, signed in or not${
                         share.has_password ? ', and only with the password' : ''
                       }.`}

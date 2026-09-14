@@ -208,7 +208,8 @@ def test_a_guest_gets_in_with_the_password(client: TestClient, owner: Actor) -> 
         f"/api/v1/share/{link}/ws-token", json={"pass_token": pass_token}
     )
     assert minted.status_code == 200
-    assert minted.json()["can_write"] is True
+    # In, but only to view: editing through a link needs an account.
+    assert minted.json()["role"] == "viewer"
 
 
 def test_a_wrong_guess_gets_nothing(client: TestClient, owner: Actor) -> None:

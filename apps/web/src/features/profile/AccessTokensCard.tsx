@@ -366,7 +366,7 @@ export function AccessTokensCard() {
             value={name}
             onChange={(event) => setName(event.target.value)}
             maxLength={80}
-            placeholder="What will use it, e.g. Claude Code on my laptop"
+            placeholder="What will use it, e.g. AI assistant on my laptop"
             aria-label="Token name"
           />
           <button type="submit" className="primary" disabled={!canCreate}>

@@ -361,6 +361,6 @@ rule
 cat "$FAIL_LOG"
 rule
 printf "\n${RED}%s${NC}\n" "$(pick 'Pre-commit checks failed. Commit blocked.' 'Checks failed. Commit blocked.')"
-top "$(pick "Fix the issues above, or ask Claude with ${BOLD}/fix-precommit.prompt${NC}" "Fix, or ${BOLD}/fix-precommit.prompt${NC}")"
+top "$(pick "Fix the issues above, or run ${BOLD}/fix-precommit.prompt${NC}" "Fix, or ${BOLD}/fix-precommit.prompt${NC}")"
 end "$(pick "Bypass with ${BOLD}git commit --no-verify${NC} ${GREY}(not recommended)${NC}" "Bypass: ${BOLD}git commit --no-verify${NC}")"
 exit 1

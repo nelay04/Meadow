@@ -3,7 +3,7 @@
  *
  * Models are bad at pixels. Asked for coordinates they stack boxes on top of each other
  * or scatter them a screen apart, so any node created without `x` and `y` is placed
- * here instead: a layered layout (ELK's, the one draw.io and most flowchart tools use)
+ * here instead: a layered layout (ELK's, the one most flowchart tools use)
  * over the new nodes and the edges between them, then moved as a block so it sits
  * beside what is already on the board rather than on top of it.
  */

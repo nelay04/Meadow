@@ -80,6 +80,16 @@ def can_write(role: BoardRole) -> bool:
     return at_least(role, BoardRole.editor)
 
 
+def link_role(share_role: BoardRole, *, signed_in: bool) -> BoardRole:
+    """What a public link grants its holder. Editing through a link needs an account.
+
+    An anonymous visitor on an editor link can view, and signs in to edit. Every route
+    that turns a link into a role goes through here, so the guest routes and the
+    handshake cannot disagree about it.
+    """
+    return share_role if signed_in else BoardRole.viewer
+
+
 def can_manage(role: BoardRole) -> bool:
     """Membership changes, deletion, share links."""
     return role is BoardRole.owner
@@ -266,7 +276,7 @@ async def resolve_access(
         # the same reason: an authentic credential for somewhere else is not a
         # credential for here.
         if resolved is not None and resolved[0].id == board_id:
-            granted.append(resolved[1])
+            granted.append(link_role(resolved[1], signed_in=user_id is not None))
             via_link = True
 
     if not granted:

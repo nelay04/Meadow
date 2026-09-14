@@ -322,7 +322,11 @@ class PublicBoardOut(BaseModel):
     id: uuid.UUID
     title: str
     kind: BoardKind
+    #: What this caller holds without an account: never more than viewer.
     role: BoardRole
+    #: What the link grants once signed in. Editor here and viewer above means "sign in
+    #: to edit".
+    link_role: BoardRole
     is_locked: bool
     can_write: bool
     #: Whether the link visitor will be asked for a password before anything opens. The

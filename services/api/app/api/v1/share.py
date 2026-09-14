@@ -47,7 +47,7 @@ from app.schemas.boards import (
 )
 from app.services import board_password, sharing
 from app.services.board_kinds import BoardKind
-from app.services.permissions import BoardRole, rank, resolve_role
+from app.services.permissions import BoardRole, link_role, rank, resolve_role
 from app.services.ratelimit import check as rate_limit_check
 
 router = APIRouter(tags=["sharing"])
@@ -96,7 +96,8 @@ async def open_shared_board(
     if resolved is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no such link")
 
-    board, role = resolved
+    board, share_role = resolved
+    role = link_role(share_role, signed_in=False)
     locked = board.locked_at is not None
     protected = board_password.is_set(board)
     return PublicBoardOut(
@@ -104,6 +105,7 @@ async def open_shared_board(
         title=board.title,
         kind=BoardKind(board.kind),
         role=role,
+        link_role=share_role,
         is_locked=locked,
         # A visitor on an editor link still cannot type into a locked board. The lock
         # is on the document, so it applies to however you got here. Nor while a
@@ -143,7 +145,8 @@ async def mint_guest_ws_token(
     if resolved is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no such link")
 
-    board, role = resolved
+    board, share_role = resolved
+    role = link_role(share_role, signed_in=False)
     locked = board.locked_at is not None
 
     # The password outranks the link, so a visitor holding a perfectly good public link

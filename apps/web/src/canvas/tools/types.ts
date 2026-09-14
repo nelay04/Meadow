@@ -92,7 +92,7 @@ export type PenSettings = {
  * undo step, and streaming it in would mean a Yjs update per pointer sample, each
  * rewriting the whole points array, for a shape that is not final until the pointer
  * lifts. The cost is that a peer sees the stroke when it is finished rather than as it
- * is drawn, which is the trade Excalidraw makes too. Presence still shows the hand
+ * is drawn, a trade worth making. Presence still shows the hand
  * moving, so nobody is looking at a frozen board.
  *
  * It lives beside the marquee rect as transient engine state: gesture state, not

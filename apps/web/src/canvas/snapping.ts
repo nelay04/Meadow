@@ -93,7 +93,7 @@ function spacingGuide(axis: 'x' | 'y', lo: number, hi: number, at: number): Snap
 /**
  * Equalise the gaps around the moving rectangle along one axis.
  *
- * Two patterns, both of which Figma offers and both of which come up constantly:
+ * Two patterns, both of which come up constantly:
  *
  * - **Centred between two neighbours.** One object each side, and the gap either side
  *   is made the same. This is what you want when dropping a box into a row.

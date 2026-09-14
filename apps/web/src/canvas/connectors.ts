@@ -4,8 +4,7 @@
  * The alternative, which this app had until now, is "pick the arrow tool, then drag
  * between two shapes". That is one more mode switch than the gesture deserves, and it
  * is why the arrows felt like something you fought rather than something you drew.
- * FigJam and Figma both put the affordance on the shape itself, so connecting two
- * boxes costs one drag from the object you are already pointing at.
+ * The affordance belongs on the shape itself, so connecting two boxes costs one drag from the object you are already pointing at.
  *
  * The dots sit slightly *outside* the outline rather than on it. On it, they collide
  * with the resize handles at the same edge midpoints, and the two gestures are

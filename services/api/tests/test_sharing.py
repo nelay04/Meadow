@@ -161,12 +161,65 @@ def test_a_guest_on_a_viewer_link_cannot_write_to_the_document(
     assert board_objects(client, owner, board_id) == {}
 
 
-def test_a_guest_on_an_editor_link_can_write(client: TestClient, owner: Actor) -> None:
+@pytest.mark.parametrize("kind", ["glade", "lea"])
+def test_a_guest_on_an_editor_link_can_only_view(
+    client: TestClient, owner: Actor, kind: str
+) -> None:
+    """Editing through a link needs an account. Without one, an editor link is a viewer link.
+
+    Checked at all three doors: the metadata, the ws-token mint, and the socket, where a
+    scripted guest ignoring the first two still has its writes dropped.
+    """
+    created = client.post(
+        "/api/v1/boards",
+        json={"workspace_id": owner.workspace_id, "title": "Shared", "kind": kind},
+        headers=owner.auth,
+    )
+    assert created.status_code == 201, created.text
+    board_id = created.json()["id"]
+    _share(client, owner, board_id, "public", "editor")
+    link = _link_token(client, owner, board_id)
+
+    public = client.get(f"/api/v1/share/{link}").json()
+    assert public["role"] == "viewer"
+    assert public["can_write"] is False
+    assert public["link_role"] == "editor"
+
+    minted = _guest_ws_token(client, link).json()
+    assert minted["role"] == "viewer"
+    assert minted["can_write"] is False
+    assert minted["can_edit"] is False
+    assert minted["can_delete"] is False
+
+    with client.websocket_connect(ws_url(board_id, minted["token"])) as websocket:
+        websocket.send_bytes(ywire.sync_update(make_update(box={"type": "rect"})))
+        websocket.send_bytes(ywire.sync_step1(b"\x00"))
+        websocket.receive_bytes()
+
+    assert board_objects(client, owner, board_id) == {}
+
+
+def test_a_viewer_link_says_signing_in_adds_nothing(client: TestClient, owner: Actor) -> None:
+    board_id = owner.create_board()
+    _share(client, owner, board_id, "public", "viewer")
+    link = _link_token(client, owner, board_id)
+
+    assert client.get(f"/api/v1/share/{link}").json()["link_role"] == "viewer"
+
+
+def test_a_signed_in_stranger_on_an_editor_link_can_write(
+    client: TestClient, owner: Actor, outsider: Actor
+) -> None:
+    """The other half: the same link, with an account, still edits."""
     board_id = owner.create_board()
     _share(client, owner, board_id, "public", "editor")
     link = _link_token(client, owner, board_id)
 
-    minted = _guest_ws_token(client, link).json()
+    minted = client.post(
+        "/api/v1/ws-token",
+        json={"board_id": board_id, "link_token": link},
+        headers=outsider.auth,
+    ).json()
     assert minted["can_write"] is True
 
     with client.websocket_connect(ws_url(board_id, minted["token"])) as websocket:

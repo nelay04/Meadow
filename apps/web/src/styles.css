@@ -2,7 +2,7 @@
  * Meadow's design system. Plain CSS, no framework: the chrome is a handful of
  * surfaces around a canvas, and a utility framework would cost more than it saves.
  *
- * Palette follows Microsoft Copilot: a warm cream light theme, a deep desaturated
+ * The palette is a warm cream light theme, a deep desaturated
  * navy dark theme, one blue accent, and soft layered shadows instead of hard
  * borders. Both themes are expressed with `light-dark()` against the `color-scheme`
  * on :root, so the theme toggle in the header is one property write and there is no
@@ -2491,6 +2491,12 @@ label {
   color: var(--accent);
 }
 
+.board-bar .sign-in-to-edit {
+  flex: 0 0 auto;
+  padding: 0.25rem 0.7rem;
+  font-size: 0.8rem;
+}
+
 /* The empty state. A dashed well, not a sentence floating in whitespace. */
 .empty-state {
   display: grid;
@@ -2737,7 +2743,7 @@ label {
 }
 
 /*
- * The toolbar floats over the canvas as a rounded rail, FigJam-style, instead of
+ * The toolbar floats over the canvas as a rounded rail instead of
  * taking a column out of the drawing surface.
  */
 .toolbar {

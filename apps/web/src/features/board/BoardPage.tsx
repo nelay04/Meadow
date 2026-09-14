@@ -107,7 +107,7 @@ import type { BoardKind, BoardRole, ShareMode } from '../../lib/api'
 import * as api from '../../lib/api'
 import { useTrashRetentionHours } from '../../lib/appConfig'
 import { describeReport, downloadGlade, hasPendingImport, takeImport } from '../../lib/gladeFile'
-import { clearShareToken, shareToken } from '../../lib/shareLink'
+import { clearShareToken, holdForSignIn, shareToken } from '../../lib/shareLink'
 import { boardKind, boardPath } from '../boards/kinds'
 import { type PresenceHandle, colorFor, trackPresence } from '../../sync/awareness'
 import { type BoardConnection, type ConnectionState, connectBoard } from '../../sync/provider'
@@ -156,6 +156,8 @@ type Props = {
    */
   kindHint?: string
   onBack: () => void
+  /** Offered to a signed-out visitor whose link would let an account edit. */
+  onSignIn?: () => void
 }
 
 type ToolSpec = { id: ToolId; label: string; hint: string; Icon: typeof IconCursor }
@@ -203,7 +205,7 @@ function isShapeTool(id: ToolId): boolean {
 /**
  * The arrow shapes the picker offers.
  *
- * Three, not more. FigJam has exactly these and there is nothing missing: a straight
+ * Three, not more, and there is nothing missing: a straight
  * line, a bow, and a right-angled route. Everything else in a connector is where its
  * ends are attached, which is a drag rather than a mode.
  */
@@ -480,7 +482,7 @@ function dedupe(wanderers: readonly Wanderer[]): Wanderer[] {
   return out
 }
 
-export default function BoardPage({ boardId, kindHint, onBack }: Props) {
+export default function BoardPage({ boardId, kindHint, onBack, onSignIn }: Props) {
   const [title, setTitle] = useState('')
   /*
    * What paper this glade is drawn on.
@@ -496,6 +498,7 @@ export default function BoardPage({ boardId, kindHint, onBack }: Props) {
   // Seeded from the ws-token mint and refreshed on every reconnect. The server is
   // always the authority; this is what lets the UI stop a write before it happens.
   const [role, setRole] = useState<BoardRole>('viewer')
+  const [linkRole, setLinkRole] = useState<BoardRole | null>(null)
   const [state, setState] = useState<ConnectionState>('connecting')
   /*
    * The local edit lock. Deliberately not persisted and not shared: it guards this
@@ -1002,6 +1005,7 @@ export default function BoardPage({ boardId, kindHint, onBack }: Props) {
           .getSharedBoard(token)
           .then((board) => {
             settle({ ...board, role: board.role })
+            setLinkRole(board.link_role)
             setShareMode('public')
             setHasPassword(board.has_password)
           })
@@ -1593,6 +1597,18 @@ export default function BoardPage({ boardId, kindHint, onBack }: Props) {
           }}
         />
         <span className={`role role-${role}`}>{role}</span>
+        {user === null && linkRole === 'editor' && !boardLocked && onSignIn !== undefined && (
+          <button
+            type="button"
+            className="primary sign-in-to-edit"
+            onClick={() => {
+              holdForSignIn()
+              onSignIn()
+            }}
+          >
+            Sign in to edit
+          </button>
+        )}
 
         <div className="spacer" />
 

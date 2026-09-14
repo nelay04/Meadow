@@ -25,7 +25,7 @@ export const HANDLE_SIZE_PX = 8
  *
  * Rotation used to be a dot floating above the box. That is one more piece of chrome
  * to draw, it only ever offered one grab point, and it sat exactly where a user
- * reaching for the top edge expects nothing to be. Figma puts the gesture in the empty
+ * reaching for the top edge expects nothing to be. The gesture now lives in the empty
  * space just outside each corner instead: no affordance to draw, four places to start
  * it, and the cursor is what tells you it is there.
  */

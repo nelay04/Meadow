@@ -2,9 +2,9 @@
 /**
  * `meadow-mcp`: stdio for local clients, Streamable HTTP for remote ones.
  *
- * stdio is one person, one token, one process: Claude Code, Codex, VS Code and the like
- * start it as a subprocess. HTTP is for clients that connect to a URL (claude.ai and
- * ChatGPT connectors, and anything behind a proxy): every session is opened with a bearer
+ * stdio is one person, one token, one process: coding agents and editors
+ * start it as a subprocess. HTTP is for clients that connect to a URL (web assistant
+ * connectors, and anything behind a proxy): every session is opened with a bearer
  * token and every later request on that session must bring the same one.
  *
  * Nothing is written to stdout in stdio mode except protocol messages, so every log line
