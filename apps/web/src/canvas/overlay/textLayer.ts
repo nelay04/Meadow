@@ -32,7 +32,7 @@ import {
 
 import type { ViewTransform } from '../camera'
 import type { SurfaceType } from '../surface'
-import { measureObjectHeight } from '../text/measure'
+import { fontReady, measureObjectHeight } from '../text/measure'
 import {
   type BoxVariant,
   applyBoxStyle,
@@ -515,7 +515,10 @@ export class TextLayer {
       entry.box.style.zIndex = String(z)
     }
 
-    if (props.autoHeight) {
+    // Not until the face is in. A height measured against a fallback is written into the
+    // document and every other client would see the text resized twice; the load
+    // requests a render when it lands, and that frame measures. See `fontReady`.
+    if (props.autoHeight && fontReady(props.fontFamily)) {
       // Measured against the layout box, which is the object's own for every type that
       // grows to fit. The inscribed types do not - a shape's size is the author's.
       const measured = measureObjectHeight(html, box.w, props)

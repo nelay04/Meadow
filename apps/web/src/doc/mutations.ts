@@ -17,6 +17,8 @@
 
 import {
   type BindingData,
+  FONT_FAMILIES,
+  type FontFamily,
   type GladeFile,
   type ObjectData,
   type ObjectType,
@@ -1658,6 +1660,51 @@ export function setLeaPaper(session: DocSession, paper: string): void {
   session.doc.transact(() => {
     session.meta.set(META_PAPER, paper)
   }, LOCAL_ORIGIN)
+}
+
+/**
+ * The face this lea is written in.
+ *
+ * The document's, never the reader's, and that is the difference from the paper above.
+ * Paper is a colour and nobody else is affected by the one you see. A face is metrics:
+ * the rules are phased to its baseline and a row's height is measured in it and written
+ * into the document, so two readers set in two faces would each write their own height
+ * for the same row and overwrite each other for as long as both were open. One value,
+ * for everybody.
+ *
+ * '' is a lea written before this existed, which was always Comic Neue, so it reads as
+ * `comic` and nothing about an old lea changes. An unknown slug, from a client newer
+ * than this one, reads the same way rather than rendering nothing.
+ */
+const META_FONT = 'pageFont'
+
+function isFontFamily(value: string): value is FontFamily {
+  return (FONT_FAMILIES as readonly string[]).includes(value)
+}
+
+export function readLeaFont(session: DocSession): FontFamily {
+  const stored = text(session.meta.get(META_FONT))
+  return isFontFamily(stored) ? stored : 'comic'
+}
+
+export function setLeaFont(session: DocSession, font: FontFamily): void {
+  if (!session.canWrite || text(session.meta.get(META_FONT)) === font) return
+  session.doc.transact(() => {
+    session.meta.set(META_FONT, font)
+  }, LOCAL_ORIGIN)
+}
+
+/**
+ * Give a lea the writer's preferred face, once, before its first row is written.
+ *
+ * Only on an empty lea that never chose one. A lea that already has writing in it and
+ * no stored face is an older lea in Comic Neue, and deciding its face for it on the next
+ * keystroke would reflow a page somebody else wrote.
+ */
+export function seedLeaFont(session: DocSession, font: FontFamily): void {
+  if (font === 'comic' || session.objects.size > 0) return
+  if (text(session.meta.get(META_FONT)) !== '') return
+  setLeaFont(session, font)
 }
 
 /**

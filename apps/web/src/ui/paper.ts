@@ -6,7 +6,7 @@
  * preference while a lea carrying its own stock went on rendering that. So the stock is
  * the reader's, a preference about this browser rather than about any page, and it
  * lives here beside the theme for the same reasons the theme does. Both the profile's
- * "Diary paper" and a lea's own paper menu read and write exactly this.
+ * "Lea paper" and a lea's own paper menu read and write exactly this.
  *
  * `system` is the one that follows the app: it is not a fifth palette, it is the light
  * and dark ones selected by `light-dark()`, so it changes with the theme toggle with

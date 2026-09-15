@@ -14,6 +14,7 @@
 import {
   type ArrowRoutingPatch,
   type BindingData,
+  type FontFamily,
   type ObjectData,
   type TextProps,
   readObject,
@@ -96,6 +97,10 @@ export type HostOptions = {
    * a note would lose its author the moment they closed the tab.
    */
   authorName?(): string
+  /** The face new text is created in: this browser's canvas font preference. */
+  defaultFont?(): FontFamily
+  /** Runs before an object is created, so a lea can take its face first. */
+  beforeCreate?(): void
 }
 
 export class DocEngineHost implements EngineHost {
@@ -124,6 +129,10 @@ export class DocEngineHost implements EngineHost {
 
   get authorName(): string {
     return this.options.authorName?.() ?? ''
+  }
+
+  get defaultFont(): FontFamily | undefined {
+    return this.options.defaultFont?.()
   }
 
   /** Drop the cache after a change this host did not observe. */
@@ -166,7 +175,10 @@ export class DocEngineHost implements EngineHost {
   }
 
   createObject(input: Partial<ObjectData> & { type: ObjectData['type'] }): string | null {
-    return this.guard(() => addObject(this.session, input), null)
+    return this.guard(() => {
+      this.options.beforeCreate?.()
+      return addObject(this.session, input)
+    }, null)
   }
 
   applyPatches(patches: { id: string; patch: Partial<ObjectData> }[]): void {

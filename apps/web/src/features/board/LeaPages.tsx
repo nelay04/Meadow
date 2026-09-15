@@ -93,7 +93,7 @@ export function LeaPages({
     const agreed = await confirm({
       title: named === '' ? `Tear out page ${position + 1}?` : `Tear out "${named}"?`,
       body:
-        'The page and everything written on it leaves the diary and goes to the trash ' +
+        'The page and everything written on it leaves the lea and goes to the trash ' +
         `below, where you can put it back for the next ${retentionHours} hours.`,
       confirmLabel: 'Tear it out',
       tone: 'danger',

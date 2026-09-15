@@ -91,6 +91,7 @@ import {
   IconTrash,
   IconUnlock,
 } from '../../ui/icons'
+import { FONT_LABEL, FONT_ORDER } from '../../ui/font'
 import { Avatar } from '../../ui/Avatar'
 import { useConfirm } from '../../ui/ConfirmDialog'
 import { usePrompt } from '../../ui/PromptDialog'
@@ -576,6 +577,9 @@ export default function BoardPage({ boardId, kindHint, onBack, onSignIn }: Props
   /** The text-size menu, the same `.menu` popup as the paper picker rather than a native `<select>`. */
   const [sizeMenuOpen, setSizeMenuOpen] = useState(false)
   const sizeMenuRoot = useRef<HTMLDivElement>(null)
+  /** The font menu beside it, the same popup. */
+  const [fontMenuOpen, setFontMenuOpen] = useState(false)
+  const fontMenuRoot = useRef<HTMLDivElement>(null)
   /*
    * Whether this client has the document, not merely a socket.
    *
@@ -929,6 +933,22 @@ export default function BoardPage({ boardId, kindHint, onBack, onSignIn }: Props
       window.removeEventListener('keydown', onKey)
     }
   }, [sizeMenuOpen])
+
+  useEffect(() => {
+    if (!fontMenuOpen) return
+    const onDown = (event: PointerEvent) => {
+      if (!fontMenuRoot.current?.contains(event.target as Node)) setFontMenuOpen(false)
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setFontMenuOpen(false)
+    }
+    document.addEventListener('pointerdown', onDown, true)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', onDown, true)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [fontMenuOpen])
 
   /**
    * Put the flyout away.
@@ -2644,6 +2664,56 @@ export default function BoardPage({ boardId, kindHint, onBack, onSignIn }: Props
             reminding you that you are in an app. */}
         {canWrite && canvas.canFormatText && (spec.column === null || canvas.editingId !== null) && (
           <div className="text-bar" role="group" aria-label="Text formatting">
+            {/*
+              The face. On a glade it is the selected text's own; on a lea it is the
+              lea's, one face for every page, because the rules are phased to it. The
+              names are in the interface's font rather than each in its own: showing
+              them in their faces would download all nine the first time the menu
+              opened, on a board, to label a list.
+            */}
+            <div className="dropdown text-size text-font" ref={fontMenuRoot}>
+              <button
+                type="button"
+                className="dropdown-button"
+                aria-label={spec.column === null ? 'Font' : 'Font for this lea'}
+                aria-haspopup="listbox"
+                aria-expanded={fontMenuOpen}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => setFontMenuOpen((shown) => !shown)}
+              >
+                {canvas.textFont === null ? 'Mixed' : FONT_LABEL[canvas.textFont]}
+                <IconChevronDown size={14} />
+              </button>
+
+              {fontMenuOpen && (
+                <div
+                  className="menu menu-compact"
+                  role="listbox"
+                  aria-label={spec.column === null ? 'Font' : 'Font for this lea'}
+                >
+                  {FONT_ORDER.map((font) => (
+                    <button
+                      key={font}
+                      type="button"
+                      role="option"
+                      aria-selected={font === canvas.textFont}
+                      className={font === canvas.textFont ? 'menu-item selected' : 'menu-item'}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => {
+                        setFontMenuOpen(false)
+                        canvas.setTextFont(font)
+                      }}
+                    >
+                      <span className="menu-label">{FONT_LABEL[font]}</span>
+                      {font === canvas.textFont && <IconCheck size={15} />}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <hr />
+
             {/*
               No size control on a ruled page.
               The ruling is spaced at exactly one line of the page's own type, so a

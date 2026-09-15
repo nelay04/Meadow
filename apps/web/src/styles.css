@@ -233,13 +233,65 @@ body {
   background: transparent;
 }
 
+/*
+ * The other interface faces, one block each (ui/font.ts). Only the chosen one is ever
+ * downloaded: a @font-face costs nothing until an element on screen is set in it.
+ */
+
 :root[data-font='poppins'] {
   --ui-font:
     'Poppins',
     'Noto Sans Bengali', 'Noto Sans Devanagari', 'Noto Sans Gujarati', 'Noto Sans Gurmukhi', 'Noto Sans Kannada', 'Noto Sans Malayalam', 'Noto Sans Oriya', 'Noto Sans Tamil', 'Noto Sans Telugu',
-    ui-sans-serif,
-    system-ui,
-    sans-serif;
+    ui-sans-serif, system-ui, sans-serif;
+}
+
+:root[data-font='inter'] {
+  --ui-font:
+    'Inter',
+    'Noto Sans Bengali', 'Noto Sans Devanagari', 'Noto Sans Gujarati', 'Noto Sans Gurmukhi', 'Noto Sans Kannada', 'Noto Sans Malayalam', 'Noto Sans Oriya', 'Noto Sans Tamil', 'Noto Sans Telugu',
+    ui-sans-serif, system-ui, sans-serif;
+}
+
+:root[data-font='nunito'] {
+  --ui-font:
+    'Nunito',
+    'Noto Sans Bengali', 'Noto Sans Devanagari', 'Noto Sans Gujarati', 'Noto Sans Gurmukhi', 'Noto Sans Kannada', 'Noto Sans Malayalam', 'Noto Sans Oriya', 'Noto Sans Tamil', 'Noto Sans Telugu',
+    ui-rounded, system-ui, sans-serif;
+}
+
+:root[data-font='quicksand'] {
+  --ui-font:
+    'Quicksand',
+    'Noto Sans Bengali', 'Noto Sans Devanagari', 'Noto Sans Gujarati', 'Noto Sans Gurmukhi', 'Noto Sans Kannada', 'Noto Sans Malayalam', 'Noto Sans Oriya', 'Noto Sans Tamil', 'Noto Sans Telugu',
+    ui-rounded, system-ui, sans-serif;
+}
+
+:root[data-font='mono'] {
+  --ui-font:
+    'JetBrains Mono',
+    'Noto Sans Bengali', 'Noto Sans Devanagari', 'Noto Sans Gujarati', 'Noto Sans Gurmukhi', 'Noto Sans Kannada', 'Noto Sans Malayalam', 'Noto Sans Oriya', 'Noto Sans Tamil', 'Noto Sans Telugu',
+    ui-monospace, monospace;
+}
+
+:root[data-font='patrick'] {
+  --ui-font:
+    'Patrick Hand',
+    'Noto Sans Bengali', 'Noto Sans Devanagari', 'Noto Sans Gujarati', 'Noto Sans Gurmukhi', 'Noto Sans Kannada', 'Noto Sans Malayalam', 'Noto Sans Oriya', 'Noto Sans Tamil', 'Noto Sans Telugu',
+    'Comic Sans MS', cursive;
+}
+
+:root[data-font='caveat'] {
+  --ui-font:
+    'Caveat',
+    'Noto Sans Bengali', 'Noto Sans Devanagari', 'Noto Sans Gujarati', 'Noto Sans Gurmukhi', 'Noto Sans Kannada', 'Noto Sans Malayalam', 'Noto Sans Oriya', 'Noto Sans Tamil', 'Noto Sans Telugu',
+    cursive;
+}
+
+:root[data-font='kalam'] {
+  --ui-font:
+    'Kalam',
+    'Noto Sans Bengali', 'Noto Sans Devanagari', 'Noto Sans Gujarati', 'Noto Sans Gurmukhi', 'Noto Sans Kannada', 'Noto Sans Malayalam', 'Noto Sans Oriya', 'Noto Sans Tamil', 'Noto Sans Telugu',
+    cursive;
 }
 
 body {
@@ -991,14 +1043,15 @@ label {
 }
 
 /*
- * The stock, shown rather than named.
- *
- * Ruled, because half of what tells the four apart at this size is whether the rules
- * read as dark lines on a pale sheet or pale lines on a dark one, and a flat square of
- * colour says none of that. The vintage swatch is the page's own kraft, so the choice
- * you make here is the colour you get.
+ * The font pickers: nine faces is a grid, not a row. Each "Aa" is set in the face it
+ * picks, whatever the page around it is set in. These load every optional face, which
+ * is why they exist only on the Preferences page and nowhere a board is.
  */
-/* The Font choices, each "Aa" set in the face it picks whatever the page is set in. */
+.font-choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(6.5rem, 1fr));
+}
+
 .font-sample {
   font-size: 1.25rem;
   font-weight: 600;
@@ -1011,9 +1064,45 @@ label {
 }
 
 .font-sample[data-font='poppins'] {
-  font-family: 'Poppins', ui-sans-serif, system-ui, sans-serif;
+  font-family: 'Poppins', ui-sans-serif, sans-serif;
 }
 
+.font-sample[data-font='inter'] {
+  font-family: 'Inter', ui-sans-serif, sans-serif;
+}
+
+.font-sample[data-font='nunito'] {
+  font-family: 'Nunito', ui-rounded, sans-serif;
+}
+
+.font-sample[data-font='quicksand'] {
+  font-family: 'Quicksand', ui-rounded, sans-serif;
+}
+
+.font-sample[data-font='mono'] {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+.font-sample[data-font='patrick'] {
+  font-family: 'Patrick Hand', cursive;
+}
+
+.font-sample[data-font='caveat'] {
+  font-family: 'Caveat', cursive;
+}
+
+.font-sample[data-font='kalam'] {
+  font-family: 'Kalam', cursive;
+}
+
+/*
+ * The stock, shown rather than named.
+ *
+ * Ruled, because half of what tells the four apart at this size is whether the rules
+ * read as dark lines on a pale sheet or pale lines on a dark one, and a flat square of
+ * colour says none of that. The vintage swatch is the page's own kraft, so the choice
+ * you make here is the colour you get.
+ */
 .paper-swatch {
   width: 2.2rem;
   height: 1.5rem;
@@ -4646,6 +4735,13 @@ kbd {
   min-width: 0;
   right: auto;
   left: 0;
+}
+
+/* Font names do need it, and nine of them want a scroll rather than a tall column. */
+.text-font .menu {
+  min-width: 10rem;
+  max-height: min(60vh, 22rem);
+  overflow-y: auto;
 }
 
 /* --- the modal ---------------------------------------------------------------

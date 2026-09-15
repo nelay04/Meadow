@@ -30,6 +30,7 @@ import {
   moveToDepth,
   objectFragment,
   purgePage,
+  readLeaFont,
   readObjectById,
   readPages,
   readTrashedPages,
@@ -37,7 +38,9 @@ import {
   removePage,
   reseatWritingRows,
   restorePage,
+  seedLeaFont,
   sendBackward,
+  setLeaFont,
   setPageSubject,
   sweepPageTrash,
   sendToBack,
@@ -759,6 +762,44 @@ describe('pages', () => {
     expect(readObjectById(doc, second)?.w).toBeCloseTo(860, 5)
     // Page two's row is still on page two, at its own left edge.
     expect(readObjectById(doc, second)?.x).toBeCloseTo(2760, 5)
+  })
+})
+
+describe('lea font', () => {
+  it('reads an old lea with no stored face as Comic Neue', () => {
+    expect(readLeaFont(session())).toBe('comic')
+  })
+
+  it('reads a slug this client does not know as Comic Neue', () => {
+    const doc = session()
+    doc.meta.set('pageFont', 'wingdings')
+    expect(readLeaFont(doc)).toBe('comic')
+  })
+
+  it('seeds the writer preference onto an empty lea', () => {
+    const doc = session()
+    seedLeaFont(doc, 'caveat')
+    expect(readLeaFont(doc)).toBe('caveat')
+  })
+
+  it('never seeds a lea that already has writing, so an old page does not reflow', () => {
+    const doc = session()
+    addObject(doc, { type: 'text' })
+    seedLeaFont(doc, 'caveat')
+    expect(readLeaFont(doc)).toBe('comic')
+  })
+
+  it('never overrides a face the lea already chose', () => {
+    const doc = session()
+    setLeaFont(doc, 'nunito')
+    seedLeaFont(doc, 'caveat')
+    expect(readLeaFont(doc)).toBe('nunito')
+  })
+
+  it('refuses a viewer', () => {
+    const doc = session('viewer')
+    setLeaFont(doc, 'kalam')
+    expect(readLeaFont(doc)).toBe('comic')
   })
 })
 

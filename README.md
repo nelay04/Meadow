@@ -48,7 +48,7 @@ and a double-click puts a label on it, because half of what an arrow means is wr
 it.
 
 **Write.** Text objects are proper rich text - bold, italic, underline, strikethrough,
-eight sizes - edited in place at any zoom. Two people typing in one paragraph merge
+eight sizes, nine fonts - edited in place at any zoom. Two people typing in one paragraph merge
 character by character.
 
 **Ink.** Five nibs (ballpoint, fineliner, calligraphy, brush, highlighter) in four widths
@@ -80,7 +80,8 @@ sit at.
 A **lea** is a kind of glade that is printed rather than blank: twenty-five ruled lines,
 a subject and a date across the top, and pages you can add, name, reorder and tear out.
 You click a rule and write on it, and move between lines with the arrow keys. Four stocks
-to print it on, from aged kraft to the dark one above.
+to print it on, from aged kraft to the dark one above, and one font for the whole lea,
+picked from the text bar.
 
 It is not a second editor. The same document, the same tools and the same objects, on a
 different surface - which is the whole point of having kinds at all.
@@ -127,7 +128,7 @@ opens, and forgotten passwords are recoverable.
 <br>
 
 <p align="center">
-  <img src="docs/media/profile.png" alt="The profile page: the live session list, the theme, and the diary paper" width="70%">
+  <img src="docs/media/profile.png" alt="The profile page: the live session list, the theme, and the lea paper" width="70%">
 </p>
 
 <br>
@@ -140,9 +141,17 @@ yours stays yours: closing a tab mid-refresh or losing the connection does not s
 out.
 
 Preferences, under `#/profile/preferences`, set how Meadow looks in this browser: the
-theme, the diary paper, and the font the whole app is set in. The font is Comic Neue by
-default, with Poppins as the alternative; switching it changes every page, menu and panel
-at once. Text on your boards keeps its own font, so a board looks the same to everyone.
+theme, the lea paper, and two fonts, each chosen from Comic Neue (the default), Poppins,
+Inter, Nunito, Quicksand, JetBrains Mono, Patrick Hand, Caveat and Kalam.
+
+- **Interface font** sets every page, menu and panel at once.
+- **Canvas font** is the font new text on a glade and a new lea start in. Text already on a
+  board keeps its font, because a text box's height is measured in its font and saved in
+  the board; a font per reader would give every reader a different height. Change the font
+  of existing text from the text bar.
+
+Only the fonts actually in use are downloaded, and a height is never measured or saved
+until its font has loaded.
 
 ---
 
@@ -244,7 +253,7 @@ than the server talking to itself, and it kills the server process mid-run to pr
 state comes back from the database rather than from memory. The answer was yes, so the
 stack stayed.
 
-v1 is deployed and live at [meadow.creara.in](https://meadow.creara.in); the current release is `1.15.0`.
+v1 is deployed and live at [meadow.creara.in](https://meadow.creara.in); the current release is `1.16.0`.
 Delivery record, including the work that was thrown away and why: [`CHANGELOG.md`](CHANGELOG.md).
 
 ---

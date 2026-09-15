@@ -18,10 +18,24 @@ import { z } from 'zod'
 import { type ObjectData, type ObjectType, PRIMITIVE_SHAPES } from './objects'
 
 /**
- * The three faces from ARCHITECTURE 1, referred to by slug rather than by CSS family
+ * The faces a text object can be set in, referred to by slug rather than by CSS family
  * name so the document does not encode a font stack it cannot guarantee.
+ *
+ * The first three are ARCHITECTURE 1's. The rest were added later and are only ever
+ * appended: a slug is stored in documents, so one is never renamed or removed. A
+ * client older than a slug reads it as the type's default through `resolveTextProps`.
  */
-export const FONT_FAMILIES = ['inter', 'comic', 'mono'] as const
+export const FONT_FAMILIES = [
+  'inter',
+  'comic',
+  'mono',
+  'poppins',
+  'patrick',
+  'caveat',
+  'kalam',
+  'quicksand',
+  'nunito',
+] as const
 export type FontFamily = (typeof FONT_FAMILIES)[number]
 
 export const TEXT_ALIGNMENTS = ['left', 'center', 'right'] as const

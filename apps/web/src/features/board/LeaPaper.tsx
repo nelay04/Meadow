@@ -6,7 +6,7 @@
  * one value for the whole document, even though ruling, length and subject belong to
  * each page.
  *
- * One setting, two places to reach it. This menu and the profile's "Diary paper" are
+ * One setting, two places to reach it. This menu and the profile's "Lea paper" are
  * the same value - the reader's own default, in `ui/paper.ts` - so changing it here
  * moves the profile and changing it there moves the page. It was a document value with
  * the profile as a fallback under it, and two controls that disagreed after either one

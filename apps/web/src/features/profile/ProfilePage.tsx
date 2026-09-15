@@ -25,7 +25,17 @@ import {
   readPaperPreference,
   writePaperPreference,
 } from '../../ui/paper'
-import { FONTS, FONT_EVENT, FONT_LABEL, type Font, applyFont, readFont } from '../../ui/font'
+import {
+  CANVAS_FONT_EVENT,
+  FONT_EVENT,
+  FONT_LABEL,
+  FONT_ORDER,
+  type Font,
+  applyFont,
+  readCanvasFont,
+  readFont,
+  writeCanvasFont,
+} from '../../ui/font'
 import { THEME_EVENT, type Theme, applyTheme, readTheme } from '../../ui/theme'
 import { absoluteTime, relativeTime } from '../../ui/time'
 import { useConfirm } from '../../ui/ConfirmDialog'
@@ -135,6 +145,7 @@ export default function ProfilePage({ onBack, section }: Props) {
   const [theme, setTheme] = useState<Theme>(readTheme)
   const [paper, setPaper] = useState<Paper>(readPaperPreference)
   const [font, setFont] = useState<Font>(readFont)
+  const [canvasFont, setCanvasFont] = useState<Font>(readCanvasFont)
   const activeSection: SectionId = isSectionId(section) ? section : 'account'
 
   // On a narrow screen the index is a sideways-scrolling row, and the current tab can
@@ -157,12 +168,15 @@ export default function ProfilePage({ onBack, section }: Props) {
     const onTheme = (): void => setTheme(readTheme())
     window.addEventListener(PAPER_EVENT, onPaper)
     const onFont = (): void => setFont(readFont())
+    const onCanvasFont = (): void => setCanvasFont(readCanvasFont())
     window.addEventListener(THEME_EVENT, onTheme)
     window.addEventListener(FONT_EVENT, onFont)
+    window.addEventListener(CANVAS_FONT_EVENT, onCanvasFont)
     return () => {
       window.removeEventListener(PAPER_EVENT, onPaper)
       window.removeEventListener(THEME_EVENT, onTheme)
       window.removeEventListener(FONT_EVENT, onFont)
+      window.removeEventListener(CANVAS_FONT_EVENT, onCanvasFont)
     }
   }, [])
 
@@ -828,17 +842,54 @@ export default function ProfilePage({ onBack, section }: Props) {
                 </section>
 
                 {/*
-          The face the app is set in. Each choice is written in its own font, so the
-          button is its own preview. Board text keeps the font it was given.
+          The stock every lea is printed on.
+          The same setting as the paper menu in a lea's own toolbar, not a default
+          underneath it: either control moves this one value. It is a preference of this
+          browser rather than something written into a document, so it is how leas look
+          to you and changes nothing for anyone you share one with.
+
+          Paired with Appearance above rather than with the two font cards below: those
+          two are the settings that are just a value picked from a short row, and these
+          two are the settings that need the whole width for a grid of previews.
         */}
                 <section className="card">
-                  <h3>Font</h3>
+                  <h3>Lea paper</h3>
+                  <p className="hint">
+                    What every lea is printed on, for you. Matching the theme
+                    gives a page that turns dark with the rest of the app; the others stay what they
+                    are in both.
+                  </p>
+                  <div className="theme-choices" role="radiogroup" aria-label="Lea paper">
+                    {PAPERS.map((choice) => (
+                      <button
+                        key={choice}
+                        type="button"
+                        role="radio"
+                        aria-checked={paper === choice}
+                        className={paper === choice ? 'theme-choice active' : 'theme-choice'}
+                        onClick={() => {
+                          setPaper(choice)
+                          writePaperPreference(choice)
+                        }}
+                      >
+                        <span className="paper-swatch" data-paper={choice} aria-hidden="true" />
+                        <span>{PAPER_LABEL[choice]}</span>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+
+                {/*
+          The face the app is set in. Each choice is written in its own font, so the
+          button is its own preview.
+        */}
+                <section className="card">
+                  <h3>Interface font</h3>
                   <p className="hint">
                     The typeface for menus, pages and panels across Meadow, in this browser only.
-                    Text on your boards keeps its own font.
                   </p>
-                  <div className="theme-choices" role="radiogroup" aria-label="Font">
-                    {FONTS.map((choice) => (
+                  <div className="theme-choices font-choices" role="radiogroup" aria-label="Interface font">
+                    {FONT_ORDER.map((choice) => (
                       <button
                         key={choice}
                         type="button"
@@ -860,35 +911,34 @@ export default function ProfilePage({ onBack, section }: Props) {
                 </section>
 
                 {/*
-          The stock every diary is printed on.
-          The same setting as the paper menu in a lea's own toolbar, not a default
-          underneath it: either control moves this one value. It is a preference of this
-          browser rather than something written into a document, so it is how leas look
-          to you and changes nothing for anyone you share one with.
+          The face new canvas text is written in.
+          A default, never an override. What is already on a board keeps its face,
+          because a face is metrics and the heights measured in it are shared; see the
+          note in ui/font.ts.
         */}
                 <section className="card">
-                  <h3>Diary paper</h3>
+                  <h3>Canvas font</h3>
                   <p className="hint">
-                    What every lea is printed on, for you. The paper menu on a lea itself is the
-                    same setting, so changing it in either place changes both. Matching the theme
-                    gives a page that turns dark with the rest of the app; the others stay what they
-                    are in both.
+                    What new text starts in. Existing text keeps its font; change it from the
+                    text bar.
                   </p>
-                  <div className="theme-choices" role="radiogroup" aria-label="Diary paper">
-                    {PAPERS.map((choice) => (
+                  <div className="theme-choices font-choices" role="radiogroup" aria-label="Canvas font">
+                    {FONT_ORDER.map((choice) => (
                       <button
                         key={choice}
                         type="button"
                         role="radio"
-                        aria-checked={paper === choice}
-                        className={paper === choice ? 'theme-choice active' : 'theme-choice'}
+                        aria-checked={canvasFont === choice}
+                        className={canvasFont === choice ? 'theme-choice active' : 'theme-choice'}
                         onClick={() => {
-                          setPaper(choice)
-                          writePaperPreference(choice)
+                          setCanvasFont(choice)
+                          writeCanvasFont(choice)
                         }}
                       >
-                        <span className="paper-swatch" data-paper={choice} aria-hidden="true" />
-                        <span>{PAPER_LABEL[choice]}</span>
+                        <span className="font-sample" data-font={choice} aria-hidden="true">
+                          Aa
+                        </span>
+                        <span>{FONT_LABEL[choice]}</span>
                       </button>
                     ))}
                   </div>

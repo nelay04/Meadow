@@ -126,6 +126,15 @@ const FAMILIES: Record<string, string> = {
   comic: 'Comic Neue',
   inter: 'Inter',
   mono: 'JetBrains Mono',
+  // Not bundled with the renderer, so these draw in its default face. The snapshot is a
+  // sketch of the layout for an assistant, and five more fonts would ship with every
+  // install of the MCP package to change how a label looks in it.
+  poppins: 'Comic Neue',
+  patrick: 'Comic Neue',
+  caveat: 'Comic Neue',
+  kalam: 'Comic Neue',
+  quicksand: 'Comic Neue',
+  nunito: 'Comic Neue',
 }
 
 // --- safe output ----------------------------------------------------------------------

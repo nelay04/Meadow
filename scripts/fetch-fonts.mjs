@@ -45,6 +45,14 @@ const FAMILIES = [
   { query: 'Inter:wght@100..900', slug: 'inter' },
   { query: 'JetBrains+Mono:wght@100..800', slug: 'jetbrains-mono' },
   { query: 'Comic+Neue:wght@400;700', slug: 'comic-neue' },
+  // The optional faces, offered both as the chrome's font and as a font text on a board
+  // can carry (ui/font.ts, schema FONT_FAMILIES). None is asked for up front: a
+  // @font-face costs nothing until something on screen is set in it.
+  { query: 'Patrick+Hand', slug: 'patrick-hand' },
+  { query: 'Caveat:wght@400..700', slug: 'caveat' },
+  { query: 'Kalam:wght@400;700', slug: 'kalam' },
+  { query: 'Quicksand:wght@300..700', slug: 'quicksand' },
+  { query: 'Nunito:wght@200..1000', slug: 'nunito' },
   // The optional UI face, chosen per browser in Preferences. Static weights only: Poppins
   // has no variable build. `weightRanges` serves each file for a band of requested
   // weights; the reason is in the note that ships in the generated CSS.

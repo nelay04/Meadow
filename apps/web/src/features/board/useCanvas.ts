@@ -13,6 +13,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from '
 import {
   type ArrowRouting,
   DEFAULT_POLYGON_SIDES,
+  type FontFamily,
   FREEDRAW_TIPS,
   type FreedrawTip,
   MAX_POLYGON_SIDES,
@@ -47,7 +48,10 @@ import {
   addPageLines,
   observePageMeta,
   purgePage,
+  readLeaFont,
   readLeaPaper,
+  seedLeaFont,
+  setLeaFont,
   readPages,
   readTrashedPages,
   removePage,
@@ -66,6 +70,7 @@ import {
   trashRetentionMs as readTrashRetentionMs,
 } from '../../lib/appConfig'
 import { createTextEditor } from '../../overlay/textEditor'
+import { readCanvasFont } from '../../ui/font'
 import { THEME_EVENT } from '../../ui/theme'
 
 const GRID_KEY = 'meadow.grid'
@@ -311,6 +316,13 @@ export type CanvasHandle = {
   toggleMark(mark: TextMark): void
   textSize: number | null
   setTextSize(size: number): void
+  /**
+   * The face of the text being formatted, or null when a selection disagrees. On a lea
+   * it is the lea's own, and setting it sets the lea's, because every row of a ruled
+   * page is set in one face.
+   */
+  textFont: FontFamily | null
+  setTextFont(font: FontFamily): void
 }
 
 export type CanvasPresence = {
@@ -475,6 +487,12 @@ export function useCanvas(
       // free of it.
       createEditor: createTextEditor,
       authorName: () => optionsRef.current.authorName ?? '',
+      // Read at the moment of creation, so a preference changed in another tab applies
+      // to the next object without the canvas having to hear about it.
+      defaultFont: readCanvasFont,
+      beforeCreate: () => {
+        if (optionsRef.current.column != null) seedLeaFont(current(), readCanvasFont())
+      },
     })
     const unobserveHost = host.observe()
 
@@ -518,6 +536,7 @@ export function useCanvas(
       engine.setPen(penRef.current)
       engine.setSurface(optionsRef.current.surface ?? DEFAULT_SURFACE)
       engine.setAvailableTools(optionsRef.current.tools ?? null)
+      engine.setColumnFont(readLeaFont(current()))
       engine.setColumn(optionsRef.current.column ?? null)
       engine.setPageSlot(openPageRef.current?.slot ?? 0)
       engine.setPageLines(openPageRef.current?.lines ?? DEFAULT_PAGE_LINES)
@@ -613,6 +632,20 @@ export function useCanvas(
   useSyncExternalStore(subscribeAppConfig, readAppConfig)
   const trashRetentionMs = readTrashRetentionMs()
   const paper = useSyncExternalStore(subscribeMeta, () => readLeaPaper(session))
+  /*
+   * The lea's face, handed to the engine from the document observer itself rather than
+   * from an effect after React has rendered. A face that arrives with the first sync
+   * arrives in the same update as the rows set in it, and an effect would leave the
+   * engine one frame to measure those rows in the old face and write that height.
+   */
+  useEffect(() => {
+    const apply = (): void => {
+      engineRef.current?.setColumnFont(readLeaFont(session))
+      setFormatVersion((version) => version + 1)
+    }
+    apply()
+    return observePageMeta(session, apply)
+  }, [session, element])
 
   /*
    * Which page is open. This client's own, never the document's.
@@ -972,6 +1005,12 @@ export function useCanvas(
     textSize: engineRef.current?.textSize ?? null,
     setTextSize: (size: number) => {
       engineRef.current?.setTextSize(size)
+      setFormatVersion((version) => version + 1)
+    },
+    textFont: engineRef.current?.textFont ?? null,
+    setTextFont: (font: FontFamily) => {
+      if (optionsRef.current.column != null) setLeaFont(sessionRef.current, font)
+      else engineRef.current?.setTextFont(font)
       setFormatVersion((version) => version + 1)
     },
   }

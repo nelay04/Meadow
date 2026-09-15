@@ -18,9 +18,9 @@
  * is what the engine gates its first render on.
  */
 
-import type { TextProps } from '@meadow/schema'
+import type { FontFamily, TextProps } from '@meadow/schema'
 
-import { applyBoxStyle, applyContentStyle, contentWidth } from './textStyle'
+import { FONT_FACE_NAMES, applyBoxStyle, applyContentStyle, contentWidth } from './textStyle'
 
 let host: HTMLDivElement | null = null
 
@@ -163,4 +163,57 @@ export async function whenFontsReady(): Promise<void> {
 
   // Metrics taken before the faces landed are stale by definition.
   clearMeasureCache()
+}
+
+/*
+ * The optional faces, loaded the first time a board shows one.
+ *
+ * Not in `whenFontsReady`, for the reason Bengali is not: asking for six more families
+ * on every board open would spend a few hundred kilobytes on faces most boards never
+ * use. The price is that a height measured before its face arrives is a height
+ * measured against a fallback, and that number would be written into the CRDT. So a
+ * caller asks `fontReady` first and measures nothing until it says yes.
+ */
+const loaded = new Set<FontFamily>(['inter', 'comic', 'mono'])
+const loading = new Set<FontFamily>()
+const listeners = new Set<() => void>()
+
+/** Hear when an optional face finishes loading, so a skipped measure can be retried. */
+export function onFontLoaded(listener: () => void): () => void {
+  listeners.add(listener)
+  return () => listeners.delete(listener)
+}
+
+/**
+ * True when this family can be measured now. False starts loading it, regular and
+ * bold both (a bold run in the text is a different file for a static family), and
+ * tells `onFontLoaded` listeners when it is in.
+ */
+export function fontReady(family: FontFamily): boolean {
+  if (loaded.has(family)) return true
+  if (typeof document === 'undefined' || document.fonts === undefined) return true
+
+  const name = FONT_FACE_NAMES[family]
+  if (document.fonts.check(`16px "${name}"`) && document.fonts.check(`700 16px "${name}"`)) {
+    loaded.add(family)
+    return true
+  }
+
+  if (!loading.has(family)) {
+    loading.add(family)
+    void Promise.all([
+      document.fonts.load(`16px "${name}"`),
+      document.fonts.load(`700 16px "${name}"`),
+    ])
+      .catch(() => undefined)
+      .then(() => {
+        // A failed load is marked loaded too: fallback metrics are the only metrics
+        // there will be, and waiting forever would leave the text never measured.
+        loading.delete(family)
+        loaded.add(family)
+        clearMeasureCache()
+        for (const listener of listeners) listener()
+      })
+  }
+  return false
 }

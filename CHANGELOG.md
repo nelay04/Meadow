@@ -11,6 +11,53 @@ away getting there.
 
 ---
 
+## [1.16.0] - [15-Sep-2026]
+
+### Added
+- **Nine fonts, for the interface and for the canvas.** Comic Neue, Poppins, Inter,
+  Nunito, Quicksand, JetBrains Mono, Patrick Hand, Caveat and Kalam. Patrick Hand, Caveat,
+  Kalam, Quicksand and Nunito are new, self-hosted from `scripts/fetch-fonts.mjs` like the
+  rest.
+- **Preferences has two font settings.** *Interface font* sets the app's chrome, as the
+  Font card did. *Canvas font* is the font new text on a glade and a new lea start in,
+  saved per browser. It is a default, never an override: text already on a board keeps its
+  font, so a board looks the same to everyone.
+- **A font menu in the text bar.** On a glade it sets the selected or edited text's font,
+  and shows Mixed when a selection disagrees. On a lea it sets the font of the whole lea.
+- **Fonts are new values in the document schema.** `FONT_FAMILIES` gains `poppins`,
+  `patrick`, `caveat`, `kalam`, `quicksand` and `nunito`, appended so no stored slug
+  changes. A client older than this release draws those as Comic Neue rather than failing.
+- **A lea has one font, stored in the document** as `pageFont` in the lea's meta. Every
+  row on the lea is set in it and the rules are lined up with its baseline. A lea with no
+  stored font, which is every lea written before this, is Comic Neue and stays that way. An
+  empty lea takes the writer's canvas font when its first row is written; a lea that
+  already has writing is never given one automatically.
+
+### Changed
+- **Heights are measured only after a text box's font has loaded.** A text box's height is
+  measured from its font and saved into the board for everyone, so a height measured
+  against a fallback font would be saved wrong and then corrected, resizing the text twice
+  for every collaborator. The new fonts are not loaded when a board opens; the first time a
+  board shows one, its regular and bold faces are loaded, that box's height is left alone
+  until they arrive, and the next frame measures it. A lea set in a font that is still
+  loading keeps its rules where they were until the font arrives, then lines them up with
+  the real baseline. Comic Neue, Inter and JetBrains Mono still load before the first frame,
+  as before.
+- **No extra downloads on a board.** Only the fonts a board actually uses are fetched, each
+  about 20 to 75 KB, and the interface fetches only the font chosen for it. The text bar's
+  font menu names each font in the interface font rather than in itself, so opening it
+  loads nothing. The Preferences page shows every font as a preview and loads all of them
+  there, once.
+- Preferences says **Lea paper** instead of Diary paper, and tearing out a page says it
+  leaves the lea rather than the diary.
+
+### Known limitations
+- The MCP snapshot draws text in the new fonts as Comic Neue, since only the original
+  three fonts are bundled with its renderer. Layout reads are unaffected.
+- Patrick Hand has only a regular weight, so bold text and headings set in it are not
+  bolder. Caveat is small for its size, and JetBrains Mono is wide, so some menus look
+  cramped as the interface font.
+
 ## [1.15.0] - [15-Sep-2026]
 
 ### Added

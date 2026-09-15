@@ -50,6 +50,28 @@ export const FONT_STACKS: Record<FontFamily, string> = {
   inter: `Inter, ${SCRIPTS}, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif`,
   comic: `'Comic Neue', ${SCRIPTS}, 'Comic Sans MS', ui-rounded, cursive`,
   mono: `'JetBrains Mono', ${SCRIPTS}, ui-monospace, 'SFMono-Regular', Consolas, monospace`,
+  poppins: `Poppins, ${SCRIPTS}, ui-sans-serif, system-ui, sans-serif`,
+  patrick: `'Patrick Hand', ${SCRIPTS}, 'Comic Sans MS', cursive`,
+  caveat: `Caveat, ${SCRIPTS}, cursive`,
+  kalam: `Kalam, ${SCRIPTS}, cursive`,
+  quicksand: `Quicksand, ${SCRIPTS}, ui-rounded, sans-serif`,
+  nunito: `Nunito, ${SCRIPTS}, ui-rounded, sans-serif`,
+}
+
+/**
+ * The CSS family each slug is set in, for loading it: `document.fonts` wants a family
+ * name, and the stacks above carry fallbacks it would also try to match.
+ */
+export const FONT_FACE_NAMES: Record<FontFamily, string> = {
+  inter: 'Inter',
+  comic: 'Comic Neue',
+  mono: 'JetBrains Mono',
+  poppins: 'Poppins',
+  patrick: 'Patrick Hand',
+  caveat: 'Caveat',
+  kalam: 'Kalam',
+  quicksand: 'Quicksand',
+  nunito: 'Nunito',
 }
 
 const FLEX_ALIGN: Record<VerticalAlign, string> = {

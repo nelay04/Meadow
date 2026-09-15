@@ -1,3 +1,5 @@
+import type { FontFamily } from '@meadow/schema'
+
 /**
  * What the board is drawn on.
  *
@@ -32,6 +34,7 @@ export function surfaceClass(surface: CanvasSurface): string {
  * changed. The spec wins, and every row on the page is set from it.
  */
 export type SurfaceType = {
+  fontFamily: FontFamily
   fontSize: number
   lineHeight: number
   padding: number

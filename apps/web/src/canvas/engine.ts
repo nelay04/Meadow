@@ -15,6 +15,7 @@
 import {
   type ArrowRouting,
   type ArrowRoutingPatch,
+  type FontFamily,
   type BindingData,
   type ObjectData,
   DEFAULT_POLYGON_SIDES,
@@ -60,7 +61,7 @@ import { type ArrowDraw, ArrowPass } from './renderers/arrowPass'
 import { type InkDraw, InkPass } from './renderers/inkPass'
 import { ShapeBatch } from './renderers/shapeBatch'
 import type { SnapGuide } from './snapping'
-import { measureBaselineOffset, whenFontsReady } from './text/measure'
+import { fontReady, measureBaselineOffset, onFontLoaded, whenFontsReady } from './text/measure'
 import { FONT_STACKS } from './text/textStyle'
 import {
   BINDING_COLOR,
@@ -434,6 +435,11 @@ export type EngineHost = {
   readonly canWrite: boolean
   /** The local person's display name, stamped onto a sticky when one is created. */
   readonly authorName: string
+  /**
+   * The face new text on a free canvas is created in: this browser's preference. Stamped
+   * onto the object, so everybody else sees and measures the face it was written in.
+   */
+  readonly defaultFont?: FontFamily
   createObject(input: Partial<ObjectData> & { type: ObjectData['type'] }): string | null
   applyPatches(patches: { id: string; patch: Partial<ObjectData> }[]): void
   deleteObjects(ids: readonly string[]): void
@@ -724,6 +730,13 @@ export class CanvasEngine {
   private column: WritingColumn | null = null
   /** The measured first-baseline offset of `column`'s type. See `rulePhase`. */
   private columnBaseline = 0
+  /**
+   * The face a writing column is set in. Document state, like `pageLines`: every row
+   * on the page is set in it and the rules are phased to its baseline, so it has to be
+   * one value everybody agrees on rather than a reader's preference.
+   */
+  private columnFont: FontFamily = 'comic'
+  private stopFontListener: (() => void) | null = null
   /** How many rules this page has. Document state, so it arrives from the host. */
   private pageLines = DEFAULT_PAGE_LINES
   /**
@@ -822,6 +835,14 @@ export class CanvasEngine {
     this.textLayer.ink = this.canvasInk
     this.textLayer.columnType = this.surfaceType
 
+    // An optional face landed. Whatever skipped its measure waiting for it measures on
+    // the next frame, and a column set in it re-phases its rules to the real baseline.
+    this.stopFontListener = onFontLoaded(() => {
+      if (this.disposed) return
+      if (this.column !== null) this.measureColumn()
+      this.requestRender()
+    })
+
     this.world = new Container()
     this.batch = new ShapeBatch(MIN_BATCH_CAPACITY)
     this.arrows = new ArrowPass()
@@ -855,6 +876,8 @@ export class CanvasEngine {
 
   destroy(): void {
     this.disposed = true
+    this.stopFontListener?.()
+    this.stopFontListener = null
     this.resizeObserver?.disconnect()
     this.resizeObserver = null
     cancelAnimationFrame(this.frame)
@@ -1252,9 +1275,40 @@ export class CanvasEngine {
    */
   setColumn(column: WritingColumn | null): void {
     this.column = column
-    this.columnBaseline =
-      column === null ? 0 : measureBaselineOffset(this.columnProps(column), column.width)
+    this.columnBaseline = 0
+    this.measureColumn(false)
     this.applyFence()
+  }
+
+  /**
+   * The face the writing column is set in. Changing it re-measures the baseline the
+   * rules are phased to and restyles every row, and measures nothing until the face is
+   * loaded: a baseline or a row height taken from a fallback would be wrong on the page
+   * and, for the rows, wrong in the document.
+   */
+  setColumnFont(font: FontFamily): void {
+    if (font === this.columnFont) return
+    this.columnFont = font
+    this.measureColumn()
+  }
+
+  get writingFont(): FontFamily {
+    return this.columnFont
+  }
+
+  /** Phase the rules to the column's type, once its face can be measured. */
+  private measureColumn(redraw = true): void {
+    const column = this.column
+    if (column === null || !fontReady(this.columnFont)) return
+    this.columnBaseline = measureBaselineOffset(this.columnProps(column), column.width)
+    if (!redraw) return
+    this.lastGridKey = ''
+    this.syncGrid(this.lastTransform)
+    if (this.ready) {
+      this.textLayer.columnType = this.surfaceType
+      this.textLayer.invalidateAll()
+    }
+    this.requestRender()
   }
 
   /**
@@ -1356,7 +1410,12 @@ export class CanvasEngine {
   private get surfaceType(): SurfaceType | null {
     const column = this.column
     if (column === null) return null
-    return { fontSize: column.fontSize, lineHeight: column.lineHeight, padding: 0 }
+    return {
+      fontFamily: this.columnFont,
+      fontSize: column.fontSize,
+      lineHeight: column.lineHeight,
+      padding: 0,
+    }
   }
 
   /**
@@ -1386,6 +1445,7 @@ export class CanvasEngine {
    */
   private columnProps(column: WritingColumn): TextProps {
     return textProps.parse({
+      fontFamily: this.columnFont,
       fontSize: column.fontSize,
       lineHeight: column.lineHeight,
       padding: 0,
@@ -1697,6 +1757,37 @@ export class CanvasEngine {
     )
     this.host.commit()
     this.requestRender()
+  }
+
+  /**
+   * Set the face of the text being edited or selected.
+   *
+   * A free canvas only. On a writing column the face is the page's (`setColumnFont`),
+   * and a row's own `fontFamily` is overridden by it, so writing one here would change
+   * nothing anybody could see.
+   */
+  setTextFont(font: FontFamily): void {
+    if (this.column !== null) return
+    const targets = this.formatTargets()
+    if (targets.length === 0) return
+
+    this.host.applyPatches(targets.map((id) => ({ id, patch: { props: { fontFamily: font } } })))
+    this.host.commit()
+    this.requestRender()
+  }
+
+  /** The face the bar should show: the shared one, or null when they disagree. */
+  get textFont(): FontFamily | null {
+    if (this.column !== null) return this.columnFont
+    let font: FontFamily | null = null
+    for (const id of this.formatTargets()) {
+      const object = this.cache.get(id)
+      if (object === undefined) continue
+      const own = resolveTextProps(object).fontFamily
+      if (font === null) font = own
+      else if (font !== own) return null
+    }
+    return font
   }
 
   /** The size the bar should show: the shared one, or null when they disagree. */
@@ -2649,7 +2740,7 @@ export class CanvasEngine {
         this.connectorHost = next
         this.requestRender()
       },
-      createObject: (input) => this.host.createObject(input),
+      createObject: (input) => this.host.createObject(this.withDefaultFont(input)),
       applyPatches: (patches) => this.host.applyPatches(patches),
       setArrowPoints: (id, absolute) => this.host.setArrowPoints(id, absolute),
       bindArrow: (input) => this.host.bindArrow(input),
@@ -2673,6 +2764,22 @@ export class CanvasEngine {
       requestRender: () => this.requestRender(),
       setCursor: (cursor) => this.setCursor(cursor),
     }
+  }
+
+  /**
+   * New text on a free canvas takes this browser's chosen face, unless the tool already
+   * said which. Written into the object rather than resolved at render time, so the
+   * face is the document's from then on and every client measures the same one.
+   * The type's own default is left implicit, which keeps the document as it was for
+   * anyone who never changed the preference.
+   */
+  private withDefaultFont(
+    input: Partial<ObjectData> & { type: ObjectData['type'] },
+  ): Partial<ObjectData> & { type: ObjectData['type'] } {
+    const font = this.host.defaultFont
+    if (this.column !== null || font === undefined || font === 'comic') return input
+    if (!isTextBearing(input.type) || input.props?.fontFamily !== undefined) return input
+    return { ...input, props: { ...input.props, fontFamily: font } }
   }
 
   private visibleObjects(): ObjectData[] {
