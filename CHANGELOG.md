@@ -11,6 +11,19 @@ away getting there.
 
 ---
 
+## [1.13.1] - [15-Sep-2026]
+
+### Fixed
+- **The 1.13.0 deploy failed to build the API image.** The version bump left
+  `services/api/uv.lock` recording 1.12.0, and the Dockerfile's `uv sync --locked`
+  refuses a stale lockfile. The lockfile now carries the release version.
+- **The ChatGPT steps on `/connect/` and in `docs/mcp.md` were wrong.** ChatGPT adds a
+  custom server as a plugin, not a connector: turn on Developer mode under Security and
+  login, then Plugins, Browse plugins and the + beside the search bar, name it Meadow,
+  enter the server URL, keep OAuth, tick the notice and choose Connect.
+- The token steps on `/connect/` and in `docs/mcp.md` said to press New token; the
+  button is Create new access token.
+
 ## [1.13.0] - [15-Sep-2026]
 
 ### Added

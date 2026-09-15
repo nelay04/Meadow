@@ -10,8 +10,8 @@ arrive live, and the assistant appears among the wanderers while it works.
 
 ## 1. Create an access token
 
-In Meadow, open **Profile > Assistants and tokens**, press **New token**, name it after
-what will use it, and pick one of two kinds.
+In Meadow, open **Profile > Assistants and tokens**, press **Create new access token**, name
+it after what will use it, and pick one of two kinds.
 
 **Classic.** Everything your account can do, on every glade you can open, including
 creating and importing glades. Use it for your own agent on your own machine.
@@ -163,10 +163,12 @@ the glades it may open, with edit or delete on each, and turn on **Allow making 
 glades and leas** if it should make its own. It shows up under **Profile > Assistants and tokens**, in the "Connected by
 signing in" list, where **Change permissions** and **Revoke** work as for any other token.
 
-**ChatGPT** (Settings > Connectors > Create):
+**ChatGPT** (Settings > Security and login > **Developer mode** on, then Plugins >
+Browse plugins > **+** beside the search bar):
 
-1. Connection: Server URL, `https://meadow.example.com/mcp`
-2. Authentication: **OAuth**
+1. Name: Meadow
+2. Connection: **Server URL**, `https://meadow.example.com/mcp`
+3. Authentication: **OAuth**, tick the custom server notice, and choose **Connect**
 
 **claude.ai** (Settings > Connectors > Add custom connector):
 
