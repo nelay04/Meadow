@@ -11,6 +11,21 @@ away getting there.
 
 ---
 
+## [1.15.0] - [15-Sep-2026]
+
+### Added
+- **Poppins as a choice of app font.** Profile, Preferences has a new Font card offering
+  Comic Neue, still the default, or Poppins. The choice is per browser like the theme,
+  applies as soon as it is picked, reaches other open tabs, and is restored before the
+  first paint. It changes the whole app's chrome through a `--ui-font` variable switched
+  by `data-font` on the root; text objects on a board keep their own font, since that is
+  part of the document. Poppins is self-hosted like the other faces, added to
+  `scripts/fetch-fonts.mjs`, and served one step lighter than the CSS asks for: up to 550
+  renders Regular, 600 and 650 Medium, 700 SemiBold. The app's weights were set against
+  Comic Neue, which only has 400 and 700, and Poppins taken literally made every heading,
+  label and button a notch heavier. The split matches where Comic Neue's own split falls,
+  so both faces keep the same hierarchy. No 700 file ships.
+
 ## [1.14.0] - [15-Sep-2026]
 
 ### Added

@@ -25,6 +25,7 @@ import {
   readPaperPreference,
   writePaperPreference,
 } from '../../ui/paper'
+import { FONTS, FONT_EVENT, FONT_LABEL, type Font, applyFont, readFont } from '../../ui/font'
 import { THEME_EVENT, type Theme, applyTheme, readTheme } from '../../ui/theme'
 import { absoluteTime, relativeTime } from '../../ui/time'
 import { useConfirm } from '../../ui/ConfirmDialog'
@@ -133,6 +134,7 @@ export default function ProfilePage({ onBack, section }: Props) {
   // earlier session is the one shown as chosen here.
   const [theme, setTheme] = useState<Theme>(readTheme)
   const [paper, setPaper] = useState<Paper>(readPaperPreference)
+  const [font, setFont] = useState<Font>(readFont)
   const activeSection: SectionId = isSectionId(section) ? section : 'account'
 
   // On a narrow screen the index is a sideways-scrolling row, and the current tab can
@@ -154,10 +156,13 @@ export default function ProfilePage({ onBack, section }: Props) {
     const onPaper = (): void => setPaper(readPaperPreference())
     const onTheme = (): void => setTheme(readTheme())
     window.addEventListener(PAPER_EVENT, onPaper)
+    const onFont = (): void => setFont(readFont())
     window.addEventListener(THEME_EVENT, onTheme)
+    window.addEventListener(FONT_EVENT, onFont)
     return () => {
       window.removeEventListener(PAPER_EVENT, onPaper)
       window.removeEventListener(THEME_EVENT, onTheme)
+      window.removeEventListener(FONT_EVENT, onFont)
     }
   }, [])
 
@@ -817,6 +822,38 @@ export default function ProfilePage({ onBack, section }: Props) {
                       >
                         <choice.Icon size={20} />
                         <span>{choice.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+
+                {/*
+          The face the app is set in. Each choice is written in its own font, so the
+          button is its own preview. Board text keeps the font it was given.
+        */}
+                <section className="card">
+                  <h3>Font</h3>
+                  <p className="hint">
+                    The typeface for menus, pages and panels across Meadow, in this browser only.
+                    Text on your boards keeps its own font.
+                  </p>
+                  <div className="theme-choices" role="radiogroup" aria-label="Font">
+                    {FONTS.map((choice) => (
+                      <button
+                        key={choice}
+                        type="button"
+                        role="radio"
+                        aria-checked={font === choice}
+                        className={font === choice ? 'theme-choice active' : 'theme-choice'}
+                        onClick={() => {
+                          setFont(choice)
+                          applyFont(choice)
+                        }}
+                      >
+                        <span className="font-sample" data-font={choice} aria-hidden="true">
+                          Aa
+                        </span>
+                        <span>{FONT_LABEL[choice]}</span>
                       </button>
                     ))}
                   </div>

@@ -19,6 +19,17 @@
 :root {
   color-scheme: light dark;
 
+  /* The chrome's face. Comic Neue unless this browser chose another in Preferences,
+     which sets `data-font` on the root (ui/font.ts). Board text is not affected: a
+     text object carries its own font, and that is part of the document. */
+  --ui-font:
+    'Comic Neue',
+    'Noto Sans Bengali', 'Noto Sans Devanagari', 'Noto Sans Gujarati', 'Noto Sans Gurmukhi', 'Noto Sans Kannada', 'Noto Sans Malayalam', 'Noto Sans Oriya', 'Noto Sans Tamil', 'Noto Sans Telugu',
+    'Comic Sans MS',
+    ui-rounded,
+    system-ui,
+    sans-serif;
+
   /* Surfaces, back to front. */
   --bg: light-dark(#f4f1ec, #0f1318);
   --surface: light-dark(#fffefc, #171c23);
@@ -222,6 +233,15 @@ body {
   background: transparent;
 }
 
+:root[data-font='poppins'] {
+  --ui-font:
+    'Poppins',
+    'Noto Sans Bengali', 'Noto Sans Devanagari', 'Noto Sans Gujarati', 'Noto Sans Gurmukhi', 'Noto Sans Kannada', 'Noto Sans Malayalam', 'Noto Sans Oriya', 'Noto Sans Tamil', 'Noto Sans Telugu',
+    ui-sans-serif,
+    system-ui,
+    sans-serif;
+}
+
 body {
   /*
    * No faked bold, anywhere.
@@ -236,13 +256,7 @@ body {
 
   /* Comic Neue throughout the chrome. It is the app's voice, and a whiteboard that
      writes in a grotesque and draws in a handwriting face reads as two products. */
-  font-family:
-    'Comic Neue',
-    'Noto Sans Bengali', 'Noto Sans Devanagari', 'Noto Sans Gujarati', 'Noto Sans Gurmukhi', 'Noto Sans Kannada', 'Noto Sans Malayalam', 'Noto Sans Oriya', 'Noto Sans Tamil', 'Noto Sans Telugu',
-    'Comic Sans MS',
-    ui-rounded,
-    system-ui,
-    sans-serif;
+  font-family: var(--ui-font);
   font-size: 15px;
   margin: 0;
   padding: 0;
@@ -984,6 +998,22 @@ label {
  * colour says none of that. The vintage swatch is the page's own kraft, so the choice
  * you make here is the colour you get.
  */
+/* The Font choices, each "Aa" set in the face it picks whatever the page is set in. */
+.font-sample {
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.font-sample[data-font='comic'] {
+  font-family: 'Comic Neue', 'Comic Sans MS', ui-rounded, sans-serif;
+  font-weight: 700;
+}
+
+.font-sample[data-font='poppins'] {
+  font-family: 'Poppins', ui-sans-serif, system-ui, sans-serif;
+}
+
 .paper-swatch {
   width: 2.2rem;
   height: 1.5rem;

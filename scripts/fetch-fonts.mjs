@@ -45,6 +45,28 @@ const FAMILIES = [
   { query: 'Inter:wght@100..900', slug: 'inter' },
   { query: 'JetBrains+Mono:wght@100..800', slug: 'jetbrains-mono' },
   { query: 'Comic+Neue:wght@400;700', slug: 'comic-neue' },
+  // The optional UI face, chosen per browser in Preferences. Static weights only: Poppins
+  // has no variable build. `weightRanges` serves each file for a band of requested
+  // weights; the reason is in the note that ships in the generated CSS.
+  {
+    query: 'Poppins:wght@400;500;600',
+    slug: 'poppins',
+    weightRanges: { 400: '1 550', 500: '551 650', 600: '651 1000' },
+    note: [
+      '/*',
+      ' * Poppins, the optional chrome face (ui/font.ts), served one step lighter than asked.',
+      ' *',
+      ' * The weights in styles.css were set against Comic Neue, which has only 400 and 700:',
+      ' * a 500 there renders regular and a 600 renders bold, so the chrome has two weights',
+      ' * whatever the numbers say. Poppins has every step, and its geometric shapes read',
+      ' * darker than Comic Neue at the same number, so taken literally every 600 and 700',
+      ' * was a notch heavier than the page was designed at. Each file is declared for a',
+      ' * band instead: up to 550 gets Regular, 600 and 650 get Medium, 700 and up gets',
+      ' * SemiBold. The split sits where Comic Neue splits, so the hierarchy is the same in',
+      ' * both faces, and no 700 file is shipped because nothing asks for it.',
+      ' */',
+    ].join('\n'),
+  },
   {
     query: 'Noto+Sans+Bengali:wght@100..900',
     slug: 'noto-sans-bengali',
@@ -133,7 +155,7 @@ await mkdir(outDir, { recursive: true })
 const rules = []
 let downloaded = 0
 
-for (const { query, slug, subsets, instances, sizeAdjust, note } of FAMILIES) {
+for (const { query, slug, subsets, instances, weightRanges, sizeAdjust, note } of FAMILIES) {
   const response = await fetch(`https://fonts.googleapis.com/css2?family=${query}&display=block`, {
     headers: { 'user-agent': UA },
   })
@@ -142,7 +164,7 @@ for (const { query, slug, subsets, instances, sizeAdjust, note } of FAMILIES) {
   const faces = parseFaces(await response.text(), subsets ?? SUBSETS)
   if (faces.length === 0) throw new Error(`${query}: no matching subsets in the response`)
 
-  for (const face of faces) {
+  for (const [index, face] of faces.entries()) {
     // Weight ranges arrive as "100 900"; flatten so the name is filesystem-safe.
     const suffix = face.weight.replace(/\s+/g, '-')
     const name = `${slug}-${suffix}-${face.subset}.woff2`
@@ -156,12 +178,13 @@ for (const { query, slug, subsets, instances, sizeAdjust, note } of FAMILIES) {
     console.log(`${name}  ${(bytes.length / 1024).toFixed(1)}KB`)
 
     // One face per pinned instance, or one at the weight the file declares.
-    const weights = instances ?? [face.weight]
+    // Or, for a static family that remaps, the band this file answers for.
+    const weights = instances ?? [weightRanges?.[face.weight] ?? face.weight]
     weights.forEach((weight, position) => {
       rules.push(
         [
-          // The note explains the whole family, so it goes above the first face only.
-          ...(note !== undefined && position === 0 ? [note] : []),
+          // The note explains the whole family, so it goes above its first face only.
+          ...(note !== undefined && index === 0 && position === 0 ? [note] : []),
           '@font-face {',
           `  font-family: '${face.family}';`,
           `  font-style: ${face.style};`,

@@ -139,6 +139,11 @@ while it sits idle. The list updates itself as sessions come and go. A session t
 yours stays yours: closing a tab mid-refresh or losing the connection does not sign you
 out.
 
+Preferences, under `#/profile/preferences`, set how Meadow looks in this browser: the
+theme, the diary paper, and the font the whole app is set in. The font is Comic Neue by
+default, with Poppins as the alternative; switching it changes every page, menu and panel
+at once. Text on your boards keeps its own font, so a board looks the same to everyone.
+
 ---
 
 ## Your boards
@@ -239,7 +244,7 @@ than the server talking to itself, and it kills the server process mid-run to pr
 state comes back from the database rather than from memory. The answer was yes, so the
 stack stayed.
 
-v1 is deployed and live at [meadow.creara.in](https://meadow.creara.in); the current release is `1.14.0`.
+v1 is deployed and live at [meadow.creara.in](https://meadow.creara.in); the current release is `1.15.0`.
 Delivery record, including the work that was thrown away and why: [`CHANGELOG.md`](CHANGELOG.md).
 
 ---
