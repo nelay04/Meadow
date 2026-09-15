@@ -655,27 +655,117 @@ label {
   box-shadow: var(--shadow-lg);
 }
 
-/* The consent screen holds a glade picker, which needs more room than a login form. */
+/* The consent screen holds the same numbered steps as the profile's new-token form, so
+   it gets that form's width rather than a login form's. */
 .auth-card.connect-card {
-  max-width: 34rem;
+  max-width: 42rem;
+  padding: 1.75rem 2rem 1.5rem;
+}
+
+.connect-head {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  margin-top: 1.5rem;
+}
+
+/* The assistant's initial. Neutral on purpose: a logo it supplied would lend an
+   unverified name exactly the credibility the line beside it withholds. */
+.connect-avatar {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 3rem;
+  height: 3rem;
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 1.3rem;
+  font-weight: 700;
+}
+
+.connect-head-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.connect-title {
+  font-size: 1.2rem;
+  overflow-wrap: anywhere;
 }
 
 .connect-identity {
-  margin: 0.4rem 0 0.75rem;
-  font-size: 0.85rem;
-  color: var(--muted);
-}
-
-.connect-identity.verified {
-  color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, #b7791f 16%, transparent);
+  color: light-dark(#a8691a, #e0a458);
+  font-size: 0.76rem;
   font-weight: 600;
 }
 
-.connect-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.5rem;
-  margin-top: 1.25rem;
+.connect-identity.verified {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* Who, where to, and how to undo it: the three things to settle before ticking anything. */
+.connect-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.6rem 1rem;
+  margin: 1.1rem 0 0;
+  padding: 0.8rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.connect-facts dt {
+  color: var(--faint);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.connect-facts dd {
+  margin: 0.15rem 0 0;
+  color: var(--fg);
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
+.connect-card .hint {
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.45;
+  margin-top: 0.35rem;
+}
+
+.connect-steps {
+  margin-top: 0.6rem;
+}
+
+@media (max-width: 40rem) {
+  .auth-card.connect-card {
+    padding: 1.25rem 1rem;
+  }
+
+  .connect-head {
+    align-items: flex-start;
+  }
+
+  .connect-avatar {
+    width: 2.5rem;
+    height: 2.5rem;
+    font-size: 1.1rem;
+  }
 }
 
 .brand {

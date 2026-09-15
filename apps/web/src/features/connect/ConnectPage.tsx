@@ -14,8 +14,10 @@ import * as api from '../../lib/api'
 import { ApiError } from '../../lib/api'
 import type { Board, ConnectRequest } from '../../lib/api'
 import { Wordmark } from '../../ui/Brand'
+import { IconAlert, IconCheck } from '../../ui/icons'
 import { ThemeToggle } from '../../ui/ThemeToggle'
 import { useToast } from '../../ui/Toaster'
+import { useAuth } from '../auth/AuthContext'
 import { CreateToggle, GladePicker, toInput } from '../profile/AccessTokensCard'
 import type { Grants } from '../profile/AccessTokensCard'
 
@@ -26,6 +28,7 @@ type Props = {
 
 export default function ConnectPage({ requestId, onDone }: Props) {
   const toast = useToast()
+  const { user } = useAuth()
   const [request, setRequest] = useState<ConnectRequest | null>(null)
   const [missing, setMissing] = useState(false)
   const [boards, setBoards] = useState<Board[] | null>(null)
@@ -95,8 +98,8 @@ export default function ConnectPage({ requestId, onDone }: Props) {
           <>
             <h1 className="join-title">This request has expired</h1>
             <p className="join-body">
-              A request to connect lasts ten minutes and can be answered once. Start
-              connecting again from the assistant.
+              A request to connect lasts ten minutes and can be answered once. Start connecting
+              again from the assistant.
             </p>
             <button type="button" className="primary" onClick={onDone}>
               Go to Meadow
@@ -108,38 +111,104 @@ export default function ConnectPage({ requestId, onDone }: Props) {
 
         {!missing && request !== null && (
           <>
-            <h1 className="join-title">{request.client_name} wants to use Meadow as you</h1>
-            <p className={request.client_host === null ? 'connect-identity' : 'connect-identity verified'}>
-              {request.client_host === null
-                ? 'Meadow cannot confirm who this is. The name is what the assistant called itself.'
-                : `Verified as ${request.client_host}`}
-            </p>
-            <p className="join-body">
-              It gets a token that reaches only what you pick below, and never more than you
-              can do yourself. The answer goes to <strong>{request.redirect_host}</strong>.
-              You can change or revoke it later under Profile, Assistants and tokens.
-            </p>
+            {/*
+              Laid out like the form for a new token on the profile page, because it is
+              one: who is asking and where the answer goes, then the same numbered steps,
+              then the decision. Seeing it twice in the same shape is what lets somebody
+              recognise the token later in their list.
+            */}
+            <div className="connect-head">
+              <span className="connect-avatar" aria-hidden="true">
+                {request.client_name.trim().charAt(0).toUpperCase() || '?'}
+              </span>
+              <div className="connect-head-text">
+                <h1 className="connect-title">{request.client_name} wants to use Meadow as you</h1>
+                <span
+                  className={
+                    request.client_host === null ? 'connect-identity' : 'connect-identity verified'
+                  }
+                >
+                  {request.client_host === null ? <IconAlert size={14} /> : <IconCheck size={14} />}
+                  {request.client_host === null
+                    ? 'Unverified: the name is what the assistant called itself'
+                    : `Verified as ${request.client_host}`}
+                </span>
+              </div>
+            </div>
 
-            <GladePicker boards={boards} grants={grants} onChange={setGrants} />
-            <CreateToggle on={mayCreate} onChange={setMayCreate} />
+            <dl className="connect-facts">
+              <div>
+                <dt>Signed in as</dt>
+                <dd>{user?.email ?? 'You'}</dd>
+              </div>
+              <div>
+                <dt>Answer goes to</dt>
+                <dd>
+                  <strong>{request.redirect_host}</strong>
+                </dd>
+              </div>
+              <div>
+                <dt>Revoke any time</dt>
+                <dd>Profile, Assistants and tokens</dd>
+              </div>
+            </dl>
 
-            <div className="connect-actions">
-              <button
-                type="button"
-                className="ghost"
-                disabled={busy}
-                onClick={() => void answer(false)}
-              >
-                Deny
-              </button>
-              <button
-                type="button"
-                className="primary"
-                disabled={!canApprove}
-                onClick={() => void answer(true)}
-              >
-                {busy ? 'Connecting...' : 'Allow'}
-              </button>
+            <div className="token-compose connect-steps">
+              <div className="token-step">
+                <span className="token-step-num" aria-hidden="true">
+                  1
+                </span>
+                <div className="token-step-body">
+                  <h5>Access</h5>
+                  <p className="hint">
+                    Tick what it may open, and what it may do on each. It can never do more than you
+                    can yourself.
+                  </p>
+                  <GladePicker boards={boards} grants={grants} onChange={setGrants} />
+                </div>
+              </div>
+
+              <div className="token-step">
+                <span className="token-step-num" aria-hidden="true">
+                  2
+                </span>
+                <div className="token-step-body">
+                  <h5>New glades and leas</h5>
+                  <CreateToggle on={mayCreate} onChange={setMayCreate} />
+                </div>
+              </div>
+
+              <div className="token-step">
+                <span className="token-step-num" aria-hidden="true">
+                  3
+                </span>
+                <div className="token-step-body">
+                  <h5>How long</h5>
+                  <p className="hint">
+                    It stays connected and renews itself until you revoke it, or until it goes a
+                    month without being used.
+                  </p>
+                </div>
+              </div>
+
+              <div className="token-compose-actions">
+                <button
+                  type="button"
+                  className="ghost"
+                  disabled={busy}
+                  onClick={() => void answer(false)}
+                >
+                  Deny
+                </button>
+                <button
+                  type="button"
+                  className="primary"
+                  disabled={!canApprove}
+                  onClick={() => void answer(true)}
+                >
+                  {busy ? 'Connecting...' : 'Allow access'}
+                </button>
+              </div>
             </div>
           </>
         )}

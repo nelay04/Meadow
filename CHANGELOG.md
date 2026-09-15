@@ -46,6 +46,12 @@ away getting there.
   switch, "Allow making new glades and leas", that says what it allows when on and what
   the token is limited to when off. The same switch is on the assistant consent screen.
 
+- **The assistant consent screen matches the new-token form.** The assistant's initial
+  and name lead, with a verified or unverified badge; a panel says which account you are
+  signed in as, where the answer goes and where to revoke it; then numbered steps for
+  access, new glades and leas, and how long it lasts, over Deny and Allow access. The
+  connect page and the FAQ now say Allow access.
+
 ### Fixed
 - The sign-in list on the profile page sat indented from the rest of its card.
 - The connect page, the FAQ, `docs/mcp.md` and the consent screen now point to
