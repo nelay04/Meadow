@@ -26,11 +26,25 @@ away getting there.
   layout with the menu beside the open section. Each section has a heading and a line on
   what it covers, Log out sits in Sign-in and security, and small cards (display name
   and picture, appearance and diary paper) sit side by side where there is room.
-- **Access tokens are split into smaller parts.** The form for a new token is folded
-  behind a New token button and, once opened, asks one numbered question at a time:
-  name, kind, access, expiry. The list is split into personal tokens and tokens handed
-  out by signing in, and each token is a tile with its prefix, reach, last use and expiry
-  as labelled facts, and the glades it reaches as chips.
+- **Access tokens are two cards.** Your tokens come first, split into personal tokens
+  and tokens handed out by signing in, each a tile with its prefix, reach, last use and
+  expiry as labelled facts, and what it reaches as chips. A second card creates a token:
+  its steps stay folded until Create new access token is pressed, then ask one numbered
+  question at a time, name, kind, access and expiry, with Cancel folding them away again.
+- **Token expiry offers 7, 30 or 90 days, a custom date, or never.** Each preset shows
+  the date it lands on, a custom date is picked on a calendar between tomorrow and 366
+  days out, and choosing never says what that means. The one-year preset is gone, since
+  a custom date covers it. The connect page lists the new choices. A custom date is counted in days again when the
+  token is created, so a form left open past midnight does not expire a day late, and
+  tests pin that 7, 30, 90, a custom count, 1 and 366 days set the expiry that many days
+  out while 0 and 367 are refused.
+- **Glades and leas are told apart in token access.** The picker, a token's chips and
+  its reach say Glade or Lea with the kind's mark, and counts read "1 glade, 2 leas"
+  where every board used to be called a glade.
+- **The create permission is a clear switch.** The small "Create glades" pill, with a
+  line saying the token "can only work on the glades listed above", is now a full-width
+  switch, "Allow making new glades and leas", that says what it allows when on and what
+  the token is limited to when off. The same switch is on the assistant consent screen.
 
 ### Fixed
 - The sign-in list on the profile page sat indented from the rest of its card.

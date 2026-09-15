@@ -25,6 +25,7 @@ The rules these pin down:
 import asyncio
 import time
 import uuid
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import asyncpg
@@ -696,6 +697,33 @@ def test_a_revoked_token_is_refused_everywhere(client: TestClient, owner: Actor)
     assert denied.status_code == 401
     assert expect_close(client, board_id, ws) == WS_UNAUTHORIZED
     assert client.get("/api/v1/tokens", headers=owner.auth).json() == []
+
+
+@pytest.mark.parametrize("days", [7, 30, 90, 45, 1, 366])
+def test_a_lifetime_sets_expiry_that_many_days_out(
+    client: TestClient, owner: Actor, days: int
+) -> None:
+    """The presets and a custom date on the profile page all arrive as a day count."""
+    before = datetime.now(UTC)
+    created = _classic(client, owner, expires_in_days=days)
+    after = datetime.now(UTC)
+
+    expires_at = datetime.fromisoformat(created["expires_at"])
+    assert before + timedelta(days=days) <= expires_at <= after + timedelta(days=days)
+    listed = client.get("/api/v1/tokens", headers=owner.auth).json()
+    assert datetime.fromisoformat(listed[0]["expires_at"]) == expires_at
+
+
+@pytest.mark.parametrize("days", [0, -1, 367])
+def test_a_lifetime_outside_a_day_to_a_year_is_refused(
+    client: TestClient, owner: Actor, days: int
+) -> None:
+    response = client.post(
+        "/api/v1/tokens",
+        headers=owner.auth,
+        json={"name": "out of range", "kind": "classic", "expires_in_days": days},
+    )
+    assert response.status_code == 422, response.text
 
 
 def test_an_expired_token_is_refused(client: TestClient, owner: Actor) -> None:

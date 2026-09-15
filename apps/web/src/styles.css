@@ -1081,18 +1081,6 @@ label {
   font-weight: 700;
 }
 
-/* A card's title and blurb on the left, its one main action on the right. */
-.card-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
-.card-head-action {
-  flex: 0 0 auto;
-  gap: 0.4rem;
-}
 
 .profile .hint {
   color: var(--muted);
@@ -1351,18 +1339,24 @@ label {
   gap: 0.35rem;
 }
 
-.token-compose {
-  margin-top: 1.1rem;
-  padding: 1.1rem 1.2rem 1rem;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  background: var(--surface-2);
+/* The create card's title on the left and, while the steps are folded, the button that
+   opens them on the right. */
+.token-create-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+  flex-wrap: wrap;
 }
 
-.token-compose-title h4 {
-  margin: 0 0 0.4rem;
-  font-size: 0.92rem;
-  color: var(--fg-strong);
+.token-create-head button {
+  flex: 0 0 auto;
+  gap: 0.4rem;
+}
+
+/* Flat inside its own card now that the form has one, rather than a box in a box. */
+.token-compose {
+  margin-top: 0.9rem;
 }
 
 /* A number in a circle, and a thin rule down to the next one, so the four questions
@@ -1375,13 +1369,16 @@ label {
   padding: 0.75rem 0;
 }
 
-.token-step + .token-step::before {
+/* The line from one number down to the next. Drawn by the step that has a next one,
+   from under its own number to the bottom of the step and on through the next step's
+   top padding, so it meets that number however tall this step has grown. */
+.token-step:has(+ .token-step)::after {
   content: '';
   position: absolute;
   left: calc(0.875rem - 0.5px);
-  top: -0.9rem;
-  height: 1.5rem;
-  border-left: 1px solid var(--line);
+  top: 2.5rem;
+  bottom: -0.75rem;
+  border-left: 1px solid var(--edge);
 }
 
 .token-step-num {
@@ -1427,7 +1424,7 @@ label {
   padding: 0.7rem 0.85rem;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: var(--surface);
+  background: var(--surface-2);
   text-align: left;
   white-space: normal;
 }
@@ -1464,6 +1461,38 @@ label {
 .token-lifetimes .grant-toggle {
   padding: 0.3rem 0.8rem;
   font-size: 0.8rem;
+}
+
+/* The date each preset lands on, quieter than the preset itself. */
+.token-lifetime-date {
+  margin-left: 0.3rem;
+  font-weight: 500;
+  opacity: 0.75;
+}
+
+.token-custom-expiry {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  margin-top: 0.6rem;
+}
+
+.token-custom-expiry input {
+  width: auto;
+  color-scheme: light dark;
+}
+
+.token-custom-expiry .hint {
+  margin: 0;
+}
+
+.profile .token-expiry-error {
+  color: var(--danger);
+}
+
+.profile .token-expiry-warning {
+  margin-top: 0.55rem;
 }
 
 .token-compose-actions {
@@ -1520,18 +1549,39 @@ label {
   background: var(--surface-2);
 }
 
-.token-compose .grant-row {
-  background: var(--surface);
-}
 
 .grant-row.on {
   border-color: var(--accent);
 }
 
 .grant-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   font-size: 0.85rem;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+/* Glade or lea, as a mark and a word. Two tints, so a mixed list sorts itself by eye;
+   the word is there too, because colour alone would be a key to learn. */
+.kind-mark {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 0.25rem;
+  padding: 0.05rem 0.45rem 0.05rem 0.35rem;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.kind-mark-lea {
+  background: color-mix(in srgb, #b7791f 16%, transparent);
+  color: light-dark(#a8691a, #e0a458);
 }
 
 .grant-toggles {
@@ -1558,20 +1608,79 @@ label {
   color: var(--accent-ink);
 }
 
-/* The create permission, below the glade list: it is about glades that do not exist
-   yet, so it sits outside the rows rather than becoming a fourth toggle in them. */
+/* The create permission, below the list: it is about glades that do not exist yet, so
+   it is a switch of its own rather than a fourth toggle on every row. A whole-row switch
+   with a sentence, because the small pill it replaced was easy to miss and did not say
+   what turning it on would do. */
 .token-create {
   display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 0.75rem;
+  width: 100%;
   margin-top: 0.6rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--fg);
+  text-align: left;
+  white-space: normal;
 }
 
-.token-create .hint {
-  margin: 0;
-  flex: 1 1 12rem;
+.token-create.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.switch-track {
+  position: relative;
+  flex: 0 0 auto;
+  width: 2.2rem;
+  height: 1.25rem;
+  margin-top: 0.1rem;
+  border-radius: 999px;
+  background: var(--edge);
+  transition: background 0.15s ease;
+}
+
+.switch-thumb {
+  position: absolute;
+  top: 0.15rem;
+  left: 0.15rem;
+  width: 0.95rem;
+  height: 0.95rem;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.3);
+  transition: transform 0.15s ease;
+}
+
+.token-create.on .switch-track {
+  background: var(--accent);
+}
+
+.token-create.on .switch-thumb {
+  transform: translateX(0.95rem);
+}
+
+.token-create-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
   min-width: 0;
+}
+
+.token-create-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--fg-strong);
+}
+
+.token-create-hint {
+  font-size: 0.78rem;
+  font-weight: 400;
+  color: var(--muted);
 }
 
 .token-empty {
@@ -1593,6 +1702,10 @@ label {
 
 .token-group {
   margin-top: 1.4rem;
+}
+
+.token-group:first-of-type {
+  margin-top: 1.1rem;
 }
 
 .token-group-title {
@@ -1725,7 +1838,10 @@ label {
 }
 
 .token-grant {
-  padding: 0.12rem 0.5rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.12rem 0.5rem 0.12rem 0.2rem;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: var(--surface);
@@ -1807,10 +1923,6 @@ label {
     padding: 1.1rem;
   }
 
-  .card-head {
-    flex-direction: column;
-  }
-
   /* The button drops under the text rather than squeezing it: a user agent label is
      the longest string on this page and it must not be truncated to keep a button
      on the same line. */
@@ -1855,8 +1967,9 @@ label {
     font-size: 0.7rem;
   }
 
-  .token-step + .token-step::before {
+  .token-step:has(+ .token-step)::after {
     left: calc(0.7rem - 0.5px);
+    top: 2.15rem;
   }
 }
 

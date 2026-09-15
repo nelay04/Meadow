@@ -27,8 +27,8 @@ creating and importing glades. Use it for your own agent on your own machine.
 For example, with glades A to E you might choose A, C and D: view and edit on A, view only
 on D, view and delete on C. B and E do not exist for that token.
 
-**Create glades** is the one permission that is not about a particular glade, so it sits
-below the list rather than in it. With it on, the token can make new glades and import
+**Allow making new glades and leas** is the one permission that is not about a
+particular glade, so it is a switch below the list rather than a toggle in it. With it on, the token can make new glades and import
 them, and each glade it makes is added to its own list with view, edit and delete, so it
 can go on working with what it just made. Nothing else it can reach changes. A token with
 create on and no glades at all is a useful shape: an assistant that can only ever touch
@@ -159,8 +159,8 @@ the assistant sends you to Meadow, you sign in and pick what it may reach, and i
 connected. No token to copy.
 
 What you pick on that screen is a fine-grained token, starting with nothing chosen: tick
-the glades it may open, with edit or delete on each, and **Create glades** if it should
-make its own. It shows up under **Profile > Assistants and tokens**, in the "Connected by
+the glades it may open, with edit or delete on each, and turn on **Allow making new
+glades and leas** if it should make its own. It shows up under **Profile > Assistants and tokens**, in the "Connected by
 signing in" list, where **Change permissions** and **Revoke** work as for any other token.
 
 **ChatGPT** (Settings > Connectors > Create):
