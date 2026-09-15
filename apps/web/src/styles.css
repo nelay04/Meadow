@@ -974,31 +974,124 @@ label {
   flex: 1;
 }
 
-.profile-body {
+/* A menu down the left and the one group it has open beside it. The single 42rem column this
+   replaced left most of a laptop screen empty on both sides, and gave no way to get from
+   the top of a long page to the tokens without scrolling past everything else. */
+.profile-layout {
   width: 100%;
-  max-width: 42rem;
+  max-width: 72rem;
   margin: 0 auto;
-  padding: 2rem 1.25rem 4rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1.1rem;
+  padding: 2rem 1.5rem 4rem;
+  display: grid;
+  grid-template-columns: 14rem minmax(0, 1fr);
+  gap: 2.5rem;
+  align-items: start;
 }
 
-.profile-body h1 {
+.profile-nav {
+  position: sticky;
+  top: 1.5rem;
+}
+
+.profile-nav h1 {
   font-size: 1.5rem;
-  margin-bottom: 0.2rem;
+  margin: 0 0 1rem 0.6rem;
+}
+
+.profile-nav ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.profile-nav-item {
+  width: 100%;
+  justify-content: flex-start;
+  gap: 0.6rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 500;
+  text-align: left;
+}
+
+.profile-nav-item:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--fg-strong);
+}
+
+.profile-nav-item.active,
+.profile-nav-item.active:hover:not(:disabled) {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.profile-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2.75rem;
+}
+
+/* One subject per group: a heading and a line on what it covers, then its cards. */
+.profile-group {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.profile-group-head {
+  padding: 0 0.25rem 0.6rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.profile-group-head h2 {
+  font-size: 1.15rem;
+}
+
+.profile-group-head p {
+  margin: 0.25rem 0 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+/* Two small cards side by side where there is room, instead of two thin strips. */
+.profile-pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+  gap: 1rem;
 }
 
 .profile .card {
-  padding: 1.25rem;
+  padding: 1.35rem 1.5rem;
   border: 1px solid var(--line);
   border-radius: var(--radius-xl);
   background: var(--surface);
 }
 
-.profile .card h2 {
-  font-size: 0.95rem;
+.profile .card h3 {
+  font-size: 0.98rem;
   font-weight: 700;
+}
+
+/* A card's title and blurb on the left, its one main action on the right. */
+.card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.card-head-action {
+  flex: 0 0 auto;
+  gap: 0.4rem;
 }
 
 .profile .hint {
@@ -1069,6 +1162,7 @@ label {
 
 .signin-list {
   list-style: none;
+  padding: 0;
   display: flex;
   flex-direction: column;
   gap: 0.8rem;
@@ -1098,7 +1192,7 @@ label {
   gap: 1rem;
 }
 
-.profile-signout-text h2 {
+.profile-signout-text h3 {
   margin: 0;
 }
 
@@ -1222,34 +1316,169 @@ label {
   font-size: 0.75rem;
 }
 
-/* Access tokens. The two option rows are the same segmented radios the appearance card
-   uses, shorter, because they sit under a form rather than being the whole card. */
-.token-options {
+/* Access tokens.
+ *
+ * Split into what exists and what is being made. The list of tokens is the card; the
+ * form for a new one is a numbered panel that opens on demand, one question per step,
+ * so the card no longer opens on a wall of options.
+ */
+.token-created {
+  margin-top: 1.1rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  font-size: 0.85rem;
+}
+
+.token-secret {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.token-secret code {
+  flex: 1;
+  min-width: 0;
+  padding: 0.45rem 0.6rem;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.token-secret button {
+  flex: 0 0 auto;
+  gap: 0.35rem;
+}
+
+.token-compose {
+  margin-top: 1.1rem;
+  padding: 1.1rem 1.2rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface-2);
+}
+
+.token-compose-title h4 {
+  margin: 0 0 0.4rem;
+  font-size: 0.92rem;
+  color: var(--fg-strong);
+}
+
+/* A number in a circle, and a thin rule down to the next one, so the four questions
+   read as a sequence rather than as four unrelated controls. */
+.token-step {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1.75rem minmax(0, 1fr);
+  gap: 0.9rem;
+  padding: 0.75rem 0;
+}
+
+.token-step + .token-step::before {
+  content: '';
+  position: absolute;
+  left: calc(0.875rem - 0.5px);
+  top: -0.9rem;
+  height: 1.5rem;
+  border-left: 1px solid var(--line);
+}
+
+.token-step-num {
+  display: grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.token-step-body h5 {
+  margin: 0.2rem 0 0;
+  font-size: 0.88rem;
+  font-weight: 650;
+  color: var(--fg-strong);
+}
+
+.token-step-body > .hint {
+  margin-top: 0.15rem;
+}
+
+.token-step-body > input {
+  width: 100%;
+  margin-top: 0.55rem;
+}
+
+.token-kinds {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.55rem;
+}
+
+.token-kind-choice {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  text-align: left;
+  white-space: normal;
+}
+
+.token-kind-choice.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.token-kind-label {
+  font-size: 0.86rem;
+  font-weight: 650;
+  color: var(--fg-strong);
+}
+
+.token-kind-choice.active .token-kind-label {
+  color: var(--accent);
+}
+
+.token-kind-hint {
+  font-size: 0.76rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.token-lifetimes {
   display: flex;
   flex-wrap: wrap;
-  gap: 0 1rem;
+  gap: 0.35rem;
+  margin-top: 0.55rem;
 }
 
-.token-options .theme-choices {
-  flex: 1 1 14rem;
-  margin-top: 0.6rem;
+.token-lifetimes .grant-toggle {
+  padding: 0.3rem 0.8rem;
+  font-size: 0.8rem;
 }
 
-.token-options .theme-choice {
-  padding: 0.45rem 0.5rem;
-}
-
-/* The two kinds carry a line saying what each means, because "classic" alone does not. */
-.token-kind-hint {
-  font-size: 0.72rem;
-  font-weight: 500;
-  color: var(--faint);
+.token-compose-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--line);
 }
 
 /* Fine-grained grants: a row per glade, three toggles per row. Scrolls rather than
    pushing the page when somebody has a lot of glades. */
 .grant-picker {
-  margin-top: 0.8rem;
+  margin-top: 0.55rem;
 }
 
 .grant-picker-head {
@@ -1291,6 +1520,10 @@ label {
   background: var(--surface-2);
 }
 
+.token-compose .grant-row {
+  background: var(--surface);
+}
+
 .grant-row.on {
   border-color: var(--accent);
 }
@@ -1325,41 +1558,6 @@ label {
   color: var(--accent-ink);
 }
 
-/* The kind choices carry a sentence each, so they have to be allowed to wrap. */
-.token-options .theme-choice {
-  min-width: 0;
-  white-space: normal;
-  text-align: center;
-}
-
-.token-row {
-  flex-wrap: wrap;
-}
-
-.token-kind {
-  padding: 0.05rem 0.45rem;
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  font-size: 0.68rem;
-  font-weight: 600;
-  color: var(--muted);
-}
-
-.token-grants {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-  margin-top: 0.3rem;
-}
-
-.token-grant {
-  padding: 0.05rem 0.45rem;
-  border-radius: 0.35rem;
-  background: var(--surface);
-  font-size: 0.72rem;
-  color: var(--muted);
-}
-
 /* The create permission, below the glade list: it is about glades that do not exist
    yet, so it sits outside the rows rather than becoming a fourth toggle in them. */
 .token-create {
@@ -1376,14 +1574,174 @@ label {
   min-width: 0;
 }
 
+.token-empty {
+  margin-top: 1rem;
+}
+
+.token-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 1.1rem;
+  padding: 1.6rem 1rem;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-lg);
+  color: var(--faint);
+  text-align: center;
+}
+
+.token-group {
+  margin-top: 1.4rem;
+}
+
+.token-group-title {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.token-group > .hint {
+  margin-top: 0.15rem;
+}
+
+.token-count {
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 0.7rem;
+  letter-spacing: 0;
+}
+
+.token-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.6rem 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+/* One token per tile: name and actions on top, four labelled facts in a row beneath,
+   then the glades it reaches. The facts were one dotted run of six phrases, which had
+   to be read left to right to find the one being looked for. */
+.token-row {
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.token-row-head {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.token-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 2rem;
+  height: 2rem;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--accent);
+}
+
+.token-row-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.5rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.token-name {
+  font-size: 0.9rem;
+  font-weight: 650;
+  color: var(--fg-strong);
+  overflow-wrap: anywhere;
+}
+
+.token-kind {
+  padding: 0.05rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+/* Classic reaches everything, so it is the one worth noticing in a list. */
+.token-kind.classic {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .token-actions {
   display: flex;
   gap: 0.35rem;
   margin-left: auto;
 }
 
+.token-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: 0.5rem 1rem;
+  margin: 0.75rem 0 0;
+  padding: 0.65rem 0 0 2.65rem;
+  border-top: 1px solid var(--line);
+}
+
+.token-facts dt {
+  color: var(--faint);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.token-facts dd {
+  margin: 0.1rem 0 0;
+  color: var(--fg);
+  font-size: 0.8rem;
+}
+
+.token-grants {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.65rem;
+  padding-left: 2.65rem;
+}
+
+.token-grant {
+  padding: 0.12rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.token-grant strong {
+  color: var(--fg-strong);
+  font-weight: 600;
+}
+
 .token-edit {
-  flex-basis: 100%;
+  margin-top: 0.75rem;
+  padding: 0.75rem 0 0 2.65rem;
+  border-top: 1px solid var(--line);
 }
 
 .token-edit-actions {
@@ -1393,41 +1751,45 @@ label {
   margin-top: 0.6rem;
 }
 
-/* The secret, once. Accent-tinted like the current session row: it is the one thing on
-   the card the reader has to act on before leaving. */
-.token-created {
-  margin-top: 0.9rem;
-  padding: 0.75rem;
-  border: 1px solid var(--accent);
-  border-radius: 0.5rem;
-  background: var(--accent-soft);
-  font-size: 0.85rem;
-}
-
-.token-secret {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-top: 0.5rem;
-}
-
-.token-secret code {
-  flex: 1;
-  min-width: 0;
-  padding: 0.4rem 0.5rem;
-  overflow-wrap: anywhere;
-  user-select: all;
-}
-
-.token-secret button {
-  flex: 0 0 auto;
-  gap: 0.35rem;
-}
-
 /* Its own margin, because it is no longer the borderless inline action it was and a
    red button flush against the last row of the list reads as part of that row. */
 .profile-terminate-all {
   margin-top: 0.9rem;
+}
+
+/* Under this width the menu has no column to sit in, so it becomes a row of tabs across
+   the top that scrolls sideways. */
+@media (max-width: 56rem) {
+  .profile-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.25rem;
+    padding: 1.25rem 1rem 3rem;
+  }
+
+  .profile-nav {
+    top: 0;
+    z-index: 5;
+    margin: 0 -1rem;
+    padding: 0.6rem 1rem;
+    background: var(--bg);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .profile-nav h1 {
+    margin: 0 0 0.5rem;
+    font-size: 1.3rem;
+  }
+
+  .profile-nav ul {
+    flex-direction: row;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .profile-nav-item {
+    width: auto;
+    white-space: nowrap;
+  }
 }
 
 @media (max-width: 40rem) {
@@ -1438,6 +1800,14 @@ label {
   }
 
   .profile-row {
+    flex-direction: column;
+  }
+
+  .profile .card {
+    padding: 1.1rem;
+  }
+
+  .card-head {
     flex-direction: column;
   }
 
@@ -1453,10 +1823,10 @@ label {
     margin-left: auto;
   }
 
-  /* A token's buttons go under its text on a phone, so the name and the grants are not
-     squeezed into a column a word wide. */
-  .token-row .session-text {
-    flex-basis: calc(100% - 2.5rem);
+  /* A token's buttons go under its name on a phone, and the facts and grants lose
+     their indent, so none of them is squeezed into a column a word wide. */
+  .token-row-head {
+    flex-wrap: wrap;
   }
 
   .token-actions {
@@ -1464,8 +1834,29 @@ label {
     justify-content: flex-end;
   }
 
-  .token-actions .profile-connect {
-    margin-left: 0;
+  .token-facts,
+  .token-grants,
+  .token-edit {
+    padding-left: 0;
+  }
+
+  .token-compose {
+    padding: 0.9rem 0.85rem;
+  }
+
+  .token-step {
+    grid-template-columns: 1.4rem minmax(0, 1fr);
+    gap: 0.6rem;
+  }
+
+  .token-step-num {
+    width: 1.4rem;
+    height: 1.4rem;
+    font-size: 0.7rem;
+  }
+
+  .token-step + .token-step::before {
+    left: calc(0.7rem - 0.5px);
   }
 }
 

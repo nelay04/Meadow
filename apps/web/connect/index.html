@@ -238,7 +238,7 @@
               </div>
               <p>
                 For coding agents, editors and scripts. In Meadow, open
-                <strong>Profile, Access tokens</strong>, name the token after what will use it,
+                <strong>Profile, Assistants and tokens</strong>, press <strong>New token</strong>, name it after what will use it,
                 and create it. It starts with <code>mdw_</code> and is shown once, so copy it
                 straight into the assistant's settings.
               </p>
@@ -289,7 +289,7 @@
             glade, or its owner has locked it, the token cannot edit it either, and a glade
             with a password cannot be opened with a token. The server enforces this on every
             change, not the assistant. Change a token's permissions or revoke it under
-            <strong>Profile, Access tokens</strong>, and anything using it picks that up
+            <strong>Profile, Assistants and tokens</strong>, and anything using it picks that up
             straight away, including a glade it has open.
           </p>
         </div>
@@ -531,7 +531,7 @@ env = { MEADOW_API_URL = "https://meadow.creara.in", MEADOW_TOKEN = "mdw_..." }<
                 <h3>Revoking is immediate</h3>
               </div>
               <p>
-                Revoke a token or a signed-in connection under Profile, Access tokens and it
+                Revoke a token or a signed-in connection under Profile, Assistants and tokens and it
                 stops at once, including on a glade it has open. Signed-in connections renew
                 their access every hour, and if an old renewal is ever used twice, Meadow treats
                 it as stolen and ends the connection.

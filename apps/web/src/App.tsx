@@ -22,7 +22,7 @@ import { SplashVideo } from './ui/SplashVideo'
 type Route =
   | { name: 'boards' }
   | { name: 'board'; boardId: string; kind: string }
-  | { name: 'profile' }
+  | { name: 'profile'; section?: string }
   | { name: 'reset'; token: string }
   | { name: 'join'; token: string }
   | { name: 'connect'; requestId: string }
@@ -50,7 +50,8 @@ function routeFromHash(): Route {
   if (board !== null) {
     return { name: 'board', boardId: board[2], kind: board[1].toLowerCase() }
   }
-  if (/^#\/profile\/?$/.test(location.hash)) return { name: 'profile' }
+  const profile = /^#\/profile(?:\/([a-z]+))?\/?$/.exec(location.hash)
+  if (profile !== null) return { name: 'profile', section: profile[1] }
   // The password reset link from the mail. The token lives in the fragment, so it never
   // reaches a server log on the way here.
   const reset = /^#\/reset\/([A-Za-z0-9_-]{16,256})$/.exec(location.hash)
@@ -157,6 +158,7 @@ function Shell() {
   } else if (route.name === 'profile') {
     page = (
       <ProfilePage
+        section={route.section}
         onBack={() => {
           location.hash = ''
         }}

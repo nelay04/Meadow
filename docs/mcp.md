@@ -10,8 +10,8 @@ arrive live, and the assistant appears among the wanderers while it works.
 
 ## 1. Create an access token
 
-In Meadow, open **Profile > Access tokens**, name the token after what will use it, and pick
-one of two kinds.
+In Meadow, open **Profile > Assistants and tokens**, press **New token**, name it after
+what will use it, and pick one of two kinds.
 
 **Classic.** Everything your account can do, on every glade you can open, including
 creating and importing glades. Use it for your own agent on your own machine.
@@ -160,8 +160,8 @@ connected. No token to copy.
 
 What you pick on that screen is a fine-grained token, starting with nothing chosen: tick
 the glades it may open, with edit or delete on each, and **Create glades** if it should
-make its own. It shows up under **Profile > Access tokens** marked "Connected by signing
-in", where **Change permissions** and **Revoke** work as for any other token.
+make its own. It shows up under **Profile > Assistants and tokens**, in the "Connected by
+signing in" list, where **Change permissions** and **Revoke** work as for any other token.
 
 **ChatGPT** (Settings > Connectors > Create):
 

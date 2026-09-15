@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 
-import { IconCopy, IconKey } from '../../ui/icons'
+import { IconCopy, IconKey, IconPlus } from '../../ui/icons'
 import { absoluteTime, relativeTime } from '../../ui/time'
 import { useConfirm } from '../../ui/ConfirmDialog'
 import { useToast } from '../../ui/Toaster'
@@ -17,8 +17,16 @@ type Permission = 'read' | 'edit' | 'delete'
 export type Grants = Record<string, { edit: boolean; delete: boolean }>
 
 const KINDS: { id: Kind; label: string; hint: string }[] = [
-  { id: 'classic', label: 'Classic', hint: 'Everything you can do, on every glade' },
-  { id: 'fine_grained', label: 'Fine-grained', hint: 'Chosen glades, chosen permissions' },
+  {
+    id: 'classic',
+    label: 'Classic',
+    hint: 'Everything you can do, on every glade',
+  },
+  {
+    id: 'fine_grained',
+    label: 'Fine-grained',
+    hint: 'Chosen glades, chosen permissions',
+  },
 ]
 
 /** Days, or null for never. Never is offered and is not the default. */
@@ -39,7 +47,11 @@ const PERMISSIONS: { id: Permission; label: string }[] = [
 function shortDate(iso: string): string {
   const when = new Date(iso)
   if (Number.isNaN(when.getTime())) return ''
-  return when.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+  return when.toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  })
 }
 
 function grantPhrase(grant: { edit: boolean; delete: boolean }): string {
@@ -67,7 +79,11 @@ function toggle(grants: Grants, boardId: string, permission: Permission): Grants
 }
 
 export function toInput(grants: Grants): AccessTokenGrantInput[] {
-  return Object.entries(grants).map(([board_id, grant]) => ({ board_id, read: true, ...grant }))
+  return Object.entries(grants).map(([board_id, grant]) => ({
+    board_id,
+    read: true,
+    ...grant,
+  }))
 }
 
 type PickerProps = {
@@ -202,6 +218,9 @@ export function AccessTokensCard() {
   const [tokens, setTokens] = useState<AccessToken[] | null>(null)
   const [boards, setBoards] = useState<Board[] | null>(null)
   const [failed, setFailed] = useState(false)
+  // The form for a new token stays folded away behind a button until it is wanted, so
+  // the card opens on the tokens that exist rather than on four questions.
+  const [composing, setComposing] = useState(false)
   const [name, setName] = useState('')
   const [kind, setKind] = useState<Kind>('fine_grained')
   const [grants, setGrants] = useState<Grants>({})
@@ -239,6 +258,15 @@ export function AccessTokensCard() {
     !creating &&
     (kind === 'classic' || mayCreate || Object.keys(grants).length > 0)
 
+  const resetComposer = () => {
+    setComposing(false)
+    setName('')
+    setKind('fine_grained')
+    setGrants({})
+    setMayCreate(false)
+    setLifetime(90)
+  }
+
   const create = async (event: FormEvent) => {
     event.preventDefault()
     if (!canCreate) return
@@ -248,12 +276,16 @@ export function AccessTokensCard() {
       const token = await api.createAccessToken(
         kind === 'classic'
           ? { name: name.trim(), kind, ...expiry }
-          : { name: name.trim(), kind, grants: toInput(grants), can_create: mayCreate, ...expiry },
+          : {
+              name: name.trim(),
+              kind,
+              grants: toInput(grants),
+              can_create: mayCreate,
+              ...expiry,
+            },
       )
       setCreated(token)
-      setName('')
-      setGrants({})
-      setMayCreate(false)
+      resetComposer()
       await reload()
     } catch (caught) {
       toast.error(
@@ -330,13 +362,132 @@ export function AccessTokensCard() {
     else toast.error('Could not copy. Select the token and copy it by hand.')
   }
 
+  const renderToken = (token: AccessToken) => (
+    <li key={token.id} className="token-row">
+      <div className="token-row-head">
+        <span className="token-icon" aria-hidden="true">
+          <IconKey size={18} />
+        </span>
+        <span className="token-row-title">
+          <span className="token-name">{token.name}</span>
+          <span className={token.kind === 'classic' ? 'token-kind classic' : 'token-kind'}>
+            {token.kind === 'classic' ? 'Classic' : 'Fine-grained'}
+          </span>
+        </span>
+        <span className="token-actions">
+          {token.grants !== null && editing !== token.id && (
+            <button
+              type="button"
+              className="ghost profile-connect"
+              onClick={() => startEditing(token)}
+            >
+              Change permissions
+            </button>
+          )}
+          <button
+            type="button"
+            className="danger profile-connect"
+            disabled={revoking === token.id}
+            onClick={() => void revoke(token)}
+          >
+            {revoking === token.id ? 'Revoking...' : 'Revoke'}
+          </button>
+        </span>
+      </div>
+
+      <dl className="token-facts">
+        <div>
+          <dt>Prefix</dt>
+          <dd>
+            <code>{token.prefix}...</code>
+          </dd>
+        </div>
+        <div>
+          <dt>Reach</dt>
+          <dd>
+            {token.grants === null
+              ? 'All glades'
+              : token.grants.length === 0
+                ? 'No glades yet'
+                : token.grants.length === 1
+                  ? '1 glade'
+                  : `${token.grants.length} glades`}
+            {token.kind === 'fine_grained' && token.can_create && ', can create'}
+          </dd>
+        </div>
+        <div>
+          <dt>Last used</dt>
+          <dd title={token.last_used_at === null ? undefined : absoluteTime(token.last_used_at)}>
+            {token.last_used_at === null ? 'Never' : relativeTime(token.last_used_at)}
+          </dd>
+        </div>
+        <div>
+          <dt>Expires</dt>
+          <dd title={token.expires_at === null ? undefined : absoluteTime(token.expires_at)}>
+            {token.expires_at === null ? 'Never' : shortDate(token.expires_at)}
+          </dd>
+        </div>
+      </dl>
+
+      {token.grants !== null && token.grants.length > 0 && editing !== token.id && (
+        <span className="token-grants">
+          {token.grants.map((grant) => (
+            <span key={grant.board_id} className="token-grant">
+              <strong>{grant.title}</strong> {grantPhrase(grant)}
+            </span>
+          ))}
+        </span>
+      )}
+
+      {editing === token.id && (
+        <div className="token-edit">
+          <GladePicker boards={boards} grants={draft} onChange={setDraft} />
+          <CreateToggle on={draftCreate} onChange={setDraftCreate} />
+          <div className="token-edit-actions">
+            <button type="button" className="ghost" onClick={() => setEditing(null)}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="primary"
+              disabled={saving || (Object.keys(draft).length === 0 && !draftCreate)}
+              onClick={() => void saveGrants(token)}
+            >
+              {saving ? 'Saving...' : 'Save permissions'}
+            </button>
+          </div>
+        </div>
+      )}
+    </li>
+  )
+
+  // Tokens made by hand and tokens an assistant was handed by signing in are the same
+  // credential, but they are looked for in different places: one by the name you gave
+  // it, the other by the assistant that asked.
+  const personal = tokens?.filter((token) => token.client_name === null) ?? []
+  const connected = tokens?.filter((token) => token.client_name !== null) ?? []
+
   return (
-    <section className="card">
-      <h2>Access tokens</h2>
-      <p className="hint">
-        For AI assistants and scripts that read or edit your glades through the Meadow MCP server. A
-        token acts as you, and can never do more than you can.
-      </p>
+    <section className="card token-card">
+      <div className="card-head">
+        <div>
+          <h3>Access tokens</h3>
+          <p className="hint">
+            For AI assistants and scripts that read or edit your glades through the Meadow MCP
+            server. A token acts as you, and can never do more than you can.
+          </p>
+        </div>
+        {!composing && (
+          <button
+            type="button"
+            className="primary card-head-action"
+            onClick={() => setComposing(true)}
+          >
+            <IconPlus size={16} />
+            New token
+          </button>
+        )}
+      </div>
 
       {created !== null && (
         <div className="token-created" role="status">
@@ -360,168 +511,153 @@ export function AccessTokensCard() {
         </div>
       )}
 
-      <form className="token-form" onSubmit={create} noValidate>
-        <div className="profile-row">
-          <input
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            maxLength={80}
-            placeholder="What will use it, e.g. AI assistant on my laptop"
-            aria-label="Token name"
-          />
-          <button type="submit" className="primary" disabled={!canCreate}>
-            {creating ? 'Creating...' : 'Create token'}
-          </button>
-        </div>
-        <div className="token-options">
-          <div className="theme-choices" role="radiogroup" aria-label="Kind of token">
-            {KINDS.map((choice) => (
-              <button
-                key={choice.id}
-                type="button"
-                role="radio"
-                aria-checked={kind === choice.id}
-                className={kind === choice.id ? 'theme-choice active' : 'theme-choice'}
-                onClick={() => setKind(choice.id)}
-              >
-                <span>{choice.label}</span>
-                <span className="token-kind-hint">{choice.hint}</span>
-              </button>
-            ))}
+      {composing && (
+        <form className="token-compose" onSubmit={create} noValidate>
+          <div className="token-compose-title">
+            <h4>New token</h4>
           </div>
-          <div className="theme-choices" role="radiogroup" aria-label="When the token expires">
-            {LIFETIMES.map((choice) => (
-              <button
-                key={choice.label}
-                type="button"
-                role="radio"
-                aria-checked={lifetime === choice.days}
-                className={lifetime === choice.days ? 'theme-choice active' : 'theme-choice'}
-                onClick={() => setLifetime(choice.days)}
-              >
-                <span>{choice.label}</span>
-              </button>
-            ))}
+
+          <div className="token-step">
+            <span className="token-step-num" aria-hidden="true">
+              1
+            </span>
+            <div className="token-step-body">
+              <h5>Name</h5>
+              <p className="hint">
+                Name it after what will use it, so you can tell it apart later.
+              </p>
+              <input
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                maxLength={80}
+                placeholder="e.g. AI assistant on my laptop"
+                aria-label="Token name"
+                autoFocus
+              />
+            </div>
           </div>
-        </div>
-        {kind === 'classic' ? (
-          <p className="hint">
-            Can do anything you can do on every glade, including creating glades. Prefer a
-            fine-grained token when an assistant only needs a few.
-          </p>
-        ) : (
-          <>
-            <GladePicker boards={boards} grants={grants} onChange={setGrants} />
-            <CreateToggle on={mayCreate} onChange={setMayCreate} />
-          </>
-        )}
-      </form>
+
+          <div className="token-step">
+            <span className="token-step-num" aria-hidden="true">
+              2
+            </span>
+            <div className="token-step-body">
+              <h5>Kind</h5>
+              <div className="token-kinds" role="radiogroup" aria-label="Kind of token">
+                {KINDS.map((choice) => (
+                  <button
+                    key={choice.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={kind === choice.id}
+                    className={
+                      kind === choice.id ? 'token-kind-choice active' : 'token-kind-choice'
+                    }
+                    onClick={() => setKind(choice.id)}
+                  >
+                    <span className="token-kind-label">{choice.label}</span>
+                    <span className="token-kind-hint">{choice.hint}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="token-step">
+            <span className="token-step-num" aria-hidden="true">
+              3
+            </span>
+            <div className="token-step-body">
+              <h5>Access</h5>
+              {kind === 'classic' ? (
+                <p className="hint">
+                  Can do anything you can do on every glade, including creating glades. Prefer a
+                  fine-grained token when an assistant only needs a few.
+                </p>
+              ) : (
+                <>
+                  <GladePicker boards={boards} grants={grants} onChange={setGrants} />
+                  <CreateToggle on={mayCreate} onChange={setMayCreate} />
+                </>
+              )}
+            </div>
+          </div>
+
+          <div className="token-step">
+            <span className="token-step-num" aria-hidden="true">
+              4
+            </span>
+            <div className="token-step-body">
+              <h5>Expires</h5>
+              <div
+                className="token-lifetimes"
+                role="radiogroup"
+                aria-label="When the token expires"
+              >
+                {LIFETIMES.map((choice) => (
+                  <button
+                    key={choice.label}
+                    type="button"
+                    role="radio"
+                    aria-checked={lifetime === choice.days}
+                    className={lifetime === choice.days ? 'grant-toggle on' : 'grant-toggle'}
+                    onClick={() => setLifetime(choice.days)}
+                  >
+                    {choice.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="token-compose-actions">
+            <button type="button" className="ghost" onClick={resetComposer}>
+              Cancel
+            </button>
+            <button type="submit" className="primary" disabled={!canCreate}>
+              {creating ? 'Creating...' : 'Create token'}
+            </button>
+          </div>
+        </form>
+      )}
 
       {tokens === null ? (
         failed ? (
-          <p className="faint">Could not load your tokens. Reload the page to try again.</p>
+          <p className="faint token-empty">
+            Could not load your tokens. Reload the page to try again.
+          </p>
         ) : (
-          <p className="faint">Loading...</p>
+          <p className="faint token-empty">Loading...</p>
         )
       ) : tokens.length === 0 ? (
-        <p className="hint">No tokens yet.</p>
+        !composing && (
+          <div className="token-empty-state">
+            <IconKey size={22} />
+            <p className="hint">No tokens yet. Create one to connect an assistant or a script.</p>
+          </div>
+        )
       ) : (
-        <ul className="session-list">
-          {tokens.map((token) => (
-            <li key={token.id} className="session token-row">
-              <span className="session-icon" aria-hidden="true">
-                <IconKey size={20} />
-              </span>
-              <span className="session-text">
-                <span className="session-title">
-                  {token.name}
-                  <span className="token-kind">
-                    {token.kind === 'classic' ? 'Classic' : 'Fine-grained'}
-                  </span>
-                </span>
-                <span className="session-meta faint">
-                  <span>
-                    <code>{token.prefix}...</code>
-                  </span>
-                  <span>
-                    {token.grants === null
-                      ? 'All glades'
-                      : token.grants.length === 0
-                        ? 'No glades yet'
-                        : token.grants.length === 1
-                          ? '1 glade'
-                          : `${token.grants.length} glades`}
-                  </span>
-                  {token.kind === 'fine_grained' && token.can_create && <span>Can create</span>}
-                  {token.client_name !== null && <span>Connected by signing in</span>}
-                  <span
-                    title={
-                      token.last_used_at === null ? undefined : absoluteTime(token.last_used_at)
-                    }
-                  >
-                    {token.last_used_at === null
-                      ? 'Never used'
-                      : `Used ${relativeTime(token.last_used_at)}`}
-                  </span>
-                  <span
-                    title={token.expires_at === null ? undefined : absoluteTime(token.expires_at)}
-                  >
-                    {token.expires_at === null
-                      ? 'Never expires'
-                      : `Expires ${shortDate(token.expires_at)}`}
-                  </span>
-                </span>
-                {token.grants !== null && editing !== token.id && (
-                  <span className="token-grants">
-                    {token.grants.map((grant) => (
-                      <span key={grant.board_id} className="token-grant">
-                        {grant.title}: {grantPhrase(grant)}
-                      </span>
-                    ))}
-                  </span>
-                )}
-              </span>
-              <span className="token-actions">
-                {token.grants !== null && editing !== token.id && (
-                  <button
-                    type="button"
-                    className="ghost profile-connect"
-                    onClick={() => startEditing(token)}
-                  >
-                    Change permissions
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="danger profile-connect"
-                  disabled={revoking === token.id}
-                  onClick={() => void revoke(token)}
-                >
-                  {revoking === token.id ? 'Revoking...' : 'Revoke'}
-                </button>
-              </span>
-              {editing === token.id && (
-                <div className="token-edit">
-                  <GladePicker boards={boards} grants={draft} onChange={setDraft} />
-                  <CreateToggle on={draftCreate} onChange={setDraftCreate} />
-                  <div className="token-edit-actions">
-                    <button type="button" className="ghost" onClick={() => setEditing(null)}>
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      className="primary"
-                      disabled={saving || (Object.keys(draft).length === 0 && !draftCreate)}
-                      onClick={() => void saveGrants(token)}
-                    >
-                      {saving ? 'Saving...' : 'Save permissions'}
-                    </button>
-                  </div>
-                </div>
-              )}
-            </li>
-          ))}
-        </ul>
+        <>
+          {personal.length > 0 && (
+            <div className="token-group">
+              <h4 className="token-group-title">
+                Personal tokens <span className="token-count">{personal.length}</span>
+              </h4>
+              <ul className="token-list">{personal.map(renderToken)}</ul>
+            </div>
+          )}
+          {connected.length > 0 && (
+            <div className="token-group">
+              <h4 className="token-group-title">
+                Connected by signing in <span className="token-count">{connected.length}</span>
+              </h4>
+              <p className="hint">
+                Handed to an assistant when you approved it on the consent screen.
+              </p>
+              <ul className="token-list">{connected.map(renderToken)}</ul>
+            </div>
+          )}
+        </>
       )}
     </section>
   )

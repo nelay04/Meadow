@@ -117,7 +117,7 @@ export default function ConnectPage({ requestId, onDone }: Props) {
             <p className="join-body">
               It gets a token that reaches only what you pick below, and never more than you
               can do yourself. The answer goes to <strong>{request.redirect_host}</strong>.
-              You can change or revoke it later under Profile, Access tokens.
+              You can change or revoke it later under Profile, Assistants and tokens.
             </p>
 
             <GladePicker boards={boards} grants={grants} onChange={setGrants} />

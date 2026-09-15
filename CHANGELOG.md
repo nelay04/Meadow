@@ -11,6 +11,33 @@ away getting there.
 
 ---
 
+## [1.13.0] - [15-Sep-2026]
+
+### Added
+- **The profile page is split into sections, shown one at a time.** A menu of Account,
+  Sign-in and security, Assistants and tokens, and Preferences sits down the left on a
+  wide screen and as a row of tabs on a narrow one, and choosing one shows only that
+  section. Each has its own address, `#/profile/account`, `#/profile/security`,
+  `#/profile/tokens` and `#/profile/preferences`, so a reload, the back button or a
+  shared link opens the same one. A bare `#/profile` still works and opens Account.
+
+### Changed
+- **The profile page uses the width it has.** The single 42rem column is now a 72rem
+  layout with the menu beside the open section. Each section has a heading and a line on
+  what it covers, Log out sits in Sign-in and security, and small cards (display name
+  and picture, appearance and diary paper) sit side by side where there is room.
+- **Access tokens are split into smaller parts.** The form for a new token is folded
+  behind a New token button and, once opened, asks one numbered question at a time:
+  name, kind, access, expiry. The list is split into personal tokens and tokens handed
+  out by signing in, and each token is a tile with its prefix, reach, last use and expiry
+  as labelled facts, and the glades it reaches as chips.
+
+### Fixed
+- The sign-in list on the profile page sat indented from the rest of its card.
+- The connect page, the FAQ, `docs/mcp.md` and the consent screen now point to
+  Profile, Assistants and tokens, the section's new name. Connecting GitHub or Google
+  returns to `#/profile/security`, where the new link shows.
+
 ## [1.12.0] - [15-Sep-2026]
 
 ### Added
