@@ -11,6 +11,16 @@ away getting there.
 
 ---
 
+## [1.13.2] - [15-Sep-2026]
+
+### Fixed
+- **ChatGPT could not sign in: "invalid_client, unknown client".** Its client metadata
+  document prefers `private_key_jwt` and lists `none` among the methods it supports, and
+  Meadow refused any document whose preferred method was not `none`. A document that
+  supports `none` is now accepted as a public client, which is how ChatGPT signs in since
+  Meadow advertises no JWT method. A client offering only secret-based methods is still
+  refused, and a test covers ChatGPT's document shape end to end.
+
 ## [1.13.1] - [15-Sep-2026]
 
 ### Fixed

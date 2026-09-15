@@ -546,6 +546,32 @@ def test_a_published_client_connects_without_registering(
     assert published["fetches"] == 1
 
 
+def test_a_client_preferring_a_jwt_but_supporting_none_connects(
+    client: TestClient, owner: Actor, published: dict[str, Any]
+) -> None:
+    """ChatGPT's document, in the shape it publishes: private_key_jwt first, none allowed."""
+    published["documents"][DOC_URL] = _document(
+        client_name="ChatGPT",
+        token_endpoint_auth_method="private_key_jwt",
+        token_endpoint_auth_methods_supported=["none", "private_key_jwt"],
+        token_endpoint_auth_signing_alg="RS256",
+        jwks_uri="https://assistant.example/oauth/jwks.json",
+        grant_types=["authorization_code", "refresh_token"],
+        response_types=["code"],
+    )
+    glade = owner.create_board()
+    verifier, challenge = _pkce()
+    request_id = _request_id(_authorize(client, DOC_URL, challenge))
+
+    details = client.get(f"/api/v1/connect/requests/{request_id}", headers=owner.auth).json()
+    assert details["client_name"] == "ChatGPT"
+
+    approved = _approve(client, owner, request_id, grants=[{"board_id": glade}], can_create=False)
+    code = _query(approved.json()["redirect_url"])["code"]
+    tokens = _exchange(client, DOC_URL, code, verifier)
+    assert tokens.status_code == 200, tokens.text
+
+
 def test_a_registered_client_is_not_verified(client: TestClient, owner: Actor) -> None:
     client_id = _register(client, client_name="Published Assistant")["client_id"]
     _verifier, challenge = _pkce()
@@ -561,6 +587,10 @@ def test_a_registered_client_is_not_verified(client: TestClient, owner: Actor) -
         _document(client_id="https://assistant.example/someone-else.json"),
         _document(redirect_uris=["https://assistant.example/elsewhere"]),
         _document(token_endpoint_auth_method="client_secret_basic"),
+        _document(
+            token_endpoint_auth_method="private_key_jwt",
+            token_endpoint_auth_methods_supported=["private_key_jwt", "client_secret_basic"],
+        ),
         _document(redirect_uris=["http://evil.example/cb"]),
         None,
     ],

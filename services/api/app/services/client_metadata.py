@@ -157,6 +157,21 @@ async def download(url: str) -> bytes:
         raise MetadataError("the document could not be fetched") from exc
 
 
+def _can_be_public(document: dict[str, Any]) -> bool:
+    """Whether the client can sign in with no credential of its own, relying on PKCE.
+
+    Its preferred method counts, and so does "none" anywhere in the methods it says it
+    supports. ChatGPT prefers `private_key_jwt` but lists "none" too, and since this
+    server advertises no JWT method it signs in as a public client, as the others do. A
+    client that only offers methods built on a secret is still refused: a secret in a
+    published document is not a secret.
+    """
+    if document.get("token_endpoint_auth_method", "none") == "none":
+        return True
+    supported = document.get("token_endpoint_auth_methods_supported")
+    return isinstance(supported, list) and "none" in supported
+
+
 def parse(url: str, raw: bytes) -> ClientMetadata:
     try:
         document: Any = json.loads(raw)
@@ -166,7 +181,7 @@ def parse(url: str, raw: bytes) -> ClientMetadata:
         raise MetadataError("the document is not a JSON object")
     if document.get("client_id") != url:
         raise MetadataError("the document names a different client id")
-    if document.get("token_endpoint_auth_method", "none") != "none":
+    if not _can_be_public(document):
         raise MetadataError("only public clients may publish their metadata")
     uris = document.get("redirect_uris")
     if (
