@@ -1577,11 +1577,13 @@ label {
   margin: 0;
 }
 
-.profile .token-expiry-error {
+.profile .token-expiry-error,
+.connect-card .token-expiry-error {
   color: var(--danger);
 }
 
-.profile .token-expiry-warning {
+.profile .token-expiry-warning,
+.connect-card .token-expiry-warning {
   margin-top: 0.55rem;
 }
 

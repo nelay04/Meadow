@@ -13,7 +13,7 @@ client's redirect address only once that address is known to be one it registere
 import base64
 import binascii
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlsplit
 
@@ -215,7 +215,16 @@ async def approve_request(
     code = await connect.issue_code(
         request.app.state.redis,
         pending,
-        connect.Approval(user_id=user.id, grants=grants, can_create=body.can_create),
+        connect.Approval(
+            user_id=user.id,
+            grants=grants,
+            can_create=body.can_create,
+            ends_at=(
+                None
+                if body.expires_in_days is None
+                else datetime.now(UTC) + timedelta(days=body.expires_in_days)
+            ),
+        ),
     )
     return ConnectRedirect(
         redirect_url=_with_query(pending.redirect_uri, {"code": code, "state": pending.state})

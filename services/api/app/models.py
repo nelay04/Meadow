@@ -296,6 +296,9 @@ class ApiToken(Base):
         DateTime(timezone=True), nullable=True
     )
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: The hard end of a connection made by signing in, chosen on the consent screen.
+    #: Refreshes push `expires_at` out but never past this. None renews while used.
+    ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = _created_at()

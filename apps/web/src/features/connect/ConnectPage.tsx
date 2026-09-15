@@ -18,8 +18,16 @@ import { IconAlert, IconCheck } from '../../ui/icons'
 import { ThemeToggle } from '../../ui/ThemeToggle'
 import { useToast } from '../../ui/Toaster'
 import { useAuth } from '../auth/AuthContext'
-import { CreateToggle, GladePicker, toInput } from '../profile/AccessTokensCard'
-import type { Grants } from '../profile/AccessTokensCard'
+import {
+  CreateToggle,
+  GladePicker,
+  LifetimePicker,
+  daysFromToday,
+  daysUntil,
+  inputDate,
+  toInput,
+} from '../profile/AccessTokensCard'
+import type { Grants, Lifetime } from '../profile/AccessTokensCard'
 
 type Props = {
   requestId: string
@@ -34,6 +42,10 @@ export default function ConnectPage({ requestId, onDone }: Props) {
   const [boards, setBoards] = useState<Board[] | null>(null)
   const [grants, setGrants] = useState<Grants>({})
   const [mayCreate, setMayCreate] = useState(false)
+  // Same default as a token made by hand. A connection is renewed by the assistant, so a
+  // date is what makes it end without anybody remembering to revoke it.
+  const [lifetime, setLifetime] = useState<Lifetime>(90)
+  const [customDate, setCustomDate] = useState(() => inputDate(daysFromToday(60)))
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
@@ -59,15 +71,26 @@ export default function ConnectPage({ requestId, onDone }: Props) {
     }
   }, [requestId])
 
-  const canApprove = !busy && (mayCreate || Object.keys(grants).length > 0)
+  const canApprove =
+    !busy &&
+    (mayCreate || Object.keys(grants).length > 0) &&
+    (lifetime !== 'custom' || daysUntil(customDate) !== null)
 
   const answer = async (approve: boolean) => {
+    // Counted at the moment of answering, like the token form, so a screen left open
+    // past midnight does not end the connection a day late.
+    const days = lifetime === 'custom' ? daysUntil(customDate) : lifetime
+    if (approve && lifetime === 'custom' && days === null) {
+      toast.error('Pick an end date between tomorrow and a year from now.')
+      return
+    }
     setBusy(true)
     try {
       const { redirect_url } = approve
         ? await api.approveConnectRequest(requestId, {
             grants: toInput(grants),
             can_create: mayCreate,
+            ...(days === null ? {} : { expires_in_days: days }),
           })
         : await api.denyConnectRequest(requestId)
       location.href = redirect_url
@@ -185,9 +208,16 @@ export default function ConnectPage({ requestId, onDone }: Props) {
                 <div className="token-step-body">
                   <h5>How long</h5>
                   <p className="hint">
-                    It stays connected and renews itself until you revoke it, or until it goes a
-                    month without being used.
+                    The assistant renews its access by itself, but never past the date you pick.
+                    Either way it also ends if it goes a month without being used.
                   </p>
+                  <LifetimePicker
+                    lifetime={lifetime}
+                    onLifetime={setLifetime}
+                    customDate={customDate}
+                    onCustomDate={setCustomDate}
+                    neverNote="It stays connected for as long as the assistant keeps using it, until you revoke it under Profile, Assistants and tokens."
+                  />
                 </div>
               </div>
 

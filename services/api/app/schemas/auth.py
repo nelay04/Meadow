@@ -271,6 +271,8 @@ class ApiTokenOut(BaseModel):
     can_create: bool = False
     created_at: datetime
     expires_at: datetime | None = None
+    #: The hard end of a connection made by signing in, however often it renews.
+    ends_at: datetime | None = None
     last_used_at: datetime | None = None
     #: The assistant it was issued to by signing in, or null for one made by hand.
     client_name: str | None = None
@@ -318,6 +320,8 @@ class ConnectApproval(BaseModel):
 
     grants: list[ApiTokenGrantIn] = Field(default_factory=list, max_length=100)
     can_create: bool = False
+    #: Days until the connection ends however often it renews. Null renews while used.
+    expires_in_days: int | None = Field(default=None, ge=1, le=366)
 
     @model_validator(mode="after")
     def _grants_something(self) -> "ConnectApproval":

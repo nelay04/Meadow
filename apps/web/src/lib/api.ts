@@ -359,6 +359,11 @@ export type AccessToken = {
   can_create: boolean
   created_at: string
   expires_at: string | null
+  /**
+   * The hard end of a connection made by signing in, however often it renews. Null for
+   * one made by hand, and for a connection left to renew while it is used.
+   */
+  ends_at: string | null
   last_used_at: string | null
   /** The assistant it was issued to by signing in, or null for one made by hand. */
   client_name: string | null
@@ -700,7 +705,7 @@ export function getConnectRequest(requestId: string): Promise<ConnectRequest> {
 /** Approve with the glades picked. Answers where to send the browser: back to the assistant. */
 export function approveConnectRequest(
   requestId: string,
-  body: { grants: AccessTokenGrantInput[]; can_create: boolean },
+  body: { grants: AccessTokenGrantInput[]; can_create: boolean; expires_in_days?: number },
 ): Promise<{ redirect_url: string }> {
   return call<{ redirect_url: string }>(
     `/connect/requests/${encodeURIComponent(requestId)}/approve`,

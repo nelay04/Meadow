@@ -31,7 +31,7 @@ const KINDS: { id: Kind; label: string; hint: string }[] = [
 ]
 
 /** Days, 'custom' for a date picked by hand, or null for never. Never is not the default. */
-type Lifetime = number | 'custom' | null
+export type Lifetime = number | 'custom' | null
 
 const LIFETIMES: { days: Lifetime; label: string }[] = [
   { days: 7, label: '7 days' },
@@ -47,7 +47,7 @@ const MAX_LIFETIME_DAYS = 366
 const DAY_MS = 86_400_000
 
 /** Midnight today, local time, plus some days. */
-function daysFromToday(days: number): Date {
+export function daysFromToday(days: number): Date {
   const when = new Date()
   when.setHours(0, 0, 0, 0)
   when.setDate(when.getDate() + days)
@@ -55,7 +55,7 @@ function daysFromToday(days: number): Date {
 }
 
 /** A local date as the `yyyy-mm-dd` a date input reads and writes. */
-function inputDate(when: Date): string {
+export function inputDate(when: Date): string {
   const month = String(when.getMonth() + 1).padStart(2, '0')
   const day = String(when.getDate()).padStart(2, '0')
   return `${when.getFullYear()}-${month}-${day}`
@@ -66,7 +66,7 @@ function inputDate(when: Date): string {
  * Parsed as local midnight, not with `new Date(text)`, which reads a bare date as UTC and
  * lands on the day before for anyone west of Greenwich.
  */
-function daysUntil(text: string): number | null {
+export function daysUntil(text: string): number | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text)
   if (match === null) return null
   const picked = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
@@ -276,6 +276,70 @@ export function CreateToggle({ on, onChange }: { on: boolean; onChange: (on: boo
         </span>
       </span>
     </button>
+  )
+}
+
+type LifetimePickerProps = {
+  lifetime: Lifetime
+  onLifetime: (lifetime: Lifetime) => void
+  customDate: string
+  onCustomDate: (date: string) => void
+  /** What choosing Never means here, which differs between a token and a connection. */
+  neverNote: string
+}
+
+/**
+ * How long a token lasts: presets with the date each lands on, a custom date, or never.
+ *
+ * Shared by the profile's new-token form and the assistant consent screen, so a person
+ * picks a lifetime the same way wherever a token is made.
+ */
+export function LifetimePicker({
+  lifetime,
+  onLifetime,
+  customDate,
+  onCustomDate,
+  neverNote,
+}: LifetimePickerProps) {
+  const customDays = daysUntil(customDate)
+  return (
+    <>
+      <div className="token-lifetimes" role="radiogroup" aria-label="When it expires">
+        {LIFETIMES.map((choice) => (
+          <button
+            key={choice.label}
+            type="button"
+            role="radio"
+            aria-checked={lifetime === choice.days}
+            className={lifetime === choice.days ? 'grant-toggle on' : 'grant-toggle'}
+            onClick={() => onLifetime(choice.days)}
+          >
+            {choice.label}
+            {typeof choice.days === 'number' && (
+              <span className="token-lifetime-date">({endsOn(choice.days)})</span>
+            )}
+          </button>
+        ))}
+      </div>
+      {lifetime === 'custom' && (
+        <div className="token-custom-expiry">
+          <input
+            type="date"
+            value={customDate}
+            min={inputDate(daysFromToday(1))}
+            max={inputDate(daysFromToday(MAX_LIFETIME_DAYS))}
+            onChange={(event) => onCustomDate(event.target.value)}
+            aria-label="Expiry date"
+          />
+          <span className={customDays === null ? 'hint token-expiry-error' : 'hint'}>
+            {customDays === null
+              ? `Pick a date between tomorrow and ${endsOn(MAX_LIFETIME_DAYS)}.`
+              : `Expires in ${customDays} ${customDays === 1 ? 'day' : 'days'}.`}
+          </span>
+        </div>
+      )}
+      {lifetime === null && <p className="hint token-expiry-warning">{neverNote}</p>}
+    </>
   )
 }
 
@@ -508,10 +572,18 @@ export function AccessTokensCard() {
           </dd>
         </div>
         <div>
-          <dt>Expires</dt>
-          <dd title={token.expires_at === null ? undefined : absoluteTime(token.expires_at)}>
-            {token.expires_at === null ? 'Never' : shortDate(token.expires_at)}
-          </dd>
+          <dt>{token.client_name === null ? 'Expires' : 'Ends'}</dt>
+          {/* A connection renews itself, so its `expires_at` is only the next renewal
+              deadline. What the person chose, if anything, is `ends_at`. */}
+          {token.client_name === null ? (
+            <dd title={token.expires_at === null ? undefined : absoluteTime(token.expires_at)}>
+              {token.expires_at === null ? 'Never' : shortDate(token.expires_at)}
+            </dd>
+          ) : (
+            <dd title={token.ends_at === null ? undefined : absoluteTime(token.ends_at)}>
+              {token.ends_at === null ? 'Renews while used' : shortDate(token.ends_at)}
+            </dd>
+          )}
         </div>
       </dl>
 
@@ -721,50 +793,13 @@ export function AccessTokensCard() {
                 <p className="hint">
                   Dates are estimated from today. The clock starts when you create the token.
                 </p>
-                <div
-                  className="token-lifetimes"
-                  role="radiogroup"
-                  aria-label="When the token expires"
-                >
-                  {LIFETIMES.map((choice) => (
-                    <button
-                      key={choice.label}
-                      type="button"
-                      role="radio"
-                      aria-checked={lifetime === choice.days}
-                      className={lifetime === choice.days ? 'grant-toggle on' : 'grant-toggle'}
-                      onClick={() => setLifetime(choice.days)}
-                    >
-                      {choice.label}
-                      {typeof choice.days === 'number' && (
-                        <span className="token-lifetime-date">({endsOn(choice.days)})</span>
-                      )}
-                    </button>
-                  ))}
-                </div>
-                {lifetime === 'custom' && (
-                  <div className="token-custom-expiry">
-                    <input
-                      type="date"
-                      value={customDate}
-                      min={inputDate(daysFromToday(1))}
-                      max={inputDate(daysFromToday(MAX_LIFETIME_DAYS))}
-                      onChange={(event) => setCustomDate(event.target.value)}
-                      aria-label="Expiry date"
-                    />
-                    <span className={customDays === null ? 'hint token-expiry-error' : 'hint'}>
-                      {customDays === null
-                        ? `Pick a date between tomorrow and ${endsOn(MAX_LIFETIME_DAYS)}.`
-                        : `Expires in ${customDays} ${customDays === 1 ? 'day' : 'days'}.`}
-                    </span>
-                  </div>
-                )}
-                {lifetime === null && (
-                  <p className="hint token-expiry-warning">
-                    A token that never expires keeps working until you revoke it. Prefer a date for
-                    anything you do not watch closely.
-                  </p>
-                )}
+                <LifetimePicker
+                  lifetime={lifetime}
+                  onLifetime={setLifetime}
+                  customDate={customDate}
+                  onCustomDate={setCustomDate}
+                  neverNote="A token that never expires keeps working until you revoke it. Prefer a date for anything you do not watch closely."
+                />
               </div>
             </div>
 

@@ -189,7 +189,9 @@ Check that line before allowing an assistant that claims a familiar name.
 
 The access token lasts an hour and the assistant renews it with a refresh token that
 lasts thirty days from its last use, so a connection used at least once a month stays
-connected. If a used refresh token is ever presented a second time, Meadow treats it as
+connected. The consent screen also asks how long: 7, 30 or 90 days, a custom date, or
+never. No renewal reaches past the date picked, and the profile shows it as the
+connection's end; with never, it lasts as long as it is used. If a used refresh token is ever presented a second time, Meadow treats it as
 stolen and revokes the connection.
 
 How it works: `/.well-known/oauth-protected-resource/mcp` and

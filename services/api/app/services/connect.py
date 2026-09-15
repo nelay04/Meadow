@@ -183,6 +183,8 @@ class Approval:
     user_id: uuid.UUID
     grants: list[GrantSpec]
     can_create: bool
+    #: When the connection ends however often it renews, or None to renew while used.
+    ends_at: datetime | None = None
 
 
 async def issue_code(redis: Redis, pending: PendingRequest, approval: Approval) -> str:
@@ -197,6 +199,7 @@ async def issue_code(redis: Redis, pending: PendingRequest, approval: Approval) 
             for g in approval.grants
         ],
         "can_create": approval.can_create,
+        "ends_at": None if approval.ends_at is None else approval.ends_at.isoformat(),
     }
     await redis.set(_CODE_KEY.format(_hash(code)), json.dumps(payload), ex=CODE_TTL_SECONDS)
     return code
@@ -229,6 +232,10 @@ async def take_code(redis: Redis, code: str) -> RedeemedCode | None:
                 for g in data["grants"]
             ],
             can_create=data["can_create"],
+            # `get`, so a code minted by the release before this one still redeems.
+            ends_at=(
+                None if data.get("ends_at") is None else datetime.fromisoformat(data["ends_at"])
+            ),
         ),
     )
 
@@ -242,6 +249,11 @@ class IssuedPair:
     refresh_token: str
 
 
+def _capped(when: datetime, token: ApiToken) -> datetime:
+    """A renewal's expiry, never past the end the person chose for the connection."""
+    return when if token.ends_at is None else min(when, token.ends_at)
+
+
 def _new_refresh(token: ApiToken, client_id: str, now: datetime) -> tuple[OAuthRefreshToken, str]:
     raw = secrets.token_urlsafe(32)
     row = OAuthRefreshToken(
@@ -249,7 +261,7 @@ def _new_refresh(token: ApiToken, client_id: str, now: datetime) -> tuple[OAuthR
         api_token_id=token.id,
         client_id=client_id,
         token_hash=_hash(raw),
-        expires_at=now + REFRESH_TTL,
+        expires_at=_capped(now + REFRESH_TTL, token),
     )
     return row, raw
 
@@ -278,7 +290,9 @@ async def connect(session: AsyncSession, client: OAuthClient, approval: Approval
     now = datetime.now(UTC)
     token = issued.row
     token.oauth_client_id = client.id
-    token.access_expires_at = now + ACCESS_TTL
+    token.ends_at = approval.ends_at
+    token.expires_at = _capped(now + REFRESH_TTL, token)
+    token.access_expires_at = _capped(now + ACCESS_TTL, token)
     refresh, raw_refresh = _new_refresh(token, client.id, now)
     session.add(refresh)
     await session.commit()
@@ -325,8 +339,8 @@ async def refresh(session: AsyncSession, *, client_id: str, raw: str) -> Refresh
 
     row.spent_at = now
     access = api_tokens.rotate_secret(token)
-    token.expires_at = now + REFRESH_TTL
-    token.access_expires_at = now + ACCESS_TTL
+    token.expires_at = _capped(now + REFRESH_TTL, token)
+    token.access_expires_at = _capped(now + ACCESS_TTL, token)
     replacement, raw_refresh = _new_refresh(token, client_id, now)
     session.add(replacement)
     await session.commit()

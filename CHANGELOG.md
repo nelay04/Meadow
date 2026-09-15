@@ -11,6 +11,22 @@ away getting there.
 
 ---
 
+## [1.14.0] - [15-Sep-2026]
+
+### Added
+- **A connection made by signing in can be given an end date.** The consent screen's How
+  long step offers the same choices as a token made by hand: 7, 30 or 90 days with the
+  date each lands on, a custom date, or never, defaulting to 90 days. The assistant still
+  renews its access by itself, but no renewal reaches past the date picked. Never keeps
+  the previous behaviour, a connection that lasts while it is used. Stored as a new
+  nullable `api_tokens.ends_at` (migration `0018_api_token_ends_at`), taken as
+  `expires_in_days` on approval and returned as `ends_at` in the token list.
+
+### Changed
+- A connection on the profile's token list shows **Ends** with its end date, or "Renews
+  while used", instead of the next renewal deadline, which moved every time the assistant
+  refreshed. `docs/mcp.md` and `/connect/` describe the end date.
+
 ## [1.13.2] - [15-Sep-2026]
 
 ### Fixed

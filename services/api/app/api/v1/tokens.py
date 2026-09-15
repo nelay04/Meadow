@@ -51,6 +51,7 @@ def _out(
         can_create=api_tokens.can_create_glades(row),
         created_at=row.created_at,
         expires_at=row.expires_at,
+        ends_at=row.ends_at,
         last_used_at=row.last_used_at,
         client_name=(
             None

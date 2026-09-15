@@ -12,14 +12,17 @@ import base64
 import hashlib
 import json
 import secrets
+import uuid
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
+import asyncpg
 import pytest
 from starlette.testclient import TestClient
 
 from app.config import settings
-from tests.conftest import Actor
+from tests.conftest import TEST_DATABASE_URL, Actor, _asyncpg_dsn
 
 REDIRECT = "https://assistant.example/callback"
 BASE = settings.web_base_url.rstrip("/")
@@ -96,6 +99,17 @@ def _connect(client: TestClient, person: Actor, **approval: Any) -> tuple[str, d
     assert tokens.status_code == 200, tokens.text
     body: dict[str, Any] = tokens.json()
     return client_id, body
+
+
+def _sql(statement: str, *args: Any) -> None:
+    async def run() -> None:
+        conn = await asyncpg.connect(_asyncpg_dsn(TEST_DATABASE_URL))
+        try:
+            await conn.execute(statement, *args)
+        finally:
+            await conn.close()
+
+    asyncio.run(run())
 
 
 def _bearer(token: str) -> dict[str, str]:
@@ -365,6 +379,59 @@ def test_refresh_rotates_both_secrets(client: TestClient, owner: Actor) -> None:
 
     # Still one token on the profile page, not one per refresh.
     assert len(client.get("/api/v1/tokens", headers=owner.auth).json()) == 1
+
+
+def test_a_chosen_lifetime_caps_the_connection_and_its_refreshes(
+    client: TestClient, owner: Actor
+) -> None:
+    before = datetime.now(UTC)
+    client_id, first = _connect(client, owner, expires_in_days=7)
+    after = datetime.now(UTC)
+
+    [listed] = client.get("/api/v1/tokens", headers=owner.auth).json()
+    ends_at = datetime.fromisoformat(listed["ends_at"])
+    assert before + timedelta(days=7) <= ends_at <= after + timedelta(days=7)
+    # Not the thirty days a renewal would otherwise give.
+    assert datetime.fromisoformat(listed["expires_at"]) == ends_at
+
+    refreshed = _refresh(client, client_id, first["refresh_token"])
+    assert refreshed.status_code == 200, refreshed.text
+    [listed] = client.get("/api/v1/tokens", headers=owner.auth).json()
+    assert datetime.fromisoformat(listed["ends_at"]) == ends_at
+    assert datetime.fromisoformat(listed["expires_at"]) == ends_at
+
+    # Past the end, neither the secret nor a refresh gets back in.
+    _sql(
+        "update api_tokens set ends_at = now() - interval '1 second', "
+        "expires_at = now() - interval '1 second' where id = $1",
+        uuid.UUID(listed["id"]),
+    )
+    second = refreshed.json()
+    assert (
+        client.get("/api/v1/tokens/current", headers=_bearer(second["access_token"])).status_code
+        == 401
+    )
+    assert _refresh(client, client_id, second["refresh_token"]).status_code == 400
+
+
+def test_without_a_lifetime_a_connection_renews_while_used(
+    client: TestClient, owner: Actor
+) -> None:
+    before = datetime.now(UTC)
+    _connect(client, owner)
+    [listed] = client.get("/api/v1/tokens", headers=owner.auth).json()
+    assert listed["ends_at"] is None
+    assert datetime.fromisoformat(listed["expires_at"]) >= before + timedelta(days=30)
+
+
+@pytest.mark.parametrize("days", [0, 367])
+def test_a_lifetime_outside_a_day_to_a_year_is_refused_on_approval(
+    client: TestClient, owner: Actor, days: int
+) -> None:
+    client_id = _register(client)["client_id"]
+    _verifier, challenge = _pkce()
+    request_id = _request_id(_authorize(client, client_id, challenge))
+    assert _approve(client, owner, request_id, expires_in_days=days).status_code == 422
 
 
 def test_a_reused_refresh_token_revokes_the_connection(client: TestClient, owner: Actor) -> None:
