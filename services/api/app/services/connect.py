@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any
+from urllib.parse import urlsplit
 
 from redis.asyncio import Redis
 from sqlalchemy import select
@@ -79,13 +80,27 @@ class Registered:
     secret: str | None
 
 
+#: Redirect hosts that belong to one known assistant. A code only ever reaches the redirect
+#: address, so a client whose every redirect is on one of these hosts is that assistant
+#: whatever name it registered under. Gemini registers as "Google".
+KNOWN_REDIRECT_HOSTS = {"oauth-redirect.googleusercontent.com": "Gemini"}
+
+
+def known_assistant(redirect_uris: list[str]) -> str | None:
+    """The assistant every redirect address belongs to, or None."""
+    names = {KNOWN_REDIRECT_HOSTS.get(urlsplit(uri).hostname or "") for uri in redirect_uris}
+    if len(names) != 1:
+        return None
+    return names.pop()
+
+
 async def register(
     session: AsyncSession, *, name: str, redirect_uris: list[str], auth_method: str
 ) -> Registered:
     secret = None if auth_method == "none" else secrets.token_urlsafe(32)
     client = OAuthClient(
         id=f"mdwc_{secrets.token_urlsafe(18)}",
-        name=name.strip()[:MAX_CLIENT_NAME] or "Assistant",
+        name=known_assistant(redirect_uris) or name.strip()[:MAX_CLIENT_NAME] or "Assistant",
         redirect_uris=redirect_uris,
         secret_hash=None if secret is None else _hash(secret),
     )
@@ -127,7 +142,22 @@ async def resolve_client(session: AsyncSession, redis: Redis, client_id: str) ->
     if not client_id.startswith("mdwc_") or len(client_id) > 64:
         return None
     row = await session.get(OAuthClient, client_id)
-    return None if row is None else Client(row=row)
+    if row is None:
+        return None
+    known = known_assistant(row.redirect_uris)
+    if known is None:
+        return Client(row=row)
+    # Clients registered before the host was recognised still carry their own name. A
+    # detached copy, so the new name is never flushed over the stored row by accident.
+    return Client(
+        row=OAuthClient(
+            id=row.id,
+            name=known,
+            redirect_uris=row.redirect_uris,
+            secret_hash=row.secret_hash,
+        ),
+        verified_host=urlsplit(row.redirect_uris[0]).hostname,
+    )
 
 
 def client_secret_ok(client: OAuthClient, secret: str | None) -> bool:

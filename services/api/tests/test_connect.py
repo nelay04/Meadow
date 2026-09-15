@@ -210,6 +210,20 @@ def test_the_consent_page_reads_the_request(client: TestClient, owner: Actor) ->
     assert missing.status_code == 404
 
 
+def test_gemini_is_recognised_by_where_its_codes_go(client: TestClient, owner: Actor) -> None:
+    gemini = "https://oauth-redirect.googleusercontent.com/callback"
+    registered = _register(client, client_name="Google", redirect_uris=[gemini])
+    assert registered["client_name"] == "Gemini"
+    _verifier, challenge = _pkce()
+    response = _authorize(client, registered["client_id"], challenge, redirect_uri=gemini)
+    details = client.get(f"/api/v1/connect/requests/{_request_id(response)}", headers=owner.auth)
+    assert details.json()["client_name"] == "Gemini"
+    assert details.json()["client_host"] == "oauth-redirect.googleusercontent.com"
+
+    mixed = _register(client, client_name="Google", redirect_uris=[gemini, REDIRECT])
+    assert mixed["client_name"] == "Google"
+
+
 def test_only_a_signed_in_person_can_approve(client: TestClient, owner: Actor) -> None:
     """An access token must not be a way to mint more access tokens."""
     client_id = _register(client)["client_id"]

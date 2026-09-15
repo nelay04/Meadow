@@ -307,6 +307,7 @@
             <nav class="jump" aria-label="Platforms">
               <a class="btn btn-sm btn-secondary" href="#chatgpt">ChatGPT</a>
               <a class="btn btn-sm btn-secondary" href="#claude">Claude</a>
+              <a class="btn btn-sm btn-secondary" href="#gemini">Gemini</a>
               <a class="btn btn-sm btn-secondary" href="#claude-code">Claude Code</a>
               <a class="btn btn-sm btn-secondary" href="#vscode">VS Code</a>
               <a class="btn btn-sm btn-secondary" href="#codex">Codex</a>
@@ -352,6 +353,23 @@
                 add <code>authorization</code> with your token as the value, written as
                 <code>Bearer mdw_...</code>
               </p>
+            </div>
+
+            <div class="card platform" id="gemini">
+              <div class="card-head">
+                <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-globe" /></svg></div>
+                <div>
+                  <h3>Gemini</h3>
+                  <p class="how">Signs in with OAuth</p>
+                </div>
+              </div>
+              <ol class="steps">
+                <li>Switch to <strong>Spark</strong>, open <strong>Connected apps</strong> and choose <strong>Custom apps</strong>.</li>
+                <li>Choose <strong>Add a custom app</strong> and enter <code>https://meadow.creara.in/mcp</code> as the <strong>MCP Server URL</strong>.</li>
+                <li>Choose <strong>Next</strong>, then <strong>Connect</strong>, then <strong>Continue</strong>.</li>
+                <li>Sign in to Meadow, pick the glades and permissions, and choose Allow access.</li>
+                <li>Wait while Google finishes connecting.</li>
+              </ol>
             </div>
 
             <div class="card platform" id="claude-code">

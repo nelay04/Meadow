@@ -11,6 +11,21 @@ away getting there.
 
 ---
 
+## [1.17.0] - [15-Sep-2026]
+
+### Added
+- **Gemini connects, and says so.** The static connect page has Gemini steps: Spark,
+  Connected apps, Custom apps, Add a custom app with the MCP Server URL, then Next, Connect
+  and Continue, and Meadow's consent screen opens.
+
+### Fixed
+- **Gemini no longer shows as an unverified "Google".** Gemini registers under the name
+  Google, so the consent screen read "Google wants to use Meadow as you" with an
+  Unverified badge. A client whose every redirect address is on
+  `oauth-redirect.googleusercontent.com` is now named Gemini and shown as verified by that
+  host, since an authorization code can only reach its redirect address. Clients
+  registered before this are renamed when they are read, without changing the stored row.
+
 ## [1.16.0] - [15-Sep-2026]
 
 ### Added
