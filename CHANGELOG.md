@@ -11,6 +11,22 @@ away getting there.
 
 ---
 
+## [1.17.2] - [17-Sep-2026]
+
+### Fixed
+- **The arrow keys on a lea behave the same on every line.** Some lines share one text
+  object and others do not, and the keys used to follow the objects rather than the
+  page. Left at the start of a line now moves to the end of the line above, and Right
+  at the end moves to the start of the line below, where before they did nothing
+  between separate lines. Up and Down keep the caret's column when they cross to
+  another line, instead of dropping it at the end of that line.
+- **A click on a lea puts the caret where you clicked.** A click on another line used to
+  put the caret at the end of that line, and a click on the line being written did not
+  move it at all.
+- **One Ctrl+A on a lea selects the whole page.** Before, the first press selected only
+  the lines that shared the caret's object (one line in one place, several in another),
+  and a second press took the page.
+
 ## [1.17.1] - [17-Sep-2026]
 
 ### Added

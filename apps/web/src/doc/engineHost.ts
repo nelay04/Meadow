@@ -22,7 +22,7 @@ import {
 } from '@meadow/schema'
 import type * as Y from 'yjs'
 
-import type { EngineHost } from '../canvas/engine'
+import type { CaretPoint, EngineHost } from '../canvas/engine'
 import type { SurfaceType } from '../canvas/surface'
 import {
   type DocSession,
@@ -64,7 +64,7 @@ export type EditorFactory = (options: {
   /** Whether the surface is ruled paper. See `ruled` in textEditor. */
   ruled: boolean
   onExit(): void
-  onLeave?(direction: 'up' | 'down'): boolean
+  onLeave?(direction: 'up' | 'down' | 'left' | 'right', caretX: number): boolean
   /** Whether a newline may make this object a line taller. See `onGrow` in textEditor. */
   onGrow?(lines: number): boolean
   /** Ctrl+A again, when the row is already all selected. See `onSelectAll` in textEditor. */
@@ -73,6 +73,8 @@ export type EditorFactory = (options: {
   onJoin?(): boolean
   /** Where to put the caret on mount, in characters from the start of the text. */
   caretChars?: number
+  /** Or by where it is on screen. See `caretPoint` in textEditor. */
+  caretPoint?: CaretPoint
   /** Ctrl+Z and Ctrl+Y inside the editor, which are the document's rather than its own. */
   onUndo?(): void
   onRedo?(): void
@@ -81,6 +83,7 @@ export type EditorFactory = (options: {
   destroy(): void
   toggleMark(mark: TextMark): void
   activeMarks(): TextMark[]
+  placeCaret(x: number, y: number): void
 }
 
 export type HostOptions = {
@@ -296,11 +299,12 @@ export class DocEngineHost implements EngineHost {
       type: SurfaceType | null
       spellcheck: boolean
       ruled: boolean
-      onLeave?: (direction: 'up' | 'down') => boolean
+      onLeave?: (direction: 'up' | 'down' | 'left' | 'right', caretX: number) => boolean
       onGrow?: (lines: number) => boolean
       onSelectAll?: () => boolean
       onJoin?: () => boolean
       caretChars?: number
+      caretPoint?: CaretPoint
     },
   ): (() => void) | null {
     const factory = this.options.createEditor
@@ -348,6 +352,7 @@ export class DocEngineHost implements EngineHost {
       onSelectAll: surface.onSelectAll,
       onJoin: surface.onJoin,
       caretChars: surface.caretChars,
+      caretPoint: surface.caretPoint,
       // The same two methods the canvas's own Ctrl+Z reaches, so the caret being in a
       // row or out of it makes no difference to what the key does.
       onUndo: () => this.undo(),
@@ -374,10 +379,15 @@ export class DocEngineHost implements EngineHost {
     destroy(): void
     toggleMark(mark: TextMark): void
     activeMarks(): TextMark[]
+    placeCaret(x: number, y: number): void
   } | null = null
 
   toggleTextMark(mark: TextMark): void {
     this.editor?.toggleMark(mark)
+  }
+
+  placeCaret(x: number, y: number): void {
+    this.editor?.placeCaret(x, y)
   }
 }
 

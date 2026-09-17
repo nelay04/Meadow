@@ -482,6 +482,15 @@ const RULE_BASE_WORLD = 28
 const RULE_MIN_PX = 18
 const RULE_MAX_PX = 72
 
+/** Which way the caret walked out of a row. */
+export type LeaveDirection = 'up' | 'down' | 'left' | 'right'
+
+/**
+ * A caret placed by where it is on screen, in client pixels: under `x` on the first or
+ * last line of a row, or at the exact point a click landed on.
+ */
+export type CaretPoint = { x: number; line: 'first' | 'last' } | { x: number; y: number }
+
 export type EngineHost = {
   /** Ascending z-order of every object id. */
   order(): readonly string[]
@@ -554,16 +563,20 @@ export type EngineHost = {
       spellcheck: boolean
       /** True on ruled paper, where a paste is flattened to lines. */
       ruled: boolean
-      onLeave?: (direction: 'up' | 'down') => boolean
+      onLeave?: (direction: LeaveDirection, caretX: number) => boolean
       onGrow?: (lines: number) => boolean
       onSelectAll?: () => boolean
       onJoin?: () => boolean
       /** Where to put the caret on mount, in characters from the start. */
       caretChars?: number
+      /** Or by column, on the first or last line of the text. */
+      caretPoint?: CaretPoint
     },
   ): (() => void) | null
   /** Toggle an inline mark in the live editor. No-op when nothing is being edited. */
   toggleTextMark(mark: TextMark): void
+  /** Move the live editor's caret to the text under a client point. */
+  placeCaret(x: number, y: number): void
 }
 
 export type EngineEvents = {
@@ -2395,7 +2408,7 @@ export class CanvasEngine {
    * and that element only exists once the object has been through a sync, so a text
    * object created a microsecond ago has nowhere to put an editor yet.
    */
-  beginTextEdit(id: string, caretChars?: number): boolean {
+  beginTextEdit(id: string, caret?: number | CaretPoint): boolean {
     // The overlay does not exist until `init` has run. Callers retry rather than
     // assume, because the board view asks for a caret as soon as the document lands
     // and that can be before the renderer is up.
@@ -2424,8 +2437,9 @@ export class CanvasEngine {
       type: this.surfaceType,
       spellcheck: this.spellcheckSurface,
       ruled: this.column !== null,
-      caretChars,
-      onLeave: (direction) => this.leaveRow(id, direction),
+      caretChars: typeof caret === 'number' ? caret : undefined,
+      caretPoint: typeof caret === 'object' ? caret : undefined,
+      onLeave: (direction, caretX) => this.leaveRow(id, direction, caretX),
       onGrow: (lines) => this.growRow(id, lines),
       // Ctrl+A a second time, once the row itself is all selected. The editor cannot
       // hold a selection wider than its own object, so the page takes it over.
@@ -2484,16 +2498,6 @@ export class CanvasEngine {
     return this.cache.get(id)?.type === 'text'
   }
 
-  /**
-   * Move the caret off a row and onto its neighbour. False when there is no neighbour.
-   *
-   * Rows are geometry, not a list, so the neighbour is worked out from the band rather
-   * than from any ordering in the document: a row is `bands` rules tall, so the one
-   * below starts that many rules down. Nothing has to be kept in sync, and a row
-   * written by a peer between two of yours is stepped through like any other.
-   *
-   * Up from the first rule does nothing. The page has a top and this is it.
-   */
   /**
    * Whether the row being written on may take another rule.
    *
@@ -2589,18 +2593,36 @@ export class CanvasEngine {
     return true
   }
 
-  private leaveRow(id: string, direction: 'up' | 'down'): boolean {
+  /**
+   * Move the caret off a row and onto the line before or after it. False when there is
+   * no such line.
+   *
+   * Where it lands is what a text editor does at a line break, so the page answers the
+   * same way whether two lines share a row or not: Up and Down keep the column, Left
+   * lands at the end of the line above and Right at the start of the line below.
+   *
+   * Rows are geometry, not a list, so the neighbour is worked out from the band rather
+   * than from any ordering in the document: a row is as many rules tall as its writing,
+   * so the one below starts that many rules down. Nothing has to be kept in sync, and a
+   * row written by a peer between two of yours is stepped through like any other.
+   */
+  private leaveRow(id: string, direction: LeaveDirection, caretX: number): boolean {
     const object = this.cache.get(id)
     if (this.column === null || object === undefined) return false
 
-    const first = Math.round(object.y / this.ruleSpacing)
-    // The first rule is the top of the page: the header above it is not written on.
-    if (direction === 'up') return first <= 0 ? false : this.beginWritingRow(first - 1)
+    const span = ruleSpan(object, this.ruleSpacing)
+    if (direction === 'up' || direction === 'left') {
+      // The first rule is the top of the page: the header above it is not written on.
+      if (span.start <= 0) return false
+      return this.beginWritingRow(
+        span.start - 1,
+        direction === 'up' ? { x: caretX, line: 'last' } : undefined,
+      )
+    }
 
-    const bands = Math.max(1, Math.round(object.h / this.ruleSpacing))
-    const next = first + bands
     // The last rule is the end of the page. Somebody who wants more asks for more.
-    return next > this.pageLines - 1 ? false : this.beginWritingRow(next)
+    if (span.end > this.pageLines - 1) return false
+    return this.beginWritingRow(span.end, direction === 'down' ? { x: caretX, line: 'first' } : 0)
   }
 
   /**
@@ -2621,7 +2643,7 @@ export class CanvasEngine {
    * without anything being typed, so clicking around a page does not litter it with
    * blank objects.
    */
-  beginWritingRow(row: number): boolean {
+  beginWritingRow(row: number, caret?: number | CaretPoint): boolean {
     const column = this.column
     if (column === null || !this.ready || !this.host.canWrite) return false
 
@@ -2630,7 +2652,7 @@ export class CanvasEngine {
     // this rule. Clicking on wrapped writing continues it rather than starting a
     // second object on top of it.
     const existing = this.rowObjectAt(top)
-    if (existing !== null) return this.beginTextEdit(existing)
+    if (existing !== null) return this.beginTextEdit(existing, caret)
 
     const id = this.host.createObject({
       type: 'text',
@@ -3939,13 +3961,16 @@ export class CanvasEngine {
        * all and nothing to type into. It read as a page refusing to be written on, and
        * it was worst on a page just started, because that is the one whose first line
        * is empty and has the caret. Suppressing the default keeps the caret where it
-       * already is, which is what the click was asking for.
+       * already is - moved to the letter the click was on, which is the rest of what
+       * the click was asking for.
        */
       if (this.editing !== null && this.rowObjectAt(this.rowTop(row)) === this.editing.id) {
         event.preventDefault()
+        this.host.placeCaret(event.clientX, event.clientY)
         return
       }
-      this.beginWritingRow(row)
+      // And on another line, at the letter clicked rather than at the end of the line.
+      this.beginWritingRow(row, { x: event.clientX, y: event.clientY })
       return
     }
 

@@ -36,7 +36,7 @@ import { type TextProps, resolveTextProps } from '@meadow/schema'
 import { Editor } from '@tiptap/core'
 import Collaboration from '@tiptap/extension-collaboration'
 import { Fragment, type Node as PMNode, type Schema, Slice } from '@tiptap/pm/model'
-import { PluginKey } from '@tiptap/pm/state'
+import { PluginKey, Selection } from '@tiptap/pm/state'
 import StarterKit from '@tiptap/starter-kit'
 import type * as Y from 'yjs'
 
@@ -70,7 +70,15 @@ export type TextEditorHandle = {
   toggleMark(mark: TextMark): void
   /** Which marks are on at the caret. Drives the pressed state of the bar. */
   activeMarks(): TextMark[]
+  /** Move the caret to the text under a client point, as a click there would. */
+  placeCaret(x: number, y: number): void
 }
+
+/**
+ * A caret placed by where it is on screen, in client pixels: under `x` on the first or
+ * last line of the text, or at the exact point `x, y`.
+ */
+export type CaretPoint = { x: number; line: 'first' | 'last' } | { x: number; y: number }
 
 export type TextEditorOptions = {
   /** The overlay content element the editor mounts into. */
@@ -106,17 +114,22 @@ export type TextEditorOptions = {
    */
   onMarks?(marks: TextMark[]): void
   /**
-   * The caret tried to walk off the top or the bottom of this object.
+   * The caret tried to walk out of this object.
    *
-   * Only ever called from the first or the last line: inside the text, Up and Down do
-   * what they do everywhere else. Return true to say the move was taken somewhere
-   * else, which suppresses the key; false leaves it to the editor.
+   * Up and Down only from the first or the last line, Left only from the very start and
+   * Right only from the very end: inside the text, the arrows do what they do everywhere
+   * else. Return true to say the move was taken somewhere else, which suppresses the
+   * key; false leaves it to the editor.
+   *
+   * `caretX` is the column the caret is travelling in, in client pixels, so a line
+   * arrived at from above or below puts the caret under the same place, the way moving
+   * between two lines inside one object does.
    *
    * This is what makes a ruled page behave like ruled paper rather than like a stack
    * of boxes. Every rule is its own object, so without it Down at the end of a line is
    * a key that does nothing at all.
    */
-  onLeave?(direction: 'up' | 'down'): boolean
+  onLeave?(direction: 'up' | 'down' | 'left' | 'right', caretX: number): boolean
   /**
    * A newline is about to make this object one line taller.
    *
@@ -141,13 +154,16 @@ export type TextEditorOptions = {
   onUndo?(): void
   onRedo?(): void
   /**
-   * Ctrl+A pressed when this object's own text is already all selected.
+   * Ctrl+A that means more than this object.
    *
-   * The escalation everything with nested selections uses: the first press takes the
-   * line, the second takes the page. It has to be an escalation rather than a straight
-   * override, because a ProseMirror selection cannot reach past the object it is in -
-   * so "all of the page" is not a bigger version of this selection, it is a different
-   * one, held somewhere else, and the caret leaves when it is taken.
+   * On ruled paper that is the first press: which lines happen to share an object is
+   * invisible on the page, so selecting "this object" selected one line here and three
+   * there. A page selects all of its writing, as a notepad does.
+   *
+   * Everywhere else it is an escalation: the first press takes the object's text, the
+   * second takes more. A ProseMirror selection cannot reach past the object it is in, so
+   * "all of it" is not a bigger version of this selection but a different one, held
+   * somewhere else, and the caret leaves when it is taken.
    */
   onSelectAll?(): boolean
   /**
@@ -167,6 +183,12 @@ export type TextEditorOptions = {
    * means the end, which is where a caret arriving at a row belongs every other time.
    */
   caretChars?: number
+  /**
+   * Or where to put it on screen: a column on the first or last line, for a caret
+   * arriving from the row above or below, or the point a click landed on. Wins over
+   * `caretChars`.
+   */
+  caretPoint?: CaretPoint
 }
 
 /**
@@ -302,6 +324,8 @@ export function createTextEditor(options: TextEditorOptions): TextEditorHandle {
   // Assigned below, after the editor exists, and read from inside its own key handler.
   // The handler cannot run before construction returns, so the hole is never observed.
   let ime: ReturnType<typeof attachPhoneticIme> | null = null
+  // Assigned once the caret has been placed, for the same reason.
+  let caretColumn = (): number => 0
 
   /*
    * Run an undo or a redo, then put the caret back at the end of the writing.
@@ -417,7 +441,7 @@ export function createTextEditor(options: TextEditorOptions): TextEditorHandle {
           // because an empty row is legitimately "all selected" at a single position.
           const { from, to } = view.state.selection
           const all = from <= 1 && to >= view.state.doc.content.size - 1
-          if (all && options.onSelectAll()) {
+          if ((all || options.ruled === true) && options.onSelectAll()) {
             event.preventDefault()
             return true
           }
@@ -468,13 +492,32 @@ export function createTextEditor(options: TextEditorOptions): TextEditorHandle {
           return true
         }
 
-        if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return false
         if (options.onLeave === undefined) return false
-
-        const down = event.key === 'ArrowDown'
         const selection = view.state.selection
-        // A selection being dragged with the keyboard is not a caret walking out.
-        if (!selection.empty) return false
+        // A selection being dragged with the keyboard is not a caret walking out, and a
+        // word or line jump is the editor's own business.
+        if (!selection.empty || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) {
+          return false
+        }
+        const head = selection.$head
+
+        /*
+         * Left from the very start and Right from the very end cross to the row beside
+         * this one, the way the caret crosses a line break inside a row.
+         */
+        if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+          const left = event.key === 'ArrowLeft'
+          const edge = left
+            ? Selection.atStart(view.state.doc).from
+            : Selection.atEnd(view.state.doc).to
+          if (head.pos !== edge) return false
+          if (!options.onLeave(left ? 'left' : 'right', caretColumn())) return false
+          event.preventDefault()
+          return true
+        }
+
+        if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return false
+        const down = event.key === 'ArrowDown'
         // ProseMirror's own answer to "would this move leave the line", which accounts
         // for wrapping. A row whose writing has wrapped over three rules steps through
         // all three before this is reached.
@@ -482,11 +525,10 @@ export function createTextEditor(options: TextEditorOptions): TextEditorHandle {
 
         // And the outermost block, so a second paragraph inside one row is stepped
         // into rather than jumped over.
-        const head = selection.$head
         const atEdge = down
           ? head.after(1) >= view.state.doc.content.size
           : head.before(1) <= 0
-        if (!atEdge || !options.onLeave(down ? 'down' : 'up')) return false
+        if (!atEdge || !options.onLeave(down ? 'down' : 'up', caretColumn())) return false
 
         event.preventDefault()
         return true
@@ -572,10 +614,58 @@ export function createTextEditor(options: TextEditorOptions): TextEditorHandle {
     return found ?? editor.state.doc.content.size
   }
 
+  /**
+   * The position a caret point names.
+   *
+   * Taken from the laid-out text rather than from arithmetic, so wrapping, proportional
+   * type and a line shorter than `x` all answer the way a click there would. A point off
+   * the text entirely answers with the nearer end of the line it is level with.
+   */
+  const caretAtPoint = (point: CaretPoint): number => {
+    const { view } = editor
+    const { doc } = view.state
+    const start = Selection.atStart(doc).from
+    const end = Selection.atEnd(doc).to
+    try {
+      let top: number
+      let fallback: number
+      if ('y' in point) {
+        top = point.y
+        fallback = point.y < view.coordsAtPos(start).top ? start : end
+      } else {
+        fallback = point.line === 'first' ? start : end
+        const box = view.coordsAtPos(fallback)
+        top = (box.top + box.bottom) / 2
+      }
+      return view.posAtCoords({ left: point.x, top })?.pos ?? fallback
+    } catch {
+      return end
+    }
+  }
+
   editor.commands.focus(
-    options.caretChars === undefined ? 'end' : caretAt(options.caretChars),
+    options.caretPoint !== undefined
+      ? caretAtPoint(options.caretPoint)
+      : options.caretChars === undefined
+        ? 'end'
+        : caretAt(options.caretChars),
     FOCUS,
   )
+
+  /*
+   * The column a run of Up and Down presses is travelling in.
+   *
+   * Remembered from the row the caret came from for as long as the caret has not moved
+   * since it arrived, so walking down through a short line and on to a long one lands
+   * back under where it started, as it does in every text editor.
+   */
+  const goal = options.caretPoint?.x ?? null
+  const arrived = editor.state.selection
+  caretColumn = () => {
+    const { view } = editor
+    if (goal !== null && view.state.selection.eq(arrived)) return goal
+    return view.coordsAtPos(view.state.selection.head).left
+  }
 
   return {
     focus: () => editor.commands.focus('end', FOCUS),
@@ -591,6 +681,9 @@ export function createTextEditor(options: TextEditorOptions): TextEditorHandle {
       editor.chain().focus(null, FOCUS).toggleMark(mark).run()
     },
     activeMarks,
+    placeCaret: (x, y) => {
+      editor.commands.focus(caretAtPoint({ x, y }), FOCUS)
+    },
   }
 }
 

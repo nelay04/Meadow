@@ -61,7 +61,8 @@ const web = spawn('pnpm', ['--filter', 'web', 'exec', 'vite', '--port', WEB_PORT
 procs.push(web)
 
 async function waitFor(url, label) {
-  for (let i = 0; i < 80; i += 1) {
+  // Two minutes: a cold Vite start re-optimises dependencies before it answers.
+  for (let i = 0; i < 240; i += 1) {
     try {
       const response = await fetch(url)
       if (response.ok) return
@@ -358,6 +359,106 @@ await expectLines('undo of a paste moves the rows back up once', [
   'Seven',
   'Eight',
 ])
+
+// 4. The arrows cross between lines the same way whether two lines share an object or
+// not. Five, Pasted and Plain are one object now; Seven and Eight are one each.
+
+/** Click at the start or the end of the line reading `text`. */
+const clickLine = async (text, where) => {
+  const rect = await page.evaluate((wanted) => {
+    const node = [...document.querySelectorAll('.meadow-overlay [data-object-id] p')].find(
+      (p) => p.textContent === wanted,
+    )
+    if (node === undefined) return null
+    // The text's own extent, not the block's, so "end" is just past the last letter.
+    const range = document.createRange()
+    range.selectNodeContents(node)
+    const box = range.getBoundingClientRect()
+    return { left: box.left, right: box.right, y: box.top + box.height / 2 }
+  }, text)
+  if (rect === null) throw new Error(`no line reads "${text}"`)
+  await page.mouse.click(where === 'start' ? rect.left + 1 : rect.right + 2, rect.y)
+  await settle()
+}
+
+/** The line the caret is on and how far along it, in characters. */
+const caret = () =>
+  page.evaluate(() => {
+    const selection = window.getSelection()
+    if (selection === null || selection.rangeCount === 0) return null
+    const range = selection.getRangeAt(0)
+    const line = range.startContainer.parentElement?.closest('p')
+    if (line === null || line === undefined) return null
+    const before = document.createRange()
+    before.setStart(line, 0)
+    before.setEnd(range.startContainer, range.startOffset)
+    return `${line.textContent}@${before.toString().length}`
+  })
+
+const expectCaret = async (name, expected) => {
+  await settle()
+  const actual = await caret()
+  const ok = typeof expected === 'function' ? expected(actual) : actual === expected
+  check(name, ok, `caret at ${actual}`)
+}
+
+await clickLine('Seven', 'start')
+await step('ArrowLeft')
+await expectCaret('Left from the start of a row lands at the end of the line above', 'Plain@5')
+
+await clickLine('Plain', 'start')
+await step('ArrowLeft')
+await expectCaret('Left inside a shared row does the same', 'Pasted@6')
+
+await clickLine('Eight', 'start')
+await step('ArrowLeft')
+await expectCaret('Left between two separate rows does the same', 'Seven@5')
+
+await clickLine('Seven', 'start')
+await step('ArrowUp')
+await expectCaret('Up from the start of a row keeps the column', 'Plain@0')
+
+await clickLine('Seven', 'end')
+await step('ArrowRight')
+await expectCaret('Right from the end of a row lands at the start of the line below', 'Eight@0')
+
+await clickLine('Four', 'end')
+await step('ArrowUp')
+await expectCaret(
+  'Up from the end of a short line lands under it, not at the end of the longer one',
+  (at) => at === 'Three@3' || at === 'Three@4',
+)
+
+await clickLine('Four', 'start')
+await step('ArrowDown')
+await expectCaret('Down from the start of a row keeps the column', 'Five@0')
+
+await clickLine('Seven', 'start')
+await expectCaret('a click on another line puts the caret where it was clicked', 'Seven@0')
+await clickLine('Seven', 'end')
+await expectCaret('a click on the line being written moves the caret there', 'Seven@5')
+
+// 5. Ctrl+A takes the whole page on the first press, from any line.
+for (const text of ['Seven', 'Plain']) {
+  await clickLine(text, 'end')
+  await page.keyboard.press('Control+a')
+  await settle()
+  // The page selection is painted on the canvas, so read it back the way a person
+  // would: copy it, and see what was taken.
+  const copied = await page.evaluate(() => {
+    const transfer = new DataTransfer()
+    document.body.dispatchEvent(
+      new ClipboardEvent('copy', { clipboardData: transfer, bubbles: true, cancelable: true }),
+    )
+    return transfer.getData('text/plain')
+  })
+  check(
+    `one Ctrl+A on "${text}" selects the whole page`,
+    copied.startsWith('One') && copied.trimEnd().endsWith('Eight'),
+    `copied ${JSON.stringify(copied)}`,
+  )
+  await step('Escape')
+}
 
 if (process.env.E2E_SHOT) await page.screenshot({ path: process.env.E2E_SHOT })
 
