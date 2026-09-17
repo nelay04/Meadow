@@ -20,7 +20,13 @@
 
 import type { FontFamily, TextProps } from '@meadow/schema'
 
-import { FONT_FACE_NAMES, applyBoxStyle, applyContentStyle, contentWidth } from './textStyle'
+import {
+  type DrawnTextProps,
+  FONT_FACE_NAMES,
+  applyBoxStyle,
+  applyContentStyle,
+  contentWidth,
+} from './textStyle'
 
 let host: HTMLDivElement | null = null
 
@@ -60,8 +66,9 @@ export function clearMeasureCache(): void {
  * wants an object height and the caller that wants a text height do not have to agree
  * on which one this includes.
  */
-export function measureContentHeight(html: string, width: number, props: TextProps): number {
-  const key = `${width}|${props.fontFamily}|${props.fontSize}|${props.lineHeight}|${props.align}|${html}`
+export function measureContentHeight(html: string, width: number, props: DrawnTextProps): number {
+  // The weight is in the key because it changes glyph widths, and so where lines wrap.
+  const key = `${width}|${props.fontFamily}|${props.fontSize}|${props.fontWeight ?? ''}|${props.lineHeight}|${props.align}|${html}`
   const hit = cache.get(key)
   if (hit !== undefined) return hit
 
@@ -81,7 +88,7 @@ export function measureContentHeight(html: string, width: number, props: TextPro
 }
 
 /** Full object height for auto-height text: content plus padding, floored at one line. */
-export function measureObjectHeight(html: string, width: number, props: TextProps): number {
+export function measureObjectHeight(html: string, width: number, props: DrawnTextProps): number {
   const inner = measureContentHeight(html, contentWidth(width, props), props)
   const oneLine = props.fontSize * props.lineHeight
   return Math.ceil(Math.max(inner, oneLine) + props.padding * 2)

@@ -11,6 +11,28 @@ away getting there.
 
 ---
 
+## [1.17.3] - [17-Sep-2026]
+
+### Changed
+- **A lea's writing is a step lighter.** The page body and its subject and date are set
+  at weight 350. The Indian script faces are variable and draw at 350. Poppins gets a
+  Light file (`poppins-300-*.woff2`) for any weight under 400. Faces with nothing
+  lighter than regular, Comic Neue among them, look the same as before. This is for
+  display only: nothing is written to the document, and text on a glade keeps its
+  weight.
+
+### Fixed
+- **A Bengali subject on a lea is no longer cut off at the top.** The subject is an
+  input, which clips its text to its own box, and the box was barely one line tall, so
+  vowel signs written above a letter were cut. The box now extends upward by as much as
+  its top padding grows, so the text stays exactly where it was and nothing above it is
+  clipped.
+- **The light face for the Indian scripts is used at last.** Each script declared one
+  face at exactly 260 and one at exactly 400, so that regular text would draw at 260.
+  Font matching sent a request for 400 to the 400 face, so the 260 face was never used
+  for regular text. The light face now covers 100 to 399 and draws at whatever weight is
+  asked for, which is what the lighter lea writing uses.
+
 ## [1.17.2] - [17-Sep-2026]
 
 ### Fixed

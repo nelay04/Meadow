@@ -35,6 +35,7 @@ import type { SurfaceType } from '../surface'
 import { fontReady, measureObjectHeight } from '../text/measure'
 import {
   type BoxVariant,
+  type DrawnTextProps,
   applyBoxStyle,
   applyBylineStyle,
   applyContentStyle,
@@ -177,7 +178,7 @@ type Mounted = {
 }
 
 /** Anything in here changes layout, so a change means restyle and re-measure. */
-function styleKey(props: TextProps, variant: BoxVariant, editing: boolean): string {
+function styleKey(props: DrawnTextProps, variant: BoxVariant, editing: boolean): string {
   return [
     variant,
     // Editing changes the box's clipping and its pointer handling, so it belongs in
@@ -186,6 +187,7 @@ function styleKey(props: TextProps, variant: BoxVariant, editing: boolean): stri
     editing ? 'editing' : 'idle',
     props.fontFamily,
     props.fontSize,
+    props.fontWeight,
     props.lineHeight,
     props.color,
     props.align,
@@ -399,7 +401,7 @@ export class TextLayer {
   }
 
   private update(object: ObjectData, z: number): void {
-    const props = resolveTextProps(object)
+    const props: DrawnTextProps = resolveTextProps(object)
     /*
      * Text that never chose a colour follows the theme.
      *

@@ -38,7 +38,24 @@ export type SurfaceType = {
   fontSize: number
   lineHeight: number
   padding: number
+  /** How heavy the writing is drawn. See `WRITING_WEIGHT`. */
+  fontWeight: number
 }
+
+/**
+ * The weight a lea's writing is set at: a step under regular.
+ *
+ * A page of diary reads as handwriting, and at 400 two of its faces did not: Noto's
+ * Indic scripts run a stroke along every word and read nearly bold beside Comic Neue,
+ * and Poppins' geometric shapes read a notch darker than the hand faces. 350 lands both
+ * on something lighter - Noto is variable and draws at 350, Poppins has a Light file
+ * for anything under 400 (public/fonts/fonts.css) - while a face with nothing under
+ * 400, Comic Neue among them, falls back to its regular and does not change at all.
+ *
+ * Rendering only. It is not written to the document, and a glade keeps its text at the
+ * weight it always had.
+ */
+export const WRITING_WEIGHT = 350
 
 /**
  * How the graph surface rules itself: lines, or dots at their crossings.

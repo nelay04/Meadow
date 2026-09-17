@@ -35,11 +35,11 @@ const UA =
 const SUBSETS = ['latin', 'latin-ext']
 
 /*
- * `instances` is how a family asks for the weights it is served at rather than the
- * weights it was authored at. A collapsed range - "330 330" - pins a variable font to
- * one instance, so a request for regular renders there; two such faces give a regular
- * and a bold that are both lighter than the numbers on the file would suggest. Only
- * Bengali needs it, and the reason is in the note that ships in the generated CSS.
+ * `instances` is how a variable family declares the weight ranges it is served for,
+ * one face each, rather than the whole range the file was authored at. A face clamps
+ * the font's weight to its range, so "400 400" draws every request that lands on it
+ * at 400, and "100 399" draws a lighter request at exactly the weight asked for. The
+ * Indic faces use it, and the reason is in the note that ships in the generated CSS.
  */
 const FAMILIES = [
   { query: 'Inter:wght@100..900', slug: 'inter' },
@@ -57,9 +57,9 @@ const FAMILIES = [
   // has no variable build. `weightRanges` serves each file for a band of requested
   // weights; the reason is in the note that ships in the generated CSS.
   {
-    query: 'Poppins:wght@400;500;600',
+    query: 'Poppins:wght@300;400;500;600',
     slug: 'poppins',
-    weightRanges: { 400: '1 550', 500: '551 650', 600: '651 1000' },
+    weightRanges: { 300: '1 399', 400: '400 550', 500: '551 650', 600: '651 1000' },
     note: [
       '/*',
       ' * Poppins, the optional chrome face (ui/font.ts), served one step lighter than asked.',
@@ -69,9 +69,12 @@ const FAMILIES = [
       ' * whatever the numbers say. Poppins has every step, and its geometric shapes read',
       ' * darker than Comic Neue at the same number, so taken literally every 600 and 700',
       ' * was a notch heavier than the page was designed at. Each file is declared for a',
-      ' * band instead: up to 550 gets Regular, 600 and 650 get Medium, 700 and up gets',
+      ' * band instead: 400 to 550 gets Regular, 600 and 650 get Medium, 700 and up gets',
       ' * SemiBold. The split sits where Comic Neue splits, so the hierarchy is the same in',
       ' * both faces, and no 700 file is shipped because nothing asks for it.',
+      ' *',
+      ' * Anything under 400 gets Light. Only a lea asks for that: its writing is set at 350',
+      ' * (canvas/surface.ts), where Poppins Regular read heavy beside a page of handwriting.',
       ' */',
     ].join('\n'),
   },
@@ -79,7 +82,7 @@ const FAMILIES = [
     query: 'Noto+Sans+Bengali:wght@100..900',
     slug: 'noto-sans-bengali',
     subsets: ['bengali'],
-    instances: ['260 260', '400 400'],
+    instances: ['100 399', '400 400'],
     sizeAdjust: '108%',
     note: [
       '/*',
@@ -95,7 +98,12 @@ const FAMILIES = [
       ' * the same lea was a different shape per person - and the metrics that set the CRDT',
       ' * bounds were measured from a font nobody else had.',
       ' *',
-      ' * The two faces are pinned to 260 and 400 rather than 400 and 700. Noto at 400 is',
+      ' * Two faces: 400 exactly, and 100 to 399 as a range. Font matching sends a request',
+      ' * for 400 to the first and anything bolder falls back to it too, rather than 400 and',
+      ' * 700. A request under 400 lands on the range and renders at the weight asked for,',
+      ' * which is how a lea sets its writing lighter (350, canvas/surface.ts). This used to',
+      ' * be a face pinned to 260, meant for regular text, but matching never chose it for a',
+      ' * 400. Noto at 400 is',
       ' * markedly darker on the page than Comic Neue at 400 beside it, because the matra',
       ' * puts a continuous horizontal stroke on every word that latin has no equivalent',
       ' * of, and the bold half of that matters more than it looks: the app sets 600 on a',
@@ -112,8 +120,8 @@ const FAMILIES = [
 
   // One face per script the input can write, each restricted to its own block by
   // unicode-range so nothing is downloaded until somebody types it. Devanagari covers
-  // four of the thirteen languages; Bengali covers two. All pinned to the same pair of
-  // instances as Bengali above, for the same reason: the app sets 600 on a lot of small
+  // four of the thirteen languages; Bengali covers two. All declared with the same pair of
+  // faces as Bengali above, for the same reason: the app sets 600 on a lot of small
   // chrome, and at 600 an unpinned Noto is a slab beside the same string in latin.
   ...[
     ['Noto+Sans+Devanagari', 'devanagari'],
@@ -128,7 +136,7 @@ const FAMILIES = [
     query: `${family}:wght@100..900`,
     slug: family.toLowerCase().replaceAll('+', '-'),
     subsets: [subset],
-    instances: ['260 260', '400 400'],
+    instances: ['100 399', '400 400'],
   })),
 ]
 

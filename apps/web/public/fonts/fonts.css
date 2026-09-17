@@ -174,14 +174,35 @@
  * whatever the numbers say. Poppins has every step, and its geometric shapes read
  * darker than Comic Neue at the same number, so taken literally every 600 and 700
  * was a notch heavier than the page was designed at. Each file is declared for a
- * band instead: up to 550 gets Regular, 600 and 650 get Medium, 700 and up gets
+ * band instead: 400 to 550 gets Regular, 600 and 650 get Medium, 700 and up gets
  * SemiBold. The split sits where Comic Neue splits, so the hierarchy is the same in
  * both faces, and no 700 file is shipped because nothing asks for it.
+ *
+ * Anything under 400 gets Light. Only a lea asks for that: its writing is set at 350
+ * (canvas/surface.ts), where Poppins Regular read heavy beside a page of handwriting.
  */
 @font-face {
   font-family: 'Poppins';
   font-style: normal;
-  font-weight: 1 550;
+  font-weight: 1 399;
+  font-display: block;
+  src: url('/fonts/poppins-300-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: 'Poppins';
+  font-style: normal;
+  font-weight: 1 399;
+  font-display: block;
+  src: url('/fonts/poppins-300-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Poppins';
+  font-style: normal;
+  font-weight: 400 550;
   font-display: block;
   src: url('/fonts/poppins-400-latin-ext.woff2') format('woff2');
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
@@ -190,7 +211,7 @@
 @font-face {
   font-family: 'Poppins';
   font-style: normal;
-  font-weight: 1 550;
+  font-weight: 400 550;
   font-display: block;
   src: url('/fonts/poppins-400-latin.woff2') format('woff2');
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
@@ -245,7 +266,12 @@
  * the same lea was a different shape per person - and the metrics that set the CRDT
  * bounds were measured from a font nobody else had.
  *
- * The two faces are pinned to 260 and 400 rather than 400 and 700. Noto at 400 is
+ * Two faces: 400 exactly, and 100 to 399 as a range. Font matching sends a request
+ * for 400 to the first and anything bolder falls back to it too, rather than 400 and
+ * 700. A request under 400 lands on the range and renders at the weight asked for,
+ * which is how a lea sets its writing lighter (350, canvas/surface.ts). This used to
+ * be a face pinned to 260, meant for regular text, but matching never chose it for a
+ * 400. Noto at 400 is
  * markedly darker on the page than Comic Neue at 400 beside it, because the matra
  * puts a continuous horizontal stroke on every word that latin has no equivalent
  * of, and the bold half of that matters more than it looks: the app sets 600 on a
@@ -260,7 +286,7 @@
 @font-face {
   font-family: 'Noto Sans Bengali';
   font-style: normal;
-  font-weight: 260 260;
+  font-weight: 100 399;
   font-display: block;
   size-adjust: 108%;
   src: url('/fonts/noto-sans-bengali-100-900-bengali.woff2') format('woff2');
@@ -280,7 +306,7 @@
 @font-face {
   font-family: 'Noto Sans Devanagari';
   font-style: normal;
-  font-weight: 260 260;
+  font-weight: 100 399;
   font-display: block;
   src: url('/fonts/noto-sans-devanagari-100-900-devanagari.woff2') format('woff2');
   unicode-range: U+0900-097F, U+1CD0-1CF9, U+200C-200D, U+20A8, U+20B9, U+20F0, U+25CC, U+A830-A839, U+A8E0-A8FF, U+11B00-11B09;
@@ -298,7 +324,7 @@
 @font-face {
   font-family: 'Noto Sans Gujarati';
   font-style: normal;
-  font-weight: 260 260;
+  font-weight: 100 399;
   font-display: block;
   src: url('/fonts/noto-sans-gujarati-100-900-gujarati.woff2') format('woff2');
   unicode-range: U+0951-0952, U+0964-0965, U+0A80-0AFF, U+200C-200D, U+20B9, U+25CC, U+A830-A839;
@@ -316,7 +342,7 @@
 @font-face {
   font-family: 'Noto Sans Gurmukhi';
   font-style: normal;
-  font-weight: 260 260;
+  font-weight: 100 399;
   font-display: block;
   src: url('/fonts/noto-sans-gurmukhi-100-900-gurmukhi.woff2') format('woff2');
   unicode-range: U+0951-0952, U+0964-0965, U+0A01-0A76, U+200C-200D, U+20B9, U+25CC, U+262C, U+A830-A839;
@@ -334,7 +360,7 @@
 @font-face {
   font-family: 'Noto Sans Kannada';
   font-style: normal;
-  font-weight: 260 260;
+  font-weight: 100 399;
   font-display: block;
   src: url('/fonts/noto-sans-kannada-100-900-kannada.woff2') format('woff2');
   unicode-range: U+0951-0952, U+0964-0965, U+0C80-0CF3, U+1CD0, U+1CD2-1CD3, U+1CDA, U+1CF2, U+1CF4, U+200C-200D, U+20B9, U+25CC, U+A830-A835;
@@ -352,7 +378,7 @@
 @font-face {
   font-family: 'Noto Sans Malayalam';
   font-style: normal;
-  font-weight: 260 260;
+  font-weight: 100 399;
   font-display: block;
   src: url('/fonts/noto-sans-malayalam-100-900-malayalam.woff2') format('woff2');
   unicode-range: U+0307, U+0323, U+0951-0952, U+0964-0965, U+0D00-0D7F, U+1CDA, U+1CF2, U+200C-200D, U+20B9, U+25CC, U+A830-A832;
@@ -370,7 +396,7 @@
 @font-face {
   font-family: 'Noto Sans Oriya';
   font-style: normal;
-  font-weight: 260 260;
+  font-weight: 100 399;
   font-display: block;
   src: url('/fonts/noto-sans-oriya-100-900-oriya.woff2') format('woff2');
   unicode-range: U+0951-0952, U+0964-0965, U+0B01-0B77, U+1CDA, U+1CF2, U+200C-200D, U+20B9, U+25CC;
@@ -388,7 +414,7 @@
 @font-face {
   font-family: 'Noto Sans Tamil';
   font-style: normal;
-  font-weight: 260 260;
+  font-weight: 100 399;
   font-display: block;
   src: url('/fonts/noto-sans-tamil-100-900-tamil.woff2') format('woff2');
   unicode-range: U+0964-0965, U+0B82-0BFA, U+200C-200D, U+20B9, U+25CC;
@@ -406,7 +432,7 @@
 @font-face {
   font-family: 'Noto Sans Telugu';
   font-style: normal;
-  font-weight: 260 260;
+  font-weight: 100 399;
   font-display: block;
   src: url('/fonts/noto-sans-telugu-100-900-telugu.woff2') format('woff2');
   unicode-range: U+0951-0952, U+0964-0965, U+0C00-0C7F, U+1CDA, U+1CF2, U+200C-200D, U+25CC;

@@ -146,6 +146,15 @@ export function contentWidth(w: number, props: TextProps): number {
 export type BoxVariant = 'box' | 'arrow-label'
 
 /**
+ * Text props as they are drawn, which can carry a weight the document does not.
+ *
+ * A ruled surface sets its writing lighter than regular (`WRITING_WEIGHT`). That is a
+ * property of the page, not of any object on it, so it rides on the resolved props
+ * rather than in the schema, and text without it is drawn at the weight it inherits.
+ */
+export type DrawnTextProps = TextProps & { fontWeight?: number }
+
+/**
  * Styles for the inner content box: the element whose height is the text's height.
  *
  * `pre-wrap` keeps the user's own spacing and their empty lines. `overflow-wrap` on
@@ -154,7 +163,7 @@ export type BoxVariant = 'box' | 'arrow-label'
  */
 export function applyContentStyle(
   element: HTMLElement,
-  props: TextProps,
+  props: DrawnTextProps,
   variant: BoxVariant = 'box',
 ): void {
   ensureContentStyles()
@@ -164,6 +173,7 @@ export function applyContentStyle(
   const style = element.style
   style.fontFamily = FONT_STACKS[props.fontFamily]
   style.fontSize = `${props.fontSize}px`
+  style.fontWeight = props.fontWeight === undefined ? '' : String(props.fontWeight)
   style.lineHeight = String(props.lineHeight)
   // A property rather than a class, so the measurer and the live overlay cannot end up
   // with different block spacing and disagree about how tall the text is.

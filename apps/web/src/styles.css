@@ -3903,6 +3903,9 @@ label {
   /* A shade under the writing. The header is printed furniture, not a line of the
      diary, and matching the hand exactly made it read as the first entry. */
   font-size: calc(var(--lea-type-size) * 0.86);
+  /* The writing's weight (WRITING_WEIGHT in canvas/surface.ts), so a Bengali subject is
+     no heavier than the same words on the page. */
+  font-weight: 350;
   color: var(--lea-ink);
 }
 
@@ -3977,16 +3980,27 @@ label {
  * ring is a `box-shadow`, so it kept painting a blue plate over the paper whenever the
  * subject was hovered or had the caret.
  */
+/*
+ * Taller than its slot, upwards only.
+ *
+ * An input clips its text to its own box, and the slot is barely a line tall, so
+ * anything that rises above the latin ascenders - the vowel signs Bengali writes over
+ * a letter, most visibly - was cut off at the top. The box grows up by the same amount
+ * its top padding grows, which leaves the content box, and so the baseline, exactly
+ * where it was and moves only the edge the text is clipped at.
+ */
 .lea-subject,
 .lea-subject:hover,
 .lea-subject:focus {
+  position: relative;
+  top: -0.7em;
   width: 100%;
-  height: 100%;
+  height: calc(100% + 0.7em);
   /* Off the line rather than sitting on it. Writing that touches the rule reads as
      text in a box, which is the thing this whole surface is avoiding. */
   /* The left step keeps an italic first letter off the edge of its own box: the
      placeholder's W was being clipped by the slot rather than by the page. */
-  padding: 0 0 0.55em 0.35em;
+  padding: 0.7em 0 0.55em 0.35em;
   border: 0;
   border-color: transparent;
   background: none;

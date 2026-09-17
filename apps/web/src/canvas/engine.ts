@@ -55,6 +55,7 @@ import {
   type GridPattern,
   gridPatternClass,
   type SurfaceType,
+  WRITING_WEIGHT,
   surfaceClass,
 } from './surface'
 import { type ArrowDraw, ArrowPass } from './renderers/arrowPass'
@@ -1503,6 +1504,7 @@ export class CanvasEngine {
       fontSize: column.fontSize,
       lineHeight: column.lineHeight,
       padding: 0,
+      fontWeight: WRITING_WEIGHT,
     }
   }
 

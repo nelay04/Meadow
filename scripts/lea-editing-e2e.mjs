@@ -146,7 +146,8 @@ await page.waitForFunction(
   { timeout: 20000 },
 )
 await page
-  .waitForSelector('.meadow-overlay .ProseMirror', { timeout: 20000 })
+  // Generous: on a cold start Vite is still compiling the editor when the page opens.
+  .waitForSelector('.meadow-overlay .ProseMirror', { timeout: 60000 })
   .catch(async (error) => {
     if (process.env.E2E_SHOT) await page.screenshot({ path: process.env.E2E_SHOT })
     throw error
