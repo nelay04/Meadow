@@ -11,6 +11,18 @@ away getting there.
 
 ---
 
+## [1.18.0] - [17-Sep-2026]
+
+### Added
+- **Phonetic input in a lea page's subject.** Type `amar` in the subject and the same
+  list of suggestions opens under it as on the page: Space, Enter, Tab, a digit or a
+  click picks a word, and Escape keeps the roman. The page's name in the page list is
+  the subject, so a Bengali diary now gets Bengali page names too. The input method was
+  split into a core and two front ends, one for the rich-text editor and one for plain
+  text fields, and the field version only acts while the field has focus.
+- **`pnpm e2e:bengali` checks the subject.** The script also signs in at `/app` and
+  turns mail off, as the other browser checks do. Before this it could not sign in.
+
 ## [1.17.3] - [17-Sep-2026]
 
 ### Changed

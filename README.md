@@ -59,7 +59,8 @@ snap to shapes and you get an object indistinguishable from one drawn from the r
 
 **Type in your own script.** Phonetic input for thirteen languages of India - Bengali,
 Hindi, Assamese, Gujarati, Kannada, Malayalam, Marathi, Nepali, Odia, Punjabi, Sanskrit,
-Tamil and Telugu. Type `amar`, get `আমার`. No keyboard layout to install.
+Tamil and Telugu. Type `amar`, get `আমার`. No keyboard layout to install. It works in
+any text on a board and in a lea page's subject.
 
 **Restack.** Depth is a list, and the stack panel shows it: every object front first,
 ringed on the canvas as you point at each row, dragged into place or given a depth to
@@ -259,7 +260,7 @@ than the server talking to itself, and it kills the server process mid-run to pr
 state comes back from the database rather than from memory. The answer was yes, so the
 stack stayed.
 
-v1 is deployed and live at [meadow.creara.in](https://meadow.creara.in); the current release is `1.17.3`.
+v1 is deployed and live at [meadow.creara.in](https://meadow.creara.in); the current release is `1.18.0`.
 Delivery record, including the work that was thrown away and why: [`CHANGELOG.md`](CHANGELOG.md).
 
 ---

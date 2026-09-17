@@ -103,6 +103,7 @@ import {
   importGlade,
   roleCanWrite,
 } from '../../doc/mutations'
+import { attachPhoneticInput } from '../../overlay/phoneticIme'
 import { EDITOR_ORIGIN } from '../../overlay/textEditor'
 import type { BoardKind, BoardRole, ShareMode } from '../../lib/api'
 import * as api from '../../lib/api'
@@ -2495,6 +2496,9 @@ export default function BoardPage({ boardId, kindHint, onBack, onSignIn }: Props
                     spellCheck={spellcheck}
                     lang={writingLanguage ?? undefined}
                     maxLength={120}
+                    // The same phonetic keyboard as the writing under it, so a Bengali
+                    // diary can have a Bengali subject without switching keyboards.
+                    ref={attachPhoneticInput}
                     value={canvas.pageSubject}
                     disabled={!canWrite}
                     onChange={(event) => canvas.setSubject(event.target.value)}

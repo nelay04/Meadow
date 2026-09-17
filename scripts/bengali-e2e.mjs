@@ -63,6 +63,7 @@ const api = spawn(
       MEADOW_RATE_LIMIT_ENABLED: 'false',
       MEADOW_SMTP_HOST: '',
       MEADOW_SMTP_FROM: '',
+      MEADOW_MAIL_PROVIDER: 'none',
     },
   },
 )
@@ -145,7 +146,8 @@ const page = await browser.newPage({ viewport: { width: 1280, height: 860 } })
 const pageErrors = []
 page.on('pageerror', (error) => pageErrors.push(error.message))
 
-await page.goto(webBase, { waitUntil: 'load' })
+// /app, not the root: the root is the static landing page, with no sign-in form.
+await page.goto(`${webBase}/app`, { waitUntil: 'load' })
 await page.fill('input[type="email"]', email)
 await page.fill('input[type="password"]', password)
 await page.click('button[type="submit"]')
@@ -162,7 +164,8 @@ check('the lea opens with a writable role', true)
 
 // A new lea puts the caret on its first rule by itself; wait for that rather than
 // clicking, so this does not depend on where the paper happens to sit.
-await page.waitForSelector('.meadow-overlay .ProseMirror', { timeout: 20000 })
+// Generous: on a cold start Vite is still compiling the editor when the page opens.
+await page.waitForSelector('.meadow-overlay .ProseMirror', { timeout: 60000 })
 check('the lea opens with an editor on its first line', true)
 
 const toggle = page.locator('button.bengali-toggle')
@@ -288,6 +291,61 @@ if (process.env.E2E_SHOT) {
   await page.screenshot({ path: process.env.E2E_SHOT.replace(/(\.png)?$/, '-long.png') })
 }
 await page.keyboard.press('Escape')
+
+/*
+ * The page's subject, which is a plain input rather than the editor.
+ *
+ * The same keyboard has to work there, or a Bengali diary gets an English title. The
+ * list hangs under the field, and the chosen word replaces the roman in the input's own
+ * value, which is what reaches the document.
+ */
+const subject = page.locator('.lea-subject')
+await subject.click()
+await page.keyboard.type('amar')
+await popup.waitFor({ timeout: 10000 })
+const placed = await page.evaluate(() => {
+  const list = document.querySelector('.ime-popup')?.getBoundingClientRect()
+  const field = document.querySelector('.lea-subject')?.getBoundingClientRect()
+  return list === undefined || field === undefined
+    ? null
+    : { listTop: list.top, listLeft: list.left, fieldTop: field.top, fieldRight: field.right }
+})
+check(
+  'typing roman in the subject opens the list under it',
+  placed !== null && placed.listTop > placed.fieldTop && placed.listLeft < placed.fieldRight,
+  JSON.stringify(placed),
+)
+await page.keyboard.press('Space')
+await popup.waitFor({ state: 'detached', timeout: 5000 })
+const subjectValue = await subject.inputValue()
+check(
+  'Space puts the Bengali word into the subject',
+  BENGALI.test(subjectValue) && !subjectValue.includes('amar') && subjectValue.endsWith(' '),
+  `subject read "${subjectValue}"`,
+)
+await page.keyboard.type('bhalo')
+await popup.waitFor({ timeout: 10000 })
+await page.keyboard.press('Escape')
+await popup.waitFor({ state: 'detached', timeout: 5000 })
+check(
+  'Escape in the subject keeps the roman',
+  (await subject.inputValue()).endsWith('bhalo'),
+  `subject read "${await subject.inputValue()}"`,
+)
+
+// Back onto the writing for the rest of the run.
+// By position: the overlay lets clicks through to the canvas, which places the caret.
+const firstRow = await page.locator('.meadow-overlay [data-object-id]').first().boundingBox()
+await page.mouse.click(firstRow.x + firstRow.width - 20, firstRow.y + firstRow.height / 2)
+await page.waitForSelector('.meadow-overlay .ProseMirror', { timeout: 10000 })
+await page.keyboard.press('End')
+// The caret lands after the long roman word left above, which opens its list again in
+// the fresh editor. Dismissed, as it was before the detour.
+await delay(1000)
+if ((await popup.count()) > 0) {
+  await page.keyboard.press('Escape')
+  await popup.waitFor({ state: 'detached', timeout: 5000 })
+}
 
 /*
  * A second script, chosen from the menu.
