@@ -35,6 +35,7 @@
 import { type TextProps, resolveTextProps } from '@meadow/schema'
 import { Editor } from '@tiptap/core'
 import Collaboration from '@tiptap/extension-collaboration'
+import { Fragment, type Node as PMNode, type Schema, Slice } from '@tiptap/pm/model'
 import { PluginKey } from '@tiptap/pm/state'
 import StarterKit from '@tiptap/starter-kit'
 import type * as Y from 'yjs'
@@ -87,6 +88,13 @@ export type TextEditorOptions = {
    * underlines under the label of a shape.
    */
   spellcheck: boolean
+  /**
+   * Whether this object is a row of ruled paper.
+   *
+   * A row is lines and nothing else, so what is pasted into one is flattened to lines
+   * first. See `linesForRules`.
+   */
+  ruled?: boolean
   /** Escape, or focus leaving the editor. */
   onExit(): void
   /**
@@ -189,6 +197,60 @@ function extensions(fragment: Y.XmlFragment) {
 }
 
 /**
+ * A pasted slice as plain lines of writing, for ruled paper.
+ *
+ * What the clipboard holds is rarely what the person copied. A line taken from a web
+ * page arrives wrapped in a `<div>` with a `<br>` after it, a line from a word processor
+ * arrives as a paragraph followed by an empty one, and plain text copied to the end of
+ * a line carries its newline. Each of those is a block of its own to ProseMirror, and on
+ * ruled paper a block is a rule - so pasting one line used to open two or three.
+ *
+ * So the slice is rebuilt as one paragraph per line of text, marks kept, with the blank
+ * lines at either end dropped and the ones in between kept. Headings, list items, quotes
+ * and code become plain lines too: the page sets the type, and a heading's taller line
+ * would not sit on the rules anyway.
+ *
+ * Open at both ends, like typed text: the first line continues the one the caret is on
+ * and the last one takes whatever was after the caret.
+ */
+export function linesForRules(slice: Slice, schema: Schema): Slice {
+  const paragraph = schema.nodes.paragraph
+  const lines: PMNode[] = []
+  let loose: PMNode[] = []
+
+  const flushLoose = (): void => {
+    if (loose.length === 0) return
+    lines.push(paragraph.create(null, Fragment.fromArray(loose)))
+    loose = []
+  }
+
+  const walk = (node: PMNode): void => {
+    if (node.isInline) {
+      loose.push(node)
+      return
+    }
+    flushLoose()
+    if (node.isTextblock && node.type.spec.code === true) {
+      for (const text of node.textContent.split(/\r?\n/)) {
+        lines.push(paragraph.create(null, text === '' ? null : schema.text(text)))
+      }
+    } else if (node.isTextblock) {
+      lines.push(paragraph.create(null, node.content))
+    } else {
+      node.forEach(walk)
+    }
+  }
+  slice.content.forEach(walk)
+  flushLoose()
+
+  while (lines.length > 0 && lines[0].content.size === 0) lines.shift()
+  while (lines.length > 0 && lines[lines.length - 1].content.size === 0) lines.pop()
+  if (lines.length === 0) return Slice.empty
+
+  return new Slice(Fragment.fromArray(lines), 1, 1)
+}
+
+/**
  * Which language the browser should mark misspellings in, or null to let it choose.
  *
  * Null is not "no spellcheck" - it is the more useful of the two answers, and it is what
@@ -283,6 +345,9 @@ export function createTextEditor(options: TextEditorOptions): TextEditorHandle {
        */
       attributes: () => spellcheckAttributes(spellcheckOn()),
 
+      transformPasted: (slice, view) =>
+        options.ruled === true ? linesForRules(slice, view.state.schema) : slice,
+
       /*
        * A paste is the other way writing gets taller, and the bigger one by far.
        *
@@ -293,7 +358,8 @@ export function createTextEditor(options: TextEditorOptions): TextEditorHandle {
        * the row itself afterwards, which no count taken before the paste can know.
        *
        * The first block continues the line the caret is already on, so it is the ones
-       * after it that need rules of their own.
+       * after it that need rules of their own. On ruled paper the slice has already been
+       * through `linesForRules` by the time it gets here, so a block is a line.
        */
       handlePaste: (_view, _event, slice) => {
         if (options.onGrow === undefined) return false

@@ -79,7 +79,9 @@ sit at.
 
 A **lea** is a kind of glade that is printed rather than blank: twenty-five ruled lines,
 a subject and a date across the top, and pages you can add, name, reorder and tear out.
-You click a rule and write on it, and move between lines with the arrow keys. Four stocks
+You click a rule and write on it, and move between lines with the arrow keys. Enter,
+Backspace and paste work as they do in a notepad: a new line pushes the lines under it
+down, removing one pulls them back up, and a pasted line takes one rule. Four stocks
 to print it on, from aged kraft to the dark one above, and one font for the whole lea,
 picked from the text bar.
 
@@ -253,7 +255,7 @@ than the server talking to itself, and it kills the server process mid-run to pr
 state comes back from the database rather than from memory. The answer was yes, so the
 stack stayed.
 
-v1 is deployed and live at [meadow.creara.in](https://meadow.creara.in); the current release is `1.17.0`.
+v1 is deployed and live at [meadow.creara.in](https://meadow.creara.in); the current release is `1.17.1`.
 Delivery record, including the work that was thrown away and why: [`CHANGELOG.md`](CHANGELOG.md).
 
 ---

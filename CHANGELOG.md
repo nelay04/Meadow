@@ -11,6 +11,32 @@ away getting there.
 
 ---
 
+## [1.17.1] - [17-Sep-2026]
+
+### Added
+- **`pnpm e2e:lea`.** A browser check of Enter, Backspace, paste and undo on a lea page,
+  in `scripts/lea-editing-e2e.mjs`.
+
+### Fixed
+- **Enter on a lea opens one line, not two.** A row's measured height is rounded up to
+  a whole pixel, and the rule pitch is fractional, so a two-line row measured a hair over
+  two rules. Pushing the rows under it rounded that up again, one rule too far. Heights
+  are now rounded to the nearest rule.
+- **Lines under an edit follow it, as in a notepad.** Adding a line to a row pushes
+  every row under it down by one, and removing a line pulls them all back up by one, so
+  blank lines further down the page stay as they were. Before this, rows were pushed
+  down only when they were overlapped and never pulled back up. That covers Backspace on
+  a blank line, Backspace joining a row onto the one above, and a row moving up into an
+  empty rule. The page asks for more lines when the lowest row would be pushed off it.
+  Undo and redo bring the rows back along with the text, and the rows are not moved a
+  second time.
+- **Pasting one line onto a lea takes one line.** Clipboards wrap a copied line in extra
+  blocks (a trailing newline, an empty paragraph, a `<div>` and `<br>` from a web page),
+  and each block took a rule, so a one-line paste opened two or three lines. A paste
+  onto ruled paper is now flattened to one paragraph per line, formatting kept, with
+  blank lines at the start and end dropped. Headings, list items, quotes and code blocks
+  are pasted as plain lines.
+
 ## [1.17.0] - [15-Sep-2026]
 
 ### Added

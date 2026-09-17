@@ -1,7 +1,7 @@
 {
   "name": "meadow",
   "private": true,
-  "version": "1.17.0",
+  "version": "1.17.1",
   "license": "SEE LICENSE IN LICENSE.md",
   "type": "module",
   "packageManager": "pnpm@11.18.0",
@@ -27,6 +27,7 @@
     "e2e:presence": "node scripts/presence-e2e.mjs",
     "e2e:sessions": "node scripts/sessions-e2e.mjs",
     "e2e:bengali": "node scripts/bengali-e2e.mjs",
+    "e2e:lea": "node scripts/lea-editing-e2e.mjs",
     "e2e:mcp": "node scripts/mcp-e2e.mjs",
     "e2e:connect": "node scripts/connect-e2e.mjs",
     "check:stack": "node scripts/stack-check.mjs"

@@ -322,6 +322,62 @@ export function rulesShort(
   return Math.max(0, last - (pageLines - 1))
 }
 
+/** A row's place on the page, in whole rules: where it starts and where it stops. */
+function ruleSpan(row: { y: number; h: number }, spacing: number): { start: number; end: number } {
+  const start = Math.round(row.y / spacing)
+  return { start, end: start + Math.max(1, Math.round(row.h / spacing)) }
+}
+
+/**
+ * Where the rows under an edited row belong once it has changed height.
+ *
+ * A notepad's rule, not a stack of boxes': a line added to a row pushes everything under
+ * it down by one, and a line taken away pulls everything back up by one. So the run
+ * below moves as one block, which keeps every blank line inside it, and the gap between
+ * the edited row and the first row under it stays `gap` rules - what it was before the
+ * edit. Null means there was no row under it to keep a gap to, and only overlap is then
+ * resolved.
+ *
+ * Stated as a gap rather than as a delta on purpose. A delta applied twice is a page
+ * shifted twice, and there are two ordinary ways to see the same change twice: an undo,
+ * which brings the text and the moved rows back together, and a peer who got to the
+ * move first. Against a gap, both arrive already satisfied and nothing moves.
+ *
+ * Whole rules throughout. A measured height is rounded up to a pixel and a rule pitch
+ * is fractional, so a two-line row measures a hair over two rules; rounding that up
+ * again, as this once did, pushed the next row a whole rule too far and every Enter
+ * opened two blank lines instead of one.
+ *
+ * Exported and pure for the same reason as `rulesShort`.
+ */
+export function shiftRowsBelow(
+  rows: readonly { id: string; y: number; h: number }[],
+  edited: { start: number; end: number },
+  gap: number | null,
+  spacing: number,
+): { id: string; y: number }[] {
+  const below = rows
+    .map((row) => ({ row, span: ruleSpan(row, spacing) }))
+    .filter(({ span }) => span.start > edited.start)
+    .sort((a, b) => a.span.start - b.span.start)
+  if (below.length === 0) return []
+
+  // With no gap to hold, nothing moves as a block; the overlap pass below still runs.
+  const delta = gap === null ? 0 : edited.end + Math.max(0, gap) - below[0].span.start
+
+  const moves: { id: string; y: number }[] = []
+  // And then no row may start inside the one above it, which a row that was already
+  // overlapping before the edit would otherwise go on doing.
+  let floor = edited.end
+  for (const { row, span } of below) {
+    const start = Math.max(span.start + delta, floor)
+    floor = start + (span.end - span.start)
+    const y = start * spacing
+    if (Math.abs(y - row.y) > 0.05) moves.push({ id: row.id, y })
+  }
+  return moves
+}
+
 /**
  * Rows of a page written out as text, with the blank rules between them kept.
  *
@@ -450,6 +506,12 @@ export type EngineHost = {
   commit(): void
   undo(): void
   redo(): void
+  /**
+   * Bumped by every undo and redo, whoever asked for it. Lets the page tell a row that
+   * changed height because of history - which brings the rows under it back by itself -
+   * from one that changed because somebody typed.
+   */
+  readonly historyVersion: number
   bringForward(ids: readonly string[]): void
   sendBackward(ids: readonly string[]): void
   bringToFront(ids: readonly string[]): void
@@ -490,6 +552,8 @@ export type EngineHost = {
       ink: number
       type: SurfaceType | null
       spellcheck: boolean
+      /** True on ruled paper, where a paste is flattened to lines. */
+      ruled: boolean
       onLeave?: (direction: 'up' | 'down') => boolean
       onGrow?: (lines: number) => boolean
       onSelectAll?: () => boolean
@@ -565,7 +629,18 @@ export class CanvasEngine {
    */
   private readonly pendingHeights = new Map<string, number>()
 
-  private editing: { id: string; teardown(): void } | null = null
+  /**
+   * The object with a live editor, and on a page where its rows stood when last looked
+   * at: the rule the row ends on, the blank rules between it and the next row down
+   * (null for none), and the history step both were taken at. See `followEditedRow`.
+   */
+  private editing: {
+    id: string
+    teardown(): void
+    end: number
+    gap: number | null
+    history: number
+  } | null = null
   private closingEditor = false
 
   /** Reused across frames so the render walk allocates nothing. */
@@ -2348,6 +2423,7 @@ export class CanvasEngine {
       ink: this.canvasInk,
       type: this.surfaceType,
       spellcheck: this.spellcheckSurface,
+      ruled: this.column !== null,
       caretChars,
       onLeave: (direction) => this.leaveRow(id, direction),
       onGrow: (lines) => this.growRow(id, lines),
@@ -2361,7 +2437,8 @@ export class CanvasEngine {
       return false
     }
 
-    this.editing = { id, teardown }
+    this.editing = { id, teardown, end: 0, gap: null, history: this.host.historyVersion }
+    this.baselineEditedRow()
     this.events.onEditingChange?.(id)
     this.requestRender()
     return true
@@ -2439,7 +2516,13 @@ export class CanvasEngine {
     const object = this.cache.get(id)
     if (this.column === null || object === undefined) return true
 
-    const short = rulesShort(object.y, object.h, this.ruleSpacing, this.pageLines, lines)
+    // The rows under this one move down with it, so what has to fit is the lowest line
+    // written on the page, not this row's own last line.
+    const short = Math.max(
+      0,
+      rulesShort(object.y, object.h, this.ruleSpacing, this.pageLines, lines),
+      this.firstFreeRule() + lines - this.pageLines,
+    )
     // Room already ruled for them, and so nothing to ask for.
     if (short === 0) return true
 
@@ -2457,10 +2540,11 @@ export class CanvasEngine {
    * The rule above is empty: the row moves up onto it. Nothing is joined and nothing is
    * deleted, because there is nothing there to join to - the writing simply closes a
    * gap somebody left, one rule per press, exactly as Backspace closes blank lines in a
-   * notepad.
+   * notepad. Everything under the row comes up with it.
    *
-   * The rule above is written on: the two become one. The writing comes up to meet it
-   * and the caret lands on the seam.
+   * The rule above is written on: the two become one. The writing comes up to meet it,
+   * the caret lands on the seam, and the rows under the one that went close the rules
+   * it took up.
    *
    * There is no rule above: nothing happens and the key is left alone, so Backspace on
    * the first line of a page is as inert as it is at the top of a document.
@@ -2473,20 +2557,32 @@ export class CanvasEngine {
     const rule = Math.round(object.y / spacing)
     if (rule <= 0) return false
 
+    // Everything under this row, which moves up by however many rules it gives back.
+    const below = this.pageRows().filter(
+      (row) => row.id !== id && Math.round(row.y / spacing) > rule,
+    )
+    const raise = (rules: number) =>
+      below.map((row) => ({ id: row.id, patch: { y: row.y - rules * spacing } }))
+
     const above = this.rowObjectAt(this.rowTop(rule - 1))
     if (above === null) {
       // Empty rule above, so the row takes it. The editor stays mounted on the same
       // object and the caret stays where it is; only the paper under it changes.
-      this.host.applyPatches([{ id, patch: { y: this.rowTop(rule - 1) } }])
+      this.host.applyPatches([{ id, patch: { y: this.rowTop(rule - 1) } }, ...raise(1)])
       this.host.commit()
+      this.baselineEditedRow()
       this.revealRow(id)
       return true
     }
     if (above === id) return false
 
+    // Read before the join, which deletes the row.
+    const bands = ruleSpan(object, spacing).end - rule
     const caret = this.host.joinText(above, id)
     if (caret === null) return false
 
+    // In the same gesture as the join, so one undo brings both back.
+    if (below.length > 0) this.host.applyPatches(raise(bands))
     this.host.commit()
     // The row this one just became part of, with the caret at the join.
     this.beginTextEdit(above, caret)
@@ -2881,92 +2977,104 @@ export class CanvasEngine {
    * because the host refuses the patch.
    */
   private flushHeights(): void {
-    if (this.pendingHeights.size === 0) return
+    // The row being written is looked at every frame, not only when it measured
+    // differently: a peer, or this client a frame earlier, may already have stored the
+    // height, and the rows under it still have to follow.
+    if (this.pendingHeights.size === 0 && (this.editing === null || this.column === null)) return
 
-    const editing = this.editing?.id
-    // Where the caret ended up, when the row it is in is the row that grew. Read here
-    // rather than from the cache afterwards, because the patch below has not landed
-    // yet and the cached height is the one from before the line was typed.
-    let grew: { id: string; top: number; bottom: number } | null = null
+    const editing = this.editing
+    // The editing row's height as it is about to be, which the cache does not know yet.
+    let editedHeight: number | null = null
 
     const patches: { id: string; patch: Partial<ObjectData> }[] = []
     for (const [id, height] of this.pendingHeights) {
       const object = this.cache.get(id)
       if (object !== undefined && Math.abs(object.h - height) > 1) {
         patches.push({ id, patch: { h: height } })
-        if (id === editing) grew = { id, top: object.y, bottom: object.y + height }
+        if (id === editing?.id) editedHeight = height
       }
     }
     this.pendingHeights.clear()
 
     if (patches.length > 0 && this.host.canWrite) this.host.applyPatches(patches)
 
+    if (editing !== null && this.column !== null) this.followEditedRow(editedHeight)
+  }
+
+  /**
+   * Record where the row being written stands, so the next change can be measured
+   * against it. Called on mount, and after any move that already put the rows under it
+   * where they belong.
+   */
+  private baselineEditedRow(height?: number): void {
+    const editing = this.editing
+    const object = editing === null ? undefined : this.cache.get(editing.id)
+    if (editing === null || object === undefined || this.column === null) return
+
+    const spacing = this.ruleSpacing
+    const span = ruleSpan({ y: object.y, h: height ?? object.h }, spacing)
+    let next: number | null = null
+    for (const row of this.pageRows()) {
+      if (row.id === editing.id) continue
+      const start = Math.round(row.y / spacing)
+      if (start > span.start && (next === null || start < next)) next = start
+    }
+    editing.end = span.end
+    editing.gap = next === null ? null : next - span.end
+    editing.history = this.host.historyVersion
+  }
+
+  /**
+   * Keep the rows under the one being written where a notepad would have them.
+   *
+   * A line added to the row pushes every row under it down one, and a line taken away
+   * pulls them all back up, so blank lines the writer left stay exactly as they were.
+   * See `shiftRowsBelow` for why this is a gap to hold rather than a distance to move.
+   *
+   * History is the exception. An undo or a redo restores the rows it moved along with
+   * the text that moved them, so the page is already right and is only re-read.
+   *
+   * Only the row with the caret in it, and only on this client: a peer's writing is
+   * followed by the peer.
+   */
+  private followEditedRow(height: number | null): void {
+    const editing = this.editing
+    const object = editing === null ? undefined : this.cache.get(editing.id)
+    if (editing === null || object === undefined) return
+
+    const current = height ?? object.h
+    if (editing.history !== this.host.historyVersion) {
+      this.baselineEditedRow(current)
+      return
+    }
+
+    const spacing = this.ruleSpacing
+    const span = ruleSpan({ y: object.y, h: current }, spacing)
+    if (span.end === editing.end) {
+      // Nothing of ours changed, so whatever did - a peer's row appearing or moving
+      // under this one - becomes the gap to keep from now on.
+      this.baselineEditedRow(current)
+      return
+    }
+
+    const grew = span.end > editing.end
+    const others = this.pageRows().filter((row) => row.id !== editing.id)
+    const moves = shiftRowsBelow(others, span, editing.gap, spacing)
+    editing.end = span.end
+    if (moves.length > 0 && this.host.canWrite) {
+      this.host.applyPatches(moves.map(({ id, y }) => ({ id, patch: { y } })))
+    }
+
     /*
-     * Writing that has wrapped past the bottom of the window pulls the page up.
+     * Writing that has run past the bottom of the window pulls the page up.
      *
      * A row grows one rule at a time as it is written, so this is the moment the caret
      * leaves the screen and the moment to follow it. Only on a writing surface, and
      * only for the row being typed in: a peer's note growing on a glade must not drag
      * anybody's view anywhere.
      */
-    if (grew !== null && this.column !== null) {
-      this.camera.reveal(grew.top, grew.bottom, this.ruleSpacing)
-      this.requestRender()
-
-      // And the rows underneath it get out of the way, before the next frame draws
-      // one line of writing on top of another.
-      const displaced = this.reflowBelow(grew.id, grew.top, grew.bottom)
-      if (displaced.length > 0 && this.host.canWrite) this.host.applyPatches(displaced)
-    }
-  }
-
-  /**
-   * Push the rows under a grown one out from under it.
-   *
-   * A row is one rule tall when it is made and grows as its writing wraps, and nothing
-   * used to stop it growing straight over whatever was already written below. It is
-   * easy to do by accident and it is not recoverable by eye: two rows land on the same
-   * rules, both are painted, and the result is a smear of half-glyphs that reads as a
-   * rendering fault rather than as two pieces of writing. The document was fine the
-   * whole time, which is the worst kind of wrong.
-   *
-   * Whole bands, and cascading: a row shoved down can land on the next one, so the run
-   * is walked in order and each row is put on the first rule clear of the one above it.
-   * Rows that are already clear are left exactly where they are - this must not tidy a
-   * page somebody deliberately left gaps in.
-   */
-  private reflowBelow(
-    grownId: string,
-    top: number,
-    bottom: number,
-  ): { id: string; patch: Partial<ObjectData> }[] {
-    if (this.column === null) return []
-
-    const spacing = this.ruleSpacing
-    const origin = this.pageOrigin
-    const below = [...this.cache.values()]
-      .filter(
-        (object) =>
-          object.type === 'text' &&
-          object.id !== grownId &&
-          // Below the row that grew, by more than the rounding in a measured height.
-          object.y > top + 0.05 &&
-          this.onThisPage(object, origin),
-      )
-      .sort((a, b) => a.y - b.y)
-
-    const patches: { id: string; patch: Partial<ObjectData> }[] = []
-    let floor = bottom
-    for (const row of below) {
-      if (row.y >= floor - 0.05) {
-        floor = row.y + row.h
-        continue
-      }
-      const y = Math.ceil((floor - 0.05) / spacing) * spacing
-      patches.push({ id: row.id, patch: { y } })
-      floor = y + row.h
-    }
-    return patches
+    if (grew) this.camera.reveal(object.y, object.y + current, spacing)
+    this.requestRender()
   }
 
   /**

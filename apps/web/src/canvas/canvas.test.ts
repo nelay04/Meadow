@@ -10,7 +10,7 @@ import type { ObjectData } from '@meadow/schema'
 import { describe, expect, it } from 'vitest'
 
 import { Camera, type CameraFence, MAX_ZOOM, MIN_ZOOM, projectPoint, viewTransform } from './camera'
-import { rulesShort, writingAsLines } from './engine'
+import { rulesShort, shiftRowsBelow, writingAsLines } from './engine'
 import { containedBy, hitsObject, pickTop, toLocal, unionBounds } from './hitTest'
 import { SNAP_THRESHOLD_PX, snapMove } from './snapping'
 import { splitAroundBox } from './renderers/arrowPass'
@@ -610,6 +610,59 @@ describe('transform', () => {
 
     // Too far out to be reaching for the corner.
     expect(handleAt(box, { x: 130, y: 80 }, 6, 20)).toBeNull()
+  })
+})
+
+describe('shiftRowsBelow', () => {
+  // A fractional pitch on purpose: it is what made the old rounding open two lines.
+  const spacing = 21 * 1.45
+  const row = (id: string, rule: number, lines = 1) => ({
+    id,
+    y: rule * spacing,
+    h: lines * spacing,
+  })
+  const at = (moves: { id: string; y: number }[]) =>
+    Object.fromEntries(moves.map(({ id, y }) => [id, Math.round(y / spacing)]))
+
+  it('pushes the rows under a row that gained a line down by exactly one', () => {
+    // One on rule 0 grew to two lines, measured a pixel over two rules.
+    const edited = { start: 0, end: Math.round(Math.ceil(2 * spacing) / spacing) }
+    expect(edited.end).toBe(2)
+    const moves = shiftRowsBelow([row('two', 1), row('three', 2)], edited, 0, spacing)
+    expect(at(moves)).toEqual({ two: 2, three: 3 })
+  })
+
+  it('pulls them back up when the line goes again', () => {
+    const moves = shiftRowsBelow([row('two', 2), row('three', 3)], { start: 0, end: 1 }, 0, spacing)
+    expect(at(moves)).toEqual({ two: 1, three: 2 })
+  })
+
+  it('keeps the blank lines below the row, and the ones between the rows under it', () => {
+    // A gap of two rules under the edited row, and one between the rows below.
+    const rows = [row('b', 3), row('c', 5)]
+    expect(at(shiftRowsBelow(rows, { start: 0, end: 2 }, 2, spacing))).toEqual({ b: 4, c: 6 })
+    expect(at(shiftRowsBelow(rows, { start: 0, end: 0 + 1 }, 1, spacing))).toEqual({ b: 2, c: 4 })
+  })
+
+  it('moves nothing when the rows are already where the gap puts them', () => {
+    // An undo, or a peer who moved them first: the text and the rows arrive together.
+    expect(shiftRowsBelow([row('two', 2)], { start: 0, end: 2 }, 0, spacing)).toEqual([])
+  })
+
+  it('leaves the rows above the edited one alone', () => {
+    const moves = shiftRowsBelow([row('above', 0), row('below', 3)], { start: 2, end: 4 }, 0, spacing)
+    expect(at(moves)).toEqual({ below: 4 })
+  })
+
+  it('only resolves overlap when there was nothing below to keep a gap to', () => {
+    const rows = [row('a', 2), row('b', 5)]
+    expect(at(shiftRowsBelow(rows, { start: 0, end: 3 }, null, spacing))).toEqual({ a: 3 })
+  })
+
+  it('never lets a row start inside a tall row above it', () => {
+    // a is two lines and b already overlapped its second line before the edit.
+    const rows = [row('a', 1, 2), row('b', 2)]
+    expect(at(shiftRowsBelow(rows, { start: 0, end: 1 }, 0, spacing))).toEqual({ b: 3 })
   })
 })
 

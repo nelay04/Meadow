@@ -61,6 +61,8 @@ export type EditorFactory = (options: {
   editable: boolean
   /** Whether the surface being written on is one worth spellchecking. */
   spellcheck: boolean
+  /** Whether the surface is ruled paper. See `ruled` in textEditor. */
+  ruled: boolean
   onExit(): void
   onLeave?(direction: 'up' | 'down'): boolean
   /** Whether a newline may make this object a line taller. See `onGrow` in textEditor. */
@@ -219,11 +221,15 @@ export class DocEngineHost implements EngineHost {
     return joinTextInto(this.session, targetId, sourceId)
   }
 
+  historyVersion = 0
+
   undo(): void {
+    this.historyVersion += 1
     this.session.undo.undo()
   }
 
   redo(): void {
+    this.historyVersion += 1
     this.session.undo.redo()
   }
 
@@ -289,6 +295,7 @@ export class DocEngineHost implements EngineHost {
       ink: number
       type: SurfaceType | null
       spellcheck: boolean
+      ruled: boolean
       onLeave?: (direction: 'up' | 'down') => boolean
       onGrow?: (lines: number) => boolean
       onSelectAll?: () => boolean
@@ -334,6 +341,7 @@ export class DocEngineHost implements EngineHost {
       // The surface's half only. The reader's own switch is read live inside the
       // editor, so flipping it does not have to reach back through here.
       spellcheck: surface.spellcheck,
+      ruled: surface.ruled,
       onExit,
       onLeave: surface.onLeave,
       onGrow: surface.onGrow,
