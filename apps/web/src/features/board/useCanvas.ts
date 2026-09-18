@@ -135,10 +135,10 @@ function writePenPreference(pen: PenSettings): void {
 
 function readGridPreference(): boolean {
   try {
-    return localStorage.getItem(GRID_KEY) !== 'off'
+    return localStorage.getItem(GRID_KEY) === 'on'
   } catch {
-    // Private-mode Safari throws on localStorage. The grid is not worth a crash.
-    return true
+    // Private-mode Safari throws on localStorage. Plain until the reader asks otherwise.
+    return false
   }
 }
 
