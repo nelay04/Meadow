@@ -766,6 +766,11 @@ export function deleteBoard(boardId: string): Promise<void> {
   return call<void>(`/boards/${boardId}`, { method: 'DELETE' })
 }
 
+/** Take a board shared with you off your list. The owner's copy is untouched. */
+export function leaveBoard(boardId: string): Promise<void> {
+  return call<void>(`/boards/${boardId}/membership`, { method: 'DELETE' })
+}
+
 /** Everything of yours in the trash, most recently deleted first. Owner only. */
 export function listTrash(): Promise<TrashedBoard[]> {
   return call<TrashedBoard[]>('/boards/trash')
