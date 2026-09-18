@@ -25,12 +25,14 @@ const KEY = 'meadow:guest'
  * Small, concrete, and all one syllable or two.
  *
  * Meadow creatures, because the boards are glades and leas and the cursors are
- * wanderers. Sixteen of them: enough that a collision in one room is unlikely, few
- * enough that they stay recognisable rather than becoming a taxonomy.
+ * wanderers. Enough of them that a collision in one room is unlikely, few enough
+ * that they stay recognisable rather than becoming a taxonomy.
  */
 const CREATURES = [
   'Hare', 'Wren', 'Otter', 'Fox', 'Heron', 'Badger', 'Finch', 'Vole',
   'Stoat', 'Swift', 'Newt', 'Moth', 'Lark', 'Marten', 'Curlew', 'Shrew',
+  'Mole', 'Robin', 'Weasel', 'Linnet', 'Pipit', 'Grebe', 'Teal', 'Kite',
+  'Sparrow', 'Ermine', 'Bittern', 'Plover', 'Warbler', 'Skylark', 'Redstart', 'Dipper',
 ]
 
 export type GuestIdentity = {
