@@ -2048,6 +2048,18 @@ export default function BoardPage({ boardId, kindHint, onBack, onSignIn }: Props
                   <span>{canvas.gridVisible ? 'Hide the rules' : 'Show the rules'}</span>
                 </button>
               )}
+
+              <button
+                type="button"
+                role="menuitemcheckbox"
+                aria-checked={canvas.keepTool}
+                className={canvas.keepTool ? 'menu-item checked' : 'menu-item'}
+                onClick={canvas.toggleKeepTool}
+              >
+                <IconLock size={16} />
+                <span>Keep tool after drawing</span>
+                {canvas.keepTool && <IconCheck size={15} />}
+              </button>
             </div>
           )}
         </div>

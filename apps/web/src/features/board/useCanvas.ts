@@ -76,6 +76,23 @@ import { THEME_EVENT } from '../../ui/theme'
 const GRID_KEY = 'meadow.grid'
 const GRID_PATTERN_KEY = 'meadow.grid.pattern'
 const PEN_KEY = 'meadow.pen'
+const KEEP_TOOL_KEY = 'meadow.keepTool'
+
+function readKeepToolPreference(): boolean {
+  try {
+    return localStorage.getItem(KEEP_TOOL_KEY) === 'on'
+  } catch {
+    return false
+  }
+}
+
+function writeKeepToolPreference(keep: boolean): void {
+  try {
+    localStorage.setItem(KEEP_TOOL_KEY, keep ? 'on' : 'off')
+  } catch {
+    // Still applies for this session.
+  }
+}
 
 /**
  * The nib, as this person last left it.
@@ -284,6 +301,9 @@ export type CanvasHandle = {
    */
   arrowRouting: ArrowRouting
   setArrowRouting(routing: ArrowRouting): void
+  /** Whether a shape or arrow tool stays armed after placing one. Off by default. */
+  keepTool: boolean
+  toggleKeepTool(): void
 
   /**
    * How many sides the polygon tool draws with.
@@ -445,6 +465,9 @@ export function useCanvas(
 
   // The engine's effect must not re-run when the grid is toggled - that would tear
   // down the canvas and drop the camera - so the initial value is read through a ref.
+  const [keepTool, setKeepToolState] = useState(readKeepToolPreference)
+  const keepToolRef = useRef(keepTool)
+  keepToolRef.current = keepTool
   const gridRef = useRef(gridVisible)
   gridRef.current = gridVisible
   const gridPatternRef = useRef(gridPattern)
@@ -533,6 +556,7 @@ export function useCanvas(
       if (cancelled) return
       engine.setGridVisible(gridRef.current)
       engine.setGridPattern(gridPatternRef.current)
+      engine.setKeepTool(keepToolRef.current)
       engine.setPen(penRef.current)
       engine.setSurface(optionsRef.current.surface ?? DEFAULT_SURFACE)
       engine.setAvailableTools(optionsRef.current.tools ?? null)
@@ -893,6 +917,15 @@ export function useCanvas(
     setGridPatternState(pattern)
   }, [])
 
+  const toggleKeepTool = useCallback(() => {
+    setKeepToolState((keep) => {
+      const next = !keep
+      engineRef.current?.setKeepTool(next)
+      writeKeepToolPreference(next)
+      return next
+    })
+  }, [])
+
   const toggleGrid = useCallback(() => {
     setGridVisible((shown) => {
       const next = !shown
@@ -993,6 +1026,8 @@ export function useCanvas(
     gridPattern,
     setGridPattern,
     toggleGrid,
+    keepTool,
+    toggleKeepTool,
     arrowRouting,
     setArrowRouting,
     polygonSides,

@@ -103,7 +103,7 @@ export function createArrowTool(context: ToolContext, type: ObjectType & ToolId)
       if (start === null || id === null) {
         // Nothing was drawn - a click rather than a drag. Still drop back to select,
         // so an accidental tap on the canvas does not leave the tool armed.
-        if (start !== null) context.setTool('select')
+        if (start !== null && !context.keepTool) context.setTool('select')
         context.requestRender()
         return
       }
@@ -119,7 +119,7 @@ export function createArrowTool(context: ToolContext, type: ObjectType & ToolId)
       context.setArrowRouting(id, { routing: context.arrowRouting })
 
       context.commit()
-      context.setTool('select')
+      if (!context.keepTool) context.setTool('select')
       context.requestRender()
     },
 

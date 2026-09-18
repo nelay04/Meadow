@@ -699,6 +699,7 @@ export class CanvasEngine {
    * choosing what you are about to make and correcting what you already made.
    */
   private arrowRouting: ArrowRouting = 'straight'
+  private keepTool = false
   /** How many sides the polygon tool draws with. See `setPolygonSides`. */
   private polygonSides: number = DEFAULT_POLYGON_SIDES
 
@@ -1907,6 +1908,10 @@ export class CanvasEngine {
     this.arrowRouting = routing
   }
 
+  setKeepTool(keep: boolean): void {
+    this.keepTool = keep
+  }
+
   /** The side count the polygon tool will draw with. */
   get polygonSidesChoice(): number {
     return this.polygonSides
@@ -2871,6 +2876,9 @@ export class CanvasEngine {
       },
       get arrowRouting(): ArrowRouting {
         return engine.arrowRouting
+      },
+      get keepTool(): boolean {
+        return engine.keepTool
       },
       get pen(): PenSettings {
         return engine.pen
