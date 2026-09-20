@@ -721,6 +721,8 @@ export default function BoardPage({ boardId, kindHint, onBack, onSignIn }: Props
 
   const canvas = useCanvas(session, presenceBridge, {
     authorName: user?.display_name ?? '',
+    // So a lea reopens on the page it was left on. See `readOpenPage`.
+    boardId,
     surface: spec.surface,
     tools: spec.tools,
     column: spec.column,

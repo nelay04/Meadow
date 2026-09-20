@@ -77,6 +77,37 @@ const GRID_KEY = 'meadow.grid'
 const GRID_PATTERN_KEY = 'meadow.grid.pattern'
 const PEN_KEY = 'meadow.pen'
 const KEEP_TOOL_KEY = 'meadow.keepTool'
+/** One key per lea, not a map of them: two tabs on two boards must not clobber. */
+const OPEN_PAGE_KEY = 'meadow.lea.page'
+
+/**
+ * Which page of this lea was last open, as this browser left it.
+ *
+ * The page's id, never its number. A diary is a stack of pages that can be torn out
+ * and put back, including by a peer while this client was closed, so "the tenth page"
+ * is not a thing that survives being written down - it names whatever has ended up
+ * tenth, which after a page above it is removed is not the page that was meant.
+ *
+ * This browser's rather than the document's, for the reason the open page itself is:
+ * two readers are rarely on the same page, and where you left off is yours.
+ */
+function readOpenPage(boardId: string): string | null {
+  try {
+    return localStorage.getItem(`${OPEN_PAGE_KEY}.${boardId}`)
+  } catch {
+    // Private-mode Safari throws. A lea that cannot remember opens at its first page,
+    // which is where it opened before any of this.
+    return null
+  }
+}
+
+function writeOpenPage(boardId: string, pageId: string): void {
+  try {
+    localStorage.setItem(`${OPEN_PAGE_KEY}.${boardId}`, pageId)
+  } catch {
+    // As above: turning pages still works, it is only the next reload that forgets.
+  }
+}
 
 function readKeepToolPreference(): boolean {
   try {
@@ -361,6 +392,14 @@ export type CanvasPresence = {
 export type CanvasOptions = {
   /** The signed-in person's display name, for the byline on a sticky they create. */
   authorName?: string
+  /**
+   * Which board this is, so a lea can be reopened on the page it was left on.
+   *
+   * Only used for that. The document arrives through `session`, and the id is not a
+   * second way to reach it: it is the name this browser files "where I was" under.
+   * Undefined simply means a lea that always opens at its first page.
+   */
+  boardId?: string
   /**
    * The paper under the canvas, chosen by the glade's kind.
    *
@@ -725,12 +764,57 @@ export function useCanvas(
     return () => cancelAnimationFrame(frame)
   }, [pageSlot])
 
-  // A different board is a different diary. Open it at its first page rather than at
-  // whatever page number was open in the last one.
+  /*
+   * A lea reopens on the page it was left on.
+   *
+   * A diary is not read from the front every time it is picked up, and a reload, a
+   * reconnect or a duplicated tab is picking it up rather than starting it. Landing on
+   * page one after a refresh means scrolling back down a list of forty to find where
+   * you were, which on a long lea is most of the cost of losing your place.
+   *
+   * Three steps rather than one, because the page cannot be found at the moment it is
+   * wanted. `pages` is read from the document, and the document is empty until it has
+   * synced, so the id read out of storage here is a debt: `restoring` holds it until a
+   * page list arrives that it can be looked up in, and the effect below spends it.
+   *
+   * A different board is a different diary, so this also does what it replaced: the
+   * index goes back to the first page rather than staying wherever the last board was.
+   */
   const boardDoc = session.doc
+  const boardId = options.boardId
+  const restoring = useRef<string | null>(null)
   useEffect(() => {
+    restoring.current = boardId === undefined ? null : readOpenPage(boardId)
     setWantedIndex(0)
-  }, [boardDoc])
+  }, [boardDoc, boardId])
+
+  useEffect(() => {
+    const wanted = restoring.current
+    if (wanted === null || pages.length === 0) return
+    const found = pages.findIndex((page) => page.id === wanted)
+    // Not cleared here, and not on a miss either. A page list that does not hold it
+    // yet is the ordinary case on the way up - the first sync can land in pieces - and
+    // a page torn out while this browser was closed is never coming, which the write
+    // below handles by leaving the stored id alone rather than by forgetting it.
+    if (found > 0) setWantedIndex(found)
+  }, [pages])
+
+  /*
+   * And the other half: remember it whenever it changes.
+   *
+   * The write is held off while a jump is still owed. Between the first sync and the
+   * effect above there is at least one render on page one, and recording that would
+   * overwrite the very page being restored - a refresh would then work exactly once.
+   * Arriving on the page that was wanted is what clears the debt.
+   */
+  const openPageId = openPage?.id
+  useEffect(() => {
+    if (boardId === undefined || openPageId === undefined) return
+    const wanted = restoring.current
+    if (wanted !== null && wanted !== openPageId) return
+    restoring.current = null
+    writeOpenPage(boardId, openPageId)
+  }, [boardId, openPageId])
 
   /*
    * A page you have just lengthened opens the caret on the first line you asked for.
@@ -802,6 +886,11 @@ export function useCanvas(
   }, [])
 
   const turnToPage = useCallback((index: number) => {
+    // Turning a page by hand answers the question the restore was asking, however it
+    // was going to answer it. A page that was remembered and then torn out while this
+    // browser was closed is never found, and without this the debt would stay owed for
+    // the rest of the session and nothing turned to after it would be remembered.
+    restoring.current = null
     setWantedIndex(index)
   }, [])
 
@@ -820,6 +909,9 @@ export function useCanvas(
     // catching up with the slot that this is waiting for.
     const pagesNow = readPages(sessionRef.current, DEFAULT_PAGE_LINES)
     caretOnSlot.current = pagesNow[created]?.slot ?? null
+    // As in `turnToPage`: this is a page chosen now, so nothing is owed to the one
+    // this browser was on last time.
+    restoring.current = null
     setWantedIndex(created)
     return created
   }, [])
