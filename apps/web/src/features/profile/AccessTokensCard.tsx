@@ -628,54 +628,7 @@ export function AccessTokensCard() {
 
   return (
     <>
-      <section className="card token-card">
-        <h3>Your tokens</h3>
-        <p className="hint">
-          For AI assistants and scripts that read or edit your glades and leas through the Meadow
-          MCP server. A token acts as you, and can never do more than you can.
-        </p>
-
-        {tokens === null ? (
-          failed ? (
-            <p className="faint token-empty">
-              Could not load your tokens. Reload the page to try again.
-            </p>
-          ) : (
-            <p className="faint token-empty">Loading...</p>
-          )
-        ) : tokens.length === 0 ? (
-          <div className="token-empty-state">
-            <IconKey size={22} />
-            <p className="hint">
-              No tokens yet. Create one below to connect an assistant or a script.
-            </p>
-          </div>
-        ) : (
-          <>
-            {personal.length > 0 && (
-              <div className="token-group">
-                <h4 className="token-group-title">
-                  Personal tokens <span className="token-count">{personal.length}</span>
-                </h4>
-                <ul className="token-list">{personal.map(renderToken)}</ul>
-              </div>
-            )}
-            {connected.length > 0 && (
-              <div className="token-group">
-                <h4 className="token-group-title">
-                  Connected by signing in <span className="token-count">{connected.length}</span>
-                </h4>
-                <p className="hint">
-                  Handed to an assistant when you approved it on the consent screen.
-                </p>
-                <ul className="token-list">{connected.map(renderToken)}</ul>
-              </div>
-            )}
-          </>
-        )}
-      </section>
-
-      {/* Its own card, after the list: making a token is a separate job from looking
+      {/* Its own card, before the list: making a token is a separate job from looking
           after the ones you have, and the form is long enough to deserve the room. */}
       <section className="card token-card">
         <div className="token-create-head">
@@ -812,6 +765,53 @@ export function AccessTokensCard() {
               </button>
             </div>
           </form>
+        )}
+      </section>
+
+      <section className="card token-card">
+        <h3>Your tokens</h3>
+        <p className="hint">
+          For AI assistants and scripts that read or edit your glades and leas through the Meadow
+          MCP server. A token acts as you, and can never do more than you can.
+        </p>
+
+        {tokens === null ? (
+          failed ? (
+            <p className="faint token-empty">
+              Could not load your tokens. Reload the page to try again.
+            </p>
+          ) : (
+            <p className="faint token-empty">Loading...</p>
+          )
+        ) : tokens.length === 0 ? (
+          <div className="token-empty-state">
+            <IconKey size={22} />
+            <p className="hint">
+              No tokens yet. Create one above to connect an assistant or a script.
+            </p>
+          </div>
+        ) : (
+          <>
+            {personal.length > 0 && (
+              <div className="token-group">
+                <h4 className="token-group-title">
+                  Personal tokens <span className="token-count">{personal.length}</span>
+                </h4>
+                <ul className="token-list">{personal.map(renderToken)}</ul>
+              </div>
+            )}
+            {connected.length > 0 && (
+              <div className="token-group">
+                <h4 className="token-group-title">
+                  Connected by signing in <span className="token-count">{connected.length}</span>
+                </h4>
+                <p className="hint">
+                  Handed to an assistant when you approved it on the consent screen.
+                </p>
+                <ul className="token-list">{connected.map(renderToken)}</ul>
+              </div>
+            )}
+          </>
         )}
       </section>
     </>
