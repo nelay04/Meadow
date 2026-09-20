@@ -4331,6 +4331,21 @@ export class CanvasEngine {
     canvas.addEventListener('pointerup', this.onPointerUp)
     canvas.addEventListener('pointercancel', this.onPointerUp)
     canvas.addEventListener('wheel', this.onWheel, { passive: false })
+    /*
+     * And on the text overlay, which the canvas listener above cannot see past.
+     *
+     * The row being written in is the one element on the overlay that takes the
+     * pointer back (see `applyBoxStyle`), so a wheel over it is delivered to that box
+     * and never reaches the canvas underneath. On a lea that is a band the full width
+     * of the measure sitting exactly where the caret is, so a page left mid-sentence
+     * would not scroll until the pointer was moved off the line being written - which
+     * reads as a page that has seized rather than as a pointer in the wrong place.
+     *
+     * The overlay root rather than `this.element`: the host also holds the formatting
+     * bar and its menus, and this handler pans and preventDefaults, so a scrollable
+     * menu inside the host must keep its own wheel. Nothing on the overlay scrolls.
+     */
+    this.textLayer.root.addEventListener('wheel', this.onWheel, { passive: false })
     canvas.addEventListener('pointerleave', this.onPointerLeave)
     canvas.addEventListener('dblclick', this.onDoubleClick)
     canvas.addEventListener('contextmenu', this.onContextMenu)
@@ -4357,6 +4372,7 @@ export class CanvasEngine {
       canvas.removeEventListener('pointercancel', this.onPointerUp)
       canvas.removeEventListener('wheel', this.onWheel)
       canvas.removeEventListener('pointerleave', this.onPointerLeave)
+      this.textLayer.root.removeEventListener('wheel', this.onWheel)
       canvas.removeEventListener('dblclick', this.onDoubleClick)
       canvas.removeEventListener('contextmenu', this.onContextMenu)
     }
