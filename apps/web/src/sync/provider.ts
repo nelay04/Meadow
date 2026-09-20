@@ -104,10 +104,25 @@ type Options = {
   onAccess: (access: BoardAccess) => void
 }
 
+/**
+ * What a `flush` found, which is the whole of what this client can honestly say.
+ *
+ * - `saved`: everything written here has left this browser down an open socket. The
+ *   server writes each update to `board_updates` as it reads it, so a byte that has
+ *   left is a byte that is kept.
+ * - `offline`: there is no socket. The work is in this browser's own store and goes up
+ *   on the next connection, which a flush also asks for.
+ * - `slow`: connected, and the socket has not emptied yet. Nothing is lost and nothing
+ *   is confirmed either - a large paste on a poor line looks exactly like this.
+ */
+export type SaveResult = 'saved' | 'offline' | 'slow'
+
 export type BoardConnection = {
   provider: WebsocketProvider
   disconnect: () => void
   reconnect: () => void
+  /** Push what this client has written and say whether it got there. See `SaveResult`. */
+  flush: (timeoutMs?: number) => Promise<SaveResult>
   destroy: () => void
 }
 
@@ -268,6 +283,49 @@ export function connectBoard({
       wantConnection = true
       retryMs = MIN_RETRY_MS
       void attempt()
+    },
+    /*
+     * There is nothing to save, and that is exactly why this exists.
+     *
+     * Every edit is handed to the socket by y-websocket the moment it is made, and the
+     * server appends it to `board_updates` as it reads it. So a "save" here is not a
+     * write that was being held back: it is a question, and the only honest answer is
+     * whether what this client has written has actually left it.
+     *
+     * `bufferedAmount` is what answers that. It is the bytes the browser has accepted
+     * from us and not yet put on the wire, so zero on an open socket means everything
+     * written so far is at the other end - and ordered ahead of anything sent after it,
+     * because a WebSocket is a stream. It is not an acknowledgement from the database,
+     * and this deliberately does not pretend to be one: there is no round trip in the
+     * sync protocol to wait on, and inventing one to make a familiar key feel familiar
+     * would be a new message type on the hot path for reassurance alone.
+     *
+     * Disconnected is not a failure and must not be reported as one. The edits are in
+     * this browser's IndexedDB store and replay on the next connection, so the useful
+     * thing to do with the keypress is to stop waiting out the backoff and try now.
+     */
+    flush: async (timeoutMs = 4_000): Promise<SaveResult> => {
+      const socket = provider.ws
+      if (!provider.wsconnected || socket === null || socket.readyState !== WebSocket.OPEN) {
+        if (wantConnection && !destroyed) {
+          retryMs = MIN_RETRY_MS
+          void attempt()
+        }
+        return 'offline'
+      }
+
+      const deadline = Date.now() + timeoutMs
+      while (socket.bufferedAmount > 0) {
+        if (Date.now() >= deadline) return 'slow'
+        // The socket drains on the browser's own schedule and fires nothing when it
+        // does, so there is no event to wait for. Short enough to feel immediate on a
+        // buffer that is already empty, which is the ordinary case.
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        // Dropped while we waited. The work is safe locally, which is `offline`, not
+        // a lie about it having landed.
+        if (provider.ws !== socket || socket.readyState !== WebSocket.OPEN) return 'offline'
+      }
+      return 'saved'
     },
     destroy: () => {
       destroyed = true

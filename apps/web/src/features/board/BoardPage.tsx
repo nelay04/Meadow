@@ -1445,6 +1445,58 @@ export default function BoardPage({ boardId, kindHint, onBack, onSignIn }: Props
   }, [boardId, spec.column, docReady, canWrite, empty, openIntoWriting])
 
   /*
+   * Ctrl+S, which has to be answered even though there is nothing to save.
+   *
+   * Left alone the browser offers to write the page to disk as HTML, which on a canvas
+   * whose document lives on a server is not a save in any sense: the file it produces
+   * has none of the work in it. That alone is reason enough to take the key.
+   *
+   * What it does instead is tell the truth. Meadow writes every edit to the socket as
+   * it is made, so the question the key really asks - "is my work safe?" - already has
+   * an answer, and `flush` in sync/provider.ts is the one place that can give it. The
+   * three answers are all real outcomes, and the offline one is the reason this is
+   * worth a keypress at all: it both says the work is held in this browser and stops
+   * waiting out the reconnect backoff.
+   *
+   * On the window in the capture phase, so it answers while somebody is mid-sentence
+   * in a row or in the subject field. The key means the same thing wherever it is
+   * pressed, and the text being typed is already in the document.
+   */
+  const saving = useRef(false)
+  useEffect(() => {
+    const onSaveKey = (event: KeyboardEvent): void => {
+      if (event.key !== 's' && event.key !== 'S') return
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return
+      // Before the guard below: the dialog is refused even while a flush is running, or
+      // holding the key would open one the second time round.
+      event.preventDefault()
+      if (saving.current) return
+
+      const link = connection.current
+      if (link === null) {
+        toast.info('Still opening. Nothing is lost.')
+        return
+      }
+
+      saving.current = true
+      void link
+        .flush()
+        .then((result) => {
+          if (result === 'saved') toast.success('Saved.')
+          else if (result === 'offline') {
+            toast.info('Offline. Your work is kept in this browser and goes up when you are back.')
+          } else toast.info('Still saving. Nothing is lost, the connection is just slow.')
+        })
+        .finally(() => {
+          saving.current = false
+        })
+    }
+
+    window.addEventListener('keydown', onSaveKey, { capture: true })
+    return () => window.removeEventListener('keydown', onSaveKey, { capture: true })
+  }, [toast])
+
+  /*
    * Capture a preview for the board list.
    *
    * Not on every edit: rendering the whole board uncilled and encoding a webp is far

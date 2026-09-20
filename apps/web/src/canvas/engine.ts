@@ -4172,6 +4172,18 @@ export class CanvasEngine {
       return
     }
 
+    /*
+     * Past here every key is a bare one, so an accelerator that got this far is not
+     * ours and must be left alone.
+     *
+     * Without this the switch read the letter and ignored the modifier: Ctrl+S picked
+     * up the sticky tool on its way to the browser's save dialog, and every other
+     * accelerator whose letter happens to be a tool did the same. A shortcut that
+     * belongs to the browser, or to one this canvas has not claimed, is not a tool
+     * change that happens to have a modifier held down.
+     */
+    if (accel) return
+
     switch (event.key) {
       case 'Delete':
       case 'Backspace':
