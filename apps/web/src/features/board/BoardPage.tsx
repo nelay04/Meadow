@@ -292,12 +292,46 @@ const PEN_COLORS: { value: number | null; label: string; css: string }[] = [
 ]
 
 /**
+ * The beam colours.
+ *
+ * No `null` here, unlike the pen's. A stroke with no colour of its own is drawn in the
+ * surface's ink so it answers to the theme; a laser is a light rather than a pigment,
+ * and a light does not change colour with the paper it falls on. So every one of these
+ * is a colour somebody chose, and it is the same colour to everybody in the room.
+ *
+ * Red first because that is what a laser is, and the rest are for telling two people
+ * pointing at once apart. They are the pen's swatches deliberately shifted brighter:
+ * these are lights, and they have to hold against a board's own fills in both themes.
+ */
+const LASER_COLORS: { value: number; label: string; css: string }[] = [
+  { value: 0xff2d55, label: 'Red', css: '#ff2d55' },
+  { value: 0xff9f0a, label: 'Amber', css: '#ff9f0a' },
+  { value: 0x30d158, label: 'Green', css: '#30d158' },
+  { value: 0x0a84ff, label: 'Blue', css: '#0a84ff' },
+  { value: 0xbf5af2, label: 'Violet', css: '#bf5af2' },
+]
+
+/**
+ * Beam widths, in screen pixels.
+ *
+ * Three rather than the pen's four, and named rather than a slider, for the same reason
+ * the pen's are: nobody wants 3.4. One fewer because a laser is pointing rather than
+ * drawing, and the difference between the pen's Broad and Heavy is a difference in a
+ * mark you are going to keep.
+ */
+const LASER_SIZES: { value: number; label: string }[] = [
+  { value: 2.5, label: 'Fine' },
+  { value: 3.5, label: 'Medium' },
+  { value: 5, label: 'Broad' },
+]
+
+/**
  * The tools whose rail button carries a flyout.
  *
  * A set rather than a check per call site, so a tool cannot end up with a menu the
  * open/close logic does not know about.
  */
-const TOOLS_WITH_MENU: ReadonlySet<ToolId> = new Set<ToolId>(['arrow', 'pen'])
+const TOOLS_WITH_MENU: ReadonlySet<ToolId> = new Set<ToolId>(['arrow', 'pen', 'laser'])
 
 /**
  * Which flyout a tool belongs to, or none.
@@ -629,8 +663,9 @@ export default function BoardPage({ boardId, kindHint, onBack, onSignIn }: Props
     () => ({
       onPointer: (point: { x: number; y: number } | null) => presence.current?.setCursor(point),
       onSelection: (ids: readonly string[]) => presence.current?.setSelection(ids),
-      onLaser: (mark: { points: readonly number[]; alpha: number } | null) =>
-        presence.current?.setLaser(mark),
+      onLaser: (
+        mark: { points: readonly number[]; alpha: number; color: number; width: number } | null,
+      ) => presence.current?.setLaser(mark),
     }),
     [],
   )
@@ -741,6 +776,16 @@ export default function BoardPage({ boardId, kindHint, onBack, onSignIn }: Props
     onLinesAdded: (added) =>
       toast.success(`Added ${added} more line${added === 1 ? '' : 's'}.`),
   })
+
+  /*
+   * The beam's colour as CSS, for the swatch on the width buttons.
+   *
+   * Resolved from the chosen value rather than kept beside it, so the two can never
+   * disagree; falls back to the first swatch for a colour remembered from a build that
+   * offered a different set.
+   */
+  const laserCss =
+    LASER_COLORS.find((swatch) => swatch.value === canvas.laser.color)?.css ?? LASER_COLORS[0].css
 
   // What the arrow button draws with, for the same reason the shape button knows its
   // shape: the choice is made in the flyout and shows nowhere else until an arrow
@@ -2292,6 +2337,60 @@ export default function BoardPage({ boardId, kindHint, onBack, onSignIn }: Props
                 </div>
               )}
 
+              {/*
+                The beam, on the same terms as the nibs: an option on the tool, chosen
+                before the mark rather than after. Unlike the nibs it applies to the
+                mark already under the pointer too, because a beam is a light that is
+                currently on rather than a record of the thing that made it.
+
+                Not gated on `canWrite`, and that is the point of the tool: a viewer
+                may point, so a viewer may choose what their pointing looks like. Every
+                other flyout on this rail configures something that writes.
+              */}
+              {tool.id === 'laser' && railMenu === 'laser' && (
+                <div className="tool-submenu pen-menu" role="group" aria-label="Laser">
+                  <div className="pen-row" role="group" aria-label="Beam width">
+                    {LASER_SIZES.map((size) => (
+                      <button
+                        key={size.label}
+                        type="button"
+                        aria-label={size.label}
+                        aria-pressed={canvas.laser.size === size.value}
+                        className={canvas.laser.size === size.value ? 'tool active' : 'tool'}
+                        onClick={() => canvas.setLaser({ size: size.value })}
+                      >
+                        {/* Shown at the colour it will draw in, so the two rows are
+                            read as one setting rather than as two questions. */}
+                        <span
+                          className="pen-dot"
+                          style={{
+                            width: `${Math.round(4 + size.value)}px`,
+                            height: `${Math.round(4 + size.value)}px`,
+                            background: laserCss,
+                          }}
+                        />
+                        <Tip label={size.label} />
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="pen-row" role="group" aria-label="Beam colour">
+                    {LASER_COLORS.map((swatch) => (
+                      <button
+                        key={swatch.label}
+                        type="button"
+                        aria-label={swatch.label}
+                        aria-pressed={canvas.laser.color === swatch.value}
+                        className={canvas.laser.color === swatch.value ? 'tool active' : 'tool'}
+                        onClick={() => canvas.setLaser({ color: swatch.value })}
+                      >
+                        <span className="pen-swatch" style={{ background: swatch.css }} />
+                        <Tip label={swatch.label} />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
             )
           })}

@@ -49,7 +49,13 @@ export type Wanderer = {
    * and drawn by `LaserLayer` rather than here: it is a mark on the board, under the
    * cursors, while everything in this file is chrome that sits on top of them.
    */
-  laser: { points: readonly number[]; alpha: number } | null
+  laser: {
+    points: readonly number[]
+    alpha: number
+    /** The colour and width this peer chose, not the ones this client is set to. */
+    color: number
+    width: number
+  } | null
 }
 
 /** Bounds of a remote selection, resolved by the engine from its own cache. */

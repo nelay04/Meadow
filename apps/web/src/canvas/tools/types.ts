@@ -87,6 +87,40 @@ export type PenSettings = {
 }
 
 /**
+ * How the laser is set, chosen in the rail.
+ *
+ * Engine state rather than document state, like the pen's: it describes the next mark
+ * and never touches one already made. Unlike the pen's, `color` is not nullable -
+ * there is no "the surface's own ink" for a beam, which is a light rather than a
+ * pigment and is the same colour on paper of any shade.
+ */
+export type LaserSettings = {
+  /** The beam's colour, as everybody in the room sees it. */
+  color: number
+  /** The beam's width in screen pixels, constant at every zoom and along its length. */
+  size: number
+}
+
+/**
+ * What the laser is set to before anybody has chosen, and what a peer who named
+ * neither is drawn in.
+ *
+ * Blue rather than the red a laser pointer throws. Red on a board already means
+ * something: it is the pen colour people correct and cross out in, and a mark that
+ * cannot be erased because it was never written is the worst possible thing to confuse
+ * with one that can. Blue is legible on every stock this app offers, light and dark,
+ * and it reads as this application pointing rather than as somebody drawing. Red is
+ * still in the palette, one click away, for anyone who wants the laser-pointer red.
+ *
+ * The middle width, because it is the one to open on rather than the one to argue for.
+ *
+ * Here rather than in any one of its three callers - the engine, the stored
+ * preference, and the validator for what peers send - because they have to agree and
+ * there is no reason for one of them to own it.
+ */
+export const DEFAULT_LASER: LaserSettings = { color: 0x0a84ff, size: 3.5 }
+
+/**
  * A stroke still under the pointer.
  *
  * Wet ink is not in the document yet, deliberately. A stroke is one object and one

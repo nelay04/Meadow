@@ -22,6 +22,15 @@ away getting there.
   the pointer rather than sitting on it and is sampled by distance rather than by
   event, so the tremor of a hand on a mouse never reaches it, and it is drawn as a
   curve through its samples rather than as a line between them.
+  Five colours and three widths behind the rail button, the way the pen's nibs sit
+  behind its own, remembered per browser and never written to the board. It opens on
+  blue at the middle width: red on a board already means the pen people correct and
+  cross out in, and a mark that cannot be erased because it was never written is the
+  worst thing to confuse with one that can. Red is one click away for anyone who wants
+  the laser-pointer red. The setting travels with the mark, so a peer sees the beam its
+  author chose rather than the one this client is set to. The flyout is not gated on
+  being able to edit: a viewer may point, so a viewer may choose what their pointing
+  looks like.
   It rides awareness beside the cursors, so everybody in the room watches the mark
   being drawn. Nothing reaches the document, the undo stack or a board's thumbnail, and
   for the same reason it is the one drawing tool a viewer or a commenter is given -

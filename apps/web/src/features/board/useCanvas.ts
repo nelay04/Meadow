@@ -38,7 +38,8 @@ import {
   type GridPattern,
 } from '../../canvas/surface'
 import type { Wanderer } from '../../canvas/overlay/wandererLayer'
-import type { PenSettings, ToolId } from '../../canvas/tools/types'
+import { DEFAULT_LASER } from '../../canvas/tools/types'
+import type { LaserSettings, PenSettings, ToolId } from '../../canvas/tools/types'
 import { DocEngineHost, observeDocument } from '../../doc/engineHost'
 import {
   type DocSession,
@@ -76,6 +77,55 @@ import { THEME_EVENT } from '../../ui/theme'
 const GRID_KEY = 'meadow.grid'
 const GRID_PATTERN_KEY = 'meadow.grid.pattern'
 const PEN_KEY = 'meadow.pen'
+const LASER_KEY = 'meadow.laser'
+
+/**
+ * The laser, as this browser last set it.
+ *
+ * A preference rather than document state, for the same reason the pen is one: it
+ * describes how *you* point, not anything on the board. Validated field by field
+ * because this string was last written by some other version of the app.
+ */
+function readLaserPreference(): LaserSettings {
+  try {
+    const raw = localStorage.getItem(LASER_KEY)
+    if (raw === null) return DEFAULT_LASER
+    const stored: unknown = JSON.parse(raw)
+    if (typeof stored !== 'object' || stored === null) return DEFAULT_LASER
+    const value = stored as Partial<Record<keyof LaserSettings, unknown>>
+    return {
+      color:
+        typeof value.color === 'number' && Number.isInteger(value.color)
+          ? value.color
+          : DEFAULT_LASER.color,
+      // Clamped rather than checked against the offered list, so a width from a build
+      // with a different set of stops still draws something sane.
+      size:
+        typeof value.size === 'number' && value.size > 0
+          ? Math.min(12, value.size)
+          : DEFAULT_LASER.size,
+    }
+  } catch {
+    return DEFAULT_LASER
+  }
+}
+
+function writeLaserPreference(laser: LaserSettings): void {
+  try {
+    localStorage.setItem(LASER_KEY, JSON.stringify(laser))
+  } catch {
+    // As with the pen: it still applies for this session.
+  }
+}
+
+/**
+ * The nib, as this person last left it.
+ *
+ * Remembered for the same reason the grid is, and with more reason: a pen is a tool
+ * somebody chooses once and then uses for weeks, and handing them a default ballpoint
+ * every time they open a board is asking them to set it up again each session. It is
+ * a preference, not document state: two people on one board draw with their own pens.
+ */
 const DEFAULT_PEN: PenSettings = {
   tip: 'round',
   size: 3,
@@ -296,6 +346,15 @@ export type CanvasHandle = {
   setPen(patch: Partial<PenSettings>): void
 
   /**
+   * How the laser is set, and how to change it.
+   *
+   * Remembered across sessions in this browser like the pen, and never in the
+   * document: a laser leaves nothing behind for a setting to belong to.
+   */
+  laser: LaserSettings
+  setLaser(patch: Partial<LaserSettings>): void
+
+  /**
    * Text formatting, for the object being edited or for a text-bearing selection.
    *
    * `marks` is only meaningful while an editor is open, because a mark applies to a
@@ -326,7 +385,9 @@ export type CanvasPresence = {
    * Already trimmed, faded and throttled by the engine, which is the only thing that
    * knows the clock the mark was drawn on.
    */
-  onLaser(mark: { points: readonly number[]; alpha: number } | null): void
+  onLaser(
+    mark: { points: readonly number[]; alpha: number; color: number; width: number } | null,
+  ): void
 }
 
 /**
@@ -423,6 +484,7 @@ export function useCanvas(
   const [arrowRouting, setArrowRoutingState] = useState<ArrowRouting>('straight')
   const [polygonSides, setPolygonSidesState] = useState(DEFAULT_POLYGON_SIDES)
   const [pen, setPenState] = useState<PenSettings>(readPenPreference)
+  const [laser, setLaserState] = useState<LaserSettings>(readLaserPreference)
   const [activeMarks, setActiveMarks] = useState<readonly TextMark[]>([])
   // A counter, not the value: the engine is the source of truth for both of these and
   // they change on selection, on editing, and on a peer's edit. Bumping this on the
@@ -453,6 +515,8 @@ export function useCanvas(
   // time somebody picked a colour.
   const penRef = useRef(pen)
   penRef.current = pen
+  const laserRef = useRef(laser)
+  laserRef.current = laser
 
   // Same reason as the session: the name arrives after the engine is built, so the
   // host reads it through a ref rather than capturing whatever it was at mount. The
@@ -533,6 +597,7 @@ export function useCanvas(
       engine.setGridVisible(gridRef.current)
       engine.setGridPattern(gridPatternRef.current)
       engine.setPen(penRef.current)
+      engine.setLaser(laserRef.current)
       engine.setSurface(optionsRef.current.surface ?? DEFAULT_SURFACE)
       engine.setAvailableTools(optionsRef.current.tools ?? null)
       engine.setColumnFont(readLeaFont(current()))
@@ -925,6 +990,15 @@ export function useCanvas(
     })
   }, [])
 
+  const setLaser = useCallback((patch: Partial<LaserSettings>) => {
+    setLaserState((current) => {
+      const next = { ...current, ...patch }
+      engineRef.current?.setLaser(next)
+      writeLaserPreference(next)
+      return next
+    })
+  }, [])
+
   const setWanderers = useCallback((wanderers: readonly Wanderer[]) => {
     engineRef.current?.setWanderers(wanderers)
   }, [])
@@ -998,6 +1072,8 @@ export function useCanvas(
     setPolygonSides,
     pen,
     setPen,
+    laser,
+    setLaser,
     canFormatText: engineRef.current?.canFormatText ?? false,
     activeMarks,
     toggleMark: (mark: TextMark) => engineRef.current?.toggleTextMark(mark),

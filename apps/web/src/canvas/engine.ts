@@ -99,8 +99,10 @@ import type { DocSnapshot, ObjectSnapshot } from '../doc/mutations'
 // through its host and nothing else.
 import { readClipboard, snapshotBounds, writeClipboard } from '../doc/clipboard'
 import type { TextMark } from '../doc/richText'
+import { DEFAULT_LASER } from './tools/types'
 import type {
   CanvasPointerEvent,
+  LaserSettings,
   PenSettings,
   Tool,
   ToolContext,
@@ -659,7 +661,9 @@ export type EngineEvents = {
    * fires from the render loop rather than from the event, since a mark goes on
    * changing while the pointer sits still.
    */
-  onLaser?(mark: { points: readonly number[]; alpha: number } | null): void
+  onLaser?(
+    mark: { points: readonly number[]; alpha: number; color: number; width: number } | null,
+  ): void
   /**
    * The writing has reached the last rule and wants another one.
    *
@@ -793,6 +797,12 @@ export class CanvasEngine {
    * the document, which is what lets a viewer use it.
    */
   private laser: number[] = []
+
+  /**
+   * How the laser is set. Engine state, beside the pen's and for the same reason: it
+   * describes the next mark rather than anything already drawn.
+   */
+  private laserSettings: LaserSettings = DEFAULT_LASER
 
   /**
    * Whether the pointer is still down on the laser.
@@ -2066,6 +2076,18 @@ export class CanvasEngine {
    */
   setPen(patch: Partial<PenSettings>): void {
     this.pen = { ...this.pen, ...patch }
+    this.requestRender()
+  }
+
+  /**
+   * Set the laser.
+   *
+   * Applies to the mark under the pointer as well as the next one, unlike the pen,
+   * where the nib that made a stroke is part of it. A beam has no such history: it is
+   * a light that is currently on, so changing its colour changes the light.
+   */
+  setLaser(patch: Partial<LaserSettings>): void {
+    this.laserSettings = { ...this.laserSettings, ...patch }
     this.requestRender()
   }
 
@@ -3687,7 +3709,12 @@ export class CanvasEngine {
       points[index * 2] = this.laser[index * 3]
       points[index * 2 + 1] = this.laser[index * 3 + 1]
     }
-    this.events.onLaser?.({ points, alpha: this.laserAlpha })
+    this.events.onLaser?.({
+      points,
+      alpha: this.laserAlpha,
+      color: this.laserSettings.color,
+      width: this.laserSettings.size,
+    })
   }
 
   /**
@@ -3708,13 +3735,25 @@ export class CanvasEngine {
         points[index * 2] = this.laser[index * 3]
         points[index * 2 + 1] = this.laser[index * 3 + 1]
       }
-      trails.push({ key: 'local', alpha: this.laserAlpha, points })
+      trails.push({
+        key: 'local',
+        alpha: this.laserAlpha,
+        color: this.laserSettings.color,
+        width: this.laserSettings.size,
+        points,
+      })
     }
 
     for (const wanderer of this.wandererState) {
       const remote = wanderer.laser
       if (remote === null) continue
-      trails.push({ key: wanderer.clientId, alpha: remote.alpha, points: remote.points })
+      trails.push({
+        key: wanderer.clientId,
+        alpha: remote.alpha,
+        color: remote.color,
+        width: remote.width,
+        points: remote.points,
+      })
     }
 
     return trails

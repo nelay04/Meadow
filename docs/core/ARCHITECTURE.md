@@ -2001,7 +2001,12 @@ rather than document - but unlike a cursor it is a *shape*, and a shape has to a
 ready to draw. Timestamps cannot cross the wire: two clients' clocks can be minutes
 apart, so a point stamped on the sender's machine means nothing on the receiver's. The
 sender therefore does all the ageing and publishes the result - the points still lit,
-and one alpha for the whole mark - and the receiver has nothing left to interpret.
+one alpha for the whole mark, and the colour and width its author chose - and the
+receiver has nothing left to interpret. The setting travels because the beam is
+*theirs*: redrawing a peer's mark in this client's own colour would be the board
+overruling a choice they made about how they appear while pointing. Both are bounded on
+the way in, because a peer asking every client in the room to stroke at ten thousand
+pixels is a red screen.
 
 **It is one line, one width, one opacity.** The first version tapered the trail and
 faded it per point, over a soft halo. That is three gradients, and the cost of them is

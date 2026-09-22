@@ -64,10 +64,12 @@ any text on a board and in a lea page's subject.
 
 **Point.** The laser draws one bright line that follows the pointer and goes out a
 moment after you stop, so you can circle a thing while you talk about it and leave
-nothing behind. It is smoothed on the way in, so it reads as a beam rather than as a
-record of your mouse hand. Everyone on the board watches it being drawn. It writes
-nothing to the document, which is why it is the one drawing tool somebody with a
-view-only link still gets.
+nothing behind. Five colours and three widths, opening on blue, remembered per browser,
+and your choice travels with the mark so everyone sees the beam you picked. It is smoothed on the way
+in, so it reads as a beam rather than as a record of your mouse hand. Everyone on the
+board watches it being drawn. It writes nothing to the document, which is why it is the
+one drawing tool somebody with a view-only link still gets - and why its flyout is the
+only one on the rail that a viewer can open.
 
 **Restack.** Depth is a list, and the stack panel shows it: every object front first,
 ringed on the canvas as you point at each row, dragged into place or given a depth to

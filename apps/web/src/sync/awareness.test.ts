@@ -14,11 +14,39 @@ import { readLaser } from './awareness'
 
 describe('readLaser', () => {
   it('takes a well-formed mark unchanged', () => {
-    expect(readLaser({ p: [0, 0, 10, 12], a: 1 })).toEqual({ points: [0, 0, 10, 12], alpha: 1 })
+    expect(readLaser({ p: [0, 0, 10, 12], a: 1, c: 0x30d158, w: 5 })).toEqual({
+      points: [0, 0, 10, 12],
+      alpha: 1,
+      color: 0x30d158,
+      width: 5,
+    })
+  })
+
+  it('draws a peer who named no colour or width in the defaults', () => {
+    // A peer on a build from before the laser was settable. Drawing nothing at all
+    // would be the wrong answer: they are pointing, and we can see where.
+    const mark = readLaser({ p: [0, 0, 10, 12], a: 1 })
+    expect(mark?.color).toBe(0x0a84ff)
+    expect(mark?.width).toBe(3.5)
+  })
+
+  it('refuses a colour that is not one', () => {
+    expect(readLaser({ p: [0, 0, 10, 12], a: 1, c: -1 })?.color).toBe(0x0a84ff)
+    expect(readLaser({ p: [0, 0, 10, 12], a: 1, c: 0x1ffffff })?.color).toBe(0x0a84ff)
+    expect(readLaser({ p: [0, 0, 10, 12], a: 1, c: 1.5 })?.color).toBe(0x0a84ff)
+    expect(readLaser({ p: [0, 0, 10, 12], a: 1, c: '#fff' })?.color).toBe(0x0a84ff)
+  })
+
+  it('caps a width that would paint the viewport red', () => {
+    // A peer may ask everybody in the room to draw this, so the number is theirs and
+    // the limit is ours.
+    expect(readLaser({ p: [0, 0, 10, 12], a: 1, w: 10000 })?.width).toBe(12)
+    expect(readLaser({ p: [0, 0, 10, 12], a: 1, w: 0 })?.width).toBe(3.5)
+    expect(readLaser({ p: [0, 0, 10, 12], a: 1, w: Number.NaN })?.width).toBe(3.5)
   })
 
   it('keeps a mark that is part way through fading out', () => {
-    expect(readLaser({ p: [0, 0, 10, 12], a: 0.4 })?.alpha).toBe(0.4)
+    expect(readLaser({ p: [0, 0, 10, 12], a: 0.4, c: 0x0a84ff, w: 3.5 })?.alpha).toBe(0.4)
   })
 
   it('refuses anything that is not a mark', () => {

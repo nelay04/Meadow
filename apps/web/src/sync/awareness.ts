@@ -16,6 +16,7 @@
 import type { Awareness } from 'y-protocols/awareness'
 
 import type { Wanderer } from '../canvas/overlay/wandererLayer'
+import { DEFAULT_LASER } from '../canvas/tools/types'
 import { roleCanWrite } from '../doc/mutations'
 import type { BoardRole } from '../lib/api'
 
@@ -53,6 +54,9 @@ export function colorFor(userId: string): number {
   return PALETTE[hash % PALETTE.length]
 }
 
+/** The widest beam a peer may ask everybody to draw, in screen pixels. */
+const MAX_LASER_WIDTH = 12
+
 /**
  * A peer's laser mark, or null.
  *
@@ -60,12 +64,14 @@ export function colorFor(userId: string): number {
  * checks the shape rather than trusting it: an odd length, a NaN, or a few thousand
  * points would each end up in a render loop. Nothing here can be dangerous - the worst
  * an accepted mark does is draw a line - but "draw a line" is exactly what a thousand
- * of them do to the frame rate.
+ * of them do to the frame rate, and a width of ten thousand is a red screen.
  */
-export function readLaser(raw: unknown): { points: number[]; alpha: number } | null {
+export function readLaser(
+  raw: unknown,
+): { points: number[]; alpha: number; color: number; width: number } | null {
   if (raw === null || typeof raw !== 'object') return null
 
-  const mark = raw as { p?: unknown; a?: unknown }
+  const mark = raw as { p?: unknown; a?: unknown; c?: unknown; w?: unknown }
   if (!Array.isArray(mark.p) || mark.p.length < 2) return null
 
   const alpha = typeof mark.a === 'number' && Number.isFinite(mark.a) ? mark.a : 0
@@ -80,7 +86,22 @@ export function readLaser(raw: unknown): { points: number[]; alpha: number } | n
     if (typeof value !== 'number' || !Number.isFinite(value)) return null
     points.push(value)
   }
-  return points.length < 2 ? null : { points, alpha: Math.min(1, alpha) }
+  if (points.length < 2) return null
+
+  return {
+    points,
+    alpha: Math.min(1, alpha),
+    // A colour is 24 bits and anything else is a peer on a build that did not send one,
+    // which draws in the default rather than not at all.
+    color:
+      typeof mark.c === 'number' && Number.isInteger(mark.c) && mark.c >= 0 && mark.c <= 0xffffff
+        ? mark.c
+        : DEFAULT_LASER.color,
+    width:
+      typeof mark.w === 'number' && Number.isFinite(mark.w) && mark.w > 0
+        ? Math.min(MAX_LASER_WIDTH, mark.w)
+        : DEFAULT_LASER.size,
+  }
 }
 
 export type LocalPresence = {
@@ -112,14 +133,15 @@ export type WandererState = {
   cursor: { x: number; y: number } | null
   selection: string[]
   /**
-   * The laser mark: `p` is flat world `[x, y]` pairs, oldest first, and `a` is how lit
-   * the whole mark is. Null when this peer is not pointing at anything.
+   * The laser mark: `p` is flat world `[x, y]` pairs, oldest first, `a` is how lit the
+   * whole mark is, and `c` and `w` are the colour and width its author chose. Null when
+   * this peer is not pointing at anything.
    *
    * No timestamps, deliberately. A time taken from the sender's clock means nothing on
    * the receiver's - the two can be minutes apart - so the sender does the ageing and
    * publishes what it arrived at. See `engine.ts::laserTrails`.
    */
-  laser: { p: number[]; a: number } | null
+  laser: { p: number[]; a: number; c: number; w: number } | null
 }
 
 export type PresenceHandle = {
@@ -132,7 +154,9 @@ export type PresenceHandle = {
    * Not throttled here, unlike the cursor: the engine publishes from its render loop
    * and has already rate-limited it. Throttling twice would only add lag.
    */
-  setLaser(mark: { points: readonly number[]; alpha: number } | null): void
+  setLaser(
+    mark: { points: readonly number[]; alpha: number; color: number; width: number } | null,
+  ): void
   /**
    * Republish the role.
    *
@@ -337,7 +361,9 @@ export function trackPresence(
       // names are a real fraction of it.
       awareness.setLocalStateField(
         'laser',
-        mark === null ? null : { p: Array.from(mark.points), a: mark.alpha },
+        mark === null
+          ? null
+          : { p: Array.from(mark.points), a: mark.alpha, c: mark.color, w: mark.width },
       )
     },
 

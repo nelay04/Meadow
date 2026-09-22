@@ -39,23 +39,19 @@ export type LaserTrail = {
   /** 'local', or the awareness client id of the peer pointing. */
   key: string | number
   alpha: number
+  /**
+   * The colour and width the person drawing chose, not the person watching.
+   *
+   * Both travel with the mark, because a laser is *their* beam: somebody who has set a
+   * broad green one has said something about how they want to be seen pointing, and
+   * redrawing it here in this client's own setting would be the board overruling them.
+   * It is also the only thing left that says who is pointing, now that the colour is
+   * chosen rather than assigned - along with the named cursor at the head of it.
+   */
+  color: number
+  width: number
   points: readonly number[]
 }
-
-/**
- * One colour and one width, for everybody, in both themes.
- *
- * Blue rather than the red a laser pointer throws. Red on a board already means
- * something: it is the pen colour people correct and cross out in, and a mark that
- * cannot be erased because it was never written is the worst possible thing to confuse
- * with one that can.
- *
- * The width is in screen pixels, at every zoom and along the whole length: thin enough
- * to point *at* something rather than cover it, heavy enough to hold its colour against
- * a board full of shapes.
- */
-const LASER_COLOR = 0x0a84ff
-const LASER_WIDTH = 3.5
 
 export class LaserLayer {
   readonly view = new Container()
@@ -104,8 +100,8 @@ export class LaserLayer {
     // zero-length line, so the dot has to be a dot.
     if (count === 1) {
       graphics
-        .circle(screen[0], screen[1], LASER_WIDTH / 2)
-        .fill({ color: LASER_COLOR, alpha: trail.alpha })
+        .circle(screen[0], screen[1], trail.width / 2)
+        .fill({ color: trail.color, alpha: trail.alpha })
       return
     }
 
@@ -133,8 +129,8 @@ export class LaserLayer {
     // One stroke for the whole path. Round caps and joins are what let it turn back on
     // itself - a circle drawn round a shape crosses its own tail - without a notch.
     graphics.stroke({
-      width: LASER_WIDTH,
-      color: LASER_COLOR,
+      width: trail.width,
+      color: trail.color,
       alpha: trail.alpha,
       cap: 'round',
       join: 'round',
