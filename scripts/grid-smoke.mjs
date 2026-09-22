@@ -30,11 +30,7 @@ const RATIOS = [1, 1.25, 1.5, 2]
 /** Round zooms, awkward ones, and the two the zoom buttons step through. */
 const ZOOMS = [1, 1.25, 1.29, 1.37, 1.5, 1.75, 2]
 
-/**
- * Longer than `GRID_SNAP_DELAY_MS` in the engine. The paper is snapped to the pixel
- * grid once the zoom has been still for a moment, and the point of this test is the
- * still picture people look at, not the frame mid-gesture.
- */
+/** Long enough for the camera to have been set and a frame to have been drawn with it. */
 const SETTLE_MS = 300
 
 const failures = []
@@ -212,6 +208,57 @@ for (const ratio of RATIOS) {
 
   await page.close()
 }
+
+/*
+ * The paper finishes the zoom on the same frame the board does.
+ *
+ * The snap above was once deferred until the zoom had been still for a moment, to
+ * spare the lattice a little stepping through a continuous pinch. What that actually
+ * produced was a board that had finished zooming and a paper that re-spaced a fifth of
+ * a second later, which reads as the dots being animated separately from the thing
+ * they are printed on. This is the check that keeps it in step: the tile the paper is
+ * drawn with immediately after a zoom has to be the tile it is still drawn with once
+ * everything has settled.
+ */
+const timing = await browser.newPage({
+  viewport: { width: 900, height: 600 },
+  // The display scale where the snap moves the cell furthest, so a deferred one would
+  // be plainly visible in the numbers rather than a rounding difference.
+  deviceScaleFactor: 1.25,
+})
+await timing.goto(`${base}/canvas-dev.html?n=0`, { waitUntil: 'load' })
+await timing.waitForFunction(() => window.__canvas !== undefined, null, { timeout: 60000 })
+await timing.evaluate((css) => {
+  const style = document.createElement('style')
+  style.textContent = css
+  document.head.appendChild(style)
+  document.querySelector('#canvas').classList.add('grid-dots')
+  window.__canvas.engine.setGridPattern('dots')
+}, PAPER_CSS)
+await timing.evaluate(() => window.__canvas.setCamera({ x: 13.3, y: 7.7, zoom: 1 }))
+await delay(200)
+
+const tile = () =>
+  timing.evaluate(async () => {
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    return document.querySelector('#canvas').style.backgroundSize
+  })
+
+await timing.mouse.move(450, 300)
+await timing.keyboard.down('Control')
+await timing.mouse.wheel(0, -100)
+await timing.keyboard.up('Control')
+
+const atOnce = await tile()
+await delay(400)
+const later = await tile()
+
+check(
+  'the paper finishes the zoom on the same frame the board does',
+  atOnce === later,
+  `tile was ${atOnce} right after the zoom and ${later} once it had settled`,
+)
+await timing.close()
 
 await browser.close()
 stop()

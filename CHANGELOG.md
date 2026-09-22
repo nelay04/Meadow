@@ -11,6 +11,41 @@ away getting there.
 
 ---
 
+## [1.20.3] - [22-Sep-2026]
+
+### Reversed
+- **The paper now finishes the zoom when the board does.** 1.20.1 snapped the dot
+  lattice to the pixel grid only once the zoom had been still for a moment, to spare it
+  the stepping that a fractionally scaled display forces on a repeated tile. That was
+  the wrong thing to protect. The stepping was never what anyone noticed; what they
+  noticed was the board arriving at the new zoom and the dots arriving a fifth of a
+  second later, which reads as the paper being animated separately from the thing
+  printed on it. The snap is taken on every frame now, so the lattice re-spaces in step
+  with the zoom, in visible steps on a 125% or 150% display and invisibly small ones at
+  100% and 200%. One picture that steps beats two pictures that agree eventually.
+  `pnpm smoke:grid` gained the check that holds it there: the tile the paper is drawn
+  with immediately after a zoom has to be the tile it is still drawn with once
+  everything has settled. The evenness it was all for is unchanged - all twenty-eight
+  display scale and zoom combinations still show one dot, repeated.
+
+---
+
+## [1.20.2] - [22-Sep-2026]
+
+### Fixed
+- **A wheel notch is a zoom step you can aim with.** Ctrl and the wheel multiplied the
+  zoom by e on every notch, so the only sizes a mouse could reach were 14%, 37%, 100%,
+  272%, 739%, with nothing in between and no way to stop on the one you wanted. A notch
+  is now 15%, which doubles in five of them. The zoom is still exponential in the wheel
+  delta, because zoom is multiplicative and a trackpad has to be able to ask for a
+  fraction of a notch; the coefficient was simply seven times too large.
+  A single event is also capped at one notch. A fast flick can arrive as several
+  notches coalesced into one event, and a browser that counts the wheel in lines
+  reports a notch as something else again, so the cap is what makes a mouse, a
+  trackpad and Firefox ask for the same thing.
+
+---
+
 ## [1.20.1] - [22-Sep-2026]
 
 ### Fixed

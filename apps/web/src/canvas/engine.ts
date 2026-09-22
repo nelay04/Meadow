@@ -193,18 +193,6 @@ const DOT_MIN_PX = 18
 const DOT_MAX_PX = DOT_MIN_PX * 2
 
 /**
- * How long the zoom has to be still before the paper is snapped to the pixel grid.
- *
- * The snap below costs a little of the spacing's accuracy, and on a fractional display
- * scale it costs a visible amount: a cell has to be a whole number of CSS pixels there,
- * so it steps in twos or fours rather than continuously. Taken on every frame that
- * would read as the lattice breathing through a pinch, which is a worse fault than the
- * one being fixed. So it is taken when the zoom stops, where the eye is on a still
- * picture and the crispness is the only thing it can see. Long enough not to fire
- * inside the gaps between wheel events, short enough to feel like part of the gesture.
- */
-const GRID_SNAP_DELAY_MS = 140
-/**
  * The ruling on the `ruled` surface: one line every 28 world units.
  *
  * Stepped by two rather than by the grid's four. Graph paper is a ruler and wants a
@@ -464,6 +452,31 @@ const WHEEL_LINE_PX = 16
  * has stopped - the one thing worse than a jump.
  */
 const WHEEL_MAX_PENDING = 1600
+
+/*
+ * How far one notch of a wheel moves the zoom.
+ *
+ * A notch is a whole gesture on a mouse - there is nothing between one and two of them
+ * - so this is the smallest zoom change a mouse can ask for, and it has to be small
+ * enough to aim with. 15% takes five notches to double, which is close enough to feel
+ * direct and fine enough to stop on the size you wanted.
+ *
+ * It used to be `exp(-delta / 100)`, which is e per notch: 2.7x every click of the
+ * wheel, so the zoom went 14, 37, 100, 272, 739 and there was no way to ask for
+ * anything in between. That reads as the board fleeing the pointer. The exponential in
+ * delta was right and still is - zoom is multiplicative, and a trackpad has to be able
+ * to ask for a fraction of a notch - the coefficient was simply seven times too big.
+ */
+const ZOOM_WHEEL_STEP = 1.15
+/*
+ * What one notch reports, and the most any single event is allowed to be worth.
+ *
+ * Chrome sends 100 pixels for a notch, Firefox sends three lines, and a fast flick can
+ * arrive as several notches coalesced into one event. The clamp is what makes all
+ * three the same gesture: without it a coalesced event would zoom three notches at
+ * once and the flick would overshoot exactly the way the old coefficient did.
+ */
+const ZOOM_WHEEL_NOTCH_PX = 100
 
 function clamp(value: number, low: number, high: number): number {
   return Math.min(high, Math.max(low, value))
@@ -1163,34 +1176,6 @@ export class CanvasEngine {
   }
 
   /**
-   * The zoom the paper was last synced at, and when it last changed. See
-   * `GRID_SNAP_DELAY_MS`: the grid is only snapped to the pixel grid once this has
-   * been still for a moment.
-   */
-  private gridScale = 0
-  private gridScaleAt = 0
-
-  /**
-   * Whether the zoom has been still long enough to snap the paper.
-   *
-   * It also keeps the scene dirty while it is false, which is what makes the snap
-   * happen at all: the render loop only draws when something asked it to, and the last
-   * frame of a wheel zoom is followed by nothing. Without this the paper would stay at
-   * the fractional cell that frame left behind until the board was touched again.
-   */
-  private get gridSettled(): boolean {
-    const scale = this.lastTransform.scale
-    const now = performance.now()
-    if (scale !== this.gridScale) {
-      this.gridScale = scale
-      this.gridScaleAt = now
-    }
-    if (now - this.gridScaleAt >= GRID_SNAP_DELAY_MS) return true
-    this.requestRender()
-    return false
-  }
-
-  /**
    * The device pixels per CSS pixel, as the browser reports it right now.
    *
    * Read live rather than cached. It changes when the window moves to another display
@@ -1340,12 +1325,12 @@ export class CanvasEngine {
       spacing = world * transform.scale
     }
 
-    // On the pixel grid once the zoom is still, for the reason `syncDots` gives at
-    // length: a tile of 25.8px is a rule drawn into a different pair of pixels every
-    // few cells, which reads as a grid of uneven lines. The major cell is four of
-    // these, so it lands on the same grid.
+    // On the pixel grid, for the reason `syncDots` gives at length: a tile of 25.8px
+    // is a rule drawn into a different pair of pixels every few cells, which reads as
+    // a grid of uneven lines. The major cell is four of these, so it lands on the same
+    // grid.
     const ratio = this.pixelRatio
-    const step = this.gridSettled ? tileStep(ratio) : 1 / ratio
+    const step = tileStep(ratio)
     const minor = Math.max(step, Math.round(spacing / step) * step)
     const major = minor * 4
 
@@ -1402,8 +1387,8 @@ export class CanvasEngine {
     }
 
     /*
-     * Once the zoom is still, the cell is painted on the pixel grid rather than at
-     * whatever fraction of a pixel the zoom produced.
+     * The cell is painted on the pixel grid rather than at whatever fraction of a
+     * pixel the zoom produced.
      *
      * This is the difference between a lattice and a field of dots of three different
      * weights. A background tile repeats from its own size, so a cell of 25.8px starts
@@ -1417,9 +1402,18 @@ export class CanvasEngine {
      * up to half a step. That is the right way round for this paper. It is read as an
      * even field and never counted along, so what has to be exact is that every cell
      * is the same as every other one, not that a cell is 20 world units to the pixel.
+     *
+     * On every frame, and that is the second thing this got wrong before it got right.
+     * It was first taken only once the zoom had been still for a moment, to spare the
+     * lattice the stepping that a coarse grid gives it through a continuous pinch. The
+     * stepping it spared was never the fault people saw; what they saw was the paper
+     * finishing the zoom a fifth of a second after the board did, which reads as the
+     * dots being animated separately from the thing they are printed on. A lattice
+     * that re-spaces in step with the zoom, even in visible steps, is one picture. One
+     * that re-spaces afterwards is two.
      */
     const ratio = this.pixelRatio
-    const step = this.gridSettled ? tileStep(ratio) : 1 / ratio
+    const step = tileStep(ratio)
     const cell = Math.max(step, Math.round(spacing / step) * step)
     // The half-cell offsets go on the device grid rather than the tile grid. They are
     // a position, not a size, so they shift a whole layer instead of changing what a
@@ -4526,7 +4520,15 @@ export class CanvasEngine {
       // Zoom stays immediate. It is anchored to the pointer, and easing a move that has
       // to keep one world point under the cursor makes the thing you are pointing at
       // slide out from under it.
-      this.camera.zoomBy(point.x, point.y, Math.exp(-this.wheelPixels(event).y * 0.01))
+      //
+      // Measured in notches rather than in pixels, so a mouse, a trackpad and a
+      // browser that counts in lines all ask for the same thing. A pinch sends a
+      // stream of small deltas and gets a fraction of a notch each time, which is what
+      // keeps it continuous.
+      const notches =
+        clamp(this.wheelPixels(event).y, -ZOOM_WHEEL_NOTCH_PX, ZOOM_WHEEL_NOTCH_PX) /
+        ZOOM_WHEEL_NOTCH_PX
+      this.camera.zoomBy(point.x, point.y, ZOOM_WHEEL_STEP ** -notches)
     } else {
       const delta = this.wheelPixels(event)
       // Shift is the horizontal wheel, which is a wheel that only reports deltaY.

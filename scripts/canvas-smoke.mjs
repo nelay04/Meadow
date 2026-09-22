@@ -208,6 +208,56 @@ await delay(120)
 now = await state()
 check('ctrl+wheel zooms', now.zoom > zoomBefore, `zoom ${zoomBefore} -> ${now.zoom}`)
 
+/*
+ * A notch of the wheel is a step you can aim with.
+ *
+ * The zoom is exponential in the wheel delta, which is right, but the coefficient is
+ * the whole feel of the gesture and it was once seven times too large: a notch
+ * multiplied the zoom by e, so the only zooms a mouse could reach were 14%, 37%, 100%,
+ * 272%. This pins the step from the outside, in the only place the browser's own idea
+ * of a notch is real.
+ */
+await page.evaluate(() => window.__canvas.setCamera({ x: 0, y: 0, zoom: 1 }))
+await delay(60)
+await page.keyboard.down('Control')
+await page.mouse.wheel(0, -100)
+await page.keyboard.up('Control')
+await delay(120)
+const oneNotch = (await state()).zoom
+check(
+  'one notch of the wheel is a step you can aim with',
+  oneNotch > 1.05 && oneNotch < 1.3,
+  `one notch took the zoom to ${oneNotch.toFixed(3)}`,
+)
+
+// And the same notch the other way puts it back, rather than overshooting past it.
+await page.keyboard.down('Control')
+await page.mouse.wheel(0, 100)
+await page.keyboard.up('Control')
+await delay(120)
+const backAgain = (await state()).zoom
+check(
+  'a notch back is a notch back',
+  Math.abs(backAgain - 1) < 0.01,
+  `zoom returned to ${backAgain.toFixed(3)}`,
+)
+
+// A flick that the browser coalesces into one large event is still one gesture, not a
+// leap across the whole zoom range.
+await page.keyboard.down('Control')
+await page.mouse.wheel(0, -600)
+await page.keyboard.up('Control')
+await delay(120)
+const flick = (await state()).zoom
+check(
+  'a coalesced flick does not leap across the zoom range',
+  flick < 1.3,
+  `a 600px event took the zoom to ${flick.toFixed(3)}`,
+)
+
+await page.evaluate(() => window.__canvas.setCamera({ x: 0, y: 0, zoom: 1 }))
+await delay(60)
+
 // --- arrows and bindings ------------------------------------------------------
 //
 // The unit tests cover the binding maths against plain snapshots. This covers the part
