@@ -73,6 +73,20 @@ export const textProps = z.object({
    * that shrinks its type instead, the way a real sticky note behaves.
    */
   autoHeight: z.boolean().default(true),
+  /**
+   * Grow `w` to fit the content too, up to `TEXT_AUTO_WIDTH_LIMIT`.
+   *
+   * Off by default, and deliberately: a text object already in a document was given
+   * its width by whoever made it, and turning this on for every one of them would
+   * shrink boards that were laid out by hand. The text tool sets it on what it
+   * creates by a click, where there is no width anybody chose; a drag sets a width,
+   * and so does a resize handle, and both leave it off.
+   *
+   * Why it matters beyond looks: an object's box is its hit area and what an arrow
+   * binds to, so a caption of one letter sitting in a box wide enough for a sentence
+   * catches clicks and connects arrows from empty canvas a long way from the word.
+   */
+  autoWidth: z.boolean().default(false),
 })
 
 export type TextProps = z.infer<typeof textProps>
@@ -160,6 +174,7 @@ export function resolveTextProps(object: ObjectData): TextProps {
   pick('verticalAlign', oneOf(VERTICAL_ALIGNMENTS))
   pick('padding', isFinite)
   pick('autoHeight', (value) => typeof value === 'boolean')
+  pick('autoWidth', (value) => typeof value === 'boolean')
 
   return base
 }
@@ -168,6 +183,24 @@ export function resolveTextProps(object: ObjectData): TextProps {
 export const TEXT_DEFAULT_SIZE = { w: 220, h: 32 }
 /** 3:3.25, portrait. A square note is a coaster; a page-shaped one is a note. */
 export const STICKY_DEFAULT_SIZE = { w: 180, h: 195 }
+
+/**
+ * Where an auto-width text object stops growing sideways and starts wrapping.
+ *
+ * A measure rather than a margin: past about this many characters a single line is
+ * tiring to read, and text on a board is meant to be read at a glance. It is in world
+ * units and not in ems on purpose - a heading set large should wrap sooner in words
+ * than body text, not carry the same word count across a much longer line.
+ */
+export const TEXT_AUTO_WIDTH_LIMIT = 520
+
+/**
+ * The narrowest an auto-width text object gets: room for the caret and a character or
+ * two, so an empty one is still something you can see and click.
+ */
+export function minimumTextWidth(props: TextProps): number {
+  return Math.ceil(props.fontSize * 1.5 + props.padding * 2)
+}
 
 /**
  * A text object never collapses to nothing. An empty one still has to be clickable and

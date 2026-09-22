@@ -705,14 +705,15 @@ export class CanvasEngine {
   private wandererState: readonly Wanderer[] = []
 
   /**
-   * Auto-height measurements taken during a render, flushed after it.
+   * Auto-size measurements taken during a render, flushed after it. Either axis, or
+   * both: a text object that grows to fit can measure a width as well as a height.
    *
    * Writing to the document from inside the render walk would fire a Y observer that
    * marks the scene dirty while it is still being drawn. Collecting and flushing keeps
    * the write out of the render, and batches a screenful of text objects into one
    * transaction instead of one each.
    */
-  private readonly pendingHeights = new Map<string, number>()
+  private readonly pendingSizes = new Map<string, { w?: number; h?: number }>()
 
   /**
    * The object with a live editor, and on a page where its rows stood when last looked
@@ -1034,8 +1035,10 @@ export class CanvasEngine {
 
     this.textLayer = new TextLayer(this.element, {
       html: (id) => this.host.textHtml(id),
-      onMeasured: (id, height) => {
-        this.pendingHeights.set(id, height)
+      onMeasured: (id, size) => {
+        // Merged, not replaced: the width and the height of one object are reported
+        // from two places in the same pass, and the second would drop the first.
+        this.pendingSizes.set(id, { ...this.pendingSizes.get(id), ...size })
       },
     })
     this.textLayer.ink = this.canvasInk
@@ -3139,7 +3142,7 @@ export class CanvasEngine {
   }
 
   /**
-   * Push measured auto-heights into the document.
+   * Push measured auto-sizes into the document.
    *
    * Idempotent by construction: every client measures the same text with the same
    * fonts and arrives at the same number, so the first write settles it and the
@@ -3150,21 +3153,26 @@ export class CanvasEngine {
     // The row being written is looked at every frame, not only when it measured
     // differently: a peer, or this client a frame earlier, may already have stored the
     // height, and the rows under it still have to follow.
-    if (this.pendingHeights.size === 0 && (this.editing === null || this.column === null)) return
+    if (this.pendingSizes.size === 0 && (this.editing === null || this.column === null)) return
 
     const editing = this.editing
     // The editing row's height as it is about to be, which the cache does not know yet.
     let editedHeight: number | null = null
 
     const patches: { id: string; patch: Partial<ObjectData> }[] = []
-    for (const [id, height] of this.pendingHeights) {
+    for (const [id, size] of this.pendingSizes) {
       const object = this.cache.get(id)
-      if (object !== undefined && Math.abs(object.h - height) > 1) {
-        patches.push({ id, patch: { h: height } })
-        if (id === editing?.id) editedHeight = height
+      if (object === undefined) continue
+
+      const patch: Partial<ObjectData> = {}
+      if (size.w !== undefined && Math.abs(object.w - size.w) > 1) patch.w = size.w
+      if (size.h !== undefined && Math.abs(object.h - size.h) > 1) {
+        patch.h = size.h
+        if (id === editing?.id) editedHeight = size.h
       }
+      if (patch.w !== undefined || patch.h !== undefined) patches.push({ id, patch })
     }
-    this.pendingHeights.clear()
+    this.pendingSizes.clear()
 
     if (patches.length > 0 && this.host.canWrite) this.host.applyPatches(patches)
 

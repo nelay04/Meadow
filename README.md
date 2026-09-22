@@ -49,7 +49,10 @@ it.
 
 **Write.** Text objects are proper rich text - bold, italic, underline, strikethrough,
 eight sizes, nine fonts - edited in place at any zoom. Two people typing in one paragraph merge
-character by character.
+character by character. Click to place one and the box is the size of what you write: it
+grows with the words and wraps once the line gets long, so a one-word caption is one word
+wide rather than a wide empty box that swallows clicks and catches arrows. Drag out a box
+instead, or resize one, and it keeps the width you gave it.
 
 **Ink.** Five nibs (ballpoint, fineliner, calligraphy, brush, highlighter) in four widths
 and seven colours, with a stylus's pressure honoured and a mouse's speed standing in for

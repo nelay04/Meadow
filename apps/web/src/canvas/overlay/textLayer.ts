@@ -19,6 +19,7 @@
 import {
   type ObjectData,
   type TextProps,
+  TEXT_AUTO_WIDTH_LIMIT,
   arrowPolyline,
   cylinderCap,
   isArrowLike,
@@ -32,7 +33,7 @@ import {
 
 import type { ViewTransform } from '../camera'
 import type { SurfaceType } from '../surface'
-import { fontReady, measureObjectHeight } from '../text/measure'
+import { fontReady, measureObjectHeight, measureObjectWidth } from '../text/measure'
 import {
   type BoxVariant,
   type DrawnTextProps,
@@ -144,10 +145,11 @@ export type TextLayerCallbacks = {
   /** Static HTML for this object's fragment. */
   html(id: string): string
   /**
-   * A measured auto-height, in world units. Reported rather than written, so the
-   * engine can batch a frame's worth into one transaction instead of one per object.
+   * A measured size, in world units, carrying whichever axis the object grows on.
+   * Reported rather than written, so the engine can batch a frame's worth into one
+   * transaction instead of one per object.
    */
-  onMeasured(id: string, height: number): void
+  onMeasured(id: string, size: { w?: number; h?: number }): void
 }
 
 /**
@@ -478,6 +480,26 @@ export class TextLayer {
     }
 
     const box = layoutBox(object)
+
+    /*
+     * An auto-width object is sized to its words before anything is written with its
+     * box, not after.
+     *
+     * The measured width has to reach the DOM in the same frame it was taken in. The
+     * document only learns about it after the render - `onMeasured` is collected and
+     * flushed - so laying the node out at the stored width here would wrap the text
+     * against last frame's box, and on every keystroke the words would be one letter
+     * behind the box holding them.
+     *
+     * Not on a ruled surface. There a row is exactly its page's measure, `mutations`
+     * repairs it back to that, and the two would take turns rewriting the same width.
+     */
+    if (props.autoWidth && this.columnType === null && fontReady(props.fontFamily)) {
+      const measured = measureObjectWidth(html, props, TEXT_AUTO_WIDTH_LIMIT)
+      box.w = measured
+      if (Math.abs(measured - object.w) > 1) this.callbacks.onMeasured(object.id, { w: measured })
+    }
+
     if (entry.x !== box.x) {
       entry.x = box.x
       entry.box.style.left = `${box.x}px`
@@ -526,7 +548,7 @@ export class TextLayer {
       const measured = measureObjectHeight(html, box.w, props)
       // A whole world pixel of slack. Without it a fractional measurement that never
       // exactly equals the stored height writes a patch on every single frame.
-      if (Math.abs(measured - object.h) > 1) this.callbacks.onMeasured(object.id, measured)
+      if (Math.abs(measured - object.h) > 1) this.callbacks.onMeasured(object.id, { h: measured })
     }
   }
 

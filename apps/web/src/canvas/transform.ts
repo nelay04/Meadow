@@ -325,6 +325,19 @@ export function applyRectToObject(
    * The samples and the nib are scaled here, in the one function every resize path
    * already goes through, rather than in a freedraw-shaped branch in the select tool.
    */
+  /*
+   * A resized text object stops sizing itself.
+   *
+   * Dragging a handle is the author saying how wide they want the box, and an object
+   * still measuring its own width would snap back to its words on the very next frame,
+   * which reads as the handle not working at all. Only on a real change of width: a
+   * pure vertical drag, or a resize of a selection this object happens to be in that
+   * does not scale it sideways, leaves the flag alone.
+   */
+  if (object.type === 'text' && object.props.autoWidth === true && scaleX !== 1) {
+    patch.props = { autoWidth: false }
+  }
+
   if (isFreedraw(object.type)) {
     const props = resolveFreedrawProps(object)
     patch.props = {

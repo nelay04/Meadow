@@ -18,7 +18,7 @@
  * is what the engine gates its first render on.
  */
 
-import type { FontFamily, TextProps } from '@meadow/schema'
+import { type FontFamily, type TextProps, minimumTextWidth } from '@meadow/schema'
 
 import {
   type DrawnTextProps,
@@ -85,6 +85,54 @@ export function measureContentHeight(html: string, width: number, props: DrawnTe
   if (cache.size >= CACHE_LIMIT) cache.clear()
   cache.set(key, height)
   return height
+}
+
+/**
+ * Natural width of the content box for this HTML, in world units, capped at `limit`.
+ *
+ * `max-content` is the whole trick: it asks the browser what the text would take if
+ * nothing wrapped it, and `max-width` then caps that, so a short caption measures to
+ * its words and a paragraph measures to the cap and wraps inside it. Doing the same
+ * by summing glyph advances would have to reimplement line breaking, ligatures and
+ * every script the fallback stack reaches for.
+ *
+ * Cached beside the heights, for the same reason: this runs once per auto-width object
+ * per frame, and every keystroke is a new entry.
+ */
+export function measureContentWidth(html: string, limit: number, props: DrawnTextProps): number {
+  const key = `w|${limit}|${props.fontFamily}|${props.fontSize}|${props.fontWeight ?? ''}|${props.lineHeight}|${html}`
+  const hit = cache.get(key)
+  if (hit !== undefined) return hit
+
+  const outer = measurer()
+  outer.style.width = `${limit}px`
+
+  const probe = document.createElement('div')
+  applyContentStyle(probe, props)
+  // Overriding the two properties `applyContentStyle` sets for a box that fills its
+  // object. Everything else about the layout - the face, the wrapping, the block
+  // spacing - has to stay exactly what the overlay draws, or the width measured here
+  // is not the width the words need there.
+  probe.style.width = 'max-content'
+  probe.style.maxWidth = `${limit}px`
+  probe.innerHTML = html === '' ? '<p><br></p>' : html
+  outer.replaceChildren(probe)
+
+  const width = probe.getBoundingClientRect().width
+
+  if (cache.size >= CACHE_LIMIT) cache.clear()
+  cache.set(key, width)
+  return width
+}
+
+/**
+ * Full object width for auto-width text: content plus padding, held between the
+ * minimum a caret needs and the measure it wraps at.
+ */
+export function measureObjectWidth(html: string, props: DrawnTextProps, limit: number): number {
+  const inner = measureContentWidth(html, contentWidth(limit, props), props)
+  const width = Math.ceil(inner + props.padding * 2)
+  return Math.min(limit, Math.max(minimumTextWidth(props), width))
 }
 
 /** Full object height for auto-height text: content plus padding, floored at one line. */

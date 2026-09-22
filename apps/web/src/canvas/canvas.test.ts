@@ -586,6 +586,22 @@ describe('transform', () => {
     expect(patch.h).toBeCloseTo(50, 6)
   })
 
+  /*
+   * The handle has to win over the measurer, or the drag looks like it did nothing:
+   * the object would be measured back to its words on the very next frame.
+   */
+  it('stops a resized text object sizing itself to its words', () => {
+    const text = object({ type: 'text', w: 60, h: 30, props: { autoWidth: true } })
+    const patch = applyRectToObject(text, box, { minX: 0, minY: 0, maxX: 200, maxY: 50 })
+    expect(patch.props).toEqual({ autoWidth: false })
+  })
+
+  it('leaves auto-width alone when the drag only changed the height', () => {
+    const text = object({ type: 'text', w: 60, h: 30, props: { autoWidth: true } })
+    const patch = applyRectToObject(text, box, { minX: 0, minY: 0, maxX: 100, maxY: 90 })
+    expect(patch.props).toBeUndefined()
+  })
+
   it('rotates an object about an external point', () => {
     const member = object({ x: 100, y: -25, w: 50, h: 50 })
     const patch = rotateAbout(member, { x: 0, y: 0 }, Math.PI / 2)

@@ -346,6 +346,50 @@ await settle(page)
 const stillSettled = await page.evaluate((id) => window.__doc.read(id).h, textId)
 check('the measured height settles instead of oscillating', settled === stillSettled, `${settled} then ${stillSettled}`)
 
+// --- auto-width ---------------------------------------------------------------
+
+/*
+ * A text object placed by a click is as wide as its words and no wider.
+ *
+ * Only measurable in a real browser, for the same reason auto-height is: the width
+ * comes from `max-content` on a laid-out element, which jsdom has no opinion about.
+ * The point of the check is the box, not the look - the box is the hit area and what
+ * an arrow binds to, so a two-letter caption sitting in a 220-unit box catches clicks
+ * and connects arrows from empty canvas well to the right of the text.
+ */
+await page.evaluate(() => window.__canvas.setCamera({ x: 0, y: 0, zoom: 1 }))
+await settle(page)
+
+await page.locator('[data-tool="text"]').click()
+await page.mouse.click(canvasBox.x + 420, canvasBox.y + 420)
+await page.waitForFunction(() => window.__canvas.editingId() !== null, null, { timeout: 10000 })
+
+const placedId = await page.evaluate(() => window.__canvas.editingId())
+await page.keyboard.type('WE')
+await settle(page)
+const narrow = await page.evaluate((id) => window.__doc.read(id).w, placedId)
+check('a clicked text object is only as wide as its word', narrow < 80, `width ${narrow}`)
+
+await page.keyboard.type(' have a much longer line to fit now')
+await settle(page)
+const wide = await page.evaluate((id) => window.__doc.read(id).w, placedId)
+check('it grows sideways as the line gets longer', wide > narrow + 80, `${narrow} -> ${wide}`)
+
+await settle(page)
+const widthAgain = await page.evaluate((id) => window.__doc.read(id).w, placedId)
+check('the measured width settles instead of oscillating', wide === widthAgain, `${wide} then ${widthAgain}`)
+
+// Past the measure it wraps rather than running off across the board.
+await page.keyboard.type(' and then a great deal more text after that, enough to wrap twice over')
+await settle(page)
+const capped = await page.evaluate((id) => window.__doc.read(id), placedId)
+check('it wraps at the measure instead of growing forever', capped.w <= 520, `width ${capped.w}`)
+check('wrapping made it taller', capped.h > 40, `height ${capped.h}`)
+
+await page.keyboard.press('Escape')
+await page.waitForFunction(() => window.__canvas.editingId() === null, null, { timeout: 10000 })
+await page.locator('[data-tool="select"]').click()
+
 /*
  * Nothing above the canvas may be a scroll container.
  *

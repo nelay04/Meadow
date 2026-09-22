@@ -11,6 +11,25 @@ away getting there.
 
 ---
 
+## [1.20.0] - [22-Sep-2026]
+
+### Changed
+- **A text object is the size of its text.** Click with the text tool and the box now
+  starts at the width of the caret and grows with the words, wrapping once the line
+  reaches a readable measure instead of running on across the board. It used to open at
+  a fixed 220 units whatever was typed into it, which was not only a wide empty box
+  around a short caption: an object's box is its hit area and what an arrow binds to, so
+  two letters sat in a target that swallowed clicks and connected arrows from empty
+  canvas a long way to the right of the word.
+  Only where nobody chose a width. Dragging out a box with the text tool is a statement
+  about how wide the writing should be, and so is pulling a resize handle, so both turn
+  the behaviour off and the box keeps the width it was given. Text already on a board is
+  untouched: the flag is stored per object and set by the tool, rather than assumed for
+  every text object, so no existing layout shrinks when this lands. Rows on a lea are
+  unaffected too - a row is exactly its page's measure, and the page wins.
+
+---
+
 ## [1.19.0] - [22-Sep-2026]
 
 ### Added
