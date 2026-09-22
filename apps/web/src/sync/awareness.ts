@@ -23,6 +23,16 @@ import type { BoardRole } from '../lib/api'
 const CURSOR_INTERVAL_MS = 33
 
 /**
+ * The most laser points to put on the wire in one update.
+ *
+ * The engine already caps and trims its trail, so this is a second fence around what
+ * arrives rather than a limit on what is sent: awareness updates are relayed to every
+ * peer, and a client on a build that trimmed differently - or one that simply lied -
+ * must not be able to hand everybody in the room an array to draw.
+ */
+const MAX_LASER_POINTS = 128
+
+/**
  * Wanderer colours.
  *
  * Picked from the user id rather than assigned on join, so one person is the same
@@ -41,6 +51,36 @@ export function colorFor(userId: string): number {
     hash = (hash * 31 + userId.charCodeAt(index)) >>> 0
   }
   return PALETTE[hash % PALETTE.length]
+}
+
+/**
+ * A peer's laser mark, or null.
+ *
+ * Every field of an awareness state is whatever the peer chose to put there, so this
+ * checks the shape rather than trusting it: an odd length, a NaN, or a few thousand
+ * points would each end up in a render loop. Nothing here can be dangerous - the worst
+ * an accepted mark does is draw a line - but "draw a line" is exactly what a thousand
+ * of them do to the frame rate.
+ */
+export function readLaser(raw: unknown): { points: number[]; alpha: number } | null {
+  if (raw === null || typeof raw !== 'object') return null
+
+  const mark = raw as { p?: unknown; a?: unknown }
+  if (!Array.isArray(mark.p) || mark.p.length < 2) return null
+
+  const alpha = typeof mark.a === 'number' && Number.isFinite(mark.a) ? mark.a : 0
+  if (alpha <= 0) return null
+
+  const usable = Math.min(mark.p.length - (mark.p.length % 2), MAX_LASER_POINTS * 2)
+  const points: number[] = []
+  // From the end, so a trail longer than the cap keeps its newest points: the head is
+  // where somebody is pointing and the tail is the part already being trimmed away.
+  for (let index = mark.p.length - usable; index < mark.p.length; index += 1) {
+    const value = mark.p[index]
+    if (typeof value !== 'number' || !Number.isFinite(value)) return null
+    points.push(value)
+  }
+  return points.length < 2 ? null : { points, alpha: Math.min(1, alpha) }
 }
 
 export type LocalPresence = {
@@ -71,12 +111,28 @@ export type WandererState = {
   }
   cursor: { x: number; y: number } | null
   selection: string[]
+  /**
+   * The laser mark: `p` is flat world `[x, y]` pairs, oldest first, and `a` is how lit
+   * the whole mark is. Null when this peer is not pointing at anything.
+   *
+   * No timestamps, deliberately. A time taken from the sender's clock means nothing on
+   * the receiver's - the two can be minutes apart - so the sender does the ageing and
+   * publishes what it arrived at. See `engine.ts::laserTrails`.
+   */
+  laser: { p: number[]; a: number } | null
 }
 
 export type PresenceHandle = {
   /** World coordinates, or null when the pointer leaves the canvas. */
   setCursor(point: { x: number; y: number } | null): void
   setSelection(ids: readonly string[]): void
+  /**
+   * Publish the laser mark, or null when it is over.
+   *
+   * Not throttled here, unlike the cursor: the engine publishes from its render loop
+   * and has already rate-limited it. Throttling twice would only add lag.
+   */
+  setLaser(mark: { points: readonly number[]; alpha: number } | null): void
   /**
    * Republish the role.
    *
@@ -122,6 +178,7 @@ export function trackPresence(
   awareness.setLocalStateField('user', user)
   awareness.setLocalStateField('cursor', null)
   awareness.setLocalStateField('selection', [])
+  awareness.setLocalStateField('laser', null)
 
   let pending: { x: number; y: number } | null = null
   let hasPending = false
@@ -191,6 +248,7 @@ export function trackPresence(
             ? { x: state.cursor.x, y: state.cursor.y }
             : null,
         selection: Array.isArray(state?.selection) ? state.selection.filter((id) => typeof id === 'string') : [],
+        laser: readLaser(state?.laser),
       })
     }
 
@@ -271,6 +329,16 @@ export function trackPresence(
       if (announced.role === role) return
       announced = { ...announced, role, canWrite: roleCanWrite(role) }
       awareness.setLocalStateField('user', announced)
+    },
+
+    setLaser(mark) {
+      // Short keys and a plain array. Awareness state is JSON on the wire and this one
+      // is republished thirty times a second while somebody is pointing, so the field
+      // names are a real fraction of it.
+      awareness.setLocalStateField(
+        'laser',
+        mark === null ? null : { p: Array.from(mark.points), a: mark.alpha },
+      )
     },
 
     setSelection(ids) {

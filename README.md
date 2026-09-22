@@ -62,6 +62,13 @@ Hindi, Assamese, Gujarati, Kannada, Malayalam, Marathi, Nepali, Odia, Punjabi, S
 Tamil and Telugu. Type `amar`, get `আমার`. No keyboard layout to install. It works in
 any text on a board and in a lea page's subject.
 
+**Point.** The laser draws one bright line that follows the pointer and goes out a
+moment after you stop, so you can circle a thing while you talk about it and leave
+nothing behind. It is smoothed on the way in, so it reads as a beam rather than as a
+record of your mouse hand. Everyone on the board watches it being drawn. It writes
+nothing to the document, which is why it is the one drawing tool somebody with a
+view-only link still gets.
+
 **Restack.** Depth is a list, and the stack panel shows it: every object front first,
 ringed on the canvas as you point at each row, dragged into place or given a depth to
 sit at.

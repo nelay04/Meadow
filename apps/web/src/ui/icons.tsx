@@ -667,6 +667,24 @@ export function IconNibHighlighter(props: IconProps) {
   )
 }
 
+/**
+ * The laser: a lit point, not a pointer.
+ *
+ * Drawn as the mark rather than as the device, the same choice the nibs make. A
+ * handheld laser pointer in silhouette is a small box that reads as nothing at 19px,
+ * while a dot throwing light is the thing the tool actually puts on the board. The
+ * filled centre is what separates it from the ellipse's ring at a glance.
+ */
+export function IconLaser(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="12" cy="12" r="2.6" fill="currentColor" stroke="none" />
+      <path d="M12 3.6v2.9M12 17.5v2.9M3.6 12h2.9M17.5 12h2.9" />
+      <path d="m6.4 6.4 1.9 1.9M15.7 15.7l1.9 1.9M17.6 6.4l-1.9 1.9M8.3 15.7l-1.9 1.9" />
+    </Svg>
+  )
+}
+
 /*
  * Status and dismissal, for toasts and the confirmation dialog.
  *

@@ -45,6 +45,7 @@ import {
   projectPoint,
   viewTransform,
 } from './camera'
+import { type LaserTrail, LaserLayer } from './overlay/laserLayer'
 import { TextLayer } from './overlay/textLayer'
 import { type Wanderer, type WandererSelection, WandererLayer } from './overlay/wandererLayer'
 import { SpatialIndex } from './spatialIndex'
@@ -86,6 +87,7 @@ import {
 } from './connectors'
 import { hitsObject, unionBounds } from './hitTest'
 import { createHandTool } from './tools/handTool'
+import { createLaserTool } from './tools/laserTool'
 import { createSelectTool } from './tools/selectTool'
 import { createShapeTool } from './tools/shapeTool'
 import { createArrowTool } from './tools/arrowTool'
@@ -479,6 +481,61 @@ const REVEAL_MARGIN_PX = 140
 /** How far the stack list's ring sits outside the object's box, in screen pixels. */
 const SPOTLIGHT_INSET_PX = 5
 
+/**
+ * How much of the recent path stays lit while somebody is pointing, in milliseconds.
+ *
+ * Long enough to draw a ring round something and still have the whole ring on screen
+ * when you close it - which is the gesture the tool is for, and it takes about a
+ * second - short enough that the trail stays a beam rather than becoming a drawing.
+ * Past this the oldest end is trimmed away as the head moves on.
+ */
+const LASER_TRAIL_MS = 1500
+
+/**
+ * How long the mark takes to go out after the pointer lifts.
+ *
+ * The whole trail dims together rather than being eaten from the tail, so the shape
+ * that was drawn - the ring, the underline - is readable as one thing for the moment
+ * it matters and then is gone. Short: this is punctuation, not an animation.
+ */
+const LASER_FADE_OUT_MS = 420
+
+/**
+ * How much of the gap to the pointer the beam closes per event, 0..1.
+ *
+ * The same low-pass the pen calls streamline, and here for a different reason. The pen
+ * smooths because a wobble is permanent once it is ink; the laser smooths because a
+ * beam is a straight thing and a hand is not, and a trail that honours every micro
+ * movement of the mouse reads as scattered rather than as a pointer. Higher than the
+ * pen's, because a laser must not visibly lag the cursor it is coming from: at the
+ * rate a pointer emits, this settles within a couple of milliseconds while still
+ * taking the tremor out.
+ */
+const LASER_STREAMLINE = 0.62
+
+/**
+ * Screen pixels between recorded samples.
+ *
+ * Much coarser than the pen's, and that is most of the tidying. A hand resting on a
+ * mouse moves it a pixel or two continuously, so sampling finely records the tremor
+ * faithfully and then has to draw it. At this spacing a deliberate movement is still
+ * caught in full and a twitch never becomes a point.
+ */
+const LASER_SAMPLE_PX = 5
+
+/**
+ * The most samples a trail keeps.
+ *
+ * The time window is the real limit and this is the floor under it: a fast hand at
+ * 120Hz would otherwise publish several hundred points to every peer thirty times a
+ * second. The oldest are dropped, which is where the trim is taking them anyway.
+ */
+const LASER_MAX_POINTS = 96
+
+/** Roughly 30Hz, the rate the cursor is published at and for the same reasons. */
+const LASER_PUBLISH_MS = 33
+
+
 const RULE_BASE_WORLD = 28
 const RULE_MIN_PX = 18
 const RULE_MAX_PX = 72
@@ -595,6 +652,15 @@ export type EngineEvents = {
    */
   onPointerWorld?(point: Point | null): void
   /**
+   * The local laser mark, ready to draw, or null once it has gone out.
+   *
+   * Already trimmed and already faded, because the engine is the only thing that knows
+   * the clock it was drawn on. Already throttled too. Unlike `onPointerWorld` this
+   * fires from the render loop rather than from the event, since a mark goes on
+   * changing while the pointer sits still.
+   */
+  onLaser?(mark: { points: readonly number[]; alpha: number } | null): void
+  /**
    * The writing has reached the last rule and wants another one.
    *
    * The engine knows the page is full - it rules the paper and it knows where the row
@@ -628,6 +694,7 @@ export class CanvasEngine {
   /** The stroke under the pointer, drawn every frame until the pen commits it. */
   private wet!: Graphics
   private textLayer!: TextLayer
+  private lasers!: LaserLayer
   private wanderers!: WandererLayer
 
   /** Remote presence. Ephemeral, never read from or written to the document. */
@@ -715,6 +782,45 @@ export class CanvasEngine {
   }
 
   private wetInk: WetInk | null = null
+
+  /**
+   * The local laser trail: flat world `[x, y, t]` triples, oldest first, `t` from
+   * `performance.now()`.
+   *
+   * Transient gesture state, beside the wet ink and the marquee, and the most
+   * transient of the three: it is trimmed on every frame and it empties itself a
+   * fraction of a second after the pointer stops. Nothing about it is ever written to
+   * the document, which is what lets a viewer use it.
+   */
+  private laser: number[] = []
+
+  /**
+   * Whether the pointer is still down on the laser.
+   *
+   * While it is, the head of the trail is kept at the current time on every frame, so
+   * a laser resting on one word stays lit. Only the tool knows this: a still pointer
+   * sends no events at all.
+   */
+  private laserHeld = false
+
+  /**
+   * Where the beam actually is, as opposed to where the pointer is.
+   *
+   * It chases: see `pushLaser`. Null between marks.
+   */
+  private laserNib: Point | null = null
+
+  /**
+   * When the pointer lifted, or null while it is down or there is no mark.
+   *
+   * Doubles as the fade clock and as the answer to "is this mark over": trimming stops
+   * here, so what goes out is the whole gesture rather than its tail.
+   */
+  private laserReleasedAt: number | null = null
+
+  /** Whether presence is currently holding a mark from us, so a stale one is cleared. */
+  private laserPublished = false
+  private laserPublishedAt = 0
 
   /** Whether the wet layer currently holds anything, so a still frame does not clear it. */
   private wetDrawn = false
@@ -948,10 +1054,15 @@ export class CanvasEngine {
 
     this.overlay = new Graphics()
 
+    this.lasers = new LaserLayer()
     this.wanderers = new WandererLayer()
 
     this.app.stage.addChild(this.world)
     this.app.stage.addChild(this.overlay)
+    // Over the board and the selection chrome, under the cursors. A laser is aimed at
+    // whatever is on the board, so it has to be on top of it; and the hand aiming it
+    // is the one thing that goes on top of the laser.
+    this.app.stage.addChild(this.lasers.view)
     // Above the selection chrome: a remote cursor is the one thing that should never
     // be hidden behind local UI.
     this.app.stage.addChild(this.wanderers.view)
@@ -974,6 +1085,7 @@ export class CanvasEngine {
     this.detachInput()
     this.ready = false
     if (this.textLayer !== undefined) this.textLayer.destroy()
+    if (this.lasers !== undefined) this.lasers.destroy()
     if (this.wanderers !== undefined) this.wanderers.destroy()
     if (this.arrows !== undefined) this.arrows.destroy()
     if (this.ink !== undefined) this.ink.destroy()
@@ -2816,6 +2928,8 @@ export class CanvasEngine {
         return createArrowTool(this.context, id)
       case 'pen':
         return createPenTool(this.context)
+      case 'laser':
+        return createLaserTool(this.context)
       default:
         return createSelectTool(this.context)
     }
@@ -2848,6 +2962,7 @@ export class CanvasEngine {
       setWetInk: (ink) => {
         this.wetInk = ink
       },
+      pushLaser: (point) => this.pushLaser(point),
       setHoverTarget: (id) => {
         this.hoverTarget = id
       },
@@ -2964,6 +3079,7 @@ export class CanvasEngine {
     this.frame = requestAnimationFrame(this.loop)
 
     this.stepWheel()
+    this.stepLaser()
     this.syncHostSize()
 
     // A fenced camera re-centres its column when the window changes width, and this is
@@ -3162,6 +3278,7 @@ export class CanvasEngine {
     this.textLayer.sync(transform, this.overlayObjects)
     this.drawOverlay(transform)
     this.catchUpGaps()
+    this.drawLasers(transform)
     this.drawWanderers(transform)
   }
 
@@ -3197,9 +3314,14 @@ export class CanvasEngine {
     // Chrome and presence are this client's own state, not the board's.
     const overlayVisible = this.overlay.visible
     const wanderersVisible = this.wanderers.view.visible
+    const lasersVisible = this.lasers.view.visible
     const wetVisible = this.wet.visible
     this.overlay.visible = false
     this.wanderers.view.visible = false
+    // A laser is the most ephemeral thing on the board and a thumbnail is the most
+    // permanent, so baking one into the other is the worst possible pairing: it would
+    // leave a board's card wearing a red squiggle from a conversation last Tuesday.
+    this.lasers.view.visible = false
     // A stroke still under this client's pointer is not on the board yet, and a
     // thumbnail is served to everyone.
     this.wet.visible = false
@@ -3222,6 +3344,7 @@ export class CanvasEngine {
     } finally {
       this.overlay.visible = overlayVisible
       this.wanderers.view.visible = wanderersVisible
+      this.lasers.view.visible = lasersVisible
       this.wet.visible = wetVisible
       // The scene is now painted for the thumbnail rather than for the viewport, so
       // the next frame has to rebuild it.
@@ -3422,6 +3545,183 @@ export class CanvasEngine {
         alpha: props.strokeAlpha * object.opacity,
       }
     }
+  }
+
+  // --- laser ------------------------------------------------------------------
+
+  /**
+   * Take a laser sample, or learn that the pointer has lifted.
+   *
+   * Two filters stand between the pointer and the trail, and between them they are why
+   * it looks like a beam rather than a scribble.
+   *
+   * The beam *chases* the pointer instead of sitting on it, closing a fraction of the
+   * gap per event. That is the same low-pass the pen calls streamline, and it takes out
+   * the continuous jitter of a hand resting on a mouse, which a trail that followed
+   * exactly would record in full and then have to draw.
+   *
+   * And samples are taken by distance, not by event. A pointer emits a hundred times a
+   * second within a couple of pixels; where it has not moved far enough the head is
+   * re-stamped rather than appended, which is also what keeps a laser held over one
+   * word alight without growing a trail it never travelled.
+   */
+  private pushLaser(point: Point | null): void {
+    if (point === null) {
+      // Only the first release counts. A `cancel` following a `pointerup` must not
+      // restart the fade the pointer already began.
+      if (this.laserHeld && this.laser.length > 0 && this.laserReleasedAt === null) {
+        this.laserReleasedAt = performance.now()
+      }
+      this.laserHeld = false
+      this.laserNib = null
+      return
+    }
+
+    const now = performance.now()
+
+    if (!this.laserHeld) {
+      // A fresh mark. Whatever was still fading from the last one goes now: joining
+      // them would draw a line from there to here across whatever lies between.
+      this.laser.length = 0
+      this.laserReleasedAt = null
+      this.laserHeld = true
+      this.laserNib = { x: point.x, y: point.y }
+      this.laser.push(point.x, point.y, now)
+      this.requestRender()
+      return
+    }
+
+    const nib = this.laserNib ?? { x: point.x, y: point.y }
+    nib.x += (point.x - nib.x) * LASER_STREAMLINE
+    nib.y += (point.y - nib.y) * LASER_STREAMLINE
+    this.laserNib = nib
+
+    const head = this.laser.length - 3
+    const spacing = this.camera.toWorldDistance(LASER_SAMPLE_PX)
+    if (head >= 0 && Math.hypot(nib.x - this.laser[head], nib.y - this.laser[head + 1]) < spacing) {
+      this.laser[head + 2] = now
+      this.requestRender()
+      return
+    }
+
+    this.laser.push(nib.x, nib.y, now)
+    const excess = this.laser.length - LASER_MAX_POINTS * 3
+    if (excess > 0) this.laser.splice(0, excess)
+    this.requestRender()
+  }
+
+  /**
+   * How lit the whole mark is: 1 while somebody is pointing, ramping to 0 after.
+   *
+   * One number for the trail rather than one per point. The mark goes out as a unit,
+   * so the shape that was drawn stays readable to the last frame instead of dissolving
+   * from the tail forward.
+   */
+  private get laserAlpha(): number {
+    if (this.laserReleasedAt === null) return 1
+    const spent = (performance.now() - this.laserReleasedAt) / LASER_FADE_OUT_MS
+    return spent >= 1 ? 0 : 1 - spent
+  }
+
+  /**
+   * Age the local trail by one frame, and publish it.
+   *
+   * Runs before the dirty check in the loop, because a trail that is merely fading is a
+   * board that is changing while nothing has asked for a frame. It is one comparison on
+   * the overwhelming majority of frames, where there is no trail at all.
+   */
+  private stepLaser(): void {
+    if (this.laser.length === 0) {
+      // One last publish, so a peer is told the mark is over rather than being left to
+      // infer it from a trail that stopped arriving.
+      this.publishLaser()
+      return
+    }
+
+    const now = performance.now()
+
+    if (this.laserHeld) {
+      // The head does not age while it is being held, though the trail behind it does:
+      // a laser resting on one word stays lit.
+      this.laser[this.laser.length - 1] = now
+
+      let expired = 0
+      while (expired < this.laser.length && now - this.laser[expired + 2] > LASER_TRAIL_MS) {
+        expired += 3
+      }
+      if (expired > 0) this.laser.splice(0, expired)
+    } else if (
+      this.laserReleasedAt === null ||
+      now - this.laserReleasedAt >= LASER_FADE_OUT_MS
+    ) {
+      // Out. Trimming stops at the release, so what fades is the whole gesture.
+      this.laser.length = 0
+      this.laserReleasedAt = null
+    }
+
+    this.publishLaser()
+    // Unconditional: the fade is continuous, so every frame of a live mark is a
+    // different picture even when no point was added or dropped.
+    this.requestRender()
+  }
+
+  /** Hand the mark to presence, throttled: flat world `[x, y]` pairs, and one alpha. */
+  private publishLaser(): void {
+    const count = this.laser.length / 3
+    if (count === 0) {
+      if (!this.laserPublished) return
+      this.laserPublished = false
+      // Immediately, the way a cursor leaving the canvas is published immediately: a
+      // mark left hanging on somebody else's board is worse than one that ends late.
+      this.events.onLaser?.(null)
+      return
+    }
+
+    const now = performance.now()
+    if (this.laserPublished && now - this.laserPublishedAt < LASER_PUBLISH_MS) return
+    this.laserPublishedAt = now
+    this.laserPublished = true
+
+    const points = new Array<number>(count * 2)
+    for (let index = 0; index < count; index += 1) {
+      points[index * 2] = this.laser[index * 3]
+      points[index * 2 + 1] = this.laser[index * 3 + 1]
+    }
+    this.events.onLaser?.({ points, alpha: this.laserAlpha })
+  }
+
+  /**
+   * Every trail to draw this frame: this client's, then everybody else's.
+   *
+   * A peer's arrives ready to draw. It carries no timestamps, because a time taken
+   * from their clock means nothing on this one - the two can be minutes apart - so the
+   * sender does the ageing and publishes the result: the points that are still lit,
+   * and how lit they are. There is nothing left here to interpret.
+   */
+  private laserTrails(): LaserTrail[] {
+    const trails: LaserTrail[] = []
+
+    const count = this.laser.length / 3
+    if (count > 0) {
+      const points = new Array<number>(count * 2)
+      for (let index = 0; index < count; index += 1) {
+        points[index * 2] = this.laser[index * 3]
+        points[index * 2 + 1] = this.laser[index * 3 + 1]
+      }
+      trails.push({ key: 'local', alpha: this.laserAlpha, points })
+    }
+
+    for (const wanderer of this.wandererState) {
+      const remote = wanderer.laser
+      if (remote === null) continue
+      trails.push({ key: wanderer.clientId, alpha: remote.alpha, points: remote.points })
+    }
+
+    return trails
+  }
+
+  private drawLasers(transform: ViewTransform): void {
+    this.lasers.draw(transform, this.laserTrails())
   }
 
   /**
@@ -4253,6 +4553,13 @@ export class CanvasEngine {
       case 'p':
       case 'P':
         this.setTool('pen')
+        return
+      // K, because every letter of "laser" is already spoken for: L is the line, A the
+      // arrow, S the sticky, R the rectangle, and E is the only one left. K is what
+      // the rest of the world binds a laser to, which is the better reason anyway.
+      case 'k':
+      case 'K':
+        this.setTool('laser')
         return
       case 'Enter':
         // Enter edits the selected text object, the keyboard equivalent of a

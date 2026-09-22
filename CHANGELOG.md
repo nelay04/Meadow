@@ -11,6 +11,24 @@ away getting there.
 
 ---
 
+## [1.19.0] - [22-Sep-2026]
+
+### Added
+- **A laser, on K.** Hold the pointer down and it draws one bright line that follows
+  it and goes out a moment after you stop, so you can ring a shape while you are
+  talking about it and leave nothing on the board afterwards. One crisp line at one
+  width: no taper, no glow and no fade along its length. The whole mark dims together
+  when you lift, so the shape you drew stays readable until it is gone. The beam chases
+  the pointer rather than sitting on it and is sampled by distance rather than by
+  event, so the tremor of a hand on a mouse never reaches it, and it is drawn as a
+  curve through its samples rather than as a line between them.
+  It rides awareness beside the cursors, so everybody in the room watches the mark
+  being drawn. Nothing reaches the document, the undo stack or a board's thumbnail, and
+  for the same reason it is the one drawing tool a viewer or a commenter is given -
+  there is no write for a role check to refuse. A mark held still over one word stays
+  lit rather than expiring under the pointer. Glades only: a lea's rail is still
+  getting around and nothing else.
+
 ## [1.18.0] - [17-Sep-2026]
 
 ### Added

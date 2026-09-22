@@ -93,11 +93,25 @@ host.observe()
 
 const host_element = document.getElementById('canvas') as HTMLElement
 const readout = document.getElementById('readout') as HTMLElement
+/**
+ * The last laser trail the engine published, and how many it has published.
+ *
+ * Captured from the event rather than read off the engine, because the event is what a
+ * peer actually receives: a trail that draws locally and never reaches presence is the
+ * failure worth catching, and reading private state would pass straight through it.
+ */
+let laserPublished: { points: readonly number[]; alpha: number } | null = null
+let laserUpdates = 0
+
 const engine = new CanvasEngine(host_element, host, {
   onToolChange: (tool: ToolId) => {
     for (const button of document.querySelectorAll('[data-tool]')) {
       button.classList.toggle('active', button.getAttribute('data-tool') === tool)
     }
+  },
+  onLaser: (mark: { points: readonly number[]; alpha: number } | null) => {
+    laserPublished = mark
+    laserUpdates += 1
   },
 })
 
@@ -288,6 +302,11 @@ void engine.init().then(() => {
     },
     overlayCount: () => document.querySelectorAll('.meadow-overlay [data-object-id]').length,
     editingId: () => engine.editingId,
+    laser: () => ({
+      points: laserPublished === null ? null : Array.from(laserPublished.points),
+      alpha: laserPublished === null ? 0 : laserPublished.alpha,
+      updates: laserUpdates,
+    }),
   }
 })
 
@@ -419,6 +438,7 @@ declare global {
       overlayRect(id: string): { x: number; y: number; w: number; h: number } | null
       overlayCount(): number
       editingId(): string | null
+      laser(): { points: number[] | null; alpha: number; updates: number }
     }
     __doc?: {
       read(id: string): { x: number; y: number; w: number; h: number; type: string } | null

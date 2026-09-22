@@ -34,6 +34,7 @@ export type ToolId =
   | 'arrow'
   | 'line'
   | 'pen'
+  | 'laser'
 
 export type CanvasPointerEvent = {
   /** Position in world coordinates. */
@@ -127,6 +128,20 @@ export type ToolContext = {
   setGuides(guides: readonly SnapGuide[]): void
   /** The stroke currently under the pointer, drawn by the engine until it is committed. */
   setWetInk(ink: WetInk | null): void
+  /**
+   * Where the laser is aimed, or null once the pointer has lifted.
+   *
+   * Not a write, and the one drawing gesture a read-only role is allowed: the trail is
+   * transient engine state that is published on awareness and expires by itself, so it
+   * never reaches the document.
+   *
+   * The null matters more than it looks. The engine keeps the head of a held trail
+   * alive frame by frame, because a pointer resting on one word sends no events and a
+   * dot that vanished while somebody was still pointing at the thing they were talking
+   * about would be the one moment the tool is most obviously wrong. It has no other
+   * way to learn that the button came up.
+   */
+  pushLaser(point: Point | null): void
   /** The object an arrow end would attach to, highlighted while drawing. */
   setHoverTarget(id: string | null): void
   /**

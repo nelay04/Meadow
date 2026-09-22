@@ -42,6 +42,14 @@ export type Wanderer = {
   /** World coordinates, or null when the pointer is off the canvas. */
   cursor: { x: number; y: number } | null
   selection: readonly string[]
+  /**
+   * This peer's laser mark, ready to draw, or null when they are not pointing.
+   *
+   * Carried on the wanderer because it is presence in exactly the way the cursor is,
+   * and drawn by `LaserLayer` rather than here: it is a mark on the board, under the
+   * cursors, while everything in this file is chrome that sits on top of them.
+   */
+  laser: { points: readonly number[]; alpha: number } | null
 }
 
 /** Bounds of a remote selection, resolved by the engine from its own cache. */

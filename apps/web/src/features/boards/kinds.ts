@@ -95,6 +95,7 @@ export const BOARD_KINDS: readonly BoardKindSpec[] = [
       'arrow',
       'line',
       'pen',
+      'laser',
       'rect',
       'ellipse',
       'diamond',

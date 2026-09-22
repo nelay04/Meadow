@@ -1123,6 +1123,99 @@ await delay(200)
 const restored = await page.evaluate(() => window.__doc.objectCount())
 check('what was cut can be pasted back', restored === 3, `total=${restored}`)
 
+// --- laser ---------------------------------------------------------------------
+
+/*
+ * The laser is the only tool that must leave the document exactly as it found it, so
+ * every check here is a pair: something happened on screen, and nothing happened to
+ * the board.
+ */
+
+const boardBefore = await page.evaluate(() => window.__doc.objectCount())
+
+await page.click('[data-tool="laser"]')
+
+// Held down for this one, rather than through `drag`: the checks below are about what
+// a mark looks like while somebody is pointing, and a release starts it fading.
+await page.mouse.move(at(200, 400).x, at(200, 400).y)
+await page.mouse.down()
+await page.mouse.move(at(600, 500).x, at(600, 500).y, { steps: 24 })
+await delay(80)
+
+const marked = await page.evaluate(() => ({
+  laser: window.__canvas.laser(),
+  total: window.__doc.objectCount(),
+}))
+await page.mouse.up()
+check(
+  'a laser drag publishes a trail to presence',
+  marked.laser.points !== null && marked.laser.points.length >= 8,
+  `points=${marked.laser.points === null ? 'null' : marked.laser.points.length}`,
+)
+check(
+  'the trail is in world coordinates, along the path that was drawn',
+  marked.laser.points !== null &&
+    marked.laser.points[0] < marked.laser.points[marked.laser.points.length - 2],
+  marked.laser.points === null ? 'no trail' : `${marked.laser.points.slice(0, 2)}`,
+)
+check(
+  'a laser mark creates no objects',
+  marked.total === boardBefore,
+  `total=${marked.total}, was ${boardBefore}`,
+)
+check(
+  'a mark under the pointer is published fully lit',
+  marked.laser.alpha === 1,
+  `alpha=${marked.laser.alpha}`,
+)
+
+// The whole mark dims together rather than being eaten from the tail, so a peer has to
+// be told how lit it is. Caught mid-fade: still there, no longer full.
+await page.mouse.move(at(620, 500).x, at(620, 500).y)
+await page.mouse.down()
+await page.mouse.move(at(760, 560).x, at(760, 560).y, { steps: 10 })
+await page.mouse.up()
+await delay(200)
+const dimming = await page.evaluate(() => window.__canvas.laser())
+check(
+  'the mark dims as a whole once the pointer lifts',
+  dimming.points !== null && dimming.alpha > 0 && dimming.alpha < 1,
+  `alpha=${dimming.alpha}, points=${dimming.points === null ? 'null' : dimming.points.length}`,
+)
+
+// The whole promise of the tool: it goes out by itself, and says so to the room.
+await delay(1000)
+const faded = await page.evaluate(() => ({
+  laser: window.__canvas.laser(),
+  total: window.__doc.objectCount(),
+}))
+check(
+  'the trail fades out on its own and presence is told it is over',
+  faded.laser.points === null,
+  `points=${faded.laser.points === null ? 'null' : faded.laser.points.length}`,
+)
+check('fading leaves the document alone', faded.total === boardBefore, `total=${faded.total}`)
+
+// A tap with no movement: the one gesture that has no trail to taper, and the one most
+// likely to be optimised away by a sampler that only records movement.
+const tapUpdates = faded.laser.updates
+await page.mouse.move(at(700, 400).x, at(700, 400).y)
+await page.mouse.down()
+await delay(120)
+await page.mouse.up()
+const tapped = await page.evaluate(() => window.__canvas.laser())
+check(
+  'a laser tap with no movement still lights a dot',
+  tapped.updates > tapUpdates,
+  `updates=${tapped.updates}, was ${tapUpdates}`,
+)
+
+// And it must not have eaten the selection tool's job on the way past.
+await page.click('[data-tool="select"]')
+await page.mouse.click(at(340, 310).x, at(340, 310).y)
+const afterLaser = await page.evaluate(() => window.__doc.objectCount())
+check('the board is unchanged after using the laser', afterLaser === boardBefore, `total=${afterLaser}`)
+
 await browser.close()
 stop()
 

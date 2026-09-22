@@ -1995,6 +1995,38 @@ and the undo stack, and a board would accumulate a permanent record of where eve
 mouse had been. Cursors publish at ~30Hz; selection is unthrottled, because it is
 discrete and rare and a late highlight reads worse than a late cursor.
 
+**The laser rides awareness for the same reason, and pays a different price for it.**
+A laser mark is a trail that goes out a moment after it is drawn, so it is presence
+rather than document - but unlike a cursor it is a *shape*, and a shape has to arrive
+ready to draw. Timestamps cannot cross the wire: two clients' clocks can be minutes
+apart, so a point stamped on the sender's machine means nothing on the receiver's. The
+sender therefore does all the ageing and publishes the result - the points still lit,
+and one alpha for the whole mark - and the receiver has nothing left to interpret.
+
+**It is one line, one width, one opacity.** The first version tapered the trail and
+faded it per point, over a soft halo. That is three gradients, and the cost of them is
+not only that they look cheap: a stroke whose width and alpha change along its length
+cannot be one path, so it becomes dozens of separate strokes with a seam at every joint,
+which is what made it read as blurry rather than bright. A single crisp path at a
+constant width is both cheaper and better. The mark still fades, but as a whole and over
+time, which is a different thing from a gradient baked along its length: the shape that
+was drawn stays readable to the last frame instead of dissolving from the tail forward.
+
+**Two filters make it look like a beam rather than a scribble.** A hand resting on a
+mouse moves it continuously, and a trail that follows the pointer exactly records every
+twitch and then has to draw it. So the beam *chases* the pointer, closing a fraction of
+the gap per event - the same low-pass the pen calls streamline, at a higher constant
+because a laser must not visibly lag the cursor it comes out of - and samples are taken
+by distance rather than by event, at a spacing coarse enough that a twitch never becomes
+a point. What is left is smoothed again at draw time, by curving through the midpoints
+of the samples so that a sampled point steers the line rather than appearing on it.
+
+Two consequences worth naming. The engine publishes from the render loop rather than
+from the pointer event, because a mark goes on changing while the pointer sits still.
+And the laser is the only tool a read-only role may use: it has no write for
+`doc/mutations` to refuse, which is what makes pointing at something the one thing a
+viewer can do on a board they cannot touch.
+
 **A joining client is introduced from both sides.** `YRoom.serve` sends a sync message
 and nothing else, so the newest peer used to sit in an apparently empty room until
 somebody re-announced on the keepalive, roughly fifteen seconds later. `pnpm

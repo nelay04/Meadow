@@ -68,6 +68,7 @@ import {
   IconNibRound,
   IconPanel,
   IconParallelogram,
+  IconLaser,
   IconPen,
   IconPencil,
   IconPlus,
@@ -172,6 +173,9 @@ const TOOLS: ToolSpec[] = [
   { id: 'arrow', label: 'Arrow', hint: 'A', Icon: IconArrow },
   { id: 'line', label: 'Line', hint: 'L', Icon: IconLine },
   { id: 'pen', label: 'Pen', hint: 'P', Icon: IconPen },
+  // Last on the rail, under the things that make marks, because it is the one that
+  // does not: everything above leaves an object behind and this leaves nothing.
+  { id: 'laser', label: 'Laser', hint: 'K', Icon: IconLaser },
 ]
 
 /**
@@ -625,6 +629,8 @@ export default function BoardPage({ boardId, kindHint, onBack, onSignIn }: Props
     () => ({
       onPointer: (point: { x: number; y: number } | null) => presence.current?.setCursor(point),
       onSelection: (ids: readonly string[]) => presence.current?.setSelection(ids),
+      onLaser: (mark: { points: readonly number[]; alpha: number } | null) =>
+        presence.current?.setLaser(mark),
     }),
     [],
   )
@@ -2097,8 +2103,20 @@ export default function BoardPage({ boardId, kindHint, onBack, onSignIn }: Props
                 className={`tool${TOOLS_WITH_MENU.has(tool.id) ? ' has-more' : ''}${
                   active ? ' active' : ''
                 }`}
-                // Pan stays available to a viewer. Only the creation tools are gated.
-                disabled={!canWrite && tool.id !== 'select' && tool.id !== 'hand'}
+                /*
+                 * Pan stays available to a viewer. So does the laser, which is the
+                 * only tool on the rail that draws something and still belongs to
+                 * somebody who cannot edit: it writes nothing, it is gone in a second,
+                 * and pointing at what you are talking about is most of what a person
+                 * with a read-only link is on the board to do. Only the creation tools
+                 * are gated.
+                 */
+                disabled={
+                  !canWrite &&
+                  tool.id !== 'select' &&
+                  tool.id !== 'hand' &&
+                  tool.id !== 'laser'
+                }
                 onClick={() => {
                   // Pressing the button of the tool already in your hand is how you get
                   // its flyout back after it has been dismissed, and how you put it
@@ -2273,6 +2291,7 @@ export default function BoardPage({ boardId, kindHint, onBack, onSignIn }: Props
                   )}
                 </div>
               )}
+
             </div>
             )
           })}

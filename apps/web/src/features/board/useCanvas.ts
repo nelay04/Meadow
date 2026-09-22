@@ -76,15 +76,6 @@ import { THEME_EVENT } from '../../ui/theme'
 const GRID_KEY = 'meadow.grid'
 const GRID_PATTERN_KEY = 'meadow.grid.pattern'
 const PEN_KEY = 'meadow.pen'
-
-/**
- * The nib, as this person last left it.
- *
- * Remembered for the same reason the grid is, and with more reason: a pen is a tool
- * somebody chooses once and then uses for weeks, and handing them a default ballpoint
- * every time they open a board is asking them to set it up again each session. It is
- * a preference, not document state: two people on one board draw with their own pens.
- */
 const DEFAULT_PEN: PenSettings = {
   tip: 'round',
   size: 3,
@@ -329,6 +320,13 @@ export type CanvasPresence = {
   /** Publish the local pointer, in world coordinates. */
   onPointer(point: { x: number; y: number } | null): void
   onSelection(ids: readonly string[]): void
+  /**
+   * Publish the local laser mark, or null once it has gone out.
+   *
+   * Already trimmed, faded and throttled by the engine, which is the only thing that
+   * knows the clock the mark was drawn on.
+   */
+  onLaser(mark: { points: readonly number[]; alpha: number } | null): void
 }
 
 /**
@@ -511,6 +509,7 @@ export function useCanvas(
         if (id === null) setActiveMarks([])
       },
       onPointerWorld: (point) => presenceRef.current?.onPointer(point),
+      onLaser: (mark) => presenceRef.current?.onLaser(mark),
       /*
        * Writing that has reached the last rule gets more paper rather than a refusal.
        *
