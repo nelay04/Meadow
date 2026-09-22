@@ -677,6 +677,46 @@ async def add_board_member(
     )
 
 
+@router.delete("/{board_id}/membership", status_code=status.HTTP_204_NO_CONTENT)
+async def leave_board(
+    board_id: uuid.UUID,
+    request: Request,
+    session: Session,
+    principal: CurrentPrincipal,
+) -> None:
+    """Take a glade shared with the caller off their list by dropping their own grant.
+
+    Only a direct board grant can be left. The owner cannot leave, and neither can
+    someone the workspace still lets in: deleting their row would change nothing they
+    can see, and a button that appears to work and does not is worse than a refusal.
+    """
+    user = principal.user
+    role = await resolve_role(session, user_id=user.id, board_id=board_id)
+    if role is None or await principal.grant_for(session, board_id) is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="no access")
+    if role is BoardRole.owner:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="owner cannot leave")
+
+    board = await session.get(Board, board_id)
+    assert board is not None
+    via_workspace = await session.scalar(
+        select(WorkspaceMember.user_id).where(
+            WorkspaceMember.workspace_id == board.workspace_id,
+            WorkspaceMember.user_id == user.id,
+        )
+    )
+    if via_workspace is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="access comes from the workspace"
+        )
+
+    await session.execute(
+        delete(BoardMember).where(BoardMember.board_id == board_id, BoardMember.user_id == user.id)
+    )
+    await session.commit()
+    await _evict(request, board_id, "access changed")
+
+
 @router.delete("/{board_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def remove_board_member(
     board_id: uuid.UUID,

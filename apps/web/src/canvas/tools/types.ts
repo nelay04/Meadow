@@ -213,6 +213,8 @@ export type ToolContext = {
    * count until the user switched tools and back.
    */
   readonly polygonSides: number
+  /** When true, a drawing tool stays armed after it places something. */
+  readonly keepTool: boolean
   /**
    * The nib the next stroke will be drawn with. A getter for the same reason
    * `arrowRouting` is one: it changes while the tool is mounted.

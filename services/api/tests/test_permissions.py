@@ -177,3 +177,52 @@ def test_archived_boards_are_filtered_not_deleted(client: TestClient, owner: Act
     assert client.get("/api/v1/boards", headers=owner.auth).json() == []
     archived = client.get("/api/v1/boards?archived=true", headers=owner.auth).json()
     assert [b["id"] for b in archived] == [board_id]
+
+
+def test_a_member_can_leave_a_glade_shared_with_them(
+    client: TestClient, owner: Actor, outsider: Actor
+) -> None:
+    board_id = owner.create_board("Shared")
+    _share(client, owner, board_id, outsider, "editor")
+    token = outsider.ws_token(board_id)["token"]
+
+    left = client.delete(f"/api/v1/boards/{board_id}/membership", headers=outsider.auth)
+    assert left.status_code == 204, left.text
+
+    assert client.get("/api/v1/boards", headers=outsider.auth).json() == []
+    assert client.get(f"/api/v1/boards/{board_id}", headers=outsider.auth).status_code == 403
+    assert expect_close(client, board_id, token) == WS_FORBIDDEN
+    # The glade itself is untouched for its owner.
+    assert client.get(f"/api/v1/boards/{board_id}", headers=owner.auth).status_code == 200
+
+
+def test_the_owner_cannot_leave_their_own_glade(client: TestClient, owner: Actor) -> None:
+    board_id = owner.create_board()
+    left = client.delete(f"/api/v1/boards/{board_id}/membership", headers=owner.auth)
+    assert left.status_code == 409
+    assert client.get(f"/api/v1/boards/{board_id}", headers=owner.auth).json()["role"] == "owner"
+
+
+def test_leaving_is_refused_when_the_workspace_still_grants_access(
+    client: TestClient, owner: Actor, outsider: Actor
+) -> None:
+    """Leaving would delete the grant and leave the glade on the list, which reads as a bug."""
+    board_id = owner.create_board()
+    client.post(
+        f"/api/v1/workspaces/{owner.workspace_id}/members",
+        json={"user_id": outsider.user_id, "role": "member"},
+        headers=owner.auth,
+    )
+    _share(client, owner, board_id, outsider, "viewer")
+
+    left = client.delete(f"/api/v1/boards/{board_id}/membership", headers=outsider.auth)
+    assert left.status_code == 409
+    assert client.get(f"/api/v1/boards/{board_id}", headers=outsider.auth).status_code == 200
+
+
+def test_an_outsider_cannot_probe_by_leaving(
+    client: TestClient, owner: Actor, outsider: Actor
+) -> None:
+    board_id = owner.create_board()
+    left = client.delete(f"/api/v1/boards/{board_id}/membership", headers=outsider.auth)
+    assert left.status_code == 403

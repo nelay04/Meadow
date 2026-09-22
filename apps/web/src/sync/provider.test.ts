@@ -38,6 +38,8 @@ const sockets: FakeSocket[] = []
 class FakeSocket {
   static readonly OPEN = 1
   readyState = 1
+  /** What the browser has taken from us and not yet put on the wire. See `flush`. */
+  bufferedAmount = 0
   binaryType = 'arraybuffer'
   onopen: (() => void) | null = null
   onclose: ((event: { code: number }) => void) | null = null
@@ -133,5 +135,71 @@ describe('connectBoard', () => {
       { timeout: 4000 },
     )
     link.destroy()
+  })
+
+  /*
+   * What Ctrl+S is answered with. The three cases are the three things that can be
+   * true of work this client has written, and telling them apart is the whole feature:
+   * "saved" on a socket that has not emptied would be a lie, and reporting a dropped
+   * connection as a failure would be one in the other direction.
+   */
+  describe('flush', () => {
+    const open = async () => {
+      const { connectBoard } = await import('./provider')
+      const link = connectBoard({
+        boardId: 'b1',
+        doc: new Y.Doc(),
+        linkToken: null,
+        authenticated: true,
+        onState: () => {},
+        onAccess: () => {},
+      })
+      await flush()
+      return link
+    }
+
+    it('waits for the socket to empty before it says saved', async () => {
+      const link = await open()
+      const socket = sockets[0]
+      socket.bufferedAmount = 512
+
+      let result: string | null = null
+      const saving = link.flush().then((outcome) => {
+        result = outcome
+      })
+
+      // Still in the browser's buffer, so nothing may be claimed yet.
+      await new Promise((resolve) => setTimeout(resolve, 80))
+      expect(result).toBeNull()
+
+      socket.bufferedAmount = 0
+      await saving
+      expect(result).toBe('saved')
+      link.destroy()
+    })
+
+    it('gives up rather than waiting forever on a stalled socket', async () => {
+      const link = await open()
+      sockets[0].bufferedAmount = 512
+      // Nothing ever drains it. `slow` says exactly that: not saved, not lost.
+      expect(await link.flush(120)).toBe('slow')
+      link.destroy()
+    })
+
+    it('reports offline and asks for a connection rather than claiming a save', async () => {
+      const link = await open()
+      mintWsToken.mockClear()
+      sockets[0].onclose?.({ code: 1006 })
+      await flush()
+
+      expect(await link.flush()).toBe('offline')
+      // The point of the keypress while disconnected: it retries now instead of
+      // sitting out the backoff.
+      await vi.waitFor(async () => {
+        await flush()
+        expect(mintWsToken).toHaveBeenCalled()
+      })
+      link.destroy()
+    })
   })
 })

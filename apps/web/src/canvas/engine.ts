@@ -770,6 +770,7 @@ export class CanvasEngine {
    * choosing what you are about to make and correcting what you already made.
    */
   private arrowRouting: ArrowRouting = 'straight'
+  private keepTool = false
   /** How many sides the polygon tool draws with. See `setPolygonSides`. */
   private polygonSides: number = DEFAULT_POLYGON_SIDES
 
@@ -2029,6 +2030,10 @@ export class CanvasEngine {
     this.arrowRouting = routing
   }
 
+  setKeepTool(keep: boolean): void {
+    this.keepTool = keep
+  }
+
   /** The side count the polygon tool will draw with. */
   get polygonSidesChoice(): number {
     return this.polygonSides
@@ -3008,6 +3013,9 @@ export class CanvasEngine {
       },
       get arrowRouting(): ArrowRouting {
         return engine.arrowRouting
+      },
+      get keepTool(): boolean {
+        return engine.keepTool
       },
       get pen(): PenSettings {
         return engine.pen
@@ -4503,6 +4511,18 @@ export class CanvasEngine {
       return
     }
 
+    /*
+     * Past here every key is a bare one, so an accelerator that got this far is not
+     * ours and must be left alone.
+     *
+     * Without this the switch read the letter and ignored the modifier: Ctrl+S picked
+     * up the sticky tool on its way to the browser's save dialog, and every other
+     * accelerator whose letter happens to be a tool did the same. A shortcut that
+     * belongs to the browser, or to one this canvas has not claimed, is not a tool
+     * change that happens to have a modifier held down.
+     */
+    if (accel) return
+
     switch (event.key) {
       case 'Delete':
       case 'Backspace':
@@ -4669,6 +4689,21 @@ export class CanvasEngine {
     canvas.addEventListener('pointerup', this.onPointerUp)
     canvas.addEventListener('pointercancel', this.onPointerUp)
     canvas.addEventListener('wheel', this.onWheel, { passive: false })
+    /*
+     * And on the text overlay, which the canvas listener above cannot see past.
+     *
+     * The row being written in is the one element on the overlay that takes the
+     * pointer back (see `applyBoxStyle`), so a wheel over it is delivered to that box
+     * and never reaches the canvas underneath. On a lea that is a band the full width
+     * of the measure sitting exactly where the caret is, so a page left mid-sentence
+     * would not scroll until the pointer was moved off the line being written - which
+     * reads as a page that has seized rather than as a pointer in the wrong place.
+     *
+     * The overlay root rather than `this.element`: the host also holds the formatting
+     * bar and its menus, and this handler pans and preventDefaults, so a scrollable
+     * menu inside the host must keep its own wheel. Nothing on the overlay scrolls.
+     */
+    this.textLayer.root.addEventListener('wheel', this.onWheel, { passive: false })
     canvas.addEventListener('pointerleave', this.onPointerLeave)
     canvas.addEventListener('dblclick', this.onDoubleClick)
     canvas.addEventListener('contextmenu', this.onContextMenu)
@@ -4695,6 +4730,7 @@ export class CanvasEngine {
       canvas.removeEventListener('pointercancel', this.onPointerUp)
       canvas.removeEventListener('wheel', this.onWheel)
       canvas.removeEventListener('pointerleave', this.onPointerLeave)
+      this.textLayer.root.removeEventListener('wheel', this.onWheel)
       canvas.removeEventListener('dblclick', this.onDoubleClick)
       canvas.removeEventListener('contextmenu', this.onContextMenu)
     }

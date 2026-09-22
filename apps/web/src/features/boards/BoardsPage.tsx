@@ -16,6 +16,7 @@ import {
   IconPencil,
   IconRestore,
   IconTrash,
+  IconLogout,
   IconUpload,
 } from '../../ui/icons'
 import { useConfirm } from '../../ui/ConfirmDialog'
@@ -518,6 +519,31 @@ export default function BoardsPage({ onOpen }: Props) {
       toast.error(`Deleted the ${kind} "${board.title}". It is in the trash.`)
     } catch {
       toast.error(`Could not delete that ${kind}.`)
+    }
+  }
+
+  const leave = async (board: Board) => {
+    const kind = boardKind(board.kind).label.toLowerCase()
+    const agreed = await confirm({
+      title: `Remove "${board.title}" from your list?`,
+      body:
+        `You lose access to this ${kind}. Its owner keeps it, and can share it ` +
+        `with you again.`,
+      confirmLabel: 'Remove',
+      tone: 'danger',
+    })
+    if (!agreed) return
+
+    try {
+      await api.leaveBoard(board.id)
+      await reload()
+      toast.error(`Removed "${board.title}" from your list.`)
+    } catch (error) {
+      toast.error(
+        error instanceof api.ApiError && error.status === 409
+          ? `You reach this ${kind} through your workspace, so it cannot be removed here.`
+          : `Could not remove that ${kind}.`,
+      )
     }
   }
 
@@ -1041,6 +1067,17 @@ export default function BoardsPage({ onOpen }: Props) {
                         onClick={() => void remove(board)}
                       >
                         <IconTrash size={15} />
+                      </button>
+                    )}
+                    {board.role !== 'owner' && (
+                      <button
+                        type="button"
+                        className="card-action card-delete"
+                        title={`Remove ${board.title} from your list`}
+                        aria-label={`Remove ${board.title} from your list`}
+                        onClick={() => void leave(board)}
+                      >
+                        <IconLogout size={15} />
                       </button>
                     )}
                   </div>
