@@ -43,6 +43,8 @@ import {
   type ViewTransform,
   type WorldRect,
   projectPoint,
+  snapToDevice,
+  tileStep,
   viewTransform,
 } from './camera'
 import { type LaserTrail, LaserLayer } from './overlay/laserLayer'
@@ -190,6 +192,18 @@ const GRID_MAX_PX = 56
 const DOT_MIN_PX = 18
 const DOT_MAX_PX = DOT_MIN_PX * 2
 
+/**
+ * How long the zoom has to be still before the paper is snapped to the pixel grid.
+ *
+ * The snap below costs a little of the spacing's accuracy, and on a fractional display
+ * scale it costs a visible amount: a cell has to be a whole number of CSS pixels there,
+ * so it steps in twos or fours rather than continuously. Taken on every frame that
+ * would read as the lattice breathing through a pinch, which is a worse fault than the
+ * one being fixed. So it is taken when the zoom stops, where the eye is on a still
+ * picture and the crispness is the only thing it can see. Long enough not to fire
+ * inside the gaps between wheel events, short enough to feel like part of the gesture.
+ */
+const GRID_SNAP_DELAY_MS = 140
 /**
  * The ruling on the `ruled` surface: one line every 28 world units.
  *
@@ -1148,6 +1162,45 @@ export class CanvasEngine {
     this.requestRender()
   }
 
+  /**
+   * The zoom the paper was last synced at, and when it last changed. See
+   * `GRID_SNAP_DELAY_MS`: the grid is only snapped to the pixel grid once this has
+   * been still for a moment.
+   */
+  private gridScale = 0
+  private gridScaleAt = 0
+
+  /**
+   * Whether the zoom has been still long enough to snap the paper.
+   *
+   * It also keeps the scene dirty while it is false, which is what makes the snap
+   * happen at all: the render loop only draws when something asked it to, and the last
+   * frame of a wheel zoom is followed by nothing. Without this the paper would stay at
+   * the fractional cell that frame left behind until the board was touched again.
+   */
+  private get gridSettled(): boolean {
+    const scale = this.lastTransform.scale
+    const now = performance.now()
+    if (scale !== this.gridScale) {
+      this.gridScale = scale
+      this.gridScaleAt = now
+    }
+    if (now - this.gridScaleAt >= GRID_SNAP_DELAY_MS) return true
+    this.requestRender()
+    return false
+  }
+
+  /**
+   * The device pixels per CSS pixel, as the browser reports it right now.
+   *
+   * Read live rather than cached. It changes when the window moves to another display
+   * or the system zoom changes, and the paper is re-synced on both, so a value frozen
+   * at startup would be the wrong one exactly when it mattered.
+   */
+  private get pixelRatio(): number {
+    return window.devicePixelRatio || 1
+  }
+
   private snapToDevicePixels(): void {
     if (this.disposed) return
 
@@ -1277,18 +1330,27 @@ export class CanvasEngine {
     }
 
     let world = GRID_BASE_WORLD
-    let minor = world * transform.scale
-    while (minor < GRID_MIN_PX) {
+    let spacing = world * transform.scale
+    while (spacing < GRID_MIN_PX) {
       world *= 4
-      minor = world * transform.scale
+      spacing = world * transform.scale
     }
-    while (minor > GRID_MAX_PX) {
+    while (spacing > GRID_MAX_PX) {
       world /= 4
-      minor = world * transform.scale
+      spacing = world * transform.scale
     }
+
+    // On the pixel grid once the zoom is still, for the reason `syncDots` gives at
+    // length: a tile of 25.8px is a rule drawn into a different pair of pixels every
+    // few cells, which reads as a grid of uneven lines. The major cell is four of
+    // these, so it lands on the same grid.
+    const ratio = this.pixelRatio
+    const step = this.gridSettled ? tileStep(ratio) : 1 / ratio
+    const minor = Math.max(step, Math.round(spacing / step) * step)
     const major = minor * 4
 
-    const phase = (offset: number, size: number): number => ((offset % size) + size) % size
+    const phase = (offset: number, size: number): number =>
+      snapToDevice(((offset % size) + size) % size, ratio)
     const minorX = phase(transform.tx, minor)
     const minorY = phase(transform.ty, minor)
     const majorX = phase(transform.tx, major)
@@ -1329,18 +1391,43 @@ export class CanvasEngine {
    */
   private syncDots(transform: ViewTransform): void {
     let world = GRID_BASE_WORLD
-    let cell = world * transform.scale
-    while (cell < DOT_MIN_PX) {
+    let spacing = world * transform.scale
+    while (spacing < DOT_MIN_PX) {
       world *= 2
-      cell = world * transform.scale
+      spacing = world * transform.scale
     }
-    while (cell > DOT_MAX_PX) {
+    while (spacing > DOT_MAX_PX) {
       world /= 2
-      cell = world * transform.scale
+      spacing = world * transform.scale
     }
 
-    const half = cell / 2
-    const phase = (offset: number, size: number): number => ((offset % size) + size) % size
+    /*
+     * Once the zoom is still, the cell is painted on the pixel grid rather than at
+     * whatever fraction of a pixel the zoom produced.
+     *
+     * This is the difference between a lattice and a field of dots of three different
+     * weights. A background tile repeats from its own size, so a cell of 25.8px starts
+     * every repetition 0.8px further into a pixel than the last one, and the browser
+     * rounds the same 2.3px circle into two pixels here and three there, lighter where
+     * it straddles a boundary. It is at its worst at the zooms people actually sit at -
+     * 125%, 129%, 137% - because those are the ones whose cell lands nowhere near a
+     * whole pixel. `tileStep` is the grid that cures it and how it was arrived at.
+     *
+     * The cost is paid in the spacing: the lattice moves off the true world pitch by
+     * up to half a step. That is the right way round for this paper. It is read as an
+     * even field and never counted along, so what has to be exact is that every cell
+     * is the same as every other one, not that a cell is 20 world units to the pixel.
+     */
+    const ratio = this.pixelRatio
+    const step = this.gridSettled ? tileStep(ratio) : 1 / ratio
+    const cell = Math.max(step, Math.round(spacing / step) * step)
+    // The half-cell offsets go on the device grid rather than the tile grid. They are
+    // a position, not a size, so they shift a whole layer instead of changing what a
+    // repetition looks like, and holding them to the coarse grid would visibly throw
+    // the in-between dots off centre on a cell the step does not divide.
+    const half = snapToDevice(cell / 2, ratio)
+    const phase = (offset: number, size: number): number =>
+      snapToDevice(((offset % size) + size) % size, ratio)
     // Less half a cell, because the dot is drawn at the centre of its tile and belongs
     // on the crossing. Without it the lattice sits half a cell off from where the same
     // camera would have put the lines, and switching paper appears to move the board.
@@ -1351,7 +1438,10 @@ export class CanvasEngine {
     // ends of the ramp are the two that read as one lattice. Easing spends the zoom at
     // the ends and crosses the middle quickly. It is still 0 at the bottom of the band
     // and 1 at the top, which is all the closed step needs.
-    const t = (cell - DOT_MIN_PX) / (DOT_MAX_PX - DOT_MIN_PX)
+    // Off the true spacing rather than the snapped cell, so the fade stays continuous
+    // through a pinch and still reaches exactly 0 and 1 at the ends of the band, where
+    // the step it is bridging happens.
+    const t = (spacing - DOT_MIN_PX) / (DOT_MAX_PX - DOT_MIN_PX)
     const fade = t * t * (3 - 2 * t)
 
     // Rounded, and that is what makes this cheap: the fade moves continuously with the

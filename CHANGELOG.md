@@ -11,6 +11,29 @@ away getting there.
 
 ---
 
+## [1.20.1] - [22-Sep-2026]
+
+### Fixed
+- **An even dot lattice at every zoom.** The dot paper is one tile repeated, and a tile
+  that is not a whole number of pixels is rounded differently in each repetition: the
+  same dot came out two pixels wide in one place, three in another and lighter where it
+  straddled a boundary, so the field read as dots of several sizes rather than as one
+  lattice. It was worst at exactly the zooms people sit at - 125%, 129%, 137% - and
+  worse again on a display scaled to 125% or 150%, where a browser needs the tile to be
+  a whole number of CSS pixels as well as of device pixels. The paper is now held to
+  that grid, so every cell of it is drawn identically to every other. The graph ruling
+  was repeated the same way and is fixed with it.
+  Snapped when the zoom stops rather than on every frame. On a fractionally scaled
+  display the grid it has to land on is coarse - every fourth CSS pixel at 125% - and
+  taking it mid-gesture would make the lattice visibly breathe through a pinch, which
+  is a worse fault than the one being fixed. Measured in pixels rather than argued
+  about: `pnpm smoke:grid` screenshots the paper at four display scales and seven zooms
+  and fails unless every dot in the shot is the same shape, and `scripts/tile-probe.mjs`
+  is the measurement the rule itself came from. Thirteen of those twenty-eight
+  combinations failed before this change.
+
+---
+
 ## [1.20.0] - [22-Sep-2026]
 
 ### Changed

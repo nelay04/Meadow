@@ -36,13 +36,49 @@ export type WorldRect = { minX: number; minY: number; maxX: number; maxY: number
 export type ViewTransform = { tx: number; ty: number; scale: number }
 
 export function viewTransform(camera: Camera, devicePixelRatio: number): ViewTransform {
-  const ratio = devicePixelRatio > 0 ? devicePixelRatio : 1
-  const snap = (value: number): number => Math.round(value * ratio) / ratio
   return {
-    tx: snap(-camera.x * camera.zoom),
-    ty: snap(-camera.y * camera.zoom),
+    tx: snapToDevice(-camera.x * camera.zoom, devicePixelRatio),
+    ty: snapToDevice(-camera.y * camera.zoom, devicePixelRatio),
     scale: camera.zoom,
   }
+}
+
+/**
+ * The nearest whole device pixel to `value`, in CSS pixels.
+ *
+ * The same rounding the transform above is built on, exported because the paper needs
+ * it too: where a background tile starts has to land on the device grid, or the whole
+ * repeated layer is drawn half a pixel into the one next to it. What the tile's own
+ * *size* has to land on is a coarser question, and `tileStep` below is the answer to
+ * it.
+ */
+export function snapToDevice(value: number, devicePixelRatio: number): number {
+  const ratio = devicePixelRatio > 0 ? devicePixelRatio : 1
+  return Math.round(value * ratio) / ratio
+}
+
+/**
+ * The grid a repeated background tile has to land on to rasterise the same way twice.
+ *
+ * Measured rather than reasoned about, in `scripts/tile-probe.mjs`: a tile is drawn
+ * identically in every repetition exactly when its size is a whole number of device
+ * pixels *and*, on a fractional display scale, a whole number of CSS pixels as well.
+ * At 125% that is every fourth CSS pixel and at 150% every second one; at 100% and
+ * 200% the device grid alone is enough, which is why this returns a half there.
+ *
+ * Anything off that grid gives a lattice with dots of two or three different weights
+ * in it, because the browser starts each repetition at a different fraction of a pixel
+ * and rounds the same circle into a different set of them.
+ */
+export function tileStep(ratio: number): number {
+  if (Number.isInteger(ratio)) return 1 / ratio
+  const whole = (value: number): boolean => Math.abs(value - Math.round(value)) < 1e-6
+  for (let css = 2; css <= 8; css += 1) {
+    if (whole(css * ratio)) return css
+  }
+  // An unusual scale factor, and no grid within reach serves both. Whole CSS pixels
+  // are the half of it that is always worth having.
+  return 1
 }
 
 /** Project a world point with a `ViewTransform`. Chrome and the overlay share this. */

@@ -9,7 +9,16 @@
 import type { ObjectData } from '@meadow/schema'
 import { describe, expect, it } from 'vitest'
 
-import { Camera, type CameraFence, MAX_ZOOM, MIN_ZOOM, projectPoint, viewTransform } from './camera'
+import {
+  Camera,
+  type CameraFence,
+  MAX_ZOOM,
+  MIN_ZOOM,
+  projectPoint,
+  snapToDevice,
+  tileStep,
+  viewTransform,
+} from './camera'
 import { rulesShort, shiftRowsBelow, writingAsLines } from './engine'
 import { containedBy, hitsObject, pickTop, toLocal, unionBounds } from './hitTest'
 import { SNAP_THRESHOLD_PX, snapMove } from './snapping'
@@ -288,6 +297,49 @@ describe('Camera', () => {
  * awkward zooms to check. These tests cover the arithmetic; scripts/overlay-smoke.mjs
  * covers what the browser actually paints.
  */
+describe('tileStep', () => {
+  /*
+   * The paper is a repeated background tile, and a tile only rasterises the same way
+   * twice if its size lands on this grid. `scripts/tile-probe.mjs` is where the rule
+   * came from and `scripts/grid-smoke.mjs` is what checks the pixels; these are here
+   * so a change to the arithmetic fails in a second rather than in a browser.
+   */
+  it('gives whole device pixels on a whole display scale', () => {
+    expect(tileStep(1)).toBe(1)
+    expect(tileStep(2)).toBe(0.5)
+    expect(tileStep(3)).toBeCloseTo(1 / 3, 12)
+  })
+
+  it('needs whole CSS pixels as well on a fractional one', () => {
+    // 125% and 175% are whole in both only every fourth CSS pixel; 150% every second.
+    expect(tileStep(1.25)).toBe(4)
+    expect(tileStep(1.5)).toBe(2)
+    expect(tileStep(1.75)).toBe(4)
+    expect(tileStep(2.25)).toBe(4)
+  })
+
+  it('always returns a step that is whole in device pixels', () => {
+    for (const ratio of [1, 1.25, 1.5, 1.75, 2, 2.5, 3]) {
+      const device = tileStep(ratio) * ratio
+      expect(Math.abs(device - Math.round(device))).toBeLessThan(1e-6)
+    }
+  })
+
+  it('falls back to whole CSS pixels on a scale no small step fits', () => {
+    // 1.1 would want every tenth CSS pixel, which is coarser than the band it is
+    // quantising. Half the rule is better than a lattice quantised into five sizes.
+    expect(tileStep(1.1)).toBe(1)
+  })
+})
+
+describe('snapToDevice', () => {
+  it('rounds to the device grid and survives a nonsense ratio', () => {
+    expect(snapToDevice(25.8, 1.25)).toBeCloseTo(25.6, 10)
+    expect(snapToDevice(25.8, 2)).toBe(26)
+    expect(snapToDevice(25.8, 0)).toBe(26)
+  })
+})
+
 describe('viewTransform', () => {
   const AWKWARD_ZOOMS = [0.33, 0.67, 1, 1.37, 2, 2.5]
 
