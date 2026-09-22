@@ -50,7 +50,6 @@ import {
   IconDiamond,
   IconDownload,
   IconDuplicate,
-  IconFit,
   IconEye,
   IconGlobe,
   IconKey,
@@ -128,6 +127,7 @@ import {
 import { LeaDate } from './LeaDate'
 import { LeaPages } from './LeaPages'
 import { StackPanel } from './StackPanel'
+import { ZoomControl } from './ZoomControl'
 import {
   inputLanguageId,
   subscribeInputLanguage,
@@ -1787,29 +1787,14 @@ export default function BoardPage({ boardId, kindHint, onBack, onSignIn }: Props
 
         <span className="divider" />
 
-        {/* A fenced page zooms too, within a narrow band, so the readout and its reset
-            belong on both. Not Fit: fitting the content of a page whose width is the
-            whole point of the surface is a button that undoes the surface. */}
-        <div className="zoom" role="group" aria-label="Zoom">
-          {/* The readout is the reset button. Showing the current zoom beside a
-              button also labelled 100% reads as the same number printed twice. */}
-          <button
-            type="button"
-            className="readout"
-            onClick={canvas.resetZoom}
-            title="Reset to 100%"
-          >
-            {Math.round(canvas.zoom * 100)}%
-          </button>
-          {spec.column === null && (
-            <button type="button" onClick={canvas.zoomToFit} title="Zoom to fit">
-              <IconFit size={15} />
-              {/* Wrapped so a narrow bar can drop the word and keep the icon. A bare
-                  text node has no box to hide. */}
-              <span className="label">Fit</span>
-            </button>
-          )}
-        </div>
+        {/* A fenced page zooms too, within a narrow band, so the readout and its steps
+            belong on both. Fit does not: see `ZoomControl`. */}
+        <ZoomControl
+          zoom={canvas.zoom}
+          step={canvas.stepZoom}
+          setPercent={canvas.setZoomPercent}
+          onFit={spec.column === null ? canvas.zoomToFit : null}
+        />
 
         {/*
           The keyboard, not the document.

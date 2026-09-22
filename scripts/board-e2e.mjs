@@ -352,6 +352,86 @@ check(
   JSON.stringify(Array.isArray(boards) ? boards.map((board) => board.title) : boards),
 )
 
+/*
+ * The zoom control, on both kinds of paper.
+ *
+ * The engine's own ladder is covered by the canvas smoke test against a local Y.Doc.
+ * What only the real view can show is the wiring: that the readout is a field the
+ * camera follows, that the rungs either side of it move the camera, and that a lea
+ * clamps a typed zoom to the band its page allows instead of taking it.
+ */
+const readout = page.locator('.zoom .readout')
+
+await readout.click()
+await readout.fill('45')
+await readout.press('Enter')
+await delay(300)
+check(
+  'typing a percentage into the readout zooms the glade to it',
+  (await readout.inputValue()) === '45%',
+  `readout says ${await readout.inputValue()}`,
+)
+
+await page.click('.zoom button[aria-label="Zoom in"]')
+await delay(300)
+check(
+  'the rung beside it steps in tens',
+  (await readout.inputValue()) === '50%',
+  `readout says ${await readout.inputValue()}`,
+)
+
+await page.click('.zoom button[aria-label="Zoom out"]')
+await page.click('.zoom button[aria-label="Zoom out"]')
+await delay(300)
+check(
+  'and back down the same ladder',
+  (await readout.inputValue()) === '30%',
+  `readout says ${await readout.inputValue()}`,
+)
+
+// Nonsense is not an instruction to zoom anywhere. The field goes back to the camera.
+await readout.click()
+await readout.fill('abc')
+await readout.press('Enter')
+await delay(300)
+check(
+  'a readout with nothing numeric in it falls back to the camera',
+  (await readout.inputValue()) === '30%',
+  `readout says ${await readout.inputValue()}`,
+)
+
+const leaResponse = await fetch(`${apiBase}/api/v1/boards`, {
+  method: 'POST',
+  headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken}` },
+  body: JSON.stringify({ workspace_id: workspaceId, title: 'E2E lea', kind: 'lea' }),
+})
+check('create a lea', leaResponse.ok, `status ${leaResponse.status}`)
+const lea = await leaResponse.json()
+
+// Straight to the board by its own route. Each kind has its own list, and which list a
+// lea is filed under is not what this section is about.
+await page.goto(`${webBase}/app#/lea/${lea.id}`, { waitUntil: 'load' })
+await page.waitForSelector('.canvas-host canvas', { timeout: 20000 })
+await delay(1500)
+
+const leaReadout = page.locator('.zoom .readout')
+check('a lea has the same zoom control', (await leaReadout.count()) === 1)
+check(
+  'and no Fit, because fitting a page is a button that undoes the surface',
+  (await page.locator('.zoom button[title="Zoom to fit"]').count()) === 0,
+)
+
+await leaReadout.click()
+await leaReadout.fill('900')
+await leaReadout.press('Enter')
+await delay(400)
+const clamped = Number.parseInt((await leaReadout.inputValue()).replace('%', ''), 10)
+check(
+  'a zoom typed past what a page allows settles at the top of its band',
+  clamped > 0 && clamped <= 200,
+  `readout says ${await leaReadout.inputValue()}`,
+)
+
 check('no uncaught page errors', pageErrors.length === 0, pageErrors.join('; '))
 
 await browser.close()

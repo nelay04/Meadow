@@ -255,6 +255,50 @@ check(
   `a 600px event took the zoom to ${flick.toFixed(3)}`,
 )
 
+/*
+ * The plus and minus keys walk a ladder in tens, and step onto it first.
+ *
+ * The ladder is the point: a wheel leaves the zoom on 129%, and a person who wants a
+ * round number has no way to ask for one by gesture. The first press tidies to the
+ * nearest rung rather than adding ten to whatever the wheel left behind.
+ */
+await page.evaluate(() => window.__canvas.setCamera({ x: 0, y: 0, zoom: 1.29 }))
+await delay(60)
+await page.keyboard.press('+')
+await delay(80)
+check(
+  'plus steps onto the zoom ladder, not along it from where the wheel stopped',
+  Math.round((await state()).zoom * 100) === 130,
+  `129% + one press = ${Math.round((await state()).zoom * 100)}%`,
+)
+
+await page.keyboard.press('+')
+await delay(80)
+check(
+  'and in tens from there',
+  Math.round((await state()).zoom * 100) === 140,
+  `now ${Math.round((await state()).zoom * 100)}%`,
+)
+
+await page.keyboard.press('-')
+await page.keyboard.press('-')
+await delay(80)
+check(
+  'minus walks the same ladder back',
+  Math.round((await state()).zoom * 100) === 120,
+  `now ${Math.round((await state()).zoom * 100)}%`,
+)
+
+// `=` is the same key as `+` without the shift, and a mouse-free hand should not have
+// to hold one down to zoom in.
+await page.keyboard.press('=')
+await delay(80)
+check(
+  'equals zooms in as well as plus',
+  Math.round((await state()).zoom * 100) === 130,
+  `now ${Math.round((await state()).zoom * 100)}%`,
+)
+
 await page.evaluate(() => window.__canvas.setCamera({ x: 0, y: 0, zoom: 1 }))
 await delay(60)
 

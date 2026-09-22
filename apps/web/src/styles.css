@@ -3449,11 +3449,46 @@ label {
   border-color: transparent;
 }
 
+/*
+ * The readout is a field, not a label. See `ZoomControl` for why.
+ *
+ * Styled to look like the label it replaced until it is being used: no border, no
+ * background, the bar's own type. A box that announces itself as an input would read
+ * as a form sitting in the toolbar, and the thing it mostly does is show a number.
+ */
 .zoom .readout {
   color: var(--fg);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+  font-size: 0.78rem;
+  font-family: inherit;
   min-width: 3.4rem;
+  width: 3.4rem;
+  padding: 0.25rem 0.4rem;
+  border: none;
+  border-radius: var(--pill);
+  background: transparent;
+  text-align: center;
+}
+
+.zoom .readout:hover {
+  background: var(--surface);
+}
+
+/* Only once it has the caret does it look like somewhere to type. */
+.zoom .readout:focus {
+  outline: none;
+  background: var(--surface);
+  box-shadow: var(--ring);
+}
+
+/* The two rungs. Square, because they hold an icon and not a word. */
+.zoom .zoom-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem 0.4rem;
+  color: var(--muted);
 }
 
 .board-body {
@@ -7654,6 +7689,7 @@ dialog.modal[open] .modal-card {
      count of them. */
   .zoom .readout {
     min-width: 3.1rem;
+    width: 3.1rem;
     padding: 0.25rem 0.4rem;
   }
 

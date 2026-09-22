@@ -11,6 +11,29 @@ away getting there.
 
 ---
 
+## [1.21.0] - [22-Sep-2026]
+
+### Added
+- **A zoom you can ask for by name.** The readout in the board bar is a field now: click
+  it, type 45, and the board is at 45%. A wheel zoom is a gesture and lands where your
+  fingers stopped, which is right for moving around and no use at all for arriving at a
+  number, or for two people trying to look at the same thing at the same size.
+- **`+` and `-` step the zoom in tens**, as do the two new buttons either side of the
+  readout. The step is onto the ladder rather than along it: from the 129% a wheel left
+  behind, the first press gives 130%, not 139%. A ladder in tens rather than a
+  percentage of the current zoom, because multiplying is right for a continuous gesture
+  and wrong for a step you asked for by hand - it lands on 92%, 137%, 165%, which are
+  numbers nobody would choose. `=` and `_` are bound alongside `+` and `-` so the shift
+  key is optional, and the keys stay bare: Ctrl and plus belongs to the browser.
+- Both are on a lea as well as a glade, clamped to the band a page allows, so a zoom
+  typed past it settles at the edge of the band instead of being refused.
+
+### Changed
+- **The zoom readout is no longer a button that resets to 100%.** It is the field you
+  type into, and typing 100 is the reset. The `0` key still resets, as it always has.
+
+---
+
 ## [1.20.3] - [22-Sep-2026]
 
 ### Reversed

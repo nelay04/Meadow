@@ -478,6 +478,21 @@ const ZOOM_WHEEL_STEP = 1.15
  */
 const ZOOM_WHEEL_NOTCH_PX = 100
 
+/*
+ * The ladder the plus and minus keys, and the buttons beside the readout, walk.
+ *
+ * Ten points of zoom, not a tenth of the current zoom. Multiplying is right for the
+ * wheel, where the gesture is continuous and has to feel the same at 40% as at 400%;
+ * it is wrong for a step you are asking for by name, because the numbers it lands on
+ * are the ones nobody would choose - 92%, 137%, 165%. A ladder in tens is a ladder of
+ * numbers a person would actually say, and it is the same ladder in both directions,
+ * so a step back undoes a step forward exactly.
+ *
+ * The step is onto the ladder, not along it: from 129% the next rung up is 130, not
+ * 139. That is what makes it usable after a wheel zoom, which lands anywhere.
+ */
+const ZOOM_STEP_PERCENT = 10
+
 function clamp(value: number, low: number, high: number): number {
   return Math.min(high, Math.max(low, value))
 }
@@ -2538,8 +2553,45 @@ export class CanvasEngine {
   }
 
   resetZoom(): void {
-    this.camera.setZoom(1, this.viewportWidth, this.viewportHeight)
+    this.setZoomPercent(100)
+  }
+
+  /**
+   * The zoom as a percentage, rounded the way the readout shows it.
+   *
+   * Rounded here rather than at each caller, because the ladder is walked from this
+   * number: a camera sitting on 1.2999999999 has to be read as 130 or a step down from
+   * it lands on 130 again and the button appears not to work.
+   */
+  get zoomPercent(): number {
+    return Math.round(this.camera.zoom * 100)
+  }
+
+  /** Zoom to an exact percentage, about the middle of the window. */
+  setZoomPercent(percent: number): void {
+    if (!Number.isFinite(percent)) return
+    // Clamped by the camera, and by the fence on top of that where there is one: a lea
+    // is held to a band around the size its page was set at, so 500% typed into the
+    // readout on a page settles at the most that page allows rather than being refused.
+    this.camera.setZoom(percent / 100, this.viewportWidth, this.viewportHeight)
     this.requestRender()
+  }
+
+  /**
+   * One rung up or down the zoom ladder. See `ZOOM_STEP_PERCENT`.
+   *
+   * Always onto a multiple of the step, so a zoom left at 129% by the wheel is tidied
+   * to 130% by the first press and walks in tens after that.
+   */
+  stepZoom(direction: 1 | -1): void {
+    const rung = this.zoomPercent / ZOOM_STEP_PERCENT
+    // The epsilon is for a percentage that is already on a rung: without it `floor` and
+    // `ceil` would both return that rung and a step would be half a step, or none.
+    const next =
+      direction > 0
+        ? (Math.floor(rung + 1e-6) + 1) * ZOOM_STEP_PERCENT
+        : (Math.ceil(rung - 1e-6) - 1) * ZOOM_STEP_PERCENT
+    this.setZoomPercent(next)
   }
 
   /**
@@ -4645,6 +4697,26 @@ export class CanvasEngine {
         return
       case '1':
         this.zoomToFit()
+        return
+      /*
+       * Zoom in and out a rung at a time.
+       *
+       * Four keys for two actions, because one of them is not on the keyboard. A plus
+       * on the main block is shift and the equals key, so `=` is bound as well and
+       * shift becomes optional; the numeric keypad sends the characters directly. The
+       * underscore is the same courtesy on the way down.
+       *
+       * Bare, not with an accelerator: Ctrl and plus is the browser's own zoom, and
+       * taking it would leave somebody who wanted the page bigger with a board that
+       * grew instead.
+       */
+      case '+':
+      case '=':
+        this.stepZoom(1)
+        return
+      case '-':
+      case '_':
+        this.stepZoom(-1)
         return
       case 'v':
       case 'V':

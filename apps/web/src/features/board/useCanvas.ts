@@ -274,6 +274,10 @@ export type CanvasHandle = {
   setWanderers(wanderers: readonly Wanderer[]): void
   zoomToFit(): void
   resetZoom(): void
+  /** One rung up or down the ten-point zoom ladder. */
+  stepZoom(direction: 1 | -1): void
+  /** Zoom to an exact percentage, clamped by the camera and by a page's own band. */
+  setZoomPercent(percent: number): void
   /** Put the caret in a text-bearing object. False if it is not editable yet. */
   beginTextEdit(id: string): boolean
   /** Put the caret on a row of a writing surface, making the row if it is not there. */
@@ -1178,6 +1182,8 @@ export function useCanvas(
     syncTheme,
     zoomToFit: () => engineRef.current?.zoomToFit(),
     resetZoom: () => engineRef.current?.resetZoom(),
+    stepZoom: (direction: 1 | -1) => engineRef.current?.stepZoom(direction),
+    setZoomPercent: (percent: number) => engineRef.current?.setZoomPercent(percent),
     deleteSelection: () => engineRef.current?.deleteSelection(),
     duplicateSelection: () => engineRef.current?.duplicateSelection(),
     bringToFront: () => engineRef.current?.bringToFront(),

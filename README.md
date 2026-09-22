@@ -78,6 +78,12 @@ only one on the rail that a viewer can open.
 ringed on the canvas as you point at each row, dragged into place or given a depth to
 sit at.
 
+**Zoom to a number.** The wheel zooms where your fingers stop; the readout in the bar
+is a field, so you can also say which zoom you mean and type it. Either side of it is a
+rung of a ladder in tens, on the `+` and `-` keys as well as the buttons, and a first
+press tidies a wheel's 129% to 130% rather than adding ten to it. A lea has the same
+control, held to the band its page allows.
+
 ---
 
 ## Leas: a diary, on the same canvas
