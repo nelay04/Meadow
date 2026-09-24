@@ -2966,11 +2966,19 @@ label {
 .search-option.is-element::before {
   content: '';
   position: absolute;
-  left: 1.5rem;
+  /* Under the middle of the glade's icon: the row's 0.55rem padding plus half of the
+     icon's 1.9rem, less half the line's own width. */
+  left: calc(1.5rem - 0.5px);
   top: 0;
   bottom: 0;
   width: 1px;
   background: var(--line);
+}
+
+/* The first object's thread reaches up through the glade row's bottom padding, so it
+   meets the icon's box instead of stopping short of it. */
+.search-option.is-group + .search-option.is-element::before {
+  top: -0.4rem;
 }
 
 .search-icon {
