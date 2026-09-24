@@ -1002,7 +1002,7 @@ export default function BoardsPage({ onOpen }: Props) {
                     <BoardThumbnail board={board} />
                     <span className="board-meta">
                       <span className="board-text">
-                        <span className="board-name">
+                        <span className="card-name">
                           <span className="board-title">{board.title}</span>
                           {/*
                             Two different shut doors, beside the name so they are read

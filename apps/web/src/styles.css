@@ -3116,14 +3116,14 @@ label {
 
 /* The name and the shut-door badges on one line: the title gives way to its ellipsis
    before a badge does. */
-.board-name {
+.card-name {
   display: flex;
   align-items: center;
   gap: 0.35rem;
   min-width: 0;
 }
 
-.board-name .state-badge {
+.card-name .state-badge {
   flex: none;
   margin-right: 0;
 }
