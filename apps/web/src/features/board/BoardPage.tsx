@@ -29,7 +29,7 @@ import {
 import { IndexeddbPersistence } from 'y-indexeddb'
 import * as Y from 'yjs'
 
-import { PAGE_LINES_STEP } from '../../canvas/engine'
+import { PAGE_LINES_STEP, pageSlotAt } from '../../canvas/engine'
 
 import type { Wanderer } from '../../canvas/overlay/wandererLayer'
 import type { ToolId } from '../../canvas/tools/types'
@@ -111,6 +111,7 @@ import type { BoardKind, BoardRole, ShareMode } from '../../lib/api'
 import * as api from '../../lib/api'
 import { useTrashRetentionHours } from '../../lib/appConfig'
 import { describeReport, downloadGlade, hasPendingImport, takeImport } from '../../lib/gladeFile'
+import { hasPendingFocus, takeFocus } from '../../lib/searchFocus'
 import { clearShareToken, holdForSignIn, shareToken } from '../../lib/shareLink'
 import { boardKind, boardPath } from '../boards/kinds'
 import { type PresenceHandle, colorFor, trackPresence } from '../../sync/awareness'
@@ -1503,6 +1504,73 @@ export default function BoardPage({ boardId, kindHint, onBack, onSignIn }: Props
       toast.error(error instanceof ImportTargetError ? error.message : `Could not import into this ${noun}.`)
     }
   }, [boardId, docReady, session, toast, noun])
+
+  /*
+   * Arriving from a search result: open on the object the words were found in.
+   *
+   * Two steps, because a lea has to turn to the right page before the object is on the
+   * paper at all. The first finds the page and turns to it; the second waits for that
+   * page to be the open one, then reveals and selects the object. On a glade there is
+   * no page and the second step runs straight away.
+   *
+   * Two frames before revealing, because the engine learns about the document through
+   * its own observer and a page turn moves its fence: asking for the object's bounds any
+   * sooner can find nothing to frame.
+   */
+  const focusTarget = useRef<{ id: string; page: number | null } | null>(null)
+  const [focusVersion, setFocusVersion] = useState(0)
+  const { pages, pageIndex, turnToPage } = canvas
+  // Fresh closures every render, so held in a ref rather than listed as dependencies:
+  // listed, they would restart the reveal's frames on every render until one got through.
+  const focusActions = useRef({ reveal: canvas.reveal, select: canvas.select })
+  focusActions.current = { reveal: canvas.reveal, select: canvas.select }
+  useEffect(() => {
+    if (!docReady || !hasPendingFocus(boardId)) return
+    const target = takeFocus(boardId)
+    if (target === null) return
+
+    if (target.startsWith('page:')) {
+      const pageId = target.slice('page:'.length)
+      const index = pages.findIndex((page) => page.id === pageId)
+      turnToPage(index >= 0 ? index : 0)
+      return
+    }
+
+    const object = session.objects.get(target)
+    if (object === undefined) {
+      toast.info(`That is no longer on this ${noun}.`)
+      return
+    }
+    let page: number | null = null
+    if (spec.column !== null) {
+      const slot = pageSlotAt(Number(object.get('x') ?? 0))
+      const index = pages.findIndex((entry) => entry.slot === slot)
+      if (index >= 0) {
+        page = index
+        turnToPage(index)
+      }
+    }
+    focusTarget.current = { id: target, page }
+    setFocusVersion((version) => version + 1)
+  }, [boardId, docReady, session, pages, turnToPage, spec.column, toast, noun])
+
+  useEffect(() => {
+    const target = focusTarget.current
+    if (target === null || !docReady) return
+    if (target.page !== null && target.page !== pageIndex) return
+    let second = 0
+    const first = requestAnimationFrame(() => {
+      second = requestAnimationFrame(() => {
+        focusTarget.current = null
+        focusActions.current.reveal([target.id])
+        focusActions.current.select([target.id])
+      })
+    })
+    return () => {
+      cancelAnimationFrame(first)
+      cancelAnimationFrame(second)
+    }
+  }, [focusVersion, pageIndex, docReady])
 
   useEffect(() => {
     if (spec.column === null || !docReady || !canWrite || !empty) return

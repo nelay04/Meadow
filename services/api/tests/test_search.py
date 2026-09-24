@@ -23,16 +23,16 @@ from starlette.testclient import TestClient
 from tests.conftest import TEST_DATABASE_URL, Actor, _asyncpg_dsn
 
 
-def _doc_with(*labels: str) -> bytes:
+def _doc_with(*labels: str, kind: str = "rect", ids: list[str] | None = None) -> bytes:
     """A Yjs update holding one shape per label, with the label as its text."""
     doc = Doc()
     doc["objects"] = objects = Map()
-    for label in labels:
-        # A fresh id each time: two updates from different clients writing the same
-        # key would be a conflict, and only one of them would survive the merge.
-        key = uuid.uuid4().hex[:12]
+    for index, label in enumerate(labels):
+        # A fresh id unless one is asked for: two updates from different clients writing
+        # the same key would be a conflict, and only one would survive the merge.
+        key = ids[index] if ids is not None else uuid.uuid4().hex[:12]
         fragment = XmlFragment([XmlElement("paragraph", {}, [XmlText(label)])])
-        objects[key] = Map({"id": key, "type": "rect", "text": fragment})
+        objects[key] = Map({"id": key, "type": kind, "text": fragment})
     return bytes(doc.get_update())
 
 
@@ -67,12 +67,14 @@ def _index() -> int:
     return asyncio.run(run())
 
 
-def _indexed(board_id: str) -> str | None:
-    async def run() -> str | None:
+def _indexed(board_id: str) -> int:
+    """Rows of this board's text held for search."""
+
+    async def run() -> int:
         conn = await asyncpg.connect(_asyncpg_dsn(TEST_DATABASE_URL))
         try:
-            value: str | None = await conn.fetchval(
-                "select body from board_texts where board_id = $1", uuid.UUID(board_id)
+            value: int = await conn.fetchval(
+                "select count(*) from board_texts where board_id = $1", uuid.UUID(board_id)
             )
             return value
         finally:
@@ -101,6 +103,35 @@ def test_finds_a_board_by_what_is_written_on_it(client: TestClient, owner: Actor
     assert [hit["id"] for hit in hits] == [board_id]
     # The snippet is the text around the match, so the card can say why it matched.
     assert "dispensing" in hits[0]["snippet"]
+
+
+def test_names_the_objects_the_words_were_found_in(client: TestClient, owner: Actor) -> None:
+    """Which sticky or shape it was, so the board can be opened on it."""
+    board_id = owner.create_board()
+    _store(board_id, _doc_with("Pharmacy", "Pharmacy Service with a long note", ids=["aaa", "bbb"]))
+    _store(board_id, _doc_with("pharmacy hours", kind="sticky", ids=["ccc"]))
+    _store(board_id, _doc_with("Kitchen", ids=["ddd"]))
+    _index()
+
+    [hit] = _search(client, owner, "pharmacy")
+    assert hit["match_count"] == 3
+    # Where the word comes first and the text is shortest leads: the shape labelled just
+    # "Pharmacy" is the answer, the longer note mentioning it is not.
+    assert [match["object_id"] for match in hit["matches"]] == ["aaa", "ccc", "bbb"]
+    assert hit["matches"][1]["object_type"] == "sticky"
+    assert hit["matches"][1]["snippet"] == "pharmacy hours"
+
+
+def test_names_at_most_three_objects_and_counts_the_rest(
+    client: TestClient, owner: Actor
+) -> None:
+    board_id = owner.create_board()
+    _store(board_id, _doc_with(*[f"invoice {n}" for n in range(7)]))
+    _index()
+
+    [hit] = _search(client, owner, "invoice")
+    assert hit["match_count"] == 7
+    assert len(hit["matches"]) == 3
 
 
 def test_matching_ignores_case(client: TestClient, owner: Actor) -> None:
@@ -164,12 +195,12 @@ def test_a_board_with_a_password_is_never_searched(client: TestClient, owner: Ac
     # Gone from the results at once, and the copy is gone from the database rather than
     # merely filtered out: a password is a promise about where the words are kept.
     assert _search(client, owner, "bluebird") == []
-    assert _indexed(board_id) is None
+    assert _indexed(board_id) == 0
 
     # And an edit made later does not put it back.
     _store(board_id, _doc_with("merger codename bluebird, signed"))
     _index()
-    assert _indexed(board_id) is None
+    assert _indexed(board_id) == 0
     assert _search(client, owner, "bluebird") == []
 
 

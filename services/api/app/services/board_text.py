@@ -5,6 +5,7 @@ The Python side of `richTextToPlain` in `packages/schema/src/graph.ts`: every ob
 only what a person might type into a search box and none of the structure.
 """
 
+from dataclasses import dataclass
 from typing import Any
 
 from pycrdt import Array, Doc, Map, XmlElement, XmlFragment, XmlText
@@ -12,9 +13,9 @@ from pycrdt import Array, Doc, Map, XmlElement, XmlFragment, XmlText
 # Blocks that end a line, as the schema has them. Anything else is inline and runs on.
 LINE_BLOCKS = frozenset({"paragraph", "heading", "codeBlock", "blockquote", "listItem"})
 
-# A ceiling on the copy, not on the board. Search needs the words, and a board holding
-# more than this much text is a document pasted in whole: its first megabyte is enough
-# to find it by, and the whole of it would make every match slower for everybody.
+# A ceiling on the copy of one board, not on the board. Search needs the words, and a
+# board holding more than this much text is a document pasted in whole: its first
+# megabyte is enough to find it by, and the whole of it would slow every match down.
 MAX_BODY_CHARS = 1_000_000
 
 
@@ -35,34 +36,55 @@ def _walk(node: XmlFragment | XmlElement | XmlText, out: list[str]) -> None:
         out.append("\n")
 
 
-def board_text(state: bytes) -> str:
-    """Every piece of text on the board whose merged update is `state`."""
+@dataclass(frozen=True)
+class TextPiece:
+    """The text of one object, or of one lea page's subject line."""
+
+    object_id: str
+    object_type: str
+    body: str
+
+
+def board_text(state: bytes) -> list[TextPiece]:
+    """Every piece of text on the board whose merged update is `state`, per object."""
     doc: Doc[Any] = Doc()
     doc.apply_update(state)
-    lines: list[str] = []
+    pieces: list[TextPiece] = []
+    total = 0
+
+    def add(object_id: str, object_type: str, body: str) -> None:
+        nonlocal total
+        body = "\n".join(line.strip() for line in body.split("\n") if line.strip())
+        if body == "" or total >= MAX_BODY_CHARS:
+            return
+        body = body[: MAX_BODY_CHARS - total]
+        total += len(body)
+        pieces.append(TextPiece(object_id, object_type, body))
 
     objects = doc.get("objects", type=Map)
-    for value in objects.values():
+    for key, value in objects.items():
         if not isinstance(value, Map):
             continue
         fragment = value.get("text")
         if isinstance(fragment, XmlFragment):
             parts: list[str] = []
             _walk(fragment, parts)
-            lines.extend(line.strip() for line in "".join(parts).split("\n"))
+            kind = value.get("type")
+            add(str(key), kind if isinstance(kind, str) else "object", "".join(parts))
 
     # A lea's pages carry a subject line of their own, which is written like any other
-    # text and looked for like it.
+    # text and looked for like it. Keyed by the page, since it belongs to no object.
     meta = doc.get("meta", type=Map)
     pages = meta.get("pages")
     if isinstance(pages, Array):
-        for page in pages:
+        for index, page in enumerate(pages):
             if isinstance(page, Map):
                 subject = page.get("subject")
+                page_id = page.get("id")
                 if isinstance(subject, str):
-                    lines.append(subject.strip())
+                    add(f"page:{page_id if isinstance(page_id, str) else index}", "page", subject)
     subject = meta.get("pageSubject")
     if isinstance(subject, str):
-        lines.append(subject.strip())
+        add("page:0", "page", subject)
 
-    return "\n".join(line for line in lines if line)[:MAX_BODY_CHARS]
+    return pieces

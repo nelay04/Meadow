@@ -800,17 +800,21 @@ class BoardSnapshot(Base):
     __table_args__ = (Index("ix_board_snapshots_board_id_created_at", "board_id", "created_at"),)
 
 
+
 class BoardText(Base):
-    """What is written on a board, as plain text, for search.
+    """One piece of text on a board, as plain text, for search.
 
     The one place board content appears outside the CRDT log, and it is a derived copy
     rather than a mirror: nothing reads a board from it, it can be dropped and rebuilt
-    from the log at any time, and the worker rewrites it whole. It is the
+    from the log at any time, and the worker rewrites a board's rows whole. It is the
     `index_board_text` job ARCHITECTURE 6 planned, run on a timer rather than only after
     compaction, because compaction waits for 200 updates and a search that could not
     find what was typed this morning would not be worth offering.
 
-    A board with a password never has a row. Its contents are what the password holds
+    A row per object rather than per board, so a match can say which shape, sticky or
+    label it was found in, and the board can be opened on it.
+
+    A board with a password never has rows. Its contents are what the password holds
     back, and a snippet in a search result would hand them out without it.
     """
 
@@ -819,10 +823,10 @@ class BoardText(Base):
     board_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("boards.id", ondelete="CASCADE"), primary_key=True
     )
+    #: The object's id in the document, or `page:<id>` for a lea page's subject line.
+    object_id: Mapped[str] = mapped_column(String, primary_key=True)
+    object_type: Mapped[str] = mapped_column(String, nullable=False)
     body: Mapped[str] = mapped_column(String, nullable=False)
-    # A little before the log was read, not when the row was written. See
-    # `app.workers.search_index` for why the margin is there.
-    indexed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (
         # Trigram, so a match can be anywhere in a word: people search for "dispens" as
@@ -834,3 +838,20 @@ class BoardText(Base):
             postgresql_ops={"body": "gin_trgm_ops"},
         ),
     )
+
+
+class BoardSearchState(Base):
+    """When a board's text was last read into `board_texts`.
+
+    Separate from the rows because a board with no text at all has none, and still has
+    to be known as read, or every pass would read it again.
+    """
+
+    __tablename__ = "board_search_state"
+
+    board_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("boards.id", ondelete="CASCADE"), primary_key=True
+    )
+    # A little before the log was read, not when the rows were written. See
+    # `app.workers.search_index` for why the margin is there.
+    indexed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

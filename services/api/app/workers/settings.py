@@ -12,10 +12,11 @@ from typing import Any
 
 from arq.connections import RedisSettings
 from arq.cron import cron
+from arq.worker import func
 
 from app.config import settings
 from app.workers.compaction import compact_board_job, on_shutdown, on_startup, sweep_boards
-from app.workers.search_index import index_search
+from app.workers.search_index import index_board_job, index_search
 from app.workers.trash import sweep_trash
 
 logger = getLogger("meadow.worker")
@@ -28,7 +29,12 @@ async def _startup(ctx: dict[str, Any]) -> None:
 
 
 class WorkerSettings:
-    functions = [compact_board_job]  # noqa: RUF012 - arq reads these as plain attributes
+    functions = [  # noqa: RUF012 - arq reads these as plain attributes
+        compact_board_job,
+        # No result kept: the job id is per board, and arq refuses to queue an id whose
+        # result it still holds, so a kept result would block the next edit's nudge.
+        func(index_board_job, keep_result=0),
+    ]
     cron_jobs = [  # noqa: RUF012
         # Every ten minutes, offset off the hour. Frequent enough that a busy board
         # never accumulates a log worth worrying about, rare enough that an idle

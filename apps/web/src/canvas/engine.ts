@@ -302,6 +302,11 @@ export function pageSpan(column: WritingColumn, slot: number): { left: number; r
   return { left, right: left + column.width }
 }
 
+/** The page slot whose span a world x falls in: `pageSpan` read backwards. */
+export function pageSlotAt(x: number): number {
+  return Math.max(0, Math.floor(x / PAGE_PITCH))
+}
+
 /**
  * How many rules a row would run off the bottom of the page by, growing this much.
  *

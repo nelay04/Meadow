@@ -26,7 +26,7 @@ from sqlalchemy import delete, exists, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.models import Board, BoardSnapshot, BoardText, BoardUpdate
+from app.models import Board, BoardSearchState, BoardSnapshot, BoardText, BoardUpdate
 from app.services.board_text import board_text
 
 logger = getLogger("meadow.worker")
@@ -46,21 +46,21 @@ STAMP_MARGIN = timedelta(seconds=2)
 
 
 async def _stale_boards(session: AsyncSession, limit: int) -> list[uuid.UUID]:
-    never = BoardText.indexed_at.is_(None)
+    never = BoardSearchState.indexed_at.is_(None)
     query = (
         select(Board.id)
-        .outerjoin(BoardText, BoardText.board_id == Board.id)
+        .outerjoin(BoardSearchState, BoardSearchState.board_id == Board.id)
         .where(
             Board.deleted_at.is_(None),
             Board.password_hash.is_(None),
             or_(
                 exists().where(
                     BoardUpdate.board_id == Board.id,
-                    or_(never, BoardUpdate.created_at > BoardText.indexed_at),
+                    or_(never, BoardUpdate.created_at > BoardSearchState.indexed_at),
                 ),
                 exists().where(
                     BoardSnapshot.board_id == Board.id,
-                    or_(never, BoardSnapshot.created_at > BoardText.indexed_at),
+                    or_(never, BoardSnapshot.created_at > BoardSearchState.indexed_at),
                 ),
             ),
         )
@@ -70,7 +70,7 @@ async def _stale_boards(session: AsyncSession, limit: int) -> list[uuid.UUID]:
 
 
 async def index_board(session: AsyncSession, board_id: uuid.UUID) -> bool:
-    """Read one board's document and rewrite its row.
+    """Read one board's document and rewrite its rows.
 
     The board row is held with a share lock while this runs, and its password is read
     under that lock. Setting a password updates the same row, so it waits for this to
@@ -108,14 +108,30 @@ async def index_board(session: AsyncSession, board_id: uuid.UUID) -> bool:
         ).scalars()
     )
     payloads = ([snapshot] if snapshot is not None else []) + updates
-    body = board_text(merge_updates(*payloads)) if payloads else ""
+    pieces = board_text(merge_updates(*payloads)) if payloads else []
 
+    # Replaced whole rather than diffed. A board's rows are a few dozen short strings,
+    # and working out which changed would cost more than writing them again.
+    await session.execute(delete(BoardText).where(BoardText.board_id == board_id))
+    if pieces:
+        await session.execute(
+            insert(BoardText),
+            [
+                {
+                    "board_id": board_id,
+                    "object_id": piece.object_id,
+                    "object_type": piece.object_type,
+                    "body": piece.body,
+                }
+                for piece in pieces
+            ],
+        )
     stamp = started - STAMP_MARGIN
     await session.execute(
-        insert(BoardText)
-        .values(board_id=board_id, body=body, indexed_at=stamp)
+        insert(BoardSearchState)
+        .values(board_id=board_id, indexed_at=stamp)
         .on_conflict_do_update(
-            index_elements=[BoardText.board_id], set_={"body": body, "indexed_at": stamp}
+            index_elements=[BoardSearchState.board_id], set_={"indexed_at": stamp}
         )
     )
     return True
@@ -126,12 +142,11 @@ async def index_stale_boards(factory: async_sessionmaker[AsyncSession]) -> int:
     async with factory() as session, session.begin():
         # Belt and braces for the password: the route that sets one removes the row,
         # and this catches a password set any other way.
+        # The state goes too, so the board is read afresh if the password comes off.
+        protected = select(Board.id).where(Board.password_hash.is_not(None))
+        await session.execute(delete(BoardText).where(BoardText.board_id.in_(protected)))
         await session.execute(
-            delete(BoardText).where(
-                BoardText.board_id.in_(
-                    select(Board.id).where(Board.password_hash.is_not(None))
-                )
-            )
+            delete(BoardSearchState).where(BoardSearchState.board_id.in_(protected))
         )
 
     read = 0
@@ -151,6 +166,18 @@ async def index_stale_boards(factory: async_sessionmaker[AsyncSession]) -> int:
         if len(stale) < BATCH_SIZE:
             break
     return read
+
+
+async def index_board_job(ctx: dict[str, Any], board_id: str) -> bool:
+    """One board, queued by the API a moment after it was edited.
+
+    The same read as the pass, and the same lock and password check inside it, so a
+    board that gained a password while the job waited is left alone.
+    """
+    from app.workers.compaction import _session_factory
+
+    async with _session_factory(ctx)() as session, session.begin():
+        return await index_board(session, uuid.UUID(board_id))
 
 
 async def index_search(ctx: dict[str, Any]) -> int:

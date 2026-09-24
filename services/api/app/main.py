@@ -23,6 +23,7 @@ from app.realtime.rooms import (
     WS_CLOSE_UNAUTHORIZED,
     SocketRegistry,
 )
+from app.realtime.search_queue import search_queue
 from app.realtime.server import FastAPIChannel, MeadowWebsocketServer, awareness_snapshot
 from app.services import api_tokens, board_password
 from app.services.permissions import FULL_GRANT, Access, resolve_access
@@ -45,10 +46,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # switches can close them and have the handshake decide again. See
     # `app/realtime/rooms.py`.
     app.state.sockets = SocketRegistry()
+    # Nudges the worker to re-index a board's text shortly after it is edited. See
+    # `app/realtime/search_queue.py`.
+    await search_queue.start()
 
     async with app.state.ws_server:
         yield
 
+    await search_queue.close()
     await app.state.redis.aclose()
     await engine.dispose()
 

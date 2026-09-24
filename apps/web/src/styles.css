@@ -2396,7 +2396,7 @@ label {
   color: var(--faint);
 }
 
-.sidebar-search svg {
+.sidebar-search .glade-search-field > svg {
   position: absolute;
   left: 0.6rem;
   pointer-events: none;
@@ -2416,6 +2416,12 @@ label {
 /* A kind's page searches from the bar at the head of its list instead. */
 .sidebar-search.kind-page {
   display: none;
+}
+
+/* The sidebar is sticky, so it paints as its own layer, and the cards laid out after it
+   would cover a dropdown hanging out of it. Raised only while the search has focus. */
+.sidebar:focus-within {
+  z-index: 30;
 }
 
 /*
@@ -2627,9 +2633,14 @@ label {
   color: transparent;
 }
 
-.sidebar.collapsed .sidebar-search svg {
+.sidebar.collapsed .sidebar-search .glade-search-field > svg {
   left: 50%;
   transform: translateX(-50%);
+}
+
+.sidebar.collapsed .search-clear,
+.sidebar.collapsed .search-spinner {
+  display: none;
 }
 
 .sidebar-search-expand {
@@ -2775,26 +2786,9 @@ label {
   gap: 0.5rem;
 }
 
-/* The search field, with its glass inside the left edge like the sidebar's. */
-.composer-search {
-  position: relative;
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  color: var(--faint);
-}
-
-.composer-search svg {
-  position: absolute;
-  left: 0.7rem;
-  pointer-events: none;
-}
-
 .composer-row input {
   flex: 1;
   min-width: 0;
-  padding-left: 2.2rem;
   border-color: transparent;
   background: transparent;
 }
@@ -2806,6 +2800,299 @@ label {
 .composer-row input:focus {
   border-color: var(--accent);
   background: var(--surface);
+}
+
+/*
+ * Search, and the dropdown that answers it.
+ *
+ * One component in two places: the bar at the head of a kind's list, and the sidebar
+ * on the mixed views. The dropdown hangs under the field, wider than the sidebar when
+ * it is in the sidebar, because a result needs room for a snippet and what it was
+ * found in.
+ */
+.glade-search {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.glade-search-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  color: var(--faint);
+}
+
+.glade-search-field > svg {
+  position: absolute;
+  left: 0.7rem;
+  pointer-events: none;
+}
+
+.glade-search-field input {
+  flex: 1;
+  min-width: 0;
+  padding-left: 2.2rem;
+  padding-right: 3.8rem;
+}
+
+.search-clear {
+  position: absolute;
+  right: 0.35rem;
+  display: grid;
+  place-items: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  padding: 0;
+  border: 0;
+  border-radius: var(--pill);
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+}
+
+.search-clear:hover {
+  background: var(--surface-3);
+  color: var(--fg);
+}
+
+.search-spinner {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: search-spin 0.7s linear infinite;
+}
+
+.glade-search-field > .search-spinner {
+  position: absolute;
+  right: 2.25rem;
+}
+
+@keyframes search-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes search-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.search-pop {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  left: 0;
+  right: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  max-height: min(30rem, 70vh);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+  animation: search-pop-in 120ms ease-out;
+}
+
+.glade-search.in-sidebar .search-pop {
+  right: auto;
+  width: 27rem;
+  max-width: calc(100vw - 2rem);
+}
+
+.search-list {
+  margin: 0;
+  padding: 0.35rem;
+  list-style: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.search-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 0.55rem 0.6rem 0.3rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.search-heading:not(:first-child) {
+  margin-top: 0.3rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.75rem;
+}
+
+.search-more {
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.search-option {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.4rem 0.55rem;
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.search-option.active {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.search-option.is-group {
+  margin-top: 0.15rem;
+}
+
+/* An object under its board, hung off a thread so the group reads as one thing. */
+.search-option.is-element {
+  padding-left: 2.35rem;
+}
+
+.search-option.is-element::before {
+  content: '';
+  position: absolute;
+  left: 1.5rem;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--line);
+}
+
+.search-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+.search-icon.is-element {
+  width: 1.45rem;
+  height: 1.45rem;
+  border: 1px solid var(--line);
+  background: transparent;
+}
+
+.search-option.active .search-icon {
+  color: var(--accent);
+}
+
+.search-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+}
+
+.search-title {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--fg-strong);
+}
+
+/* The name and its padlock are the flex items; the highlighted runs inside the name
+   are not, or the gap between items would split the word at the highlight. */
+.search-title-text {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.search-lock {
+  flex: none;
+  color: var(--faint);
+}
+
+.search-sub {
+  font-size: 0.74rem;
+  color: var(--faint);
+}
+
+.search-snippet {
+  font-size: 0.83rem;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.search-kind,
+.search-count {
+  flex: none;
+  font-size: 0.7rem;
+  color: var(--faint);
+}
+
+.search-count {
+  padding: 0.1rem 0.5rem;
+  border-radius: var(--pill);
+  background: var(--surface-2);
+}
+
+.search-option mark {
+  padding: 0;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  color: var(--fg-strong);
+}
+
+.search-unnamed {
+  padding: 0.1rem 0.6rem 0.35rem 2.35rem;
+  font-size: 0.72rem;
+  color: var(--faint);
+}
+
+.search-status {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.85rem 0.7rem;
+  font-size: 0.84rem;
+  color: var(--muted);
+}
+
+.search-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.9rem;
+  padding: 0.5rem 0.8rem;
+  border-top: 1px solid var(--line);
+  background: var(--surface-2);
+  font-size: 0.7rem;
+  color: var(--faint);
+}
+
+.search-foot kbd {
+  margin-right: 0.15rem;
+  font-size: 0.66rem;
+}
+
+.search-foot-note {
+  margin-left: auto;
 }
 
 /* What this kind actually is, in a sentence. */
@@ -3075,8 +3362,8 @@ label {
 }
 
 .board-snippet mark {
-  padding: 0 0.1rem;
-  border-radius: 3px;
+  padding: 0;
+  border-radius: 2px;
   background: color-mix(in srgb, var(--accent) 28%, transparent);
   color: var(--fg-strong);
 }
@@ -7238,6 +7525,10 @@ dialog.modal[open] .modal-card {
     box-shadow: none;
   }
 
+  .sidebar:focus-within {
+    z-index: 40;
+  }
+
   .sidebar.open {
     transform: none;
     box-shadow: var(--shadow-lg);
@@ -7434,9 +7725,21 @@ dialog.modal[open] .modal-card {
     flex-wrap: wrap;
   }
 
-  .composer-search {
+  .composer-row .glade-search {
     flex: 1 0 100%;
     order: -1;
+  }
+
+  /* The drawer is narrower than the dropdown wants to be, and scrolls; inside it the
+     dropdown takes the drawer's width. The drawer's own layer stays above its scrim. */
+  .glade-search.in-sidebar .search-pop {
+    width: auto;
+    right: 0;
+  }
+
+  /* Key hints are for a keyboard, and a phone has none on screen that has arrows. */
+  .search-foot {
+    display: none;
   }
 
   .composer-row .primary {

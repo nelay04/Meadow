@@ -27,6 +27,7 @@ from app.models import (
     BoardAccessRequest,
     BoardInvitation,
     BoardMember,
+    BoardSearchState,
     BoardText,
     BoardThumbnail,
     User,
@@ -48,6 +49,7 @@ from app.schemas.boards import (
     BoardRecoveryRedeem,
     BoardRecoveryStartOut,
     BoardSearchHit,
+    BoardSearchMatch,
     InvitationOut,
     InviteCreate,
     InviteResultOut,
@@ -262,6 +264,9 @@ async def list_trash(
 SEARCH_MIN_CHARS = 2
 SEARCH_MAX_CHARS = 200
 SEARCH_LIMIT = 50
+# Objects named per board. The rest are counted: a board that says "and 14 more" has
+# said what matters, and the dropdown has room for three lines under each name.
+SEARCH_MATCHES_PER_BOARD = 3
 # Characters of context either side of a match in the snippet.
 SNIPPET_CONTEXT = 60
 
@@ -312,12 +317,27 @@ async def search_boards(
     position = func.strpos(func.lower(BoardText.body), func.lower(needle))
     start = func.greatest(position - SNIPPET_CONTEXT, 1)
     length = len(needle) + SNIPPET_CONTEXT * 2
-    query = (
+    matched = (
         select(
-            Board.id,
+            Board.id.label("board_id"),
+            BoardText.object_id,
+            BoardText.object_type,
             func.substr(BoardText.body, start, length).label("window"),
             start.label("start"),
             func.length(BoardText.body).label("total"),
+            # Within a board, the objects where the words come earliest and whose text
+            # is shortest first: a label that *is* the search term is the answer, and a
+            # paragraph that mentions it in passing is a footnote.
+            func.row_number()
+            .over(
+                partition_by=Board.id,
+                order_by=(position, func.length(BoardText.body), BoardText.object_id),
+            )
+            .label("rank_in_board"),
+            func.count().over(partition_by=Board.id).label("matches"),
+            func.dense_rank()
+            .over(order_by=(Board.updated_at.desc(), Board.id))
+            .label("board_rank"),
         )
         .join(BoardText, BoardText.board_id == Board.id)
         .outerjoin(
@@ -335,27 +355,45 @@ async def search_boards(
             Board.password_hash.is_(None),
             BoardText.body.ilike(f"%{_like_escape(needle)}%", escape="\\"),
         )
-        .order_by(Board.updated_at.desc())
-        .limit(SEARCH_LIMIT)
     )
     if kind is not None:
-        query = query.where(Board.kind == kind.value)
+        matched = matched.where(Board.kind == kind.value)
+    ranked = matched.subquery()
+    query = (
+        select(ranked)
+        .where(
+            ranked.c.rank_in_board <= SEARCH_MATCHES_PER_BOARD,
+            ranked.c.board_rank <= SEARCH_LIMIT,
+        )
+        .order_by(ranked.c.board_rank, ranked.c.rank_in_board)
+    )
 
-    hits = []
+    hits: dict[uuid.UUID, BoardSearchHit] = {}
+    refused: set[uuid.UUID] = set()
     for row in (await session.execute(query)).all():
-        if await resolve_role(session, user_id=user.id, board_id=row.id) is None:
+        if row.board_id in refused:
             continue
-        hits.append(
-            BoardSearchHit(
-                id=row.id,
-                snippet=_snippet(
-                    row.window,
-                    clipped_start=row.start > 1,
-                    clipped_end=row.start + length <= row.total,
-                ),
+        hit = hits.get(row.board_id)
+        if hit is None:
+            if await resolve_role(session, user_id=user.id, board_id=row.board_id) is None:
+                refused.add(row.board_id)
+                continue
+            hit = hits[row.board_id] = BoardSearchHit(
+                id=row.board_id, snippet="", match_count=row.matches, matches=[]
+            )
+        snippet = _snippet(
+            row.window,
+            clipped_start=row.start > 1,
+            clipped_end=row.start + length <= row.total,
+        )
+        if hit.snippet == "":
+            hit.snippet = snippet
+        hit.matches.append(
+            BoardSearchMatch(
+                object_id=row.object_id, object_type=row.object_type, snippet=snippet
             )
         )
-    return hits
+    return list(hits.values())
 
 
 # Before `/{board_id}`, which would otherwise claim this path and reject it as a
@@ -1143,6 +1181,7 @@ async def set_board_password(
     # arrives. See `app.workers.search_index` for the lock that stops a pass already
     # reading this board from writing it back.
     await session.execute(delete(BoardText).where(BoardText.board_id == board_id))
+    await session.execute(delete(BoardSearchState).where(BoardSearchState.board_id == board_id))
     await session.commit()
     await session.refresh(board)
     await _evict(request, board_id, "password changed")

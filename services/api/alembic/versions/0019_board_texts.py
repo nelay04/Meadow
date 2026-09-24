@@ -1,7 +1,8 @@
-"""board texts: what is written on each board, as plain text, for search
+"""board texts: what is written on each board, per object, for search
 
-A derived copy of the CRDT log's text, rewritten by the worker, with a trigram index so
-a search can match inside words. Boards with a password are never copied here.
+A derived copy of the CRDT log's text, one row per object, rewritten by the worker, with
+a trigram index so a search can match inside words. `board_search_state` records when
+each board was last read. Boards with a password are never copied here.
 
 Revision ID: 0019_board_texts
 Revises: 0018_api_token_ends_at
@@ -32,8 +33,9 @@ def upgrade() -> None:
             sa.ForeignKey("boards.id", ondelete="CASCADE"),
             primary_key=True,
         ),
+        sa.Column("object_id", sa.String(), primary_key=True),
+        sa.Column("object_type", sa.String(), nullable=False),
         sa.Column("body", sa.String(), nullable=False),
-        sa.Column("indexed_at", sa.DateTime(timezone=True), nullable=False),
     )
     op.create_index(
         "ix_board_texts_body_trgm",
@@ -42,9 +44,20 @@ def upgrade() -> None:
         postgresql_using="gin",
         postgresql_ops={"body": "gin_trgm_ops"},
     )
+    op.create_table(
+        "board_search_state",
+        sa.Column(
+            "board_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("boards.id", ondelete="CASCADE"),
+            primary_key=True,
+        ),
+        sa.Column("indexed_at", sa.DateTime(timezone=True), nullable=False),
+    )
 
 
 def downgrade() -> None:
+    op.drop_table("board_search_state")
     op.drop_index("ix_board_texts_body_trgm", table_name="board_texts")
     op.drop_table("board_texts")
     # The extension stays: dropping it could take another index with it.

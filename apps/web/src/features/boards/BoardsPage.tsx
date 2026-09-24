@@ -11,7 +11,6 @@ import {
   IconLock,
   IconMenu,
   IconPlus,
-  IconSearch,
   IconSidebar,
   IconPencil,
   IconRestore,
@@ -30,7 +29,9 @@ import { useTrashRetentionHours } from '../../lib/appConfig'
 import { readGladeFile, stashImport } from '../../lib/gladeFile'
 import { useAuth } from '../auth/AuthContext'
 import { BOARD_KINDS, boardKind } from './kinds'
+import { GladeSearch, Highlight } from './GladeSearch'
 import { useContentSearch } from './useContentSearch'
+import { stashFocus } from '../../lib/searchFocus'
 
 type Props = {
   onOpen: (boardId: string, kind: BoardKind) => void
@@ -172,30 +173,6 @@ const OWNERS: { id: OwnerId; label: string; match: (board: Board) => boolean }[]
   { id: 'mine', label: 'Owned by me', match: (board) => board.role === 'owner' },
   { id: 'shared', label: 'Shared with me', match: (board) => board.role !== 'owner' },
 ]
-
-/** The words around a content match, with the match itself marked. */
-function Snippet({ text, needle }: { text: string; needle: string }) {
-  const lower = text.toLowerCase()
-  const target = needle.toLowerCase()
-  const parts: { text: string; hit: boolean }[] = []
-  let from = 0
-  while (target !== '') {
-    const at = lower.indexOf(target, from)
-    if (at < 0) break
-    if (at > from) parts.push({ text: text.slice(from, at), hit: false })
-    parts.push({ text: text.slice(at, at + target.length), hit: true })
-    from = at + target.length
-  }
-  if (from < text.length) parts.push({ text: text.slice(from), hit: false })
-
-  return (
-    <span className="board-snippet" title={text}>
-      {parts.map((part, index) =>
-        part.hit ? <mark key={index}>{part.text}</mark> : <span key={index}>{part.text}</span>,
-      )}
-    </span>
-  )
-}
 
 type SortId = 'modified' | 'created' | 'title'
 
@@ -641,12 +618,28 @@ export default function BoardsPage({ onOpen }: Props) {
    * as ids with a snippet. A board with a password is never in the second half: the
    * server does not keep its words, so only its name can find it.
    */
-  const contentHits = useContentSearch(query, composing?.id ?? null)
+  const content = useContentSearch(query, composing?.id ?? null)
+  const contentHits = content.hits
+
+  // What the view holds before the query narrows it: the pool the dropdown answers from.
+  const scoped = useMemo(
+    () => boards.filter((board) => active.match(board) && activeOwner.match(board)),
+    [boards, active, activeOwner],
+  )
+
+  /*
+   * Opening from the dropdown. A result naming an object is handed to the board view,
+   * which turns to its page on a lea and frames and selects it once the document is in.
+   */
+  const openResult = (board: Board, objectId: string | null) => {
+    if (objectId !== null) stashFocus(board.id, objectId)
+    onOpen(board.id, board.kind)
+  }
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase()
 
-    const filtered = boards.filter((board) => {
+    const filtered = scoped.filter((board) => {
       if (
         needle !== '' &&
         !board.title.toLowerCase().includes(needle) &&
@@ -654,7 +647,7 @@ export default function BoardsPage({ onOpen }: Props) {
       ) {
         return false
       }
-      return active.match(board) && activeOwner.match(board)
+      return true
     })
 
     const by: Record<SortId, (a: Board, b: Board) => number> = {
@@ -663,7 +656,7 @@ export default function BoardsPage({ onOpen }: Props) {
       title: (a, b) => a.title.localeCompare(b.title),
     }
     return [...filtered].sort(by[sort])
-  }, [boards, query, contentHits, active, activeOwner, sort])
+  }, [scoped, query, contentHits, sort])
 
   const group = (label: string | null, filters: readonly Filter[]) => (
     <nav className="sidebar-nav" aria-label={label ?? 'Views'}>
@@ -748,12 +741,16 @@ export default function BoardsPage({ onOpen }: Props) {
             also searches that kind's contents. Two fields for one query would be two
             places to wonder which one is in charge. */}
         <div className={composing === null ? 'sidebar-search' : 'sidebar-search kind-page'}>
-          <IconSearch size={16} />
-          <input
-            value={query}
-            placeholder="Search everything"
-            aria-label="Search names and contents"
-            onChange={(event) => setQuery(event.target.value)}
+          <GladeSearch
+            query={query}
+            onQueryChange={setQuery}
+            scope={scoped}
+            content={content}
+            noun="glades and leas"
+            placeholder="Search names and contents"
+            showKind
+            variant="sidebar"
+            onOpen={openResult}
           />
           {navCollapsed && (
             <button
@@ -876,19 +873,17 @@ export default function BoardsPage({ onOpen }: Props) {
                   one already suggested, so a field here that only pre-filled that
                   dialog was a second place to type the same thing. Searching is what
                   a long field at the head of a list is for. */}
-              <label className="composer-search">
-                <IconSearch size={16} />
-                <input
-                  type="search"
-                  value={query}
-                  placeholder={`Search ${composing.plural.toLowerCase()} by name or by what is on them`}
-                  aria-label={`Search ${composing.plural.toLowerCase()}`}
-                  onChange={(event) => setQuery(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Escape') setQuery('')
-                  }}
-                />
-              </label>
+              <GladeSearch
+                query={query}
+                onQueryChange={setQuery}
+                scope={scoped}
+                content={content}
+                noun={composing.plural.toLowerCase()}
+                placeholder={`Search ${composing.plural.toLowerCase()} by name or by what is on them`}
+                showKind={false}
+                variant="bar"
+                onOpen={openResult}
+              />
               {/* Beside Create, because it is the other way to start a board. It asks
                   nothing first: the file says what kind of board it is and what it is
                   called, so a lea's file imported from the Glades page is still a lea. */}
@@ -1099,10 +1094,15 @@ export default function BoardsPage({ onOpen }: Props) {
                         {/* Why it is here, when the name alone is not the reason. */}
                         {contentHits.has(board.id) &&
                           !board.title.toLowerCase().includes(query.trim().toLowerCase()) && (
-                            <Snippet
-                              text={contentHits.get(board.id) ?? ''}
-                              needle={query.trim()}
-                            />
+                            <span
+                              className="board-snippet"
+                              title={contentHits.get(board.id)?.snippet}
+                            >
+                              <Highlight
+                                text={contentHits.get(board.id)?.snippet ?? ''}
+                                needle={query}
+                              />
+                            </span>
                           )}
                       </span>
                       <span className={`role role-${board.role}`}>{board.role}</span>

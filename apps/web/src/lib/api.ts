@@ -771,8 +771,25 @@ export function leaveBoard(boardId: string): Promise<void> {
   return call<void>(`/boards/${boardId}/membership`, { method: 'DELETE' })
 }
 
-/** A board whose contents matched a search, and the words around the match. */
-export type BoardSearchHit = { id: string; snippet: string }
+/** One object on a board whose text matched a search. */
+export type BoardSearchMatch = {
+  /** The object's id in the document, or `page:<id>` for a lea page's subject. */
+  object_id: string
+  /** The object's `type` (`sticky`, `rect`, `arrow`...), or `page`. */
+  object_type: string
+  snippet: string
+}
+
+/**
+ * A board whose contents matched a search. `snippet` is the best match's; `matches`
+ * names the first few objects, best first, out of `match_count`.
+ */
+export type BoardSearchHit = {
+  id: string
+  snippet: string
+  match_count: number
+  matches: BoardSearchMatch[]
+}
 
 /**
  * Boards whose contents contain `q`. Titles are not searched here: the list already

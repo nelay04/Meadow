@@ -38,11 +38,27 @@ class MemberOut(BaseModel):
     avatar_url: str | None = None
 
 
+class BoardSearchMatch(BaseModel):
+    """One object on a board whose text matched, and the words around the match."""
+
+    #: The object's id in the document, or `page:<id>` for a lea page's subject line.
+    object_id: str
+    #: The object's `type` (`sticky`, `rect`, `arrow`...), or `page`.
+    object_type: str
+    snippet: str
+
+
 class BoardSearchHit(BaseModel):
-    """A board whose contents matched a search, and the words around the match."""
+    """A board whose contents matched a search.
+
+    `snippet` is the best match's, for the card. `matches` names the first few objects
+    it was found in, best first, and `match_count` is how many there were in all.
+    """
 
     id: uuid.UUID
     snippet: str
+    match_count: int
+    matches: list[BoardSearchMatch]
 
 
 class TitleSuggestion(BaseModel):

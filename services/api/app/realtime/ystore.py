@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db import SessionLocal
 from app.models import BoardSnapshot, BoardUpdate
+from app.realtime.search_queue import search_queue
 
 # How many snapshots to retain per board after a compaction run. Each row is full
 # document state, so keeping every one grows faster than the log it replaced. More
@@ -77,6 +78,8 @@ class PostgresYStore(BaseYStore):
             async with SessionLocal() as session:
                 session.add(BoardUpdate(board_id=self.board_id, update=data))
                 await session.commit()
+        # After the commit, so the job can never read the log before this row is in it.
+        search_queue.nudge(self.board_id)
 
     async def read(self) -> AsyncIterator[tuple[bytes, bytes, float]]:
         """Yield the latest snapshot, then every surviving update row.
