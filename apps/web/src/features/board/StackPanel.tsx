@@ -327,7 +327,7 @@ export function StackPanel({
   const disabled = !editable || selection.length === 0
 
   return (
-    <aside className="stack" aria-label="Stacking order">
+    <aside className="stack" aria-label="Stacking order" data-canvas-chrome>
       <div className="stack-head">
         <h2>Stack</h2>
         {/* The total, until a filter means the list is no longer showing it. Then both,

@@ -37,6 +37,7 @@ import {
   GRID_PATTERNS,
   type GridPattern,
 } from '../../canvas/surface'
+import type { ScreenInsets } from '../../canvas/camera'
 import type { Wanderer } from '../../canvas/overlay/wandererLayer'
 import { DEFAULT_LASER } from '../../canvas/tools/types'
 import type { LaserSettings, PenSettings, ToolId } from '../../canvas/tools/types'
@@ -654,6 +655,7 @@ export function useCanvas(
         if (added > 0) optionsRef.current.onLinesAdded?.(added)
         return added > 0
       },
+      chromeInsets: () => measureChromeInsets(element),
     })
     engineRef.current = engine
 
@@ -1222,4 +1224,50 @@ export function useCanvas(
       setFormatVersion((version) => version + 1)
     },
   }
+}
+
+/**
+ * How far the chrome floating over the canvas reaches in from each edge.
+ *
+ * Anything marked `data-canvas-chrome` counts, and each piece is charged to the edge it
+ * sits nearest: the rail on a desktop hugs the left, the same rail on a phone hugs the
+ * bottom, and the stack panel hugs the right. Measured on demand rather than tracked,
+ * because the answer only matters at the moment of a fit.
+ */
+function measureChromeInsets(canvas: HTMLElement): ScreenInsets {
+  const box = canvas.getBoundingClientRect()
+  const insets = { top: 0, right: 0, bottom: 0, left: 0 }
+  for (const node of document.querySelectorAll<HTMLElement>('[data-canvas-chrome]')) {
+    const rect = node.getBoundingClientRect()
+    if (rect.width === 0 || rect.height === 0) continue
+    // Only chrome that actually lies over this canvas: a board with columns has more
+    // than one, and the rail of one is nothing to the other.
+    if (
+      rect.right <= box.left ||
+      rect.left >= box.right ||
+      rect.bottom <= box.top ||
+      rect.top >= box.bottom
+    ) {
+      continue
+    }
+    const gaps = {
+      left: rect.left - box.left,
+      right: box.right - rect.right,
+      top: rect.top - box.top,
+      bottom: box.bottom - rect.bottom,
+    }
+    const side = (Object.keys(gaps) as (keyof ScreenInsets)[]).reduce((a, b) =>
+      gaps[b] < gaps[a] ? b : a,
+    )
+    const reach =
+      side === 'left'
+        ? rect.right - box.left
+        : side === 'right'
+          ? box.right - rect.left
+          : side === 'top'
+            ? rect.bottom - box.top
+            : box.bottom - rect.top
+    insets[side] = Math.max(insets[side], reach)
+  }
+  return insets
 }

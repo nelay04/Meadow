@@ -39,7 +39,9 @@ import { Application, Container, Graphics, Rectangle } from 'pixi.js'
 
 import {
   Camera,
+  NO_INSETS,
   type Point,
+  type ScreenInsets,
   type ViewTransform,
   type WorldRect,
   projectPoint,
@@ -522,6 +524,9 @@ export type WritingColumn = {
 
 /** How much room `revealObjects` leaves round what it framed, in screen pixels. */
 const REVEAL_MARGIN_PX = 140
+
+/** Room left around the board by Fit, beyond any chrome floating over the canvas. */
+const FIT_MARGIN_PX = 48
 /** How far the stack list's ring sits outside the object's box, in screen pixels. */
 const SPOTLIGHT_INSET_PX = 5
 
@@ -715,6 +720,13 @@ export type EngineEvents = {
    * refuses the newline that asked.
    */
   onPageFull?(short: number): boolean
+  /**
+   * Screen space along each edge that floating chrome covers, read when fitting.
+   *
+   * The engine cannot see the tool rail or a panel laid over the canvas, so without
+   * this a fit frames the board edge to edge and puts its left column under the rail.
+   */
+  chromeInsets?(): ScreenInsets
 }
 
 export class CanvasEngine {
@@ -2034,7 +2046,8 @@ export class CanvasEngine {
     if (box === null) return
 
     const current = this.camera.zoom
-    this.camera.fit(box, this.viewportWidth, this.viewportHeight, REVEAL_MARGIN_PX)
+    const insets = this.events.chromeInsets?.() ?? NO_INSETS
+    this.camera.fit(box, this.viewportWidth, this.viewportHeight, REVEAL_MARGIN_PX, insets)
     const fitted = this.camera.zoom
     const keep = current > fitted ? Math.min(current, fitted) : Math.min(fitted, 1)
     if (keep !== fitted) this.camera.setZoom(keep, this.viewportWidth, this.viewportHeight)
@@ -2549,7 +2562,8 @@ export class CanvasEngine {
     if (bounds === null) {
       this.camera.reset()
     } else {
-      this.camera.fit(bounds, this.viewportWidth, this.viewportHeight)
+      const insets = this.events.chromeInsets?.() ?? NO_INSETS
+      this.camera.fit(bounds, this.viewportWidth, this.viewportHeight, FIT_MARGIN_PX, insets)
     }
     this.requestRender()
   }

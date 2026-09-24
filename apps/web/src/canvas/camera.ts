@@ -15,6 +15,9 @@ export const MAX_ZOOM = 8
 
 export type Point = { x: number; y: number }
 export type WorldRect = { minX: number; minY: number; maxX: number; maxY: number }
+/** Screen pixels covered by floating chrome along each edge of the canvas. */
+export type ScreenInsets = { top: number; right: number; bottom: number; left: number }
+export const NO_INSETS: ScreenInsets = { top: 0, right: 0, bottom: 0, left: 0 }
 
 /**
  * The transform both layers actually render with.
@@ -375,21 +378,36 @@ export class Camera {
     }
   }
 
-  /** Frame a world rectangle, with a margin, clamped to the zoom range. */
-  fit(rect: WorldRect, viewportWidth: number, viewportHeight: number, margin = 64): void {
+  /**
+   * Frame a world rectangle, with a margin, clamped to the zoom range.
+   *
+   * `insets` is screen space the frame must stay out of on each side, for chrome that
+   * floats over the canvas. The margin is measured from the inset, so content framed
+   * beside a rail sits as far from the rail as it would from a bare edge.
+   */
+  fit(
+    rect: WorldRect,
+    viewportWidth: number,
+    viewportHeight: number,
+    margin = 64,
+    insets: ScreenInsets = NO_INSETS,
+  ): void {
+    const left = insets.left + margin
+    const right = insets.right + margin
+    const top = insets.top + margin
+    const bottom = insets.bottom + margin
+    const availableWidth = Math.max(viewportWidth - left - right, 1)
+    const availableHeight = Math.max(viewportHeight - top - bottom, 1)
     const width = Math.max(rect.maxX - rect.minX, 1)
     const height = Math.max(rect.maxY - rect.minY, 1)
     const zoom = Math.min(
       MAX_ZOOM,
-      Math.max(
-        MIN_ZOOM,
-        Math.min((viewportWidth - margin * 2) / width, (viewportHeight - margin * 2) / height),
-      ),
+      Math.max(MIN_ZOOM, Math.min(availableWidth / width, availableHeight / height)),
     )
 
     this.zoom = zoom
-    this.x = (rect.minX + rect.maxX) / 2 - viewportWidth / 2 / zoom
-    this.y = (rect.minY + rect.maxY) / 2 - viewportHeight / 2 / zoom
+    this.x = (rect.minX + rect.maxX) / 2 - (left + availableWidth / 2) / zoom
+    this.y = (rect.minY + rect.maxY) / 2 - (top + availableHeight / 2) / zoom
     this.version += 1
     this.constrain()
   }

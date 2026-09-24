@@ -2191,7 +2191,7 @@ export default function BoardPage({ boardId, kindHint, onBack, onSignIn }: Props
       >
         {/* The rail floats over the canvas rather than taking a column out of it.
             ARCHITECTURE 1: the drawing surface is the product. */}
-        <nav className="toolbar" aria-label="Tools">
+        <nav className="toolbar" aria-label="Tools" data-canvas-chrome>
           {tools.map((tool) => {
             const lassoing = tool.id === 'select' && canvas.tool === 'lasso'
             const active = canvas.tool === tool.id || lassoing
@@ -2848,6 +2848,7 @@ export default function BoardPage({ boardId, kindHint, onBack, onSignIn }: Props
           <button
             type="button"
             className="lea-pages-tab"
+            data-canvas-chrome
             title="Show the stack (Ctrl+L)"
             aria-label="Show the stack"
             onClick={() => {
