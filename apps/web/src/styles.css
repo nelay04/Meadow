@@ -3062,7 +3062,7 @@ label {
 }
 
 /*
- * A shut door on a card: the key for a password, the padlock for the owner's lock.
+ * A shut door on a card: the padlock for a password, the eye for the owner's lock.
  *
  * Square rather than the kind badge's pill, and carrying a glyph instead of a word,
  * because these two are a different sort of fact from "this is a lea". The kind is what
@@ -3112,6 +3112,20 @@ label {
   );
   background-size: 100% 0.62rem;
   color: var(--muted);
+}
+
+/* The name and the shut-door badges on one line: the title gives way to its ellipsis
+   before a badge does. */
+.board-name {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.board-name .state-badge {
+  flex: none;
+  margin-right: 0;
 }
 
 .board-title {
