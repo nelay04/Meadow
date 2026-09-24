@@ -567,8 +567,15 @@ async def get_thumbnail(
     """The board's preview image, or 404 if it has never been rendered.
 
     Behind the same role check as the board itself: a thumbnail is a picture of the
-    content, so serving it more freely than the content would leak it.
+    content, so serving it more freely than the content would leak it. For the same
+    reason it is not served at all while the board has a password: the role check does
+    not ask for one, and a preview in the list would show what the password holds back.
+    404 rather than 403, so the list draws it as a board with no picture yet.
     """
+    board = await session.get(Board, board_id)
+    if board is not None and board_password.is_set(board):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no thumbnail")
+
     thumbnail = await session.get(BoardThumbnail, board_id)
     if thumbnail is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no thumbnail")

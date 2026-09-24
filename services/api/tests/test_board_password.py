@@ -296,6 +296,30 @@ def test_removing_the_password_opens_the_board_again(client: TestClient, owner: 
     assert _mint(client, owner, board_id).status_code == 200
 
 
+def test_the_thumbnail_is_held_back_too(client: TestClient, owner: Actor) -> None:
+    """A preview is a picture of the content, so the password covers it as well.
+
+    It is served to a role, not to a pass, so while a password is set it is not served
+    at all - to the owner included, for the same reason the owner is asked above.
+    Taking the password off brings it back, because the row was never deleted.
+    """
+    board_id = owner.create_board()
+    upload = client.put(
+        f"/api/v1/boards/{board_id}/thumbnail",
+        content=b"RIFF____WEBPVP8 " + b"\x00" * 64,
+        headers={**owner.auth, "content-type": "image/webp"},
+    )
+    assert upload.status_code == 204, upload.text
+    url = f"/api/v1/boards/{board_id}/thumbnail"
+    assert client.get(url, headers=owner.auth).status_code == 200
+
+    _set_password(client, owner, board_id)
+    assert client.get(url, headers=owner.auth).status_code == 404
+
+    client.delete(f"/api/v1/boards/{board_id}/password", headers=owner.auth)
+    assert client.get(url, headers=owner.auth).status_code == 200
+
+
 def test_an_owner_who_forgot_it_can_still_take_it_off(client: TestClient, owner: Actor) -> None:
     """Neither setting nor clearing asks for the current password.
 

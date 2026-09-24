@@ -190,7 +190,9 @@ const SORTS: { id: SortId; label: string }[] = [
 function BoardThumbnail({ board }: { board: Board }) {
   const [url, setUrl] = useState<string | null>(null)
   const spec = boardKind(board.kind)
-  const wantsImage = spec.preview === 'thumbnail'
+  // Not for a board behind a password: the picture is the content it holds back. The
+  // server refuses it too, so this only saves asking.
+  const wantsImage = spec.preview === 'thumbnail' && !board.has_password
 
   useEffect(() => {
     if (!wantsImage) return
@@ -220,7 +222,13 @@ function BoardThumbnail({ board }: { board: Board }) {
   // blank page, looked like three different things.
   return (
     <span className="board-thumb" aria-hidden="true">
-      {url === null ? <spec.Icon size={26} className="placeholder" /> : <img src={url} alt="" />}
+      {board.has_password ? (
+        <IconLock size={26} className="placeholder" />
+      ) : url === null ? (
+        <spec.Icon size={26} className="placeholder" />
+      ) : (
+        <img src={url} alt="" />
+      )}
     </span>
   )
 }
