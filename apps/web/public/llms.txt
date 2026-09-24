@@ -9,7 +9,7 @@ A board is called a glade. A lea is a ruled, paged diary on the same canvas and 
 ## Product
 
 - [Meadow](https://meadow.creara.in/): what Meadow does and what makes it different
-- [Features](https://meadow.creara.in/features/): shapes, connectors, ink and its assist, text and sticky notes, leas and their pages, phonetic input for thirteen Indian languages, offline work, exporting and importing boards as files, and the keyboard shortcuts
+- [Features](https://meadow.creara.in/features/): shapes, connectors, ink and its assist, text and sticky notes, leas and their pages, phonetic input for thirteen Indian languages, offline work, searching boards by name and by what is written on them with a Ctrl+K jump to any board, page or setting, exporting and importing boards as files, and the keyboard shortcuts
 - [Collaboration](https://meadow.creara.in/collaboration/): live cursors and selections, character-level merging, share links, invitations and requests, roles, board passwords, locks and sessions
 - [FAQ](https://meadow.creara.in/faq/): the canvas, collaboration, offline use, sharing and privacy, and the licence
 - [Source and licence](https://meadow.creara.in/source/): what the licence allows, how to run Meadow with Docker Compose, and what it is built with
