@@ -3519,6 +3519,21 @@ label {
 /* Revealed on hover, and always present for the keyboard. */
 /* What you can do to a card without opening it. A row in the corner, so a card that
    offers one of them puts it where a card that offers both puts the last one. */
+/* The kind badge on a card in a mixed list, in the corner opposite the actions. On
+   its own surface, because it sits over a thumbnail of any colour. */
+.board-card .card-kind {
+  position: absolute;
+  top: 0.55rem;
+  left: 0.55rem;
+  z-index: 1;
+  margin: 0;
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  pointer-events: none;
+}
+
 .board-card .card-actions {
   position: absolute;
   top: 0.55rem;

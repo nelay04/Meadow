@@ -1116,6 +1116,16 @@ export default function BoardsPage({ onOpen }: Props) {
                     className="board-open"
                     onClick={() => onOpen(board.id, board.kind)}
                   >
+                    {/* What kind of board this is, pinned to the corner of its picture
+                        where it is read before the name. Only where the list is mixed:
+                        under a heading that says Leas, a Lea badge on every card is the
+                        heading repeated once per row. */}
+                    {composing === null && (
+                      <span className="kind-badge card-kind">
+                        <spec.Icon size={12} />
+                        {spec.label}
+                      </span>
+                    )}
                     <BoardThumbnail board={board} />
                     <span className="board-meta">
                       <span className="board-text">
@@ -1153,15 +1163,6 @@ export default function BoardsPage({ onOpen }: Props) {
                           )}
                         </span>
                         <span className="board-sub">
-                          {/* Only where the list is mixed. Under a heading that says
-                              Leas, a Lea badge on every card is the heading repeated
-                              once per row. */}
-                          {composing === null && (
-                            <span className="kind-badge">
-                              <spec.Icon size={12} />
-                              {spec.label}
-                            </span>
-                          )}
                           Edited {relativeTime(board.updated_at)}
                         </span>
                         {/* Why it is here, when the name alone is not the reason. */}
