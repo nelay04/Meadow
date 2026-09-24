@@ -10,6 +10,7 @@
  */
 
 import {
+  FREEDRAW_STRIDE,
   type ObjectData,
   arrowPolyline,
   cylinderCap,
@@ -222,6 +223,224 @@ export function containedBy(object: ObjectData, rect: WorldRect): boolean {
       point.y >= rect.minY &&
       point.y <= rect.maxY,
   )
+}
+
+/** Points on an ellipse outline. Fine enough that a lasso cannot slip between two. */
+const ELLIPSE_SAMPLES = 32
+
+/**
+ * An object's drawn outline in world space, flat `[x, y, ...]`.
+ *
+ * `closed` is false for the two types that are paths rather than regions, an arrow and
+ * a stroke, whose last point does not join back to the first.
+ *
+ * A lasso needs this where a marquee does not. A rectangle drawn round a circle always
+ * contains the circle's box as well, so the marquee can test corners. A loop drawn
+ * round a circle usually cuts across the corners of its box, and one drawn along a
+ * diagonal arrow never gets near two of them, so testing the box would refuse exactly
+ * the objects the loop was drawn round.
+ */
+export function outlineOf(object: ObjectData): { points: number[]; closed: boolean } {
+  if (isArrowLike(object.type)) {
+    // No rotation: an arrow's points are its geometry, as in `hitsObject`.
+    const props = resolveArrowProps(object)
+    const path = arrowPolyline(props.points, props.routing, props.curvature, props.curvatureEnd)
+    const points: number[] = new Array(path.length)
+    for (let index = 0; index + 1 < path.length; index += 2) {
+      points[index] = path[index] + object.x
+      points[index + 1] = path[index + 1] + object.y
+    }
+    return { points, closed: false }
+  }
+
+  const halfW = object.w / 2
+  const halfH = object.h / 2
+  // Local points, measured from the centre, before rotation.
+  const local: number[] = []
+
+  if (isFreedraw(object.type)) {
+    const samples = resolveFreedrawProps(object).points
+    for (let index = 0; index + FREEDRAW_STRIDE <= samples.length; index += FREEDRAW_STRIDE) {
+      local.push(samples[index] - halfW, samples[index + 1] - halfH)
+    }
+  } else {
+    switch (object.type) {
+      case 'ellipse':
+        for (let step = 0; step < ELLIPSE_SAMPLES; step += 1) {
+          const angle = (step / ELLIPSE_SAMPLES) * Math.PI * 2
+          local.push(Math.cos(angle) * halfW, Math.sin(angle) * halfH)
+        }
+        break
+      case 'diamond':
+        local.push(0, -halfH, halfW, 0, 0, halfH, -halfW, 0)
+        break
+      case 'parallelogram': {
+        const slant = parallelogramSlant(object.w, object.h)
+        local.push(-halfW + slant, -halfH, halfW, -halfH, halfW - slant, halfH, -halfW, halfH)
+        break
+      }
+      case 'triangle':
+        local.push(0, -halfH, halfW, halfH, -halfW, halfH)
+        break
+      case 'trapezoid': {
+        const top = halfW - trapezoidInset(object.w, object.h)
+        local.push(-top, -halfH, top, -halfH, halfW, halfH, -halfW, halfH)
+        break
+      }
+      case 'polygon': {
+        // Vertex at the top, as the shader and `hitsObject` have it.
+        const sides = polygonSidesOf(object.props)
+        for (let side = 0; side < sides; side += 1) {
+          const angle = -Math.PI / 2 + (side / sides) * Math.PI * 2
+          local.push(Math.cos(angle) * halfW, Math.sin(angle) * halfH)
+        }
+        break
+      }
+      case 'cylinder': {
+        // The top of the upper cap, then the bottom of the lower one. The sides are the
+        // straight runs between them.
+        const cap = cylinderCap(object.h)
+        const half = ELLIPSE_SAMPLES / 2
+        for (let step = 0; step <= half; step += 1) {
+          const angle = Math.PI + (step / half) * Math.PI
+          local.push(Math.cos(angle) * halfW, -halfH + cap + Math.sin(angle) * cap)
+        }
+        for (let step = 0; step <= half; step += 1) {
+          const angle = (step / half) * Math.PI
+          local.push(Math.cos(angle) * halfW, halfH - cap + Math.sin(angle) * cap)
+        }
+        break
+      }
+      default:
+        local.push(-halfW, -halfH, halfW, -halfH, halfW, halfH, -halfW, halfH)
+    }
+  }
+
+  const centerX = object.x + halfW
+  const centerY = object.y + halfH
+  const cos = Math.cos(object.rotation)
+  const sin = Math.sin(object.rotation)
+  const points: number[] = new Array(local.length)
+  for (let index = 0; index + 1 < local.length; index += 2) {
+    const dx = local[index]
+    const dy = local[index + 1]
+    points[index] = centerX + dx * cos - dy * sin
+    points[index + 1] = centerY + dx * sin + dy * cos
+  }
+  return { points, closed: !isFreedraw(object.type) }
+}
+
+/** The bounds of a flat `[x, y, ...]` list, or null when it is empty. */
+export function pathBounds(points: readonly number[]): WorldRect | null {
+  if (points.length < 2) return null
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (let index = 0; index + 1 < points.length; index += 2) {
+    minX = Math.min(minX, points[index])
+    minY = Math.min(minY, points[index + 1])
+    maxX = Math.max(maxX, points[index])
+    maxY = Math.max(maxY, points[index + 1])
+  }
+  return { minX, minY, maxX, maxY }
+}
+
+/**
+ * Is a point inside a closed loop, by the even-odd rule?
+ *
+ * Even-odd rather than nonzero because a lasso is drawn by hand and often crosses
+ * itself, and the region it shades on screen is the even-odd one: a figure of eight is
+ * two loops, and the knot in the middle of one is outside it.
+ */
+export function insideLoop(loop: readonly number[], x: number, y: number): boolean {
+  let inside = false
+  const count = loop.length >> 1
+  for (let index = 0, previous = count - 1; index < count; previous = index, index += 1) {
+    const ax = loop[index * 2]
+    const ay = loop[index * 2 + 1]
+    const bx = loop[previous * 2]
+    const by = loop[previous * 2 + 1]
+    if (ay > y !== by > y && x < ((bx - ax) * (y - ay)) / (by - ay) + ax) inside = !inside
+  }
+  return inside
+}
+
+/** Do segments ab and cd cross? Touching counts, so a loop grazing an outline refuses it. */
+function segmentsCross(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  cx: number,
+  cy: number,
+  dx: number,
+  dy: number,
+): boolean {
+  const d1 = (dx - cx) * (ay - cy) - (dy - cy) * (ax - cx)
+  const d2 = (dx - cx) * (by - cy) - (dy - cy) * (bx - cx)
+  const d3 = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
+  const d4 = (bx - ax) * (dy - ay) - (by - ay) * (dx - ax)
+  return d1 * d2 <= 0 && d3 * d4 <= 0 && !(d1 === 0 && d2 === 0 && d3 === 0 && d4 === 0)
+}
+
+/**
+ * Is the object entirely inside a lasso?
+ *
+ * `loop` is the lasso's points, flat, closed implicitly from the last back to the
+ * first; `bounds` is its box, passed in because the caller already has it and tests
+ * many objects against one loop.
+ *
+ * Containment, as the marquee has it, and exact rather than sampled: an outline is
+ * inside when one of its points is and no edge of the loop crosses it. A connected
+ * outline cannot change sides without crossing, so that is the whole test. It also
+ * keeps the cost on the objects near the loop's line rather than on every object in
+ * it: only loop edges whose box meets the outline's box are tried against the outline,
+ * and for an object sitting comfortably inside the loop there are none.
+ */
+export function containedByLoop(
+  object: ObjectData,
+  loop: readonly number[],
+  bounds: WorldRect,
+): boolean {
+  if (loop.length < 6) return false
+  const { points, closed } = outlineOf(object)
+  const box = pathBounds(points)
+  if (box === null) return false
+  if (box.minX < bounds.minX || box.maxX > bounds.maxX) return false
+  if (box.minY < bounds.minY || box.maxY > bounds.maxY) return false
+  if (!insideLoop(loop, points[0], points[1])) return false
+
+  const count = loop.length >> 1
+  const segments = (points.length >> 1) - (closed ? 0 : 1)
+  for (let index = 0; index < count; index += 1) {
+    const next = (index + 1) % count
+    const ax = loop[index * 2]
+    const ay = loop[index * 2 + 1]
+    const bx = loop[next * 2]
+    const by = loop[next * 2 + 1]
+    if (Math.max(ax, bx) < box.minX || Math.min(ax, bx) > box.maxX) continue
+    if (Math.max(ay, by) < box.minY || Math.min(ay, by) > box.maxY) continue
+
+    for (let segment = 0; segment < segments; segment += 1) {
+      const end = (segment + 1) % (points.length >> 1)
+      if (
+        segmentsCross(
+          ax,
+          ay,
+          bx,
+          by,
+          points[segment * 2],
+          points[segment * 2 + 1],
+          points[end * 2],
+          points[end * 2 + 1],
+        )
+      ) {
+        return false
+      }
+    }
+  }
+  return true
 }
 
 /**

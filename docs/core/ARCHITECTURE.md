@@ -1231,7 +1231,7 @@ interface Tool {
 }
 ```
 
-Tools: `select` `hand` `text` `sticky` `rect` `ellipse` `diamond` `parallelogram`
+Tools: `select` `lasso` `hand` `text` `sticky` `rect` `ellipse` `diamond` `parallelogram`
 `triangle` `trapezoid` `polygon` `cylinder` `arrow` `line` `freedraw` `frame` `table`
 `image` `laser`
 
@@ -1255,6 +1255,10 @@ for it. A folded corner marks every button with a flyout behind it.
 ### Selection & transform
 
 - Click to select, shift-click to add, drag-marquee for area select
+- Lasso (1.22.0, glades only): the select tool with a freehand loop in place of the
+  marquee. Containment is tested against each object's drawn outline (`outlineOf` in
+  `src/canvas/hitTest.ts`), not its box, since a loop round a circle cuts the box
+  corners.
 - 8 resize handles + rotation handle
 - Shift = preserve aspect, Alt = resize from centre
 - Snapping: object edges/centres, spacing guides, grid — with a 5px threshold

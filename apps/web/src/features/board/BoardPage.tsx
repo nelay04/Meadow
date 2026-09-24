@@ -57,6 +57,7 @@ import {
   IconHand,
   IconItalic,
   IconLock,
+  IconMarquee,
   IconLine,
   IconMinus,
   IconMore,
@@ -68,6 +69,7 @@ import {
   IconPanel,
   IconParallelogram,
   IconLaser,
+  IconLasso,
   IconPen,
   IconPencil,
   IconPlus,
@@ -176,6 +178,20 @@ const TOOLS: ToolSpec[] = [
   // Last on the rail, under the things that make marks, because it is the one that
   // does not: everything above leaves an object behind and this leaves nothing.
   { id: 'laser', label: 'Laser', hint: 'K', Icon: IconLaser },
+]
+
+/**
+ * The two ways a drag on empty canvas selects, behind the select button.
+ *
+ * Two tools rather than a setting, so each has its own shortcut and the button can
+ * wear the one in hand, as the shape button does. They are not two buttons on the
+ * rail, though: they do the same job, and everything but the drag - a click, a move, a
+ * handle - is the same in both. A kind that offers only `select` gets a plain button
+ * with nothing behind it.
+ */
+const SELECT_MODES: ToolSpec[] = [
+  { id: 'select', label: 'Box select', hint: 'V', Icon: IconMarquee },
+  { id: 'lasso', label: 'Lasso select', hint: 'Q', Icon: IconLasso },
 ]
 
 /**
@@ -732,6 +748,13 @@ export default function BoardPage({ boardId, kindHint, onBack, onSignIn }: Props
   // appear here without a label, a shortcut and an icon.
   const tools = TOOLS.filter((tool) => spec.tools.includes(tool.id))
   const shapes = SHAPES.filter((entry) => spec.tools.includes(entry.id))
+  const selectModes = SELECT_MODES.filter((entry) => spec.tools.includes(entry.id))
+  // The select button's flyout is asked for rather than opened by the tool becoming
+  // active, which is why it is not in `TOOLS_WITH_MENU`: every drawing tool hands back
+  // to select, and a menu that opened each time would stand over everything just drawn.
+  const selectMenu = selectModes.length > 1
+  const hasMenu = (id: ToolId): boolean =>
+    TOOLS_WITH_MENU.has(id) || (id === 'select' && selectMenu)
   // What the shape button draws and what it looks like. Falls back to the first shape
   // this kind offers if the remembered one is not among them.
   const armedShape = shapes.find((entry) => entry.id === shape) ?? shapes[0]
@@ -2170,7 +2193,8 @@ export default function BoardPage({ boardId, kindHint, onBack, onSignIn }: Props
             ARCHITECTURE 1: the drawing surface is the product. */}
         <nav className="toolbar" aria-label="Tools">
           {tools.map((tool) => {
-            const active = canvas.tool === tool.id
+            const lassoing = tool.id === 'select' && canvas.tool === 'lasso'
+            const active = canvas.tool === tool.id || lassoing
             /*
              * The arrow wears the shape it will draw, on the same terms as the shape
              * button below.
@@ -2183,20 +2207,26 @@ export default function BoardPage({ boardId, kindHint, onBack, onSignIn }: Props
              * has drawn something, and nothing is armed then.
              */
             const armed = tool.id === 'arrow' && active
-            const Icon = armed ? armedRouting.Icon : tool.Icon
-            const label = armed ? `${tool.label}: ${armedRouting.label}` : tool.label
+            // The select button wears the lasso on the same terms, while it is in hand.
+            const Icon = armed ? armedRouting.Icon : lassoing ? IconLasso : tool.Icon
+            const label = armed
+              ? `${tool.label}: ${armedRouting.label}`
+              : lassoing
+                ? `${tool.label}: Lasso`
+                : tool.label
+            const hint = lassoing ? 'Q' : tool.hint
 
             return (
             <div key={tool.id} className="tool-slot">
               <button
                 type="button"
-                aria-label={`${label} (${tool.hint})`}
+                aria-label={`${label} (${hint})`}
                 aria-pressed={active}
                 // `has-more` is the folded corner, and it belongs to every button with
                 // a flyout rather than only to the shapes': what it says is that there
                 // is something behind this button, which is as true of the nibs as it
                 // is of the four shapes.
-                className={`tool${TOOLS_WITH_MENU.has(tool.id) ? ' has-more' : ''}${
+                className={`tool${hasMenu(tool.id) ? ' has-more' : ''}${
                   active ? ' active' : ''
                 }`}
                 /*
@@ -2220,7 +2250,7 @@ export default function BoardPage({ boardId, kindHint, onBack, onSignIn }: Props
                   // the effect above opens the new tool's menu if it has one.
                   if (active) {
                     setRailMenu((open) =>
-                      open === tool.id || !TOOLS_WITH_MENU.has(tool.id) ? null : tool.id,
+                      open === tool.id || !hasMenu(tool.id) ? null : tool.id,
                     )
                     return
                   }
@@ -2228,8 +2258,34 @@ export default function BoardPage({ boardId, kindHint, onBack, onSignIn }: Props
                 }}
               >
                 <Icon size={19} />
-                <Tip label={label} hint={tool.hint} />
+                <Tip label={label} hint={hint} />
               </button>
+
+              {/*
+                Box or lasso. Open to a viewer as well, since selecting writes nothing.
+                Closed on the choice, like the connector shapes: picking one is the
+                whole errand.
+              */}
+              {tool.id === 'select' && railMenu === 'select' && selectMenu && (
+                <div className="tool-submenu" role="group" aria-label="Selection">
+                  {selectModes.map((entry) => (
+                    <button
+                      key={entry.id}
+                      type="button"
+                      aria-label={`${entry.label} (${entry.hint})`}
+                      aria-pressed={canvas.tool === entry.id}
+                      className={canvas.tool === entry.id ? 'tool active' : 'tool'}
+                      onClick={() => {
+                        canvas.setTool(entry.id)
+                        setRailMenu(null)
+                      }}
+                    >
+                      <entry.Icon size={18} />
+                      <Tip label={entry.label} hint={entry.hint} />
+                    </button>
+                  ))}
+                </div>
+              )}
 
               {/*
                 The connector shapes, as a flyout beside the tool that draws them.

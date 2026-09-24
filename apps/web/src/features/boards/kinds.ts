@@ -89,6 +89,7 @@ export const BOARD_KINDS: readonly BoardKindSpec[] = [
     preview: 'thumbnail',
     tools: [
       'select',
+      'lasso',
       'hand',
       'text',
       'sticky',

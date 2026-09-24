@@ -685,6 +685,31 @@ export function IconLaser(props: IconProps) {
   )
 }
 
+/**
+ * The two ways a drag on empty canvas selects, for the select button's flyout.
+ *
+ * The box is dashed because that is what the marquee is to anybody who has used a
+ * drawing program; solid, it is the rectangle tool. The lasso is a loop with the rope
+ * still hanging off it, which is the only part that says "lasso" rather than "ellipse".
+ */
+export function IconMarquee(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="4.5" y="4.5" width="15" height="15" rx="1.5" strokeDasharray="2.4 3.2" />
+    </Svg>
+  )
+}
+
+export function IconLasso(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M7.4 14.1A7.5 5.5 0 1 1 10.9 15.4" />
+      <circle cx="8.4" cy="16.3" r="1.6" />
+      <path d="M7.4 17.6c-.8 1-1 2.2-.5 3.2" />
+    </Svg>
+  )
+}
+
 /*
  * Status and dismissal, for toasts and the confirmation dialog.
  *

@@ -11,6 +11,33 @@ away getting there.
 
 ---
 
+## [1.22.0] - [24-Sep-2026]
+
+### Added
+- **Lasso selection on a glade.** Press Q, or open the select button's flyout and pick
+  *Lasso select*, then drag a loop round what you want. What it takes in is lit while
+  the loop is still being drawn, Shift adds to the selection as it does for the box,
+  and the line from the pointer back to where the loop began is drawn fainter because
+  it is part of the region but nobody drew it. A lea keeps the plain select tool.
+- **The loop tests each object's drawn outline, not its box.** A loop drawn close round
+  a circle cuts across the corners of the circle's box, and one drawn along a diagonal
+  arrow never goes near two of them, so testing boxes the way the marquee does would
+  refuse exactly what the loop went round. An object is taken when one point of its
+  outline is inside and no edge of the loop crosses it, which is exact rather than
+  sampled, and it only walks the loop edges near each object. A loop that crosses
+  itself is read by the even-odd rule, the same region it shades on screen.
+- **The lasso is the select tool with a different drag, not a second tool.** A press on
+  an object still moves it and a press on a handle still resizes, so what you lassoed
+  can be moved straight away. The select button wears the lasso while it is armed, and
+  pressing the button when it is already in hand opens its flyout. The flyout does not
+  open by itself, because every drawing tool hands back to select and a menu that
+  opened each time would stand over what was just drawn.
+- **`pnpm smoke:canvas` checks the lasso**: Q picks it up, a loop takes a circle by its
+  outline, Shift adds, and a lassoed selection moves. The canvas harness has a Lasso
+  button for it.
+
+---
+
 ## [1.21.0] - [22-Sep-2026]
 
 ### Added

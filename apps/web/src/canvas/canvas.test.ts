@@ -20,7 +20,16 @@ import {
   viewTransform,
 } from './camera'
 import { rulesShort, shiftRowsBelow, writingAsLines } from './engine'
-import { containedBy, hitsObject, pickTop, toLocal, unionBounds } from './hitTest'
+import {
+  containedBy,
+  containedByLoop,
+  hitsObject,
+  insideLoop,
+  pathBounds,
+  pickTop,
+  toLocal,
+  unionBounds,
+} from './hitTest'
 import { SNAP_THRESHOLD_PX, snapMove } from './snapping'
 import { splitAroundBox } from './renderers/arrowPass'
 import { SpatialIndex } from './spatialIndex'
@@ -508,6 +517,82 @@ describe('hit testing', () => {
     const rect = { minX: 0, minY: 0, maxX: 150, maxY: 100 }
     expect(containedBy(straddling, rect)).toBe(false)
     expect(containedBy(object({ x: 10, y: 10, w: 50, h: 20 }), rect)).toBe(true)
+  })
+
+  describe('lasso', () => {
+    // A ring of points round a centre, the way a hand draws a loop.
+    const ring = (cx: number, cy: number, r: number, count = 48): number[] => {
+      const out: number[] = []
+      for (let step = 0; step < count; step += 1) {
+        const angle = (step / count) * Math.PI * 2
+        out.push(cx + Math.cos(angle) * r, cy + Math.sin(angle) * r)
+      }
+      return out
+    }
+    const contains = (target: ObjectData, loop: number[]): boolean => {
+      const bounds = pathBounds(loop)
+      return bounds !== null && containedByLoop(target, loop, bounds)
+    }
+
+    it('takes a circle whose box pokes out of the loop', () => {
+      // The loop is barely wider than the circle, so the circle's box corners are
+      // outside it. Testing the box, as the marquee does, would refuse this.
+      const circle = object({ type: 'ellipse', x: -50, y: -50, w: 100, h: 100 })
+      const loop = ring(0, 0, 56)
+      expect(containedBy(circle, pathBounds(loop) ?? { minX: 0, minY: 0, maxX: 0, maxY: 0 })).toBe(
+        true,
+      )
+      expect(insideLoop(loop, 50, 50)).toBe(false)
+      expect(contains(circle, loop)).toBe(true)
+    })
+
+    it('refuses a rectangle the same loop cuts across', () => {
+      const square = object({ x: -50, y: -50, w: 100, h: 100 })
+      expect(contains(square, ring(0, 0, 56))).toBe(false)
+    })
+
+    it('takes a diagonal arrow in a thin loop along it', () => {
+      const arrow = object({
+        type: 'arrow',
+        x: 0,
+        y: 0,
+        w: 200,
+        h: 200,
+        props: { points: [0, 0, 200, 200] },
+      })
+      // A long thin diamond round the diagonal, nowhere near the other two corners.
+      const loop = [-10, -10, 110, 90, 210, 210, 90, 110]
+      expect(contains(arrow, loop)).toBe(true)
+      expect(contains(arrow, [-10, -10, 110, 90, 150, 150, 90, 110])).toBe(false)
+    })
+
+    it('refuses an object a notch in the loop bites into', () => {
+      // Every corner of the box is inside, but one side of the loop reaches in
+      // between two of them. Corners alone would call this contained.
+      const box = object({ x: 0, y: 0, w: 100, h: 100 })
+      const loop = [-20, -20, 120, -20, 120, 120, 60, 120, 50, 40, 40, 120, -20, 120]
+      for (const [x, y] of [
+        [0, 0],
+        [100, 0],
+        [100, 100],
+        [0, 100],
+      ]) {
+        expect(insideLoop(loop, x, y)).toBe(true)
+      }
+      expect(contains(box, loop)).toBe(false)
+    })
+
+    it('reads a loop that crosses itself by the even-odd rule', () => {
+      // A bow tie: two lobes meeting at (100, 50), and nothing above or below the knot.
+      const bow = [0, 0, 200, 100, 200, 0, 0, 100]
+      expect(insideLoop(bow, 20, 50)).toBe(true)
+      expect(insideLoop(bow, 180, 50)).toBe(true)
+      expect(insideLoop(bow, 100, 20)).toBe(false)
+    })
+
+    it('needs at least a triangle', () => {
+      expect(contains(object({ w: 1, h: 1 }), [0, 0, 10, 10])).toBe(false)
+    })
   })
 
   it('unions rotated bounds', () => {

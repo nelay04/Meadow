@@ -791,6 +791,8 @@ export class CanvasEngine {
   private readonly context: ToolContext
 
   private marquee: WorldRect | null = null
+  /** The lasso being drawn, flat world `[x, y, ...]`. Beside the marquee, and as brief. */
+  private lasso: readonly number[] | null = null
   private guides: readonly SnapGuide[] = []
   private hoverTarget: string | null = null
   /** The shape showing connector dots. Hover state, published by the select tool. */
@@ -3096,6 +3098,8 @@ export class CanvasEngine {
         return createPenTool(this.context)
       case 'laser':
         return createLaserTool(this.context)
+      case 'lasso':
+        return createSelectTool(this.context, 'lasso')
       default:
         return createSelectTool(this.context)
     }
@@ -3121,6 +3125,9 @@ export class CanvasEngine {
       setSelection: (ids) => this.setSelection(ids),
       setMarquee: (rect) => {
         this.marquee = rect
+      },
+      setLasso: (points) => {
+        this.lasso = points
       },
       setGuides: (guides) => {
         this.guides = guides
@@ -4135,6 +4142,32 @@ export class CanvasEngine {
     }
 
     /*
+     * The lasso, in the marquee's colours so the two read as one idea.
+     *
+     * The line back from the pointer to where the loop began is drawn fainter than the
+     * line that was drawn. It is part of the region, since the loop is tested closed,
+     * so it has to be on screen; but it is not a line anybody drew, and at full weight
+     * it looks like one.
+     */
+    if (this.lasso !== null && this.lasso.length >= 4) {
+      const screen: number[] = new Array(this.lasso.length)
+      for (let index = 0; index + 1 < this.lasso.length; index += 2) {
+        const point = projectPoint(transform, this.lasso[index], this.lasso[index + 1])
+        screen[index] = point.x
+        screen[index + 1] = point.y
+      }
+      const last = screen.length - 2
+      if (screen.length >= 6) {
+        graphics.poly(screen, true).fill({ color: MARQUEE_FILL, alpha: 0.08 })
+      }
+      graphics.poly(screen, false).stroke({ width: 1, color: SELECTION_COLOR, alpha: 0.7 })
+      graphics
+        .moveTo(screen[last], screen[last + 1])
+        .lineTo(screen[0], screen[1])
+        .stroke({ width: 1, color: SELECTION_COLOR, alpha: 0.3 })
+    }
+
+    /*
      * The page is not an object you select.
      *
      * On a writing surface the column is the paper, and a blue box with eight handles
@@ -4791,6 +4824,12 @@ export class CanvasEngine {
       case 'k':
       case 'K':
         this.setTool('laser')
+        return
+      // Q, for the same reason the laser is on K: every letter of "lasso" is already a
+      // tool: L the line, A the arrow, S the sticky and O the ellipse.
+      case 'q':
+      case 'Q':
+        this.setTool('lasso')
         return
       case 'Enter':
         // Enter edits the selected text object, the keyboard equivalent of a

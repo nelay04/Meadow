@@ -20,6 +20,8 @@ import type { SnapGuide } from '../snapping'
 
 export type ToolId =
   | 'select'
+  /** The select tool with a freehand loop where the marquee was. */
+  | 'lasso'
   | 'hand'
   | 'rect'
   | 'ellipse'
@@ -159,6 +161,11 @@ export type ToolContext = {
 
   /** Transient overlay state, cleared when a gesture ends. */
   setMarquee(rect: WorldRect | null): void
+  /**
+   * The lasso being drawn, as flat world `[x, y, ...]`, or null. Closed implicitly from
+   * the last point back to the first, which is also how it is tested.
+   */
+  setLasso(points: readonly number[] | null): void
   setGuides(guides: readonly SnapGuide[]): void
   /** The stroke currently under the pointer, drawn by the engine until it is committed. */
   setWetInk(ink: WetInk | null): void

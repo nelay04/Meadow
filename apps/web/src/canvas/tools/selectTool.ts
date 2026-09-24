@@ -1,5 +1,11 @@
 /**
- * Select, move, resize, rotate, marquee, and everything you can do to an arrow.
+ * Select, move, resize, rotate, marquee, lasso, and everything you can do to an arrow.
+ *
+ * The lasso is this tool rather than a second one. The only thing it changes is what a
+ * drag on empty canvas draws; a press on an object still moves it and a press on a
+ * handle still resizes, because having just lassoed something the next thing you want
+ * is almost always to move it, and a lasso tool that could not would send you to the
+ * rail between the two.
  *
  * The gesture is decided on pointer-down and does not change mid-drag. Re-deciding on
  * movement is how a canvas ends up starting a marquee because the pointer left the
@@ -36,7 +42,14 @@ import {
   connectorAt,
   edgePointForSide,
 } from '../connectors'
-import { HIT_TOLERANCE_PX, containedBy, hitsObject, pickTop, unionBounds } from '../hitTest'
+import {
+  HIT_TOLERANCE_PX,
+  containedBy,
+  containedByLoop,
+  hitsObject,
+  pickTop,
+  unionBounds,
+} from '../hitTest'
 import { SNAP_THRESHOLD_PX, snapMove, snapResize } from '../snapping'
 import {
   HANDLE_CURSORS,
@@ -66,9 +79,29 @@ const CONNECT_THRESHOLD = 4
  */
 const CURVE_DEADZONE = 0.02
 
+/**
+ * Screen pixels the pointer travels before the lasso takes another point.
+ *
+ * Every sample would be hundreds of points for one loop, each of them an edge the
+ * containment test walks on every move. At three pixels the loop is still smoother
+ * than a hand can draw it.
+ */
+const LASSO_STEP_PX = 3
+
 type Gesture =
   | { kind: 'none' }
   | { kind: 'marquee'; origin: Point; additive: boolean }
+  /**
+   * `base` is the selection at the press, which a shift-lasso adds to. Captured rather
+   * than re-read, so an object the loop took in and then let go of again is let go of.
+   */
+  | {
+      kind: 'lasso'
+      points: number[]
+      bounds: WorldRect
+      additive: boolean
+      base: ReadonlySet<string>
+    }
   | { kind: 'move'; origin: Point; start: ObjectData[]; box: WorldRect; moved: boolean }
   | { kind: 'resize'; handle: ResizeHandle; start: ObjectData[]; box: WorldRect }
   | { kind: 'rotate'; center: Point; start: ObjectData[]; startAngle: number }
@@ -107,7 +140,7 @@ function elbowAxisOf(arrow: ObjectData): 'x' | 'y' | null {
   return elbowSlide(props.points)?.axis ?? null
 }
 
-export function createSelectTool(context: ToolContext): Tool {
+export function createSelectTool(context: ToolContext, mode: 'select' | 'lasso' = 'select'): Tool {
   let gesture: Gesture = { kind: 'none' }
   /*
    * The shape whose dots are currently on screen.
@@ -243,7 +276,7 @@ export function createSelectTool(context: ToolContext): Tool {
   }
 
   return {
-    id: 'select',
+    id: mode,
     cursor: 'default',
 
     onPointerDown(event: CanvasPointerEvent): void {
@@ -367,7 +400,21 @@ export function createSelectTool(context: ToolContext): Tool {
 
       if (hit === null) {
         if (!event.shiftKey) context.setSelection([])
-        gesture = { kind: 'marquee', origin: event.world, additive: event.shiftKey }
+        gesture =
+          mode === 'lasso'
+            ? {
+                kind: 'lasso',
+                points: [event.world.x, event.world.y],
+                bounds: {
+                  minX: event.world.x,
+                  minY: event.world.y,
+                  maxX: event.world.x,
+                  maxY: event.world.y,
+                },
+                additive: event.shiftKey,
+                base: new Set(context.selection()),
+              }
+            : { kind: 'marquee', origin: event.world, additive: event.shiftKey }
         context.requestRender()
         return
       }
@@ -614,6 +661,42 @@ export function createSelectTool(context: ToolContext): Tool {
         return
       }
 
+      if (gesture.kind === 'lasso') {
+        const active = gesture
+        const last = active.points.length - 2
+        const step = context.camera.toWorldDistance(LASSO_STEP_PX)
+        if (
+          Math.hypot(event.world.x - active.points[last], event.world.y - active.points[last + 1]) <
+          step
+        ) {
+          return
+        }
+
+        active.points.push(event.world.x, event.world.y)
+        active.bounds = {
+          minX: Math.min(active.bounds.minX, event.world.x),
+          minY: Math.min(active.bounds.minY, event.world.y),
+          maxX: Math.max(active.bounds.maxX, event.world.x),
+          maxY: Math.max(active.bounds.maxY, event.world.y),
+        }
+        context.setLasso(active.points)
+
+        // Live, as the marquee is: what the loop has taken in so far is lit while it is
+        // still being drawn, so closing it is a decision made looking at the answer.
+        const inside = context.query(active.bounds).filter((id) => {
+          const object = context.object(id)
+          return (
+            object !== undefined &&
+            !object.locked &&
+            containedByLoop(object, active.points, active.bounds)
+          )
+        })
+
+        context.setSelection(active.additive ? new Set([...active.base, ...inside]) : inside)
+        context.requestRender()
+        return
+      }
+
       if (gesture.kind === 'move') {
         let dx = event.world.x - gesture.origin.x
         let dy = event.world.y - gesture.origin.y
@@ -771,6 +854,7 @@ export function createSelectTool(context: ToolContext): Tool {
       const wasActive = gesture.kind !== 'none'
       gesture = { kind: 'none' }
       context.setMarquee(null)
+      context.setLasso(null)
       context.setGuides([])
       if (wasActive) context.commit()
       context.requestRender()
@@ -779,6 +863,7 @@ export function createSelectTool(context: ToolContext): Tool {
     cancel(): void {
       gesture = { kind: 'none' }
       context.setMarquee(null)
+      context.setLasso(null)
       context.setGuides([])
       context.setHoverTarget(null)
     },

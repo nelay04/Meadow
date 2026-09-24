@@ -166,6 +166,71 @@ check(
   `selected ${now.selection.length}`,
 )
 
+// --- lasso --------------------------------------------------------------------
+
+// A loop drawn close round the ellipse, which cuts across the corners of its box. A
+// lasso that tested boxes the way the marquee does would take nothing here.
+await page.keyboard.press('q')
+now = await page.evaluate(() => window.__canvas.engine.activeTool)
+check('Q picks up the lasso', now === 'lasso', `tool=${now}`)
+
+await page.mouse.click(at(1000, 700).x, at(1000, 700).y)
+// Started on a diagonal. A shape offers connector dots at the middle of each side, and
+// a press on one draws an arrow, lasso or not.
+const round = (cx, cy, rx, ry) => {
+  const out = []
+  for (let step = 0; step <= 40; step += 1) {
+    const angle = Math.PI / 4 + (step / 40) * Math.PI * 2
+    out.push(at(cx + Math.cos(angle) * rx, cy + Math.sin(angle) * ry))
+  }
+  return out
+}
+const loop = round(490, 205, 80, 64)
+await page.mouse.move(loop[0].x, loop[0].y)
+await page.mouse.down()
+for (const point of loop.slice(1)) await page.mouse.move(point.x, point.y, { steps: 2 })
+await page.mouse.up()
+await delay(120)
+const lassoed = await page.evaluate(() =>
+  window.__canvas.engine.getSelection().map((id) => window.__doc.read(id)?.type),
+)
+check(
+  'a lasso takes the shape it goes round, by its outline',
+  lassoed.length === 1 && lassoed[0] === 'ellipse',
+  `selected ${JSON.stringify(lassoed)}`,
+)
+
+// Shift adds to what was selected, as it does for the marquee.
+const second = round(720, 205, 95, 80)
+await page.keyboard.down('Shift')
+await page.mouse.move(second[0].x, second[0].y)
+await page.mouse.down()
+for (const point of second.slice(1)) await page.mouse.move(point.x, point.y, { steps: 2 })
+await page.mouse.up()
+await page.keyboard.up('Shift')
+await delay(120)
+now = await state()
+check('shift-lasso adds to the selection', now.selection.length === 2, `selected ${now.selection.length}`)
+
+// The lasso is still the select tool everywhere but empty canvas: a press on a
+// selected shape moves the selection rather than starting a loop.
+const lassoBefore = await page.evaluate(() => {
+  const id = window.__canvas.engine.getSelection()[0]
+  return { id, ...window.__doc.read(id) }
+})
+await drag(at(490, 205), at(490, 245))
+const lassoAfter = await page.evaluate((id) => window.__doc.read(id), lassoBefore.id)
+check(
+  'the lasso moves what it selected',
+  Math.abs(lassoAfter.y - lassoBefore.y - 40) < 12,
+  `moved by ${(lassoAfter.y - lassoBefore.y).toFixed(1)}`,
+)
+await page.keyboard.press('Control+z')
+await delay(120)
+now = await state()
+check('the lasso leaves the two lassoed shapes selected', now.selection.length === 2)
+await page.keyboard.press('v')
+
 // --- delete -------------------------------------------------------------------
 
 await page.keyboard.press('Delete')
