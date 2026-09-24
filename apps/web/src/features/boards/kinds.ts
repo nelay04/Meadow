@@ -32,8 +32,6 @@ export type BoardKindSpec = {
   plural: string
   /** One line, shown under the label in the create picker. */
   blurb: string
-  /** What the composer's field says before anything is typed. */
-  placeholder: string
   Icon: typeof IconCanvas
   surface: CanvasSurface
   /**
@@ -83,7 +81,6 @@ export const BOARD_KINDS: readonly BoardKindSpec[] = [
     label: 'Glade',
     plural: 'Glades',
     blurb: 'A clearing with no edges. Think out loud, and let it sprawl.',
-    placeholder: 'Name a new glade, then press Enter',
     Icon: IconCanvas,
     surface: 'graph',
     preview: 'thumbnail',
@@ -113,7 +110,6 @@ export const BOARD_KINDS: readonly BoardKindSpec[] = [
     label: 'Lea',
     plural: 'Leas',
     blurb: 'Kraft paper, ruled and waiting. Open it and start writing.',
-    placeholder: 'Name a new lea, then press Enter',
     Icon: IconDiary,
     surface: 'ruled',
     // A lea's preview would be a page of 16px text shrunk to a card, which is a grey

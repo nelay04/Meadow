@@ -1535,7 +1535,7 @@ one lock would put every board's first join behind every other board's.
 | `compact_board(board_id)` | `count(*)` of surviving `board_updates` > 500, or nightly |
 | `generate_thumbnail(board_id)` | 5 min after last edit, debounced |
 | `export_board(board_id, format)` | on request |
-| `index_board_text(board_id)` | after compaction — tsvector for search |
+| `index_search` | every minute: rewrites `board_texts` (plain text, trigram index) for boards changed since last read; never for a board with a password |
 | `cleanup_expired_tokens()` | hourly cron |
 
 ---

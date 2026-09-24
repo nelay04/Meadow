@@ -2,7 +2,8 @@
 
 Relational tables hold metadata and permissions only. Board *content* lives in the
 CRDT blob (board_updates / board_snapshots), never mirrored into normalised tables.
-See ARCHITECTURE 3.
+See ARCHITECTURE 3. The one exception is `board_texts`, a disposable plain-text copy
+for search that nothing reads a board from.
 """
 
 import uuid
@@ -797,3 +798,39 @@ class BoardSnapshot(Base):
     created_at: Mapped[datetime] = _created_at()
 
     __table_args__ = (Index("ix_board_snapshots_board_id_created_at", "board_id", "created_at"),)
+
+
+class BoardText(Base):
+    """What is written on a board, as plain text, for search.
+
+    The one place board content appears outside the CRDT log, and it is a derived copy
+    rather than a mirror: nothing reads a board from it, it can be dropped and rebuilt
+    from the log at any time, and the worker rewrites it whole. It is the
+    `index_board_text` job ARCHITECTURE 6 planned, run on a timer rather than only after
+    compaction, because compaction waits for 200 updates and a search that could not
+    find what was typed this morning would not be worth offering.
+
+    A board with a password never has a row. Its contents are what the password holds
+    back, and a snippet in a search result would hand them out without it.
+    """
+
+    __tablename__ = "board_texts"
+
+    board_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("boards.id", ondelete="CASCADE"), primary_key=True
+    )
+    body: Mapped[str] = mapped_column(String, nullable=False)
+    # A little before the log was read, not when the row was written. See
+    # `app.workers.search_index` for why the margin is there.
+    indexed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        # Trigram, so a match can be anywhere in a word: people search for "dispens" as
+        # often as for "dispensing", and a full-text index only matches whole stems.
+        Index(
+            "ix_board_texts_body_trgm",
+            "body",
+            postgresql_using="gin",
+            postgresql_ops={"body": "gin_trgm_ops"},
+        ),
+    )

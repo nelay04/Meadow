@@ -771,6 +771,23 @@ export function leaveBoard(boardId: string): Promise<void> {
   return call<void>(`/boards/${boardId}/membership`, { method: 'DELETE' })
 }
 
+/** A board whose contents matched a search, and the words around the match. */
+export type BoardSearchHit = { id: string; snippet: string }
+
+/**
+ * Boards whose contents contain `q`. Titles are not searched here: the list already
+ * has them and matches them as you type. Boards with a password never come back.
+ */
+export function searchBoards(
+  q: string,
+  kind: BoardKind | null,
+  signal?: AbortSignal,
+): Promise<BoardSearchHit[]> {
+  const params = new URLSearchParams({ q })
+  if (kind !== null) params.set('kind', kind)
+  return call<BoardSearchHit[]>(`/boards/search?${params.toString()}`, { signal })
+}
+
 /** Everything of yours in the trash, most recently deleted first. Owner only. */
 export function listTrash(): Promise<TrashedBoard[]> {
   return call<TrashedBoard[]>('/boards/trash')

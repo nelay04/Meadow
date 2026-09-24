@@ -15,6 +15,7 @@ from arq.cron import cron
 
 from app.config import settings
 from app.workers.compaction import compact_board_job, on_shutdown, on_startup, sweep_boards
+from app.workers.search_index import index_search
 from app.workers.trash import sweep_trash
 
 logger = getLogger("meadow.worker")
@@ -38,6 +39,11 @@ class WorkerSettings:
         # this could be acted on anyway: a board is purged within the hour after it
         # expires, never before it.
         cron(sweep_trash, minute={37}, run_at_startup=False),
+        # Every minute, at half past so it never lands on the same second as the two
+        # above. A minute is how stale search may be: the pass itself is one query when
+        # nothing changed, and it reads only the boards that did. On at startup too, so
+        # a new deployment's existing boards become searchable without waiting.
+        cron(index_search, second={30}, run_at_startup=True),
     ]
     on_startup = _startup
     on_shutdown = on_shutdown

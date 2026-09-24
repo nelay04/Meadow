@@ -30,6 +30,7 @@ import { useTrashRetentionHours } from '../../lib/appConfig'
 import { readGladeFile, stashImport } from '../../lib/gladeFile'
 import { useAuth } from '../auth/AuthContext'
 import { BOARD_KINDS, boardKind } from './kinds'
+import { useContentSearch } from './useContentSearch'
 
 type Props = {
   onOpen: (boardId: string, kind: BoardKind) => void
@@ -171,6 +172,30 @@ const OWNERS: { id: OwnerId; label: string; match: (board: Board) => boolean }[]
   { id: 'mine', label: 'Owned by me', match: (board) => board.role === 'owner' },
   { id: 'shared', label: 'Shared with me', match: (board) => board.role !== 'owner' },
 ]
+
+/** The words around a content match, with the match itself marked. */
+function Snippet({ text, needle }: { text: string; needle: string }) {
+  const lower = text.toLowerCase()
+  const target = needle.toLowerCase()
+  const parts: { text: string; hit: boolean }[] = []
+  let from = 0
+  while (target !== '') {
+    const at = lower.indexOf(target, from)
+    if (at < 0) break
+    if (at > from) parts.push({ text: text.slice(from, at), hit: false })
+    parts.push({ text: text.slice(at, at + target.length), hit: true })
+    from = at + target.length
+  }
+  if (from < text.length) parts.push({ text: text.slice(from), hit: false })
+
+  return (
+    <span className="board-snippet" title={text}>
+      {parts.map((part, index) =>
+        part.hit ? <mark key={index}>{part.text}</mark> : <span key={index}>{part.text}</span>,
+      )}
+    </span>
+  )
+}
 
 type SortId = 'modified' | 'created' | 'title'
 
@@ -328,7 +353,6 @@ export default function BoardsPage({ onOpen }: Props) {
   // countdown on each card is the server's own arithmetic, off `purge_after`.
   const retentionHours = useTrashRetentionHours()
   const [view, setView] = useState(readView)
-  const [title, setTitle] = useState('')
   const [owner, setOwner] = useState<OwnerId>('anyone')
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<SortId>('modified')
@@ -460,7 +484,6 @@ export default function BoardsPage({ onOpen }: Props) {
 
     try {
       const board = await api.createBoard(workspaceId, chosen, kind)
-      setTitle('')
       toast.success(`Created the ${label} "${board.title}".`)
       onOpen(board.id, board.kind)
     } catch {
@@ -611,11 +634,26 @@ export default function BoardsPage({ onOpen }: Props) {
   const composing = BOARD_KINDS.find((kind) => `kind:${kind.id}` === view) ?? null
   const activeOwner = OWNERS.find((entry) => entry.id === owner) ?? OWNERS[0]
 
+  /*
+   * Search is two matches with one answer. The title is matched here, from the list
+   * already in hand, so it is instant from the first letter. What is written on each
+   * board is matched by the server against its text index, and arrives a moment later
+   * as ids with a snippet. A board with a password is never in the second half: the
+   * server does not keep its words, so only its name can find it.
+   */
+  const contentHits = useContentSearch(query, composing?.id ?? null)
+
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase()
 
     const filtered = boards.filter((board) => {
-      if (needle !== '' && !board.title.toLowerCase().includes(needle)) return false
+      if (
+        needle !== '' &&
+        !board.title.toLowerCase().includes(needle) &&
+        !contentHits.has(board.id)
+      ) {
+        return false
+      }
       return active.match(board) && activeOwner.match(board)
     })
 
@@ -625,7 +663,7 @@ export default function BoardsPage({ onOpen }: Props) {
       title: (a, b) => a.title.localeCompare(b.title),
     }
     return [...filtered].sort(by[sort])
-  }, [boards, query, active, activeOwner, sort])
+  }, [boards, query, contentHits, active, activeOwner, sort])
 
   const group = (label: string | null, filters: readonly Filter[]) => (
     <nav className="sidebar-nav" aria-label={label ?? 'Views'}>
@@ -706,12 +744,15 @@ export default function BoardsPage({ onOpen }: Props) {
           work, so it becomes a button that expands the sidebar and puts the cursor in
           the field: searching is why most people open it again.
         */}
-        <div className="sidebar-search">
+        {/* On a kind's own page the search is the bar at the head of the list, which
+            also searches that kind's contents. Two fields for one query would be two
+            places to wonder which one is in charge. */}
+        <div className={composing === null ? 'sidebar-search' : 'sidebar-search kind-page'}>
           <IconSearch size={16} />
           <input
             value={query}
-            placeholder="Search glades"
-            aria-label="Search glades"
+            placeholder="Search everything"
+            aria-label="Search names and contents"
             onChange={(event) => setQuery(event.target.value)}
           />
           {navCollapsed && (
@@ -831,15 +872,23 @@ export default function BoardsPage({ onOpen }: Props) {
                 <composing.Icon size={16} />
                 {composing.label}
               </span>
-              <input
-                value={title}
-                placeholder={composing.placeholder}
-                aria-label={`New ${composing.label.toLowerCase()} name`}
-                onChange={(event) => setTitle(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') void create(composing.id, title)
-                }}
-              />
+              {/* A search, not a name. Create asks for the name in its own dialog with
+                  one already suggested, so a field here that only pre-filled that
+                  dialog was a second place to type the same thing. Searching is what
+                  a long field at the head of a list is for. */}
+              <label className="composer-search">
+                <IconSearch size={16} />
+                <input
+                  type="search"
+                  value={query}
+                  placeholder={`Search ${composing.plural.toLowerCase()} by name or by what is on them`}
+                  aria-label={`Search ${composing.plural.toLowerCase()}`}
+                  onChange={(event) => setQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape') setQuery('')
+                  }}
+                />
+              </label>
               {/* Beside Create, because it is the other way to start a board. It asks
                   nothing first: the file says what kind of board it is and what it is
                   called, so a lea's file imported from the Glades page is still a lea. */}
@@ -867,7 +916,7 @@ export default function BoardsPage({ onOpen }: Props) {
               <button
                 type="button"
                 className="primary"
-                onClick={() => void create(composing.id, title)}
+                onClick={() => void create(composing.id)}
               >
                 <IconPlus size={16} />
                 Create {composing.label.toLowerCase()}
@@ -1047,6 +1096,14 @@ export default function BoardsPage({ onOpen }: Props) {
                           )}
                           Edited {relativeTime(board.updated_at)}
                         </span>
+                        {/* Why it is here, when the name alone is not the reason. */}
+                        {contentHits.has(board.id) &&
+                          !board.title.toLowerCase().includes(query.trim().toLowerCase()) && (
+                            <Snippet
+                              text={contentHits.get(board.id) ?? ''}
+                              needle={query.trim()}
+                            />
+                          )}
                       </span>
                       <span className={`role role-${board.role}`}>{board.role}</span>
                     </span>

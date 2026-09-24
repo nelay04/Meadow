@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, func, or_, select
 
 from app.auth.deps import (
     CurrentPrincipal,
@@ -27,6 +27,7 @@ from app.models import (
     BoardAccessRequest,
     BoardInvitation,
     BoardMember,
+    BoardText,
     BoardThumbnail,
     User,
     WorkspaceMember,
@@ -46,6 +47,7 @@ from app.schemas.boards import (
     BoardRecoveryOut,
     BoardRecoveryRedeem,
     BoardRecoveryStartOut,
+    BoardSearchHit,
     InvitationOut,
     InviteCreate,
     InviteResultOut,
@@ -253,6 +255,107 @@ async def list_trash(
             )
         )
     return out
+
+
+# Shorter than this and a search matches nearly every board, which is noise rather
+# than an answer. Titles still match from the first letter, in the browser.
+SEARCH_MIN_CHARS = 2
+SEARCH_MAX_CHARS = 200
+SEARCH_LIMIT = 50
+# Characters of context either side of a match in the snippet.
+SNIPPET_CONTEXT = 60
+
+
+def _like_escape(value: str) -> str:
+    """A search term as a literal inside ILIKE: `%` and `_` mean themselves."""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _snippet(window: str, *, clipped_start: bool, clipped_end: bool) -> str:
+    """The text around a match, on one line, cut at word edges where it was cut."""
+    text = " ".join(window.split())
+    if clipped_start and " " in text:
+        text = "..." + text.split(" ", 1)[1]
+    if clipped_end and " " in text:
+        text = text.rsplit(" ", 1)[0] + "..."
+    return text
+
+
+# Before `/{board_id}`, for the same reason as `/trash`.
+@router.get("/search", response_model=list[BoardSearchHit])
+async def search_boards(
+    user: CurrentUser,
+    session: Session,
+    q: Annotated[str, Query(max_length=SEARCH_MAX_CHARS)],
+    kind: Annotated[BoardKind | None, Query()] = None,
+) -> list[BoardSearchHit]:
+    """Boards whose contents contain `q`, ignoring case, anywhere in a word.
+
+    Contents only. Titles are already in the list the client holds and it matches them
+    as you type; asking the server for them too would put a round trip in front of the
+    one match that can be instant.
+
+    Reads `board_texts`, never the CRDT log, so it costs an indexed lookup however
+    large the boards are. The worker keeps that table within a minute of the boards.
+
+    A board with a password is excluded here as well as never being indexed. The two
+    are independent on purpose: either one alone keeps its contents out of the results,
+    so a mistake in one of them is not a leak.
+
+    Reachability is the board list's, and every hit is then put to `resolve_role`,
+    which is what decides access everywhere else.
+    """
+    needle = q.strip()
+    if len(needle) < SEARCH_MIN_CHARS:
+        return []
+
+    position = func.strpos(func.lower(BoardText.body), func.lower(needle))
+    start = func.greatest(position - SNIPPET_CONTEXT, 1)
+    length = len(needle) + SNIPPET_CONTEXT * 2
+    query = (
+        select(
+            Board.id,
+            func.substr(BoardText.body, start, length).label("window"),
+            start.label("start"),
+            func.length(BoardText.body).label("total"),
+        )
+        .join(BoardText, BoardText.board_id == Board.id)
+        .outerjoin(
+            WorkspaceMember,
+            (WorkspaceMember.workspace_id == Board.workspace_id)
+            & (WorkspaceMember.user_id == user.id),
+        )
+        .outerjoin(
+            BoardMember, (BoardMember.board_id == Board.id) & (BoardMember.user_id == user.id)
+        )
+        .where(
+            or_(WorkspaceMember.user_id.is_not(None), BoardMember.user_id.is_not(None)),
+            Board.is_archived.is_(False),
+            Board.deleted_at.is_(None),
+            Board.password_hash.is_(None),
+            BoardText.body.ilike(f"%{_like_escape(needle)}%", escape="\\"),
+        )
+        .order_by(Board.updated_at.desc())
+        .limit(SEARCH_LIMIT)
+    )
+    if kind is not None:
+        query = query.where(Board.kind == kind.value)
+
+    hits = []
+    for row in (await session.execute(query)).all():
+        if await resolve_role(session, user_id=user.id, board_id=row.id) is None:
+            continue
+        hits.append(
+            BoardSearchHit(
+                id=row.id,
+                snippet=_snippet(
+                    row.window,
+                    clipped_start=row.start > 1,
+                    clipped_end=row.start + length <= row.total,
+                ),
+            )
+        )
+    return hits
 
 
 # Before `/{board_id}`, which would otherwise claim this path and reject it as a
@@ -1036,6 +1139,10 @@ async def set_board_password(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="no access")
 
     board_password.set_password(board, body.password)
+    # The search copy of its contents goes in the same transaction as the password
+    # arrives. See `app.workers.search_index` for the lock that stops a pass already
+    # reading this board from writing it back.
+    await session.execute(delete(BoardText).where(BoardText.board_id == board_id))
     await session.commit()
     await session.refresh(board)
     await _evict(request, board_id, "password changed")

@@ -2413,6 +2413,11 @@ label {
   background: var(--surface);
 }
 
+/* A kind's page searches from the bar at the head of its list instead. */
+.sidebar-search.kind-page {
+  display: none;
+}
+
 /*
  * The filter groups, stacked and scrollable.
  *
@@ -2750,7 +2755,7 @@ label {
  * Only there. Under Everything or Recent the list holds several kinds and a card that
  * offers to name a new glade is either wrong or needs a picker inside it; the header's
  * New menu asks the question properly. Under Glades or Leas the question is already
- * answered, and then a name field and one button is the fastest thing there is.
+ * answered, and then a search over that kind and one Create button is all it needs.
  */
 .composer {
   display: flex;
@@ -2770,9 +2775,26 @@ label {
   gap: 0.5rem;
 }
 
+/* The search field, with its glass inside the left edge like the sidebar's. */
+.composer-search {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  color: var(--faint);
+}
+
+.composer-search svg {
+  position: absolute;
+  left: 0.7rem;
+  pointer-events: none;
+}
+
 .composer-row input {
   flex: 1;
   min-width: 0;
+  padding-left: 2.2rem;
   border-color: transparent;
   background: transparent;
 }
@@ -3040,6 +3062,23 @@ label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* What on the board matched, when its name did not. */
+.board-snippet {
+  margin-top: 0.2rem;
+  font-size: 0.76rem;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.board-snippet mark {
+  padding: 0 0.1rem;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  color: var(--fg-strong);
 }
 
 /*
@@ -7395,7 +7434,7 @@ dialog.modal[open] .modal-card {
     flex-wrap: wrap;
   }
 
-  .composer-row input {
+  .composer-search {
     flex: 1 0 100%;
     order: -1;
   }

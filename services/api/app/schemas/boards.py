@@ -38,6 +38,13 @@ class MemberOut(BaseModel):
     avatar_url: str | None = None
 
 
+class BoardSearchHit(BaseModel):
+    """A board whose contents matched a search, and the words around the match."""
+
+    id: uuid.UUID
+    snippet: str
+
+
 class TitleSuggestion(BaseModel):
     """A default name offered to the create dialog before the board exists."""
 
