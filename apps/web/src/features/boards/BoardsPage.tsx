@@ -106,6 +106,8 @@ type Filter = {
   label: string
   Icon: typeof IconGrid
   match: (board: Board) => boolean
+  /** One line under the search bar, saying what this view holds. The kinds use their own. */
+  blurb?: string
 }
 
 /**
@@ -117,12 +119,19 @@ type Filter = {
  * board made a four-item menu out of one dropdown. They are in the header now.
  */
 const VIEWS: readonly Filter[] = [
-  { id: 'all', label: 'Everything', Icon: IconGrid, match: () => true },
+  {
+    id: 'all',
+    label: 'Everything',
+    Icon: IconGrid,
+    match: () => true,
+    blurb: 'Every glade and lea you can open, yours and shared, in one place.',
+  },
   {
     id: 'recent',
     label: 'Recent',
     Icon: IconClock,
     match: (board) => Date.now() - new Date(board.updated_at).getTime() < RECENT_WINDOW_MS,
+    blurb: 'Glades and leas changed in the last seven days.',
   },
 ]
 
@@ -914,13 +923,21 @@ export default function BoardsPage({ onOpen }: Props) {
             <div className="composer-row">
               {/* The kind, stated rather than offered. The page has already chosen it,
                   and a picker here would be a second control disagreeing with the
-                  heading above it. On the mixed views there is no kind to state. */}
-              {composing !== null && (
-                <span className="composer-kind">
-                  <composing.Icon size={16} />
-                  {composing.label}
-                </span>
-              )}
+                  heading above it. The mixed views state themselves the same way, so
+                  every page's bar has the same shape. */}
+              <span className="composer-kind">
+                {composing !== null ? (
+                  <>
+                    <composing.Icon size={16} />
+                    {composing.label}
+                  </>
+                ) : (
+                  <>
+                    <active.Icon size={16} />
+                    {active.label}
+                  </>
+                )}
+              </span>
               {/* A search, not a name. Create asks for the name in its own dialog with
                   one already suggested, so a field here that only pre-filled that
                   dialog was a second place to type the same thing. Searching is what
@@ -974,7 +991,7 @@ export default function BoardsPage({ onOpen }: Props) {
               )}
             </div>
 
-            {composing !== null && <p className="composer-hint">{composing.blurb}</p>}
+            <p className="composer-hint">{composing?.blurb ?? active.blurb}</p>
           </div>
         )}
 
