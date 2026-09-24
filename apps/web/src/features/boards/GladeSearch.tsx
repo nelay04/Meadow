@@ -363,8 +363,10 @@ export function GladeSearch({
                   </>,
                   'is-board is-group',
                 ),
-                ...hit.matches.map((match) => {
+                ...hit.matches.map((match, position) => {
                   const element = elementKind(match, board)
+                  // The last object is where the thread ends, in its own bend.
+                  const last = position === hit.matches.length - 1
                   return row(
                     { key: `o:${board.id}:${match.object_id}`, board, objectId: match.object_id },
                     <>
@@ -378,7 +380,7 @@ export function GladeSearch({
                       </span>
                       <span className="search-kind">{element.label}</span>
                     </>,
-                    'is-element',
+                    last ? 'is-element is-last' : 'is-element',
                   )
                 }),
                 unnamed > 0 && (

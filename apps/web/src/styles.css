@@ -2958,26 +2958,53 @@ label {
   margin-top: 0.15rem;
 }
 
-/* An object under its board, hung off a thread so the group reads as one thing. */
+/*
+ * An object under its board, hung off a thread so the group reads as one thing.
+ *
+ * Drawn as a tree. The thread drops from the middle of the glade's icon, and each
+ * object takes a rounded branch off it that runs into the object's own icon. Under the
+ * last object the thread stops, so the group closes in that object's bend.
+ *
+ * The numbers are the rows' geometry: 0.4rem of vertical padding, the glade icon
+ * 1.9rem wide after 0.55rem of padding (so its middle is at 1.5rem), and the object's
+ * icon starting at 2.35rem.
+ */
 .search-option.is-element {
   padding-left: 2.35rem;
 }
 
-.search-option.is-element::before {
+/* The branch: down from the top of the row, bending into the icon at its middle. */
+.search-option.is-element::after {
   content: '';
   position: absolute;
-  /* Under the middle of the glade's icon: the row's 0.55rem padding plus half of the
-     icon's 1.9rem, less half the line's own width. */
+  left: calc(1.5rem - 0.5px);
+  top: 0;
+  bottom: calc(50% - 0.5px);
+  width: calc(0.85rem + 0.5px);
+  box-sizing: border-box;
+  border-left: 1px solid var(--edge);
+  border-bottom: 1px solid var(--edge);
+  border-bottom-left-radius: 7px;
+  pointer-events: none;
+}
+
+/* The thread itself, straight down the whole row so the branch curves off it rather
+   than out of a break in it. Not beside the last object, whose bend is the thread's end. */
+.search-option.is-element:not(.is-last)::before {
+  content: '';
+  position: absolute;
   left: calc(1.5rem - 0.5px);
   top: 0;
   bottom: 0;
   width: 1px;
-  background: var(--line);
+  background: var(--edge);
+  pointer-events: none;
 }
 
-/* The first object's thread reaches up through the glade row's bottom padding, so it
-   meets the icon's box instead of stopping short of it. */
-.search-option.is-group + .search-option.is-element::before {
+/* The first branch reaches up through the glade row's bottom padding, so the thread
+   leaves the icon's box instead of starting short of it. */
+.search-option.is-group + .search-option.is-element::before,
+.search-option.is-group + .search-option.is-element::after {
   top: -0.4rem;
 }
 
@@ -2995,12 +3022,17 @@ label {
 .search-icon.is-element {
   width: 1.45rem;
   height: 1.45rem;
-  border: 1px solid var(--line);
+  border: 1px solid var(--edge);
   background: transparent;
 }
 
 .search-option.active .search-icon {
   color: var(--accent);
+}
+
+/* On the highlight the thread's colour is too close to the row's to hold the box. */
+.search-option.active .search-icon.is-element {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 .search-main {
