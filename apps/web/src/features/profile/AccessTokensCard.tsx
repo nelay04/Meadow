@@ -630,7 +630,7 @@ export function AccessTokensCard() {
     <>
       {/* Its own card, before the list: making a token is a separate job from looking
           after the ones you have, and the form is long enough to deserve the room. */}
-      <section className="card token-card">
+      <section id="setting-create-token" className="card token-card">
         <div className="token-create-head">
           <div>
             <h3>Create a token</h3>
@@ -768,7 +768,7 @@ export function AccessTokensCard() {
         )}
       </section>
 
-      <section className="card token-card">
+      <section id="setting-your-tokens" className="card token-card">
         <h3>Your tokens</h3>
         <p className="hint">
           For AI assistants and scripts that read or edit your glades and leas through the Meadow

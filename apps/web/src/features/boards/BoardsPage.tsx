@@ -30,6 +30,7 @@ import { readGladeFile, stashImport } from '../../lib/gladeFile'
 import { useAuth } from '../auth/AuthContext'
 import { BOARD_KINDS, boardKind } from './kinds'
 import { GladeSearch, Highlight } from './GladeSearch'
+import { QuickJump } from './QuickJump'
 import { useContentSearch } from './useContentSearch'
 import { stashFocus } from '../../lib/searchFocus'
 
@@ -636,6 +637,54 @@ export default function BoardsPage({ onOpen }: Props) {
     onOpen(board.id, board.kind)
   }
 
+  /*
+   * The sidebar's jump search, and what it can go to. Pages carry their counts so a
+   * result says how much is behind it, the way the menu does.
+   */
+  const jumpInput = useRef<HTMLInputElement>(null)
+  const goToView = useCallback(
+    (id: string) => {
+      setView(id)
+      writeView(id)
+      setNavOpen(false)
+      if (id === TRASH_VIEW) void reloadTrash()
+    },
+    [reloadTrash],
+  )
+  const navigate = useCallback((hash: string) => {
+    location.hash = hash
+  }, [])
+  const jumpViews = useMemo(
+    () => [
+      ...FILTERS.map((filter) => ({
+        id: filter.id,
+        label: filter.label,
+        Icon: filter.Icon,
+        count: counts[filter.id] ?? 0,
+      })),
+      { id: TRASH_VIEW, label: 'Trash', Icon: IconTrash, count: trashed.length },
+    ],
+    [counts, trashed.length],
+  )
+
+  // Ctrl+K (Cmd+K on a Mac) from anywhere on the page. A collapsed rail is opened
+  // first, and on a phone the drawer, because the field has to be on screen to type in.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== 'k' || !(event.ctrlKey || event.metaKey)) return
+      event.preventDefault()
+      setNavCollapsed((collapsed) => {
+        if (collapsed) writeCollapsed(false)
+        return false
+      })
+      // The same width `styles.css` turns the sidebar into a drawer at.
+      if (window.matchMedia('(max-width: 860px)').matches) setNavOpen(true)
+      requestAnimationFrame(() => jumpInput.current?.focus())
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase()
 
@@ -733,34 +782,35 @@ export default function BoardsPage({ onOpen }: Props) {
         </div>
 
         {/*
+          Somewhere to go, rather than something to find inside: glades and leas by name,
+          the pages of the app, and every section and card of the profile. What is written
+          on glades is searched by the bar above the list, which is the one that filters
+          the grid. Ctrl+K puts the cursor here from anywhere on the page.
+
           In the rail this is the one control that cannot shrink to an icon and still
           work, so it becomes a button that expands the sidebar and puts the cursor in
           the field: searching is why most people open it again.
         */}
-        {/* On a kind's own page the search is the bar at the head of the list, which
-            also searches that kind's contents. Two fields for one query would be two
-            places to wonder which one is in charge. */}
-        <div className={composing === null ? 'sidebar-search' : 'sidebar-search kind-page'}>
-          <GladeSearch
-            query={query}
-            onQueryChange={setQuery}
-            scope={scoped}
-            content={content}
-            noun="glades and leas"
-            placeholder="Search names and contents"
-            showKind
-            variant="sidebar"
-            onOpen={openResult}
+        <div className="sidebar-search">
+          <QuickJump
+            boards={boards}
+            views={jumpViews}
+            collapsed={navCollapsed}
+            inputRef={jumpInput}
+            onView={goToView}
+            onOpenBoard={(board) => onOpen(board.id, board.kind)}
+            onNavigate={navigate}
           />
           {navCollapsed && (
             <button
               type="button"
               className="sidebar-search-expand"
-              aria-label="Search glades"
-              title="Search glades"
+              aria-label="Jump to a glade, lea, page or setting"
+              title="Jump to... (Ctrl+K)"
               onClick={() => {
                 setNavCollapsed(false)
                 writeCollapsed(false)
+                requestAnimationFrame(() => jumpInput.current?.focus())
               }}
             />
           )}
@@ -859,16 +909,18 @@ export default function BoardsPage({ onOpen }: Props) {
           )}
         </header>
 
-        {composing !== null && !showingTrash && (
-          <div className={`composer kind-${composing.id}`}>
+        {!showingTrash && (
+          <div className={`composer kind-${composing?.id ?? 'mixed'}`}>
             <div className="composer-row">
               {/* The kind, stated rather than offered. The page has already chosen it,
                   and a picker here would be a second control disagreeing with the
-                  heading above it. */}
-              <span className="composer-kind">
-                <composing.Icon size={16} />
-                {composing.label}
-              </span>
+                  heading above it. On the mixed views there is no kind to state. */}
+              {composing !== null && (
+                <span className="composer-kind">
+                  <composing.Icon size={16} />
+                  {composing.label}
+                </span>
+              )}
               {/* A search, not a name. Create asks for the name in its own dialog with
                   one already suggested, so a field here that only pre-filled that
                   dialog was a second place to type the same thing. Searching is what
@@ -878,9 +930,9 @@ export default function BoardsPage({ onOpen }: Props) {
                 onQueryChange={setQuery}
                 scope={scoped}
                 content={content}
-                noun={composing.plural.toLowerCase()}
-                placeholder={`Search ${composing.plural.toLowerCase()} by name or by what is on them`}
-                showKind={false}
+                noun={composing?.plural.toLowerCase() ?? 'glades and leas'}
+                placeholder={`Search ${composing?.plural.toLowerCase() ?? 'glades and leas'} by name or by what is on them`}
+                showKind={composing === null}
                 variant="bar"
                 onOpen={openResult}
               />
@@ -908,17 +960,21 @@ export default function BoardsPage({ onOpen }: Props) {
                   if (file !== undefined) void importFile(file)
                 }}
               />
-              <button
-                type="button"
-                className="primary"
-                onClick={() => void create(composing.id)}
-              >
-                <IconPlus size={16} />
-                Create {composing.label.toLowerCase()}
-              </button>
+              {/* Only where the page has chosen a kind. On the mixed views, making
+                  something starts from the kind's own page. */}
+              {composing !== null && (
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={() => void create(composing.id)}
+                >
+                  <IconPlus size={16} />
+                  Create {composing.label.toLowerCase()}
+                </button>
+              )}
             </div>
 
-            <p className="composer-hint">{composing.blurb}</p>
+            {composing !== null && <p className="composer-hint">{composing.blurb}</p>}
           </div>
         )}
 

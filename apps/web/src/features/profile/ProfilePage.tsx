@@ -8,14 +8,11 @@ import {
   IconBack,
   IconCheck,
   IconDesktop,
-  IconKey,
-  IconLock,
   IconMobile,
   IconMoon,
   IconSun,
   IconTablet,
   IconUnknownDevice,
-  IconUser,
 } from '../../ui/icons'
 import {
   PAPERS,
@@ -46,11 +43,14 @@ import type { AuthSession, Identity, OAuthProvider, Providers } from '../../lib/
 import { useAuth } from '../auth/AuthContext'
 import { OAUTH_PROVIDERS } from '../auth/providers'
 import { AccessTokensCard } from './AccessTokensCard'
+import { PROFILE_SECTIONS, type SectionId, isSectionId } from './settingsIndex'
 
 type Props = {
   onBack: () => void
   /** The group named in the route, if any. Anything unrecognised opens Account. */
   section?: string
+  /** One card in that group to bring into view, from the sidebar's jump search. */
+  item?: string
 }
 
 const THEME_CHOICES: { id: Theme; label: string; Icon: typeof IconSun }[] = [
@@ -59,22 +59,7 @@ const THEME_CHOICES: { id: Theme; label: string; Icon: typeof IconSun }[] = [
   { id: 'dark', label: 'Dark', Icon: IconMoon },
 ]
 
-/**
- * The groups the page is split into, in menu order. One is shown at a time, named by
- * the route: `#/profile/tokens`. A bare `#/profile` opens the first.
- */
-const SECTIONS = [
-  { id: 'account', label: 'Account', Icon: IconUser },
-  { id: 'security', label: 'Sign-in and security', Icon: IconLock },
-  { id: 'tokens', label: 'Assistants and tokens', Icon: IconKey },
-  { id: 'preferences', label: 'Preferences', Icon: IconSun },
-] as const
-
-type SectionId = (typeof SECTIONS)[number]['id']
-
-function isSectionId(value: string | undefined): value is SectionId {
-  return SECTIONS.some((candidate) => candidate.id === value)
-}
+const SECTIONS = PROFILE_SECTIONS
 
 const DEVICE_ICONS = {
   desktop: IconDesktop,
@@ -115,7 +100,7 @@ function linkedOn(iso: string): string {
  * never renamed the GitHub or Google account the name came from, and showing the two
  * apart is the clearest way to say so.
  */
-export default function ProfilePage({ onBack, section }: Props) {
+export default function ProfilePage({ onBack, section, item }: Props) {
   const {
     user,
     updateProfile,
@@ -147,6 +132,24 @@ export default function ProfilePage({ onBack, section }: Props) {
   const [font, setFont] = useState<Font>(readFont)
   const [canvasFont, setCanvasFont] = useState<Font>(readCanvasFont)
   const activeSection: SectionId = isSectionId(section) ? section : 'account'
+
+  /*
+   * Arriving at one card, from the sidebar's jump search: bring it to the middle of the
+   * screen and ring it for a moment, so the eye lands on it rather than having to find
+   * it in a column of cards that all look alike.
+   */
+  useEffect(() => {
+    if (item === undefined) return
+    const card = document.getElementById(`setting-${item}`)
+    if (card === null) return
+    card.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    card.classList.remove('setting-flash')
+    // Reflowed between, so a second jump to the same card plays the ring again.
+    void card.offsetWidth
+    card.classList.add('setting-flash')
+    const timer = window.setTimeout(() => card.classList.remove('setting-flash'), 1800)
+    return () => window.clearTimeout(timer)
+  }, [activeSection, item])
 
   // On a narrow screen the index is a sideways-scrolling row, and the current tab can
   // sit off its edge. Bring it in without moving the page.
@@ -464,7 +467,7 @@ export default function ProfilePage({ onBack, section }: Props) {
               </section>
 
               <div className="profile-pair">
-                <section className="card">
+                <section id="setting-display-name" className="card">
                   <h3>Display name</h3>
                   <p className="hint">
                     {borrowableNames.length === 0 && withPicture.length === 0
@@ -496,7 +499,7 @@ export default function ProfilePage({ onBack, section }: Props) {
                   ))}
                 </section>
 
-                <section className="card">
+                <section id="setting-picture" className="card">
                   <h3>Picture</h3>
                   {withPicture.length === 0 ? (
                     <p className="hint">
@@ -561,7 +564,7 @@ export default function ProfilePage({ onBack, section }: Props) {
                 <p>How this account gets in, and who is in it right now.</p>
               </div>
 
-              <section className="card">
+              <section id="setting-sign-in" className="card">
                 <h3>Sign-in</h3>
                 <ul className="signin-list">
                   <li>
@@ -661,7 +664,7 @@ export default function ProfilePage({ onBack, section }: Props) {
           browser that can use this account right now, which is what makes the sign-out
           button a real action rather than a tidy-up of history.
         */}
-              <section className="card">
+              <section id="setting-sessions" className="card">
                 <h3>Sessions</h3>
                 <p className="hint">
                   Every browser signed in to this account. Terminating one ends it immediately, and
@@ -763,7 +766,7 @@ export default function ProfilePage({ onBack, section }: Props) {
               </section>
               {/* After Sign-in, because it is the other half of the same subject: how this
             account gets in, and how it gets out. */}
-              <section className="card profile-signout">
+              <section id="setting-log-out" className="card profile-signout">
                 <div className="profile-signout-text">
                   <h3>Log out</h3>
                   <p className="hint">
@@ -815,7 +818,7 @@ export default function ProfilePage({ onBack, section }: Props) {
           does, and it never showed the two options you were not on. A settings page
           has room, so all three are on screen and the current one is simply marked.
         */}
-                <section className="card">
+                <section id="setting-appearance" className="card">
                   <h3>Appearance</h3>
                   <p className="hint">
                     Applies to this browser only, and takes effect as you choose it. Matching the
@@ -852,7 +855,7 @@ export default function ProfilePage({ onBack, section }: Props) {
           two are the settings that are just a value picked from a short row, and these
           two are the settings that need the whole width for a grid of previews.
         */}
-                <section className="card">
+                <section id="setting-lea-paper" className="card">
                   <h3>Lea paper</h3>
                   <p className="hint">
                     What every lea is printed on, for you. Matching the theme
@@ -883,7 +886,7 @@ export default function ProfilePage({ onBack, section }: Props) {
           The face the app is set in. Each choice is written in its own font, so the
           button is its own preview.
         */}
-                <section className="card">
+                <section id="setting-interface-font" className="card">
                   <h3>Interface font</h3>
                   <p className="hint">
                     The typeface for menus, pages and panels across Meadow, in this browser only.
@@ -916,7 +919,7 @@ export default function ProfilePage({ onBack, section }: Props) {
           because a face is metrics and the heights measured in it are shared; see the
           note in ui/font.ts.
         */}
-                <section className="card">
+                <section id="setting-canvas-font" className="card">
                   <h3>Canvas font</h3>
                   <p className="hint">
                     What new text starts in. Existing text keeps its font; change it from the

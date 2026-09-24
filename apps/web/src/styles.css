@@ -2351,6 +2351,9 @@ label {
 }
 
 .sidebar {
+  /* One row height for everything in the column, so the search field and the menu
+     rows under it read as the same kind of thing. */
+  --sidebar-row: 2.45rem;
   flex: 0 0 15rem;
   display: flex;
   flex-direction: column;
@@ -2403,19 +2406,18 @@ label {
 }
 
 .sidebar-search input {
+  height: var(--sidebar-row);
+  padding-top: 0;
+  padding-bottom: 0;
   padding-left: 2rem;
+  border-radius: var(--radius-sm);
   background: var(--surface-2);
   border-color: transparent;
-  font-size: 0.875rem;
+  font-size: 0.9rem;
 }
 
 .sidebar-search input:focus {
   background: var(--surface);
-}
-
-/* A kind's page searches from the bar at the head of its list instead. */
-.sidebar-search.kind-page {
-  display: none;
 }
 
 /* The sidebar is sticky, so it paints as its own layer, and the cards laid out after it
@@ -2460,6 +2462,7 @@ label {
 .nav-item {
   justify-content: flex-start;
   width: 100%;
+  min-height: var(--sidebar-row);
   gap: 0.6rem;
   padding: 0.45rem 0.6rem;
   border-color: transparent;
@@ -2834,6 +2837,16 @@ label {
   min-width: 0;
   padding-left: 2.2rem;
   padding-right: 3.8rem;
+}
+
+/* The shortcut, shown in the empty field until something is typed over it. */
+.jump-shortcut {
+  position: absolute;
+  right: 0.5rem;
+  pointer-events: none;
+  font-size: 0.64rem;
+  font-weight: 600;
+  opacity: 0.8;
 }
 
 .search-clear {
@@ -8271,5 +8284,36 @@ dialog.modal[open] .modal-card {
 @media (pointer: coarse) {
   .statusbar .hints {
     display: none;
+  }
+}
+
+/*
+ * A profile card arrived at from the sidebar's jump search, ringed for a moment so the
+ * eye lands on it among cards that all look alike. Once, then gone: a ring that stayed
+ * would read as the card being in some state.
+ */
+@keyframes setting-flash {
+  0%,
+  35% {
+    box-shadow:
+      0 0 0 2px var(--accent),
+      0 0 0 7px color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+  100% {
+    box-shadow:
+      0 0 0 2px transparent,
+      0 0 0 7px transparent;
+  }
+}
+
+.card.setting-flash {
+  animation: setting-flash 1.8s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card.setting-flash {
+    animation-duration: 0.01s;
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
 }
