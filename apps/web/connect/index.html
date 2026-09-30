@@ -377,12 +377,42 @@
                 <div class="badge"><svg class="icon" aria-hidden="true"><use href="#i-terminal" /></svg></div>
                 <div>
                   <h3>Claude Code</h3>
-                  <p class="how">A token in a header</p>
+                  <p class="how">In the editor or a terminal, with a token or by signing in</p>
                 </div>
               </div>
+              <p class="or">In VS Code, from the chat</p>
+              <ol class="steps">
+                <li>In the Claude Code chat, type <code>/mcp</code> and choose to add a server.</li>
+                <li>Name it Meadow, set <strong>Transport</strong> to <strong>HTTP (remote)</strong>, and enter <code>https://meadow.creara.in/mcp</code> as the <strong>URL</strong>.</li>
+                <li>Under <strong>Headers</strong>, type one whole line, <code>Authorization: Bearer mdw_...</code>, with your token in place of <code>mdw_...</code>. The token on its own is refused with "Headers must be Header-Name: value".</li>
+                <li>Set <strong>Scope</strong> to <strong>Local</strong> (you, in this project) or <strong>User</strong> (you, in every project). Not <strong>Project</strong>: that writes the header, token and all, into <code>.mcp.json</code>, which everyone who opens the project gets.</li>
+                <li>Choose <strong>Add server</strong>. Meadow shows in the <code>/mcp</code> list.</li>
+              </ol>
+              <p class="or">Or sign in instead of pasting a token</p>
+              <p>
+                Leave <strong>Headers</strong> empty and add the server. The <code>/mcp</code>
+                list shows Meadow as needing sign-in; choose it to authenticate, and your browser
+                opens on Meadow. Pick the glades and permissions, and choose Allow access.
+              </p>
+              <p class="or">In a terminal</p>
               <div class="code" data-label="Terminal">
-                <pre><code>claude mcp add --transport http meadow https://meadow.creara.in/mcp \
+                <pre><code>claude mcp add --transport http --scope user meadow \
+  https://meadow.creara.in/mcp \
   --header "Authorization: Bearer mdw_..."</code></pre>
+                <button class="btn btn-sm btn-secondary" type="button" data-copy>Copy</button>
+              </div>
+              <p class="or">Shared with a team, without the token</p>
+              <p>Commit this as <code>.mcp.json</code>. Claude Code fills in <code>${MEADOW_TOKEN}</code> from each person's own environment.</p>
+              <div class="code" data-label=".mcp.json">
+                <pre><code>{
+  "mcpServers": {
+    "meadow": {
+      "type": "http",
+      "url": "https://meadow.creara.in/mcp",
+      "headers": { "Authorization": "Bearer ${MEADOW_TOKEN}" }
+    }
+  }
+}</code></pre>
                 <button class="btn btn-sm btn-secondary" type="button" data-copy>Copy</button>
               </div>
             </div>
@@ -395,7 +425,7 @@
                   <p class="how">Copilot agent mode, a token asked for once</p>
                 </div>
               </div>
-              <p>Add this to <code>.vscode/mcp.json</code>. VS Code asks for the token the first time and keeps it out of the file.</p>
+              <p>Add this to <code>.vscode/mcp.json</code>. VS Code asks for the token the first time and keeps it out of the file. Using the Claude Code extension in VS Code instead? It has its own settings; see <a href="#claude-code">Claude Code</a>.</p>
               <div class="code" data-label=".vscode/mcp.json">
                 <pre><code>{
   "inputs": [

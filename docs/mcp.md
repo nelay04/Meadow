@@ -145,16 +145,52 @@ Authorization: Bearer mdw_...
 ```
 
 Clients that let you set headers on a remote MCP server can connect today. Examples are
-VS Code (`"type": "http"` with a `headers` block) and Claude Code:
+VS Code (`"type": "http"` with a `headers` block) and Claude Code.
+
+**Claude Code in VS Code**, from the chat:
+
+1. Type `/mcp` and choose to add a server.
+2. Name: Meadow. Transport: **HTTP (remote)**. URL: `https://meadow.example.com/mcp`.
+3. Headers: one whole line, `Authorization: Bearer mdw_...`. The field takes
+   `Header-Name: value` lines, so a bare token is refused with "Headers must be
+   Header-Name: value".
+4. Scope: **Local** (you, in this project) or **User** (you, in every project). Not
+   **Project**: that writes the header, token included, into `.mcp.json`, which everyone
+   who opens the project gets.
+5. **Add server**. Meadow shows in the `/mcp` list.
+
+To sign in rather than paste a token, leave Headers empty. `/mcp` then lists Meadow as
+needing sign-in; choosing it opens Meadow's consent screen in the browser, as in
+[Clients that sign in](#clients-that-sign-in-oauth). Meadow accepts the `http://localhost`
+callback Claude Code listens on.
+
+**Claude Code in a terminal:**
 
 ```bash
-claude mcp add --transport http meadow https://meadow.example.com/mcp \
+claude mcp add --transport http --scope user meadow https://meadow.example.com/mcp \
   --header "Authorization: Bearer mdw_..."
+```
+
+**Claude Code, shared through a project's `.mcp.json`.** Claude Code expands environment
+variables in this file, so it can be committed without the token and each person sets
+`MEADOW_TOKEN` for themselves:
+
+```json
+{
+  "mcpServers": {
+    "meadow": {
+      "type": "http",
+      "url": "https://meadow.example.com/mcp",
+      "headers": { "Authorization": "Bearer ${MEADOW_TOKEN}" }
+    }
+  }
+}
 ```
 
 ### Clients that sign in (OAuth)
 
-Web assistants connect by signing in instead of taking a pasted token. You add the URL,
+Web assistants connect by signing in instead of taking a pasted token, and so can Claude
+Code when it is added with no header (above). You add the URL,
 the assistant sends you to Meadow, you sign in and pick what it may reach, and it is
 connected. No token to copy.
 

@@ -11,6 +11,22 @@ away getting there.
 
 ---
 
+## [1.24.3] - [30-Sep-2026]
+
+### Fixed
+- **Connecting Claude Code from its editor chat is written down.** The connect page
+  gave Claude Code only as a terminal command, and the add-server form that `/mcp`
+  opens in VS Code takes headers as `Header-Name: value` lines, so a pasted token on
+  its own was refused with no hint of what it wanted. The page and `docs/mcp.md` now
+  walk through that form field by field: HTTP (remote), the whole
+  `Authorization: Bearer mdw_...` line, and Local or User scope rather than Project,
+  which would write the token into a shared `.mcp.json`. They also cover signing in
+  from `/mcp` with no header, the terminal command with a user scope, and a
+  `.mcp.json` a team can commit that reads the token from each person's environment.
+  The VS Code card points Claude Code users to these steps.
+
+---
+
 ## [1.24.2] - [30-Sep-2026]
 
 ### Fixed
