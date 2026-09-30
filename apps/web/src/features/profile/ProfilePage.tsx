@@ -792,7 +792,17 @@ export default function ProfilePage({ onBack, section, item }: Props) {
                 <h2 id="profile-tokens-title">Assistants and tokens</h2>
                 <p>
                   Let an AI assistant or a script work on your glades, and take that back at any
-                  time.
+                  time.{' '}
+                  {/* A new tab, so a token shown once is still here to copy when they are
+                      back from the steps. */}
+                  <a
+                    className="text-link"
+                    href="/connect/"
+                    target="_blank"
+                    rel="noopener"
+                  >
+                    How to connect an assistant
+                  </a>
                 </p>
               </div>
               <AccessTokensCard />

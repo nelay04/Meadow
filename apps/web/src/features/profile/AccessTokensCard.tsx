@@ -684,6 +684,17 @@ export function AccessTokensCard() {
                 Copy
               </button>
             </div>
+            <p className="hint token-created-next">
+              Next, paste it into your assistant.{' '}
+              <a
+                className="text-link"
+                href="/connect/#platforms"
+                target="_blank"
+                rel="noopener"
+              >
+                Steps for each assistant
+              </a>
+            </p>
             <button
               type="button"
               className="ghost profile-inline-action"

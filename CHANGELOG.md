@@ -11,6 +11,18 @@ away getting there.
 
 ---
 
+## [1.24.2] - [30-Sep-2026]
+
+### Fixed
+- **The guide to connecting an assistant can be reached from the app.** Nothing in the
+  app pointed at `/connect/`, so someone holding a new token had no way to find out
+  where to paste it. The Assistants and tokens section now links to it under its
+  heading, a newly created token says what to do next and links to the steps for each
+  assistant, and "Connect an AI assistant" is in the sidebar's Ctrl+K search. All three
+  open the guide in a new tab, so a token shown once is still on screen afterwards.
+
+---
+
 ## [1.24.1] - [30-Sep-2026]
 
 ### Fixed

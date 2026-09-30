@@ -1,7 +1,7 @@
 import { type RefObject, useEffect, useId, useMemo, useRef, useState } from 'react'
 
 import type { Board } from '../../lib/api'
-import { IconClose, IconLock, IconSearch, IconUser } from '../../ui/icons'
+import { IconClose, IconKey, IconLock, IconSearch, IconUser } from '../../ui/icons'
 import { relativeTime } from '../../ui/time'
 import { PROFILE_SECTIONS, SETTINGS, settingPath } from '../profile/settingsIndex'
 import { Highlight } from './GladeSearch'
@@ -126,6 +126,17 @@ export function QuickJump({
       Icon: IconUser,
       keywords: 'account settings me',
       run: () => onNavigate('#/profile'),
+    })
+    // The public setup guide, not a page of the app, so it opens beside it: someone
+    // looking for it is usually holding a token they have not pasted anywhere yet.
+    list.push({
+      key: 'v:connect',
+      group: 'pages',
+      label: 'Connect an AI assistant',
+      note: 'Guide',
+      Icon: IconKey,
+      keywords: 'mcp setup how help assistant token oauth sign in',
+      run: () => window.open('/connect/', '_blank', 'noopener'),
     })
     for (const section of PROFILE_SECTIONS) {
       list.push({
