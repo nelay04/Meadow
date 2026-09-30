@@ -461,6 +461,74 @@ for (const text of ['Seven', 'Plain']) {
   await step('Escape')
 }
 
+// --- putting the pages in another order --------------------------------------------------
+
+/** Which row of the page list is the open page, from 1. */
+const openRow = () =>
+  page.evaluate(
+    () =>
+      [...document.querySelectorAll('.lea-page')].findIndex(
+        (row) => row.getAttribute('aria-current') === 'true',
+      ) + 1,
+  )
+
+const written = await lines()
+for (const _ of [1, 2]) {
+  const before = await page.locator('.lea-page-slot').count()
+  // Sent to the button itself: the "Started page" toast from the last one sits over it.
+  await page.locator('.lea-pages-add').dispatchEvent('click')
+  await page.waitForFunction(
+    (want) => document.querySelectorAll('.lea-page-slot').length === want,
+    before + 1,
+    { timeout: 10000 },
+  )
+}
+await step('Escape')
+check('two new pages, and the newest is open', (await openRow()) === 3, String(await openRow()))
+
+// Drag the open page by its grip to above the first row.
+const rows = page.locator('.lea-page-slot')
+await rows.nth(2).hover()
+const grip = await rows.nth(2).locator('.lea-page-grip').boundingBox()
+const top = await rows.nth(0).boundingBox()
+await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2)
+await page.mouse.down()
+await page.mouse.move(grip.x + grip.width / 2, top.y + 3, { steps: 8 })
+await page.mouse.up()
+await settle()
+check(
+  'dragging a page by its grip moves it, and it stays the open page',
+  (await openRow()) === 1 && (await rows.count()) === 3,
+  `open row ${await openRow()}`,
+)
+
+await page.locator('.lea-page').nth(1).click()
+await expectLines('the writing moved down the list with its page, untouched', written)
+
+// From the keyboard: the empty page at the top goes down one, under the written page.
+await page.locator('.lea-page').nth(0).focus()
+await page.keyboard.press('Alt+ArrowDown')
+await settle()
+const focusRow = await page.evaluate(() =>
+  [...document.querySelectorAll('.lea-page')].indexOf(document.activeElement),
+)
+check(
+  'Alt+ArrowDown moves the focused page down and keeps the focus on it',
+  (await openRow()) === 1 && focusRow === 1,
+  `open row ${await openRow()}, focus on row ${focusRow + 1}`,
+)
+
+await page.reload({ waitUntil: 'load' })
+await page.waitForSelector('.lea-page', { timeout: 30000 })
+await page.waitForFunction(
+  () => document.querySelector('.lea-page[aria-current="true"] .lea-page-number')?.textContent?.trim() === '1',
+  null,
+  { timeout: 20000 },
+).catch(() => {})
+await page.waitForSelector('.meadow-overlay [data-object-id]', { timeout: 30000 })
+await expectLines('the new order survives a reload, with the writing on its own page', written)
+check('the reload reopens the page that was open, at its new place', (await openRow()) === 1, String(await openRow()))
+
 if (process.env.E2E_SHOT) await page.screenshot({ path: process.env.E2E_SHOT })
 
 check('no uncaught page errors', pageErrors.length === 0, pageErrors.join('; '))

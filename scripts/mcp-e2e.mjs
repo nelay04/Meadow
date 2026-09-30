@@ -349,6 +349,95 @@ if (process.env.MCP_E2E_SHOT) {
   await page.setViewportSize({ width: 1280, height: 860 })
 }
 
+// --- lea pages -------------------------------------------------------------------------------
+
+// Pages are added in a real browser, by the button a person uses, so the agent works on
+// the same `meta.pages` a person made and the browser watches the order change.
+const lea = (await rest('/boards', { method: 'POST', token: session, body: { workspace_id: workspaceId, title: 'MCP lea', kind: 'lea' } })).body
+const leaView = await browser.newPage({ viewport: { width: 1280, height: 860 } })
+await leaView.goto(`${webBase}/app`, { waitUntil: 'load' })
+await leaView.fill('input[type="email"]', email)
+await leaView.fill('input[type="password"]', password)
+await leaView.click('button[type="submit"]')
+await leaView.waitForSelector('text=MCP lea', { timeout: 20000 })
+await leaView.click('text=MCP lea')
+await leaView.waitForSelector('.lea-pages', { timeout: 30000 })
+await leaView.waitForFunction(() => document.querySelector('.role')?.textContent?.trim() === 'owner', null, { timeout: 20000 })
+for (const _ of [1, 2]) {
+  const before = await leaView.locator('.lea-page-slot').count()
+  // Sent to the button itself: the "Started page" toast from the last one sits over it.
+  await leaView.locator('.lea-pages-add').dispatchEvent('click')
+  await leaView.waitForFunction((want) => document.querySelectorAll('.lea-page-slot').length === want, before + 1, { timeout: 10000 })
+}
+/** Which row of the browser's page list is the open page, from 1. */
+const openRow = () =>
+  leaView.evaluate(() => [...document.querySelectorAll('.lea-page')].findIndex((row) => row.getAttribute('aria-current') === 'true') + 1)
+check('a lea with three pages is open on its newest page', (await openRow()) === 3, String(await openRow()))
+
+check('the agent is offered the lea page tools', tools.includes('list_lea_pages') && tools.includes('move_lea_page'), tools.join(', '))
+const listedPages = await call(agent, 'list_lea_pages', { glade_id: lea.id })
+const pageIds = listedPages.json?.pages?.map((entry) => entry.id) ?? []
+check('list_lea_pages lists the pages in order', !listedPages.error && pageIds.length === 3 && listedPages.json.pages[2].position === 3, listedPages.text.slice(0, 300))
+
+const notLea = await call(agent, 'list_lea_pages', { glade_id: board.id })
+check('list_lea_pages refuses a glade, which has no pages', notLea.error && /not a lea/.test(notLea.text), notLea.text)
+
+const movePreview = await call(agent, 'move_lea_page', { glade_id: lea.id, page_id: pageIds[2], to_position: 1, preview: true })
+const unmoved = await call(agent, 'list_lea_pages', { glade_id: lea.id })
+check(
+  'a move preview shows the new order and changes nothing',
+  movePreview.json?.preview === true &&
+    movePreview.json.pages[0].id === pageIds[2] &&
+    JSON.stringify(unmoved.json?.pages?.map((entry) => entry.id)) === JSON.stringify(pageIds),
+  movePreview.text.slice(0, 300),
+)
+
+const moved = await call(agent, 'move_lea_page', { glade_id: lea.id, page_id: pageIds[2], to_position: 1 })
+check(
+  'move_lea_page puts the page first',
+  !moved.error && moved.json?.moved === true && JSON.stringify(moved.json.pages.map((entry) => entry.id)) === JSON.stringify([pageIds[2], pageIds[0], pageIds[1]]),
+  moved.text.slice(0, 300),
+)
+// The browser was on the page that moved. It should still be on it, now in first place,
+// rather than on whatever page took over third place.
+const followed = await leaView
+  .waitForFunction(() => document.querySelector('.lea-page[aria-current="true"] .lea-page-number')?.textContent?.trim() === '1', null, { timeout: 10000 })
+  .then(() => true, () => false)
+check('the open browser keeps the moved page open, now at the top of its list', followed, String(await openRow()))
+
+const tooFar = await call(agent, 'move_lea_page', { glade_id: lea.id, page_id: pageIds[0], to_position: 9 })
+check('a position past the last page is refused', tooFar.error && /at most 3/.test(tooFar.text), tooFar.text)
+const missingPage = await call(agent, 'move_lea_page', { glade_id: lea.id, page_id: 'no-such-page', to_position: 1 })
+check('an unknown page id is refused', missingPage.error && /No page with id/.test(missingPage.text), missingPage.text)
+
+// Read on the lea and edit only elsewhere: the tool is offered, and refused on the lea.
+const leaReaderToken = await rest('/tokens', {
+  method: 'POST',
+  token: session,
+  body: {
+    name: 'e2e lea reader',
+    kind: 'fine_grained',
+    grants: [
+      { board_id: lea.id, read: true },
+      { board_id: other.id, read: true, edit: true },
+    ],
+  },
+})
+const leaReader = await connectStdio(leaReaderToken.body.token)
+const readerPages = await call(leaReader, 'list_lea_pages', { glade_id: lea.id })
+check('view access is enough to list a lea\'s pages', !readerPages.error && readerPages.json?.pages?.length === 3, readerPages.text.slice(0, 200))
+const readerMove = await call(leaReader, 'move_lea_page', { glade_id: lea.id, page_id: pageIds[0], to_position: 1 })
+const stillMoved = await call(leaReader, 'list_lea_pages', { glade_id: lea.id })
+check(
+  'moving a page without edit access on the lea is refused and changes nothing',
+  readerMove.error &&
+    /may only read/.test(readerMove.text) &&
+    JSON.stringify(stillMoved.json?.pages?.map((entry) => entry.id)) === JSON.stringify([pageIds[2], pageIds[0], pageIds[1]]),
+  readerMove.text,
+)
+await leaReader.close()
+await leaView.close()
+
 // --- fine-grained tokens --------------------------------------------------------------------
 
 const reader = await connectStdio(readToken.body.token)
@@ -358,6 +447,7 @@ check(
   readerTools.includes('get_glade_graph') &&
     !readerTools.includes('create_nodes') &&
     !readerTools.includes('delete_objects') &&
+    !readerTools.includes('move_lea_page') &&
     !readerTools.includes('create_glade'),
   readerTools.join(', '),
 )

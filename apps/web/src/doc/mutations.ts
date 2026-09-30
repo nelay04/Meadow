@@ -57,7 +57,8 @@ import {
 export const LOCAL_ORIGIN = 'local'
 
 /**
- * Origin tag for a change to the diary's structure: removing a page and its writing.
+ * Origin tag for a change to the diary's structure: removing a page and its writing,
+ * or moving a page to another place in it.
  *
  * A second origin rather than a second flag, because `Y.UndoManager` selects on
  * exactly this. Anything written under it syncs like any other change and is simply
@@ -1229,6 +1230,23 @@ const META_PAGES = 'pages'
  */
 const PAGE_DELETED_AT = 'deletedAt'
 
+/**
+ * Where a page sits in the diary, as a number to sort on. Absent reads as the page's
+ * index in the stored array, which is the order every lea had before pages could move.
+ *
+ * A field rather than the array's own order because a `Y.Array` has no move: moving an
+ * entry is deleting it and inserting a copy, and two people moving the same page at
+ * once would each insert one, leaving the page in the diary twice. A subject typed into
+ * the page while it was being moved would land on the deleted copy and be lost. One
+ * number on the page's own map is a single last-writer-wins value instead, so two moves
+ * of one page settle on one of them, and a move and an edit never touch the same key.
+ *
+ * Fractional, so a move writes one page and not every page after it. Ties, which two
+ * moves into the same gap produce, are broken by the array index, which every client
+ * agrees on.
+ */
+const PAGE_ORDER = 'order'
+
 const META_PAGE_LINES = 'pageLines'
 const META_PAGE_DATE = 'pageDate'
 const META_PAGE_SUBJECT = 'pageSubject'
@@ -1281,6 +1299,14 @@ type PageEntry = {
   deletedAt: number
   /** Its index in the stored array, which is not its index in either list. */
   at: number
+  /** What it sorts on. See `PAGE_ORDER`. */
+  order: number
+}
+
+function readOrder(map: unknown, at: number): number {
+  if (!(map instanceof Y.Map)) return at
+  const order = map.get(PAGE_ORDER)
+  return typeof order === 'number' && Number.isFinite(order) ? order : at
 }
 
 /**
@@ -1292,17 +1318,22 @@ type PageEntry = {
 function entries(session: DocSession, fallbackLines = 1): PageEntry[] {
   const pages = storedPages(session)
   if (pages === null) return []
-  return pages.toArray().map((map, at) => {
-    if (!(map instanceof Y.Map)) {
-      return { page: legacyPage(session, fallbackLines), deletedAt: 0, at }
-    }
-    const stamp = map.get(PAGE_DELETED_AT)
-    return {
-      page: readPageMap(map, at, fallbackLines),
-      deletedAt: typeof stamp === 'number' && Number.isFinite(stamp) && stamp > 0 ? stamp : 0,
-      at,
-    }
-  })
+  return pages
+    .toArray()
+    .map((map, at): PageEntry => {
+      const order = readOrder(map, at)
+      if (!(map instanceof Y.Map)) {
+        return { page: legacyPage(session, fallbackLines), deletedAt: 0, at, order }
+      }
+      const stamp = map.get(PAGE_DELETED_AT)
+      return {
+        page: readPageMap(map, at, fallbackLines),
+        deletedAt: typeof stamp === 'number' && Number.isFinite(stamp) && stamp > 0 ? stamp : 0,
+        at,
+        order,
+      }
+    })
+    .sort((a, b) => a.order - b.order || a.at - b.at)
 }
 
 /**
@@ -1467,20 +1498,21 @@ export function addPage(session: DocSession, fallbackLines: number): number {
   let created = -1
   session.doc.transact(() => {
     const pages = ensurePages(session, fallbackLines)
-    const slots = pages
-      .toArray()
-      .map((page, index) =>
-        page instanceof Y.Map ? readPageMap(page, index, fallbackLines).slot : index,
-      )
-    pages.push([
-      pageMap({
-        id: nanoid(),
-        slot: Math.max(...slots, -1) + 1,
-        subject: '',
-        date: '',
-        lines: fallbackLines,
-      }),
-    ])
+    const stored = pages.toArray()
+    const slots = stored.map((page, index) =>
+      page instanceof Y.Map ? readPageMap(page, index, fallbackLines).slot : index,
+    )
+    const added = pageMap({
+      id: nanoid(),
+      slot: Math.max(...slots, -1) + 1,
+      subject: '',
+      date: '',
+      lines: fallbackLines,
+    })
+    // After every page there is, moved or not. Its array index alone would sort it
+    // ahead of a page that was moved to the end before it was added.
+    added.set(PAGE_ORDER, Math.max(...stored.map(readOrder), -1) + 1)
+    pages.push([added])
     // The live index, not the array one: the new page is appended and is not in the
     // trash, so it is the last page anybody can turn to.
     created = pages.toArray().filter((page) => {
@@ -1527,6 +1559,60 @@ export function removePage(session: DocSession, index: number): boolean {
 
   session.doc.transact(() => {
     page.set(PAGE_DELETED_AT, Date.now())
+  }, PAGE_ORIGIN)
+
+  return true
+}
+
+/**
+ * Move a page to another place in the diary. Both indices count the pages you can turn
+ * to, as `removePage` does; `to` is where it should be once it has moved.
+ *
+ * Only the order changes. The page keeps its slot, so its writing stays in the strip of
+ * world it was always in and nothing on it is touched: a row has no idea which page it
+ * is on, and it has no idea which place in the diary that page has either.
+ *
+ * Out of range does nothing, for the reason `writePage` gives. A page in the trash
+ * keeps its own order, so putting it back returns it near the pages it was between.
+ */
+export function movePage(session: DocSession, from: number, to: number): boolean {
+  if (!session.canWrite || from === to) return false
+
+  const live = entries(session).filter((entry) => entry.deletedAt === 0)
+  const moving = live[from]
+  if (moving === undefined || to < 0 || to >= live.length) return false
+
+  const pages = storedPages(session)
+  if (pages === null) return false
+  const target = pages.get(moving.at)
+  if (!(target instanceof Y.Map)) return false
+
+  const rest = live.filter((entry) => entry !== moving)
+  const before = rest[to - 1]
+  const after = rest[to]
+
+  session.doc.transact(() => {
+    if (before === undefined || after === undefined) {
+      target.set(PAGE_ORDER, before === undefined ? after!.order - 1 : before.order + 1)
+      return
+    }
+    const order = (before.order + after.order) / 2
+    if (order > before.order && order < after.order) {
+      target.set(PAGE_ORDER, order)
+      return
+    }
+    // Halving the same gap runs out of doubles after about fifty moves into it, and a
+    // midpoint equal to a neighbour would sort the page on the wrong side of it. Rare
+    // enough to renumber the whole diary when it happens, rather than to plan around.
+    // Torn-out pages are numbered too, so they keep their place among the rest.
+    const all = entries(session).filter((entry) => entry.at !== moving.at)
+    all.splice(all.findIndex((entry) => entry.at === before.at) + 1, 0, moving)
+    all.forEach((entry, index) => {
+      const map = pages.get(entry.at)
+      if (map instanceof Y.Map && readOrder(map, entry.at) !== index) {
+        map.set(PAGE_ORDER, index)
+      }
+    })
   }, PAGE_ORIGIN)
 
   return true

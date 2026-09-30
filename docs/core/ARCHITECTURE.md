@@ -477,7 +477,8 @@ Y.Doc {
 
 `meta` was reserved here and unused until M6, when the lea surface needed somewhere to
 put what belongs to the diary rather than to anything on it: `pages`, a `Y.Array` of
-one small `Y.Map` per page (`id`, `slot`, `subject`, `date`, `lines`), and `pagePaper`,
+one small `Y.Map` per page (`id`, `slot`, `subject`, `date`, `lines`, and later
+`deletedAt` and `order`), and `pagePaper`,
 which is the whole lea's stock. The test for what belongs in it rather than in
 `objects` is whether the thing could sensibly exist twice. A note on the page could; a
 page's date could not, and two of them is a state the surface should not be able to
@@ -2164,9 +2165,20 @@ out, so removing page two can never hand its writing to whatever becomes page tw
 Pages are side by side rather than stacked on one column because a page's length is its
 own: lengthening page one would otherwise move every line of every page after it.
 
+Pages can be put in another order (1.24.0), and the order is a third number again,
+`order` on each page's map, rather than the array's own order. A `Y.Array` has no move:
+moving an entry is deleting it and inserting a copy, so two people moving one page at
+once would each insert one and the page would be in the diary twice, and a subject typed
+into it mid-move would land on the deleted copy. A number on the page's own map is one
+last-writer-wins value instead. It is fractional, so a move writes one page, ties break
+on the array index every client agrees on, and a gap split past what a double can hold
+renumbers the diary. A page with no `order` sorts at its array index, which is the order
+every lea had before. Reordering never touches `slot`, so no writing moves.
+
 Which page is open is the *client's*, not the document's - two people reading one diary
 are rarely on the same page - so it is React state, and the engine hears only
-`setPageSlot`. Turning a page is a re-fence and a jump to the top of the new one; the
+`setPageSlot`. It is held as the page's id, so a peer moving pages does not turn the
+diary under you. Turning a page is a re-fence and a jump to the top of the new one; the
 fence is still the only thing that makes a page a page. Removing one is the single
 change in this app that deliberately sits outside undo: undo is scoped to `objects`, so
 an undo would restore the writing without the page, leaving rows in a strip of the world

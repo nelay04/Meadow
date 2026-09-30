@@ -19,9 +19,10 @@
  * contents page is one line per entry.
  */
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import type { KeyboardEvent, PointerEvent } from 'react'
 
-import { IconChevronRight, IconPlus, IconRestore, IconTrash } from '../../ui/icons'
+import { IconChevronRight, IconGrip, IconPlus, IconRestore, IconTrash } from '../../ui/icons'
 import { useConfirm } from '../../ui/ConfirmDialog'
 import type { PageMeta, TrashedPage } from '../../doc/mutations'
 import { formatDiaryDate, formatDiaryDateShort } from './LeaDate'
@@ -34,6 +35,8 @@ export type LeaPagesProps = {
   onTurn(index: number): void
   onAdd(): void
   onRemove(index: number): void
+  /** Move a page to another place in the diary; `to` is where it ends up. */
+  onMove(from: number, to: number): void
   /** Pages torn out and not yet gone for good, newest first. */
   trashed: readonly TrashedPage[]
   onRestore(pageId: string): void
@@ -63,6 +66,7 @@ export function LeaPages({
   onTurn,
   onAdd,
   onRemove,
+  onMove,
   trashed,
   onRestore,
   onPurge,
@@ -87,6 +91,81 @@ export function LeaPages({
    * one that puts the question in the middle of the screen rather than inside the row.
    */
   const confirm = useConfirm()
+
+  /*
+   * Putting the pages in another order, by dragging a row by its grip.
+   *
+   * Pointer events rather than the browser's own drag and drop, which has no touch
+   * support at all, and a grip rather than the whole row, because the row is already a
+   * button that turns to its page and a list you scroll with a finger would otherwise
+   * start a drag every time you tried to scroll it. The stack panel drags its rows the
+   * same way.
+   *
+   * The page is held by id, not by where it started: a peer can move or tear out a page
+   * while this one is in the air, and the drop should move the page you picked up.
+   * `gap` is where it would land, counted between rows: 0 above the first, and
+   * `pages.length` below the last.
+   */
+  const listRef = useRef<HTMLOListElement>(null)
+  const [drag, setDrag] = useState<{ id: string; gap: number } | null>(null)
+
+  const gapAt = (clientY: number): number => {
+    const list = listRef.current
+    if (list === null) return 0
+    // Near an edge, the list scrolls, so a long diary can be reordered end to end.
+    const bounds = list.getBoundingClientRect()
+    if (clientY < bounds.top + 24) list.scrollTop -= 12
+    else if (clientY > bounds.bottom - 24) list.scrollTop += 12
+    let gap = 0
+    for (const row of list.querySelectorAll<HTMLElement>(':scope > .lea-page-slot')) {
+      const rect = row.getBoundingClientRect()
+      if (clientY > rect.top + rect.height / 2) gap += 1
+    }
+    return gap
+  }
+
+  const pickUp = (event: PointerEvent<HTMLElement>, page: PageMeta, position: number): void => {
+    if (event.button !== 0) return
+    event.preventDefault()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    setDrag({ id: page.id, gap: position })
+  }
+
+  const carry = (event: PointerEvent<HTMLElement>): void => {
+    if (drag === null) return
+    const gap = gapAt(event.clientY)
+    if (gap !== drag.gap) setDrag({ ...drag, gap })
+  }
+
+  const putDown = (): void => {
+    if (drag === null) return
+    setDrag(null)
+    const from = pages.findIndex((page) => page.id === drag.id)
+    if (from < 0) return
+    // The gap counts the page being carried, and once it is lifted out every gap below
+    // it is one fewer.
+    const to = drag.gap > from ? drag.gap - 1 : drag.gap
+    if (to !== from) onMove(from, to)
+  }
+
+  // The same thing from the keyboard, on the row that has the focus. The row keeps it
+  // as it moves, because React keeps a keyed element when its place in the list changes.
+  const nudge = (event: KeyboardEvent<HTMLButtonElement>, position: number): void => {
+    if (!editable || !event.altKey || event.ctrlKey || event.metaKey) return
+    const step = event.key === 'ArrowUp' ? -1 : event.key === 'ArrowDown' ? 1 : 0
+    if (step === 0) return
+    event.preventDefault()
+    const to = position + step
+    if (to >= 0 && to < pages.length) onMove(position, to)
+  }
+
+  const dragFrom = drag === null ? -1 : pages.findIndex((page) => page.id === drag.id)
+  // No line where dropping would leave the page where it is.
+  const dropGap =
+    drag === null || dragFrom < 0 || drag.gap === dragFrom || drag.gap === dragFrom + 1
+      ? -1
+      : drag.gap
+  const movable = editable && pages.length > 1
 
   const tearOut = async (position: number, page: PageMeta): Promise<void> => {
     const named = page.subject.trim()
@@ -136,7 +215,12 @@ export function LeaPages({
         </button>
       </div>
 
-      <ol className="lea-pages-list">
+      <ol
+        ref={listRef}
+        className={['lea-pages-list', movable ? 'movable' : '', drag === null ? '' : 'dragging']
+          .filter((name) => name !== '')
+          .join(' ')}
+      >
         {pages.map((page, position) => {
           const titled = page.subject.trim() !== ''
           /*
@@ -150,7 +234,32 @@ export function LeaPages({
            */
           const dated = formatDiaryDateShort(page.date)
           return (
-            <li key={page.id} className="lea-page-slot">
+            <li
+              key={page.id}
+              className={[
+                'lea-page-slot',
+                position === dragFrom ? 'carried' : '',
+                position === dropGap ? 'drop-before' : '',
+                position === pages.length - 1 && dropGap === pages.length ? 'drop-after' : '',
+              ]
+                .filter((name) => name !== '')
+                .join(' ')}
+            >
+              {movable && (
+                // Not a button: it does nothing on a click, and the keyboard way to
+                // move a page is on the row itself, which is where the focus already is.
+                <span
+                  className="lea-page-grip"
+                  title="Drag to move this page"
+                  aria-hidden="true"
+                  onPointerDown={(event) => pickUp(event, page, position)}
+                  onPointerMove={carry}
+                  onPointerUp={putDown}
+                  onPointerCancel={() => setDrag(null)}
+                >
+                  <IconGrip size={14} />
+                </span>
+              )}
               <button
                 type="button"
                 className={position === index ? 'lea-page open' : 'lea-page'}
@@ -160,7 +269,9 @@ export function LeaPages({
                 // The row shows the short date; the full one, the way the page
                 // itself prints it, is worth a hover.
                 title={dated === '' ? undefined : formatDiaryDate(page.date)}
+                aria-keyshortcuts={movable ? 'Alt+ArrowUp Alt+ArrowDown' : undefined}
                 onClick={() => onTurn(position)}
+                onKeyDown={(event) => nudge(event, position)}
               >
                 <span className="lea-page-number" aria-hidden="true">
                   {position + 1}

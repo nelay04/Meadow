@@ -2953,6 +2953,7 @@ export default function BoardPage({ boardId, kindHint, onBack, onSignIn }: Props
                 toast.error(`Tore out page ${index + 1}. It is under "Torn out" below.`)
               }
             }}
+            onMove={canvas.movePage}
             trashed={canvas.trashedPages}
             onRestore={(pageId) => {
               // The one green message in this panel, and it earns it: something that

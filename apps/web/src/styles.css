@@ -5910,6 +5910,85 @@ dialog.modal[open] .modal-card {
 }
 
 /*
+ * Moving a page, by the grip over its number.
+ *
+ * The grip takes the number's place while the row is under the pointer, so a list
+ * nobody is reordering reads as a contents page and not as a toolbar. Where there is no
+ * hover to reveal it, a finger has to be able to find it, so it is always shown and the
+ * row makes room for it beside the number instead.
+ */
+.lea-page-grip {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0.2rem;
+  z-index: 1;
+  width: 1.5rem;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  cursor: grab;
+  touch-action: none;
+  opacity: 0;
+  transition: opacity var(--fast);
+}
+
+.lea-page-slot:hover .lea-page-grip,
+.lea-pages-list.dragging .lea-page-slot.carried .lea-page-grip {
+  opacity: 1;
+}
+
+.lea-pages-list.movable .lea-page-slot:hover .lea-page-number,
+.lea-pages-list.dragging .lea-page-slot.carried .lea-page-number {
+  visibility: hidden;
+}
+
+@media (hover: none) {
+  .lea-page-grip {
+    opacity: 1;
+  }
+
+  .lea-pages-list.movable .lea-page {
+    padding-left: 1.9rem;
+  }
+
+  .lea-pages-list.movable .lea-page-slot:hover .lea-page-number {
+    visibility: visible;
+  }
+}
+
+.lea-pages-list.dragging,
+.lea-pages-list.dragging .lea-page-grip {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.lea-page-slot.carried {
+  opacity: 0.45;
+}
+
+/* Where the page would land: a rule in the gap, half-way between the two rows. */
+.lea-page-slot.drop-before::before,
+.lea-page-slot.drop-after::after {
+  content: '';
+  position: absolute;
+  left: 0.3rem;
+  right: 0.3rem;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.lea-page-slot.drop-before::before {
+  top: calc(-0.15rem - 1px);
+}
+
+.lea-page-slot.drop-after::after {
+  bottom: calc(-0.15rem - 1px);
+}
+
+/*
  * The lea's trash, at the foot of its contents.
  *
  * Below the list and below the way to start a new page, because it is the least of

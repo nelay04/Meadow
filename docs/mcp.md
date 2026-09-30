@@ -227,6 +227,8 @@ node meadow-mcp.js --http --api https://meadow.example.com --host 127.0.0.1 --po
 | `get_glade_snapshot` | A PNG of the glade as the canvas draws it, optionally with the nodes and edges beside it. View access is enough |
 | `check_layout` | What would look wrong on the canvas: overflowing text, overlaps, lines through shapes, stacked labels |
 | `tidy_layout` | Lay a diagram out again, grow shapes to fit their text, and re-attach its arrows |
+| `list_lea_pages` | A lea's pages in order, with ids, subjects and dates. View access is enough |
+| `move_lea_page` | Put a lea's page at another position. Needs edit access to that lea; the writing stays on its page |
 | `import_glade` | Create a glade from a `.meadow.json` file |
 
 Every write accepts `preview: true`, which returns the plan without changing anything.

@@ -11,6 +11,36 @@ away getting there.
 
 ---
 
+## [1.24.0] - [30-Sep-2026]
+
+### Added
+- **A lea's pages can be put in another order.** Drag a page in the Pages list by the
+  grip over its number, or press Alt+Up or Alt+Down on the focused page. A line shows
+  where it will land. The grip works with a mouse, a pen or a finger, and on a touch
+  screen it is always shown. Only the order changes: each page keeps its writing, and a
+  page that is torn out and put back returns near the pages it was between.
+- **The open page stays open when pages move.** A lea used to remember which page was
+  open by its number, so someone else reordering pages switched the page under your
+  caret. It now follows the page itself, and tearing out a page above it leaves you on
+  it too.
+- **The MCP server can list and reorder a lea's pages.** `list_lea_pages` returns the
+  pages in order with their ids, subjects and dates, and needs only view access.
+  `move_lea_page` puts one page at another position, needs edit access to that lea, and
+  accepts `preview: true`. A token without edit access on the lea is refused with the
+  reason and nothing changes; a token with no edit access anywhere is not offered the
+  tool. Covered by `pnpm e2e:mcp`, with a browser watching the moved page stay open.
+
+### Changed
+- **A page's place in a lea is a number on the page, not its place in the stored
+  list.** Each entry in `meta.pages` can now carry `order`, and pages sort by it,
+  falling back to their stored position, so every existing lea reads exactly as before.
+  A move writes one number on one page. That lets two people moving the same page at
+  once settle on one place for it rather than listing it twice, and a subject typed into
+  a page while it moves is kept. Covered in `mutations.test.ts`, including a
+  two-client concurrent move and 120 moves into the same gap.
+
+---
+
 ## [1.23.2] - [30-Sep-2026]
 
 ### Fixed

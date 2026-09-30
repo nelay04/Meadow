@@ -35,12 +35,14 @@ import {
   readPages,
   readTrashedPages,
   reconcileOrder,
+  movePage,
   removePage,
   reseatWritingRows,
   restorePage,
   seedLeaFont,
   sendBackward,
   setLeaFont,
+  setPageDate,
   setPageSubject,
   sweepPageTrash,
   sendToBack,
@@ -705,6 +707,105 @@ describe('pages', () => {
     expect(removePage(doc, 0)).toBe(true)
     setPageSubject(doc, 1, 'Wednesday', LINES)
     expect(readPages(doc, LINES).map((page) => page.subject)).toEqual(['Tuesday', 'Wednesday'])
+  })
+
+  it('moves a page to another place and leaves its writing in its own strip', () => {
+    const doc = session()
+    addPage(doc, LINES)
+    addPage(doc, LINES)
+    setPageSubject(doc, 0, 'Monday', LINES)
+    setPageSubject(doc, 1, 'Tuesday', LINES)
+    setPageSubject(doc, 2, 'Wednesday', LINES)
+    const row = addObject(doc, { type: 'text', x: 5520, y: 30, w: 760, h: 30 })
+
+    expect(movePage(doc, 2, 0)).toBe(true)
+    const pages = readPages(doc, LINES)
+    expect(pages.map((page) => page.subject)).toEqual(['Wednesday', 'Monday', 'Tuesday'])
+    // Order only: the slot and the row on it are exactly where they were.
+    expect(pages.map((page) => page.slot)).toEqual([2, 0, 1])
+    expect(readObjectById(doc, row)?.x).toBe(5520)
+
+    // A write to "page one" now means the page that is first, not the first slot.
+    setPageDate(doc, 0, '2026-09-30', LINES)
+    expect(readPages(doc, LINES)[0]?.subject).toBe('Wednesday')
+    expect(readPages(doc, LINES)[0]?.date).toBe('2026-09-30')
+
+    expect(movePage(doc, 0, 2)).toBe(true)
+    expect(readPages(doc, LINES).map((page) => page.subject)).toEqual([
+      'Monday',
+      'Tuesday',
+      'Wednesday',
+    ])
+  })
+
+  it('adds a new page after a page that was moved to the end', () => {
+    const doc = session()
+    addPage(doc, LINES)
+    setPageSubject(doc, 0, 'First', LINES)
+    expect(movePage(doc, 0, 1)).toBe(true)
+    expect(addPage(doc, LINES)).toBe(2)
+    expect(readPages(doc, LINES).map((page) => page.subject)).toEqual(['', 'First', ''])
+    expect(readPages(doc, LINES)[2]?.slot).toBe(2)
+  })
+
+  it('keeps the order when the same gap is split past what a double can hold', () => {
+    const doc = session()
+    addPage(doc, LINES)
+    addPage(doc, LINES)
+    setPageSubject(doc, 0, 'A', LINES)
+    setPageSubject(doc, 1, 'B', LINES)
+    setPageSubject(doc, 2, 'C', LINES)
+    // Swap the last two back and forth: every move lands between A and one of them,
+    // so the gap after A halves each time until it has to be renumbered.
+    for (let move = 0; move < 120; move += 1) expect(movePage(doc, 2, 1)).toBe(true)
+    expect(readPages(doc, LINES).map((page) => page.subject)).toEqual(['A', 'B', 'C'])
+    expect(movePage(doc, 2, 1)).toBe(true)
+    expect(readPages(doc, LINES).map((page) => page.subject)).toEqual(['A', 'C', 'B'])
+  })
+
+  it('settles two clients moving the same page at once on one place for it', () => {
+    const left = session()
+    addPage(left, LINES)
+    addPage(left, LINES)
+    const right = session()
+    Y.applyUpdate(right.doc, Y.encodeStateAsUpdate(left.doc))
+
+    const moved = readPages(left, LINES)[0]!.id
+    movePage(left, 0, 2)
+    movePage(right, 0, 1)
+    Y.applyUpdate(right.doc, Y.encodeStateAsUpdate(left.doc))
+    Y.applyUpdate(left.doc, Y.encodeStateAsUpdate(right.doc))
+
+    const ids = readPages(left, LINES).map((page) => page.id)
+    expect(ids).toEqual(readPages(right, LINES).map((page) => page.id))
+    // Once, not twice: a delete-and-insert move would have put it in the diary twice.
+    expect(ids.filter((id) => id === moved)).toHaveLength(1)
+    expect(ids).toHaveLength(3)
+  })
+
+  it('does nothing with a place that is not in the diary', () => {
+    const doc = session()
+    addPage(doc, LINES)
+    const before = readPages(doc, LINES)
+    expect(movePage(doc, 0, 2)).toBe(false)
+    expect(movePage(doc, 5, 0)).toBe(false)
+    expect(movePage(doc, 1, 1)).toBe(false)
+    expect(readPages(doc, LINES)).toEqual(before)
+  })
+
+  it('puts a torn-out page back among the pages it was between after others moved', () => {
+    const doc = session()
+    addPage(doc, LINES)
+    addPage(doc, LINES)
+    setPageSubject(doc, 0, 'A', LINES)
+    setPageSubject(doc, 1, 'B', LINES)
+    setPageSubject(doc, 2, 'C', LINES)
+    expect(removePage(doc, 1)).toBe(true)
+    expect(movePage(doc, 1, 0)).toBe(true)
+    expect(readPages(doc, LINES).map((page) => page.subject)).toEqual(['C', 'A'])
+
+    expect(restorePage(doc, readTrashedPages(doc, LINES)[0]!.id)).toBe(true)
+    expect(readPages(doc, LINES).map((page) => page.subject)).toEqual(['C', 'A', 'B'])
   })
 
   it('refuses to remove the last page', () => {

@@ -49,6 +49,7 @@ import {
   type TrashedPage,
   addPage,
   addPageLines,
+  movePage,
   observePageMeta,
   purgePage,
   readLeaFont,
@@ -331,6 +332,11 @@ export type CanvasHandle = {
    * to; false if it did.
    */
   removePage(index: number): boolean
+  /**
+   * Move a page to another place in the diary; `to` is where it ends up. Order only:
+   * its writing stays on it. False when nothing moved.
+   */
+  movePage(from: number, to: number): boolean
   /**
    * Pages torn out of this lea and not yet gone for good, newest first.
    *
@@ -821,13 +827,28 @@ export function useCanvas(
   /*
    * Which page is open. This client's own, never the document's.
    *
-   * Clamped on read rather than corrected in an effect, because a peer can remove the
-   * page you are on: the state is then an index past the end for exactly as long as it
-   * takes to render, and clamping here means that render is already correct rather than
-   * being a frame of nothing followed by a fix.
+   * Held as the page's id, because pages move: a peer dragging page five above page two
+   * must not turn your diary to a different page while you are writing on it. The
+   * index is kept beside it for the one case the id cannot answer, a page torn out from
+   * under you, where you stay at the same place in the diary rather than jumping away.
+   *
+   * Resolved on read rather than corrected in an effect, so the render in which a page
+   * moves or goes is already the right one rather than a frame of the wrong page
+   * followed by a fix.
    */
-  const [wantedIndex, setWantedIndex] = useState(0)
-  const pageIndex = Math.min(Math.max(wantedIndex, 0), pages.length - 1)
+  const [wanted, setWanted] = useState<{ id: string | null; index: number }>({
+    id: null,
+    index: 0,
+  })
+  const wantedAt = wanted.id === null ? -1 : pages.findIndex((page) => page.id === wanted.id)
+  const pageIndex =
+    wantedAt >= 0 ? wantedAt : Math.min(Math.max(wanted.index, 0), pages.length - 1)
+  // Turned to by position from callbacks that must not change identity with the list.
+  const pagesRef = useRef(pages)
+  pagesRef.current = pages
+  const openAt = useCallback((index: number, list: readonly PageMeta[] = pagesRef.current) => {
+    setWanted({ id: list[index]?.id ?? null, index })
+  }, [])
   const openPage = pages[pageIndex] ?? null
   // Callbacks below write to the page that is open without depending on which one it
   // is, so that none of them changes identity when a page is turned.
@@ -893,7 +914,7 @@ export function useCanvas(
   const restoring = useRef<string | null>(null)
   useEffect(() => {
     restoring.current = boardId === undefined ? null : readOpenPage(boardId)
-    setWantedIndex(0)
+    setWanted({ id: null, index: 0 })
   }, [boardDoc, boardId])
 
   useEffect(() => {
@@ -904,8 +925,8 @@ export function useCanvas(
     // yet is the ordinary case on the way up - the first sync can land in pieces - and
     // a page torn out while this browser was closed is never coming, which the write
     // below handles by leaving the stored id alone rather than by forgetting it.
-    if (found > 0) setWantedIndex(found)
-  }, [pages])
+    if (found > 0) openAt(found, pages)
+  }, [pages, openAt])
 
   /*
    * And the other half: remember it whenever it changes.
@@ -999,8 +1020,8 @@ export function useCanvas(
     // browser was closed is never found, and without this the debt would stay owed for
     // the rest of the session and nothing turned to after it would be remembered.
     restoring.current = null
-    setWantedIndex(index)
-  }, [])
+    openAt(index)
+  }, [openAt])
 
   /*
    * A new page, and you are on it.
@@ -1020,16 +1041,21 @@ export function useCanvas(
     // As in `turnToPage`: this is a page chosen now, so nothing is owed to the one
     // this browser was on last time.
     restoring.current = null
-    setWantedIndex(created)
+    openAt(created, pagesNow)
     return created
+  }, [openAt])
+
+  // Nothing to adjust afterwards: the open page is held by id, so tearing out a page
+  // above it leaves you on it, and tearing out the page itself leaves you at the same
+  // place in the diary, looking at what is now there.
+  const tearOutPage = useCallback((index: number) => {
+    return removePage(sessionRef.current, index)
   }, [])
 
-  const tearOutPage = useCallback((index: number) => {
-    if (!removePage(sessionRef.current, index)) return false
-    // Stay where you were in the diary rather than jumping to the end: removing page
-    // three should leave you looking at what is now page three.
-    setWantedIndex((current) => (current > index ? current - 1 : current))
-    return true
+  // Likewise: the page you are on stays open wherever it moves to, and moving another
+  // page past it does not turn the diary under you.
+  const reorderPage = useCallback((from: number, to: number) => {
+    return movePage(sessionRef.current, from, to)
   }, [])
 
   /*
@@ -1213,6 +1239,7 @@ export function useCanvas(
     turnToPage,
     addPage: startPage,
     removePage: tearOutPage,
+    movePage: reorderPage,
     trashedPages:
       options.column === null || options.column === undefined ? EMPTY_TRASH : trashedPages,
     restorePage: putPageBack,

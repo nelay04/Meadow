@@ -34,6 +34,8 @@ import {
   ReadOnlyError,
   applyEdits,
   importGlade,
+  movePage,
+  readPages,
 } from '../../../apps/web/src/doc/mutations'
 import { type ToolNeeds, describeBoundaries, usable } from './access'
 import { MeadowApi, MeadowApiError, type TokenInfo } from './api'
@@ -77,6 +79,7 @@ How to work with it:
 - Every write reports layout problems it left (text overflowing a shape, a line through a shape, overlapping lines or labels). When it does, or when a glade looks messy, call tidy_layout, then check_layout to confirm.
 - Pass preview: true to any write to see what it would do without changing the glade. A preview works even where the write itself is not allowed.
 - Labels accept light Markdown: **bold**, *italic*, # headings and - bullets.
+- A lea (kind lea) is a ruled diary with pages. list_lea_pages shows them in order with their ids; move_lea_page puts one at another position. Moving a page never moves its writing.
 Edits appear live for anyone with the glade open.`
 
 const LOOKING = `Looking at the result:
@@ -458,6 +461,26 @@ export function createServer({
     )
   }
 
+  /*
+   * The pages of a lea, in the order the page list shows them, numbered from 1.
+   *
+   * Without their length: how many rules a page has falls back to the reader's own
+   * default when it was never written, and that default belongs to the canvas, which
+   * this process does not load. Nothing a model does with pages here needs it.
+   */
+  const leaPages = (room: Room): { position: number; id: string; subject: string; date: string }[] =>
+    readPages(room.session, 1).map((page, index) => ({
+      position: index + 1,
+      id: page.id,
+      subject: page.subject,
+      date: page.date,
+    }))
+
+  const notALea = (room: Room): CallToolResult | null =>
+    room.board.kind === 'lea'
+      ? null
+      : refused(`"${room.board.title}" is a glade, not a lea, so it has no pages.`)
+
   // --- reading ---------------------------------------------------------------------------
 
   server.registerTool(
@@ -756,6 +779,22 @@ export function createServer({
       })),
   )
 
+  server.registerTool(
+    'list_lea_pages',
+    {
+      title: 'List the pages of a lea',
+      description:
+        'The pages of a lea (a ruled diary), in order: position from 1, id, subject and date. Torn-out pages are left out. Use the ids with move_lea_page.',
+      inputSchema: { glade_id: gladeId },
+      annotations: { readOnlyHint: true },
+    },
+    ({ glade_id }) =>
+      guarded(async () => {
+        const room = await openRoom(glade_id)
+        return notALea(room) ?? ok({ pages: leaPages(room) })
+      }),
+  )
+
   // --- writing ---------------------------------------------------------------------------
 
   gate(
@@ -1037,6 +1076,78 @@ export function createServer({
             wantSnapshot,
           ),
         ),
+    ),
+    'edit',
+  )
+
+  /*
+   * Reordering a lea's pages. The same `movePage` the page list's drag calls, so the
+   * order is the one field on the page's own map and a person dragging pages at the same
+   * moment merges with it rather than duplicating a page. Edit access, like any other
+   * change to what is on the lea: `refusal` names why when it is missing, and the server
+   * drops the write regardless.
+   */
+  gate(
+    server.registerTool(
+      'move_lea_page',
+      {
+        title: 'Move a page in a lea',
+        description:
+          'Put one page of a lea at another position in its page list. Only the order changes: the writing stays on its page. Needs edit access to the lea. Take page ids and positions from list_lea_pages.',
+        inputSchema: {
+          glade_id: gladeId,
+          page_id: z.string().min(1).describe('The page to move, from list_lea_pages.'),
+          to_position: z
+            .number()
+            .int()
+            .min(1)
+            .describe('Where it should end up, counting from 1, as list_lea_pages numbers them.'),
+          preview,
+        },
+      },
+      ({ glade_id, page_id, to_position, preview: wantPreview }) =>
+        guarded(async () => {
+          const room = await openRoom(glade_id)
+          const wrongKind = notALea(room)
+          if (wrongKind !== null) return wrongKind
+
+          const pages = leaPages(room)
+          const from = pages.findIndex((page) => page.id === page_id)
+          if (from < 0) {
+            return refused(
+              `No page with id "${page_id}" in "${room.board.title}". Call list_lea_pages for the current ids; a torn-out page cannot be moved.`,
+            )
+          }
+          if (to_position > pages.length) {
+            return refused(
+              `"${room.board.title}" has ${pages.length} page${pages.length === 1 ? '' : 's'}, so to_position can be at most ${pages.length}.`,
+            )
+          }
+
+          const to = to_position - 1
+          const planned = [...pages]
+          const [moving] = planned.splice(from, 1)
+          planned.splice(to, 0, moving!)
+          const order = planned.map((page, index) => ({ ...page, position: index + 1 }))
+
+          const blocked = refusal(room, 'edit')
+          if (wantPreview === true) {
+            return ok({
+              preview: true,
+              ...(blocked === null ? {} : { would_be_refused: [blocked] }),
+              moved: from !== to,
+              pages: order,
+            })
+          }
+          if (blocked !== null) return refused(blocked)
+          if (from === to) return ok({ moved: false, pages })
+
+          if (!movePage(room.session, from, to)) {
+            return refused('The page could not be moved. Read the pages again and retry.')
+          }
+          await (await roomsFor()).flush(room)
+          return ok({ moved: true, pages: leaPages(room) })
+        }),
     ),
     'edit',
   )
