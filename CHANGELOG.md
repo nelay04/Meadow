@@ -11,6 +11,18 @@ away getting there.
 
 ---
 
+## [1.24.1] - [30-Sep-2026]
+
+### Fixed
+- **A new access token comes into view when it is made.** The token is shown at the
+  top of the Create a token card, but Create token sits at the bottom of a long form,
+  and the form folds away as the token appears. With several glades ticked, the page
+  was left scrolled past the token, and it was easy to think nothing had happened. The
+  token now scrolls to the middle of the screen, rings once the way a card reached
+  from the search does, and takes focus on Copy, so Enter copies it.
+
+---
+
 ## [1.24.0] - [30-Sep-2026]
 
 ### Added

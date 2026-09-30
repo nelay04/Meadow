@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 
 import { IconCopy, IconKey, IconPlus } from '../../ui/icons'
@@ -370,6 +370,8 @@ export function AccessTokensCard() {
   const [customDate, setCustomDate] = useState(() => inputDate(daysFromToday(60)))
   const [creating, setCreating] = useState(false)
   const [created, setCreated] = useState<CreatedAccessToken | null>(null)
+  const createdRef = useRef<HTMLDivElement>(null)
+  const copyRef = useRef<HTMLButtonElement>(null)
   const [revoking, setRevoking] = useState<string | null>(null)
   // The token whose glades are being changed, and the draft of them.
   const [editing, setEditing] = useState<string | null>(null)
@@ -390,6 +392,25 @@ export function AccessTokensCard() {
     void reload()
     api.listBoards().then(setBoards, () => setBoards([]))
   }, [])
+
+  /*
+   * A new token appears at the top of the card, but the button that made it is at the
+   * bottom of a form that just folded away, so the page is left scrolled past the one
+   * thing worth reading. Bring the token to the middle of the screen, ring it once like a
+   * jump from the search does, and put focus on Copy so Enter copies it.
+   */
+  const createdId = created?.id
+  useEffect(() => {
+    const panel = createdRef.current
+    if (createdId === undefined || panel === null) return
+    panel.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    copyRef.current?.focus({ preventScroll: true })
+    panel.classList.remove('setting-flash')
+    void panel.offsetWidth
+    panel.classList.add('setting-flash')
+    const timer = window.setTimeout(() => panel.classList.remove('setting-flash'), 1800)
+    return () => window.clearTimeout(timer)
+  }, [createdId])
 
   // A fine-grained token has to be able to reach something: either glades it names, or
   // leave to make its own.
@@ -647,13 +668,18 @@ export function AccessTokensCard() {
         </div>
 
         {created !== null && (
-          <div className="token-created" role="status">
+          <div ref={createdRef} className="token-created" role="status">
             <p>
               <strong>Copy {created.name} now.</strong> This is the only time it is shown.
             </p>
             <div className="token-secret">
               <code>{created.token}</code>
-              <button type="button" className="primary" onClick={() => void copyCreated()}>
+              <button
+                ref={copyRef}
+                type="button"
+                className="primary"
+                onClick={() => void copyCreated()}
+              >
                 <IconCopy size={16} />
                 Copy
               </button>
