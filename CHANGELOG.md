@@ -11,6 +11,19 @@ away getting there.
 
 ---
 
+## [1.24.6] - [01-Oct-2026]
+
+### Fixed
+- **No hollow cards in the setup steps on `/connect/`.** The Claude Code card grew to
+  four ways in, and beside it in the two-column grid the Gemini card stretched to the
+  same height, leaving most of it an empty panel. Claude Code now takes the full row,
+  with its editor steps and sign-in on the left and its terminal command and
+  `.mcp.json` on the right, and the other cards are paired by length: Gemini with
+  Codex, VS Code with Cursor and the other JSON configs. The jump buttons follow the
+  new order. No step or config changed.
+
+---
+
 ## [1.24.5] - [01-Oct-2026]
 
 ### Changed
