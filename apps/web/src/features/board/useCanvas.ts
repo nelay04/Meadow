@@ -37,6 +37,7 @@ import {
   GRID_PATTERNS,
   type GridPattern,
 } from '../../canvas/surface'
+import { STICKY_COLOR_IDS, type StickyColorId } from '../../canvas/style'
 import type { ScreenInsets } from '../../canvas/camera'
 import type { Wanderer } from '../../canvas/overlay/wandererLayer'
 import { DEFAULT_LASER } from '../../canvas/tools/types'
@@ -79,6 +80,7 @@ const GRID_KEY = 'meadow.grid'
 const GRID_PATTERN_KEY = 'meadow.grid.pattern'
 const PEN_KEY = 'meadow.pen'
 const LASER_KEY = 'meadow.laser'
+const STICKY_KEY = 'meadow.sticky'
 const KEEP_TOOL_KEY = 'meadow.keepTool'
 /** One key per lea, not a map of them: two tabs on two boards must not clobber. */
 const OPEN_PAGE_KEY = 'meadow.lea.page'
@@ -117,6 +119,30 @@ function readLaserPreference(): LaserSettings {
 function writeLaserPreference(laser: LaserSettings): void {
   try {
     localStorage.setItem(LASER_KEY, JSON.stringify(laser))
+  } catch {
+    // As with the pen: it still applies for this session.
+  }
+}
+
+/**
+ * The note colour, as this browser last chose it.
+ *
+ * A preference like the pen's: the colour you reach for is yours, and a note already
+ * on the board keeps the colour it was made in whatever anybody picks next. Checked
+ * against the list because an id from another build must not reach the palette.
+ */
+function readStickyPreference(): StickyColorId {
+  try {
+    const stored = localStorage.getItem(STICKY_KEY)
+    return STICKY_COLOR_IDS.includes(stored as StickyColorId) ? (stored as StickyColorId) : 'theme'
+  } catch {
+    return 'theme'
+  }
+}
+
+function writeStickyPreference(id: StickyColorId): void {
+  try {
+    localStorage.setItem(STICKY_KEY, id)
   } catch {
     // As with the pen: it still applies for this session.
   }
@@ -411,6 +437,13 @@ export type CanvasHandle = {
   setLaser(patch: Partial<LaserSettings>): void
 
   /**
+   * The colour the sticky tool makes notes in. Like the polygon's side count it also
+   * recolours any selected notes; the engine does both. Remembered in this browser.
+   */
+  stickyColor: StickyColorId
+  setStickyColor(id: StickyColorId): void
+
+  /**
    * Text formatting, for the object being edited or for a text-bearing selection.
    *
    * `marks` is only meaningful while an editor is open, because a mark applies to a
@@ -549,6 +582,7 @@ export function useCanvas(
   const [polygonSides, setPolygonSidesState] = useState(DEFAULT_POLYGON_SIDES)
   const [pen, setPenState] = useState<PenSettings>(readPenPreference)
   const [laser, setLaserState] = useState<LaserSettings>(readLaserPreference)
+  const [stickyColor, setStickyColorState] = useState<StickyColorId>(readStickyPreference)
   const [activeMarks, setActiveMarks] = useState<readonly TextMark[]>([])
   // A counter, not the value: the engine is the source of truth for both of these and
   // they change on selection, on editing, and on a peer's edit. Bumping this on the
@@ -584,6 +618,8 @@ export function useCanvas(
   penRef.current = pen
   const laserRef = useRef(laser)
   laserRef.current = laser
+  const stickyColorRef = useRef(stickyColor)
+  stickyColorRef.current = stickyColor
 
   // Same reason as the session: the name arrives after the engine is built, so the
   // host reads it through a ref rather than capturing whatever it was at mount. The
@@ -667,6 +703,8 @@ export function useCanvas(
       engine.setKeepTool(keepToolRef.current)
       engine.setPen(penRef.current)
       engine.setLaser(laserRef.current)
+      // Before anything is selected, so this sets the next note and recolours nothing.
+      engine.setStickyColor(stickyColorRef.current)
       engine.setSurface(optionsRef.current.surface ?? DEFAULT_SURFACE)
       engine.setAvailableTools(optionsRef.current.tools ?? null)
       engine.setColumnFont(readLeaFont(current()))
@@ -1130,6 +1168,12 @@ export function useCanvas(
     })
   }, [])
 
+  const setStickyColor = useCallback((id: StickyColorId) => {
+    engineRef.current?.setStickyColor(id)
+    setStickyColorState(id)
+    writeStickyPreference(id)
+  }, [])
+
   const setWanderers = useCallback((wanderers: readonly Wanderer[]) => {
     engineRef.current?.setWanderers(wanderers)
   }, [])
@@ -1209,6 +1253,8 @@ export function useCanvas(
     setPen,
     laser,
     setLaser,
+    stickyColor,
+    setStickyColor,
     canFormatText: engineRef.current?.canFormatText ?? false,
     activeMarks,
     toggleMark: (mark: TextMark) => engineRef.current?.toggleTextMark(mark),

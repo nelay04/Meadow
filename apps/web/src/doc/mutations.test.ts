@@ -138,6 +138,23 @@ describe('object writes', () => {
     expect(props.get('strokeWidth')).toBe(3)
   })
 
+  it('removes a prop patched to undefined, handing it back to the default', () => {
+    const doc = session()
+    const id = addObject(doc, {
+      type: 'sticky',
+      props: { fill: 0xfff1a6, stroke: 0xdcc25a, author: 'A', note: undefined },
+    })
+    const props = doc.objects.get(id)?.get('props') as Y.Map<unknown>
+    expect(props.has('note')).toBe(false)
+
+    updateObject(doc, id, { props: { fill: undefined, stroke: undefined } })
+
+    expect(props.has('fill')).toBe(false)
+    expect(props.has('stroke')).toBe(false)
+    expect(props.get('author')).toBe('A')
+    expect(readObjectById(doc, id)?.props).toEqual({ author: 'A' })
+  })
+
   it('moves a multi-selection in a single transaction', () => {
     const { doc, ids } = seed(3)
     let transactions = 0

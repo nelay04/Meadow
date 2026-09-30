@@ -33,6 +33,7 @@ import { PAGE_LINES_STEP, pageSlotAt } from '../../canvas/engine'
 
 import type { Wanderer } from '../../canvas/overlay/wandererLayer'
 import type { ToolId } from '../../canvas/tools/types'
+import { STICKY_COLORS, STICKY_COLOR_IDS, type StickyColorId } from '../../canvas/style'
 import { TEXT_MARKS, type TextMark } from '../../doc/richText'
 import {
   IconArrow,
@@ -329,6 +330,38 @@ const LASER_COLORS: { value: number; label: string; css: string }[] = [
 ]
 
 /**
+ * The note colours, with the theme's own first.
+ *
+ * The same bargain as the pen's `Ink`: the first swatch is not blue so much as "the
+ * board's note", pale on a light board and deep on a dark one, and it is shown in
+ * whichever of the two is on screen. The rest are paper colours that stay put in both
+ * themes. The swatch is a small square with the note's own edge, because it is a
+ * note being chosen and not an ink.
+ */
+const STICKY_SWATCHES: { id: StickyColorId; label: string; css: string; edge: string }[] =
+  STICKY_COLOR_IDS.map((id) => {
+    const color = STICKY_COLORS[id]
+    if (color === null) {
+      return {
+        id,
+        label: 'Blue (default)',
+        css: 'light-dark(#a8daff, #1f4d73)',
+        edge: 'light-dark(#7cb4dd, #3d769f)',
+      }
+    }
+    return {
+      id,
+      label: id.charAt(0).toUpperCase() + id.slice(1),
+      css: cssHex(color.fill),
+      edge: cssHex(color.stroke),
+    }
+  })
+
+function cssHex(value: number): string {
+  return `#${value.toString(16).padStart(6, '0')}`
+}
+
+/**
  * Beam widths, in screen pixels.
  *
  * Three rather than the pen's four, and named rather than a slider, for the same reason
@@ -348,7 +381,7 @@ const LASER_SIZES: { value: number; label: string }[] = [
  * A set rather than a check per call site, so a tool cannot end up with a menu the
  * open/close logic does not know about.
  */
-const TOOLS_WITH_MENU: ReadonlySet<ToolId> = new Set<ToolId>(['arrow', 'pen', 'laser'])
+const TOOLS_WITH_MENU: ReadonlySet<ToolId> = new Set<ToolId>(['arrow', 'pen', 'laser', 'sticky'])
 
 /**
  * Which flyout a tool belongs to, or none.
@@ -2564,6 +2597,33 @@ export default function BoardPage({ boardId, kindHint, onBack, onSignIn }: Props
                       </button>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {/*
+                The note colour. Unlike the nibs it also recolours the notes that are
+                selected, the way the polygon's side count reshapes selected polygons:
+                a note's colour is which pile it is in, and moving one to another pile
+                should not mean writing it out again.
+              */}
+              {tool.id === 'sticky' && railMenu === 'sticky' && canWrite && (
+                <div className="tool-submenu" role="group" aria-label="Note colour">
+                  {STICKY_SWATCHES.map((swatch) => (
+                    <button
+                      key={swatch.id}
+                      type="button"
+                      aria-label={swatch.label}
+                      aria-pressed={canvas.stickyColor === swatch.id}
+                      className={canvas.stickyColor === swatch.id ? 'tool active' : 'tool'}
+                      onClick={() => canvas.setStickyColor(swatch.id)}
+                    >
+                      <span
+                        className="note-swatch"
+                        style={{ background: swatch.css, borderColor: swatch.edge }}
+                      />
+                      <Tip label={swatch.label} />
+                    </button>
+                  ))}
                 </div>
               )}
             </div>

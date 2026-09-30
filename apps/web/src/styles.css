@@ -5025,6 +5025,15 @@ kbd {
   border: 1px solid color-mix(in srgb, var(--fg) 22%, transparent);
 }
 
+/* A note colour is shown as a note: square, a hair rounded, with its own edge. */
+.note-swatch {
+  display: block;
+  width: 15px;
+  height: 15px;
+  border-radius: 2px;
+  border: 1px solid;
+}
+
 /*
  * A destructive control says so on hover rather than in its resting state. Permanent
  * red is an alarm nobody is currently causing; red on hover is the answer to "what

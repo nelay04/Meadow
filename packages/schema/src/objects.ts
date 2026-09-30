@@ -266,7 +266,9 @@ export function createObjectMap(data: ObjectData): Y.Map<unknown> {
   for (const field of SCALAR_FIELDS) map.set(field, data[field])
 
   const props = new Y.Map<unknown>()
-  for (const [key, value] of Object.entries(data.props)) props.set(key, value)
+  for (const [key, value] of Object.entries(data.props)) {
+    if (value !== undefined) props.set(key, value)
+  }
   map.set('props', props)
 
   if (isTextBearing(data.type)) map.set('text', new Y.XmlFragment())
@@ -312,12 +314,19 @@ export function writeObject(map: Y.Map<unknown>, patch: Partial<ObjectData>): vo
   if (patch.props !== undefined) {
     const props = map.get('props')
     // Per-key writes, so a concurrent change to a property this patch does not
-    // mention survives. Replacing the whole map would discard it.
+    // mention survives. Replacing the whole map would discard it. A key set to
+    // `undefined` is removed, which is how a patch hands a property back to its
+    // default: a note recoloured to the theme's own blue must stop storing a fill.
     if (props instanceof Y.Map) {
-      for (const [key, value] of Object.entries(patch.props)) props.set(key, value)
+      for (const [key, value] of Object.entries(patch.props)) {
+        if (value === undefined) props.delete(key)
+        else props.set(key, value)
+      }
     } else {
       const fresh = new Y.Map<unknown>()
-      for (const [key, value] of Object.entries(patch.props)) fresh.set(key, value)
+      for (const [key, value] of Object.entries(patch.props)) {
+        if (value !== undefined) fresh.set(key, value)
+      }
       map.set('props', fresh)
     }
   }

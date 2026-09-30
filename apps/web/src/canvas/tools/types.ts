@@ -17,6 +17,7 @@ import type {
 
 import type { Camera, Point, WorldRect } from '../camera'
 import type { SnapGuide } from '../snapping'
+import type { StickyColorId } from '../style'
 
 export type ToolId =
   | 'select'
@@ -227,6 +228,11 @@ export type ToolContext = {
    * `arrowRouting` is one: it changes while the tool is mounted.
    */
   readonly pen: PenSettings
+  /**
+   * The colour a new sticky is made in, chosen in the sticky flyout. A getter for the
+   * same reason `arrowRouting` is one: it changes while the tool is mounted.
+   */
+  readonly stickyColor: StickyColorId
   /** The local person's display name, for the byline on a new sticky. */
   readonly authorName: string
   /** Close the current undo step. Call when a gesture completes. */

@@ -76,10 +76,12 @@ import {
   MARQUEE_FILL,
   SELECTION_COLOR,
   SPOTLIGHT_COLOR,
+  type StickyColorId,
   isDarkSurface,
   readCanvasInk,
   resolveStyle,
   shapeKindFor,
+  stickyColorProps,
 } from './style'
 import { HANDLE_SIZE_PX, RESIZE_HANDLES, handlePositions } from './transform'
 import { ARROW_HANDLE_RADIUS_PX, arrowHandles } from './arrowHandles'
@@ -835,6 +837,8 @@ export class CanvasEngine {
   private keepTool = false
   /** How many sides the polygon tool draws with. See `setPolygonSides`. */
   private polygonSides: number = DEFAULT_POLYGON_SIDES
+  /** The colour the sticky tool makes notes in. See `setStickyColor`. */
+  private stickyColor: StickyColorId = 'theme'
 
   /**
    * How the pen is set. Engine state rather than document state: it describes the next
@@ -2188,6 +2192,36 @@ export class CanvasEngine {
     this.requestRender()
   }
 
+  /** The colour the sticky tool makes notes in. */
+  get stickyColorChoice(): StickyColorId {
+    return this.stickyColor
+  }
+
+  /**
+   * Choose a note colour.
+   *
+   * On the polygon's terms rather than the pen's: both the colour of the next note and
+   * a recolour of the selected ones. A note's colour is how it is sorted on the board -
+   * the yellow ones are questions, the pink ones are risks - and a note that can only
+   * change colour by being written out again is a note that stays in the wrong pile.
+   * Only notes are touched; a shape in the same selection keeps its fill.
+   */
+  setStickyColor(id: StickyColorId): void {
+    this.stickyColor = id
+
+    const color = stickyColorProps(id)
+    const patches = [...this.selected]
+      .map((key) => this.cache.get(key))
+      .filter((object): object is ObjectData => object !== undefined && object.type === 'sticky')
+      .map((object) => ({ id: object.id, patch: { props: { ...color } } }))
+
+    if (patches.length > 0 && this.host.canWrite) {
+      this.host.applyPatches(patches)
+      this.host.commit()
+    }
+    this.requestRender()
+  }
+
   /** How the pen is set, for the rail to show. */
   get penSettings(): PenSettings {
     return this.pen
@@ -3184,6 +3218,9 @@ export class CanvasEngine {
       },
       get pen(): PenSettings {
         return engine.pen
+      },
+      get stickyColor(): StickyColorId {
+        return engine.stickyColor
       },
       commit: () => this.host.commit(),
       beginTextEdit: (id) => this.beginTextEdit(id),

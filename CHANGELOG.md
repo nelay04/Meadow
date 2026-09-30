@@ -11,6 +11,29 @@ away getting there.
 
 ---
 
+## [1.23.0] - [30-Sep-2026]
+
+### Added
+- **Sticky notes in colours.** The sticky tool has a flyout now, like the pen's, with
+  six note colours: the board's own blue, first and the default, and yellow, orange,
+  pink, green and violet. The blue is still the one that follows the theme, pale on a
+  light glade and deep on a dark one; the others are paper colours stored on the note
+  and kept in both themes, each with its own edge a shade down so a yellow note does
+  not wear a blue outline. Until now only the MCP server could make a note in any
+  colour but blue.
+- **The flyout recolours the notes you have selected**, as well as setting the next
+  one, the way the polygon's side count reshapes selected polygons: a note's colour is
+  which pile it is in. Only notes change; a shape in the same selection keeps its fill.
+  Picking the blue again hands a note back to the theme rather than pinning it pale.
+  The colour you last picked is remembered per browser, like the pen.
+
+### Changed
+- **A props patch can remove a property.** A key patched to `undefined` is deleted from
+  the object rather than stored, and a new object drops one. That is how a note goes
+  back to the theme's blue: it stops storing a fill instead of storing a copy of one.
+
+---
+
 ## [1.22.1] - [30-Sep-2026]
 
 ### Fixed

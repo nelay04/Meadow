@@ -26,6 +26,7 @@ import {
 } from '@meadow/schema'
 
 import type { Point } from '../camera'
+import { stickyColorProps } from '../style'
 import type { CanvasPointerEvent, Tool, ToolContext } from './types'
 
 /** Below this drag distance in world units, treat the gesture as a click. */
@@ -102,11 +103,13 @@ export function createTextTool(context: ToolContext, kind: TextToolKind): Tool {
         ...box,
         // A note is signed. Stamped at creation because `createdBy` is a user id and
         // nothing can turn one into a name for somebody who has since disconnected.
+        // It also takes the colour chosen in the flyout; the theme's own stores none.
         props:
           kind === 'sticky'
-            ? context.authorName !== ''
-              ? { author: context.authorName }
-              : {}
+            ? {
+                ...stickyColorProps(context.stickyColor),
+                ...(context.authorName !== '' ? { author: context.authorName } : {}),
+              }
             : { autoWidth: !dragged },
       })
       if (id === null) return

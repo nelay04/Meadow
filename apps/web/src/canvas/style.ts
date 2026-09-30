@@ -89,6 +89,43 @@ const STICKY_FILL: Record<'light' | 'dark', SurfaceDefaults> = {
   dark: { fill: 0x1f4d73, stroke: 0x3d769f },
 }
 
+/**
+ * The note colours offered in the sticky tool's flyout.
+ *
+ * `theme` is not a colour, it is the default and a real choice: a note that stores no
+ * fill is the blue above, pale on a light board and deep on a dark one. Every other
+ * entry is a paper colour the author meant, stored on the note and kept in both
+ * themes. All of them are pale on purpose. Text on a coloured note is read against the
+ * note rather than the board (`inkOnFill`), so a pale card carries dark ink on either
+ * board, and a pale card is what a paper note looks like.
+ *
+ * Each carries its own edge, a shade down from the fill, because a yellow note with
+ * the theme's blue outline reads as a blue note that has been painted over.
+ */
+export const STICKY_COLOR_IDS = ['theme', 'yellow', 'orange', 'pink', 'green', 'violet'] as const
+export type StickyColorId = (typeof STICKY_COLOR_IDS)[number]
+
+export const STICKY_COLORS: Record<StickyColorId, SurfaceDefaults | null> = {
+  theme: null,
+  yellow: { fill: 0xfff1a6, stroke: 0xdcc25a },
+  orange: { fill: 0xffd6ad, stroke: 0xdea468 },
+  pink: { fill: 0xffc8d8, stroke: 0xdc8aa6 },
+  green: { fill: 0xc8efc4, stroke: 0x85c47f },
+  violet: { fill: 0xdcd1ff, stroke: 0xa190e0 },
+}
+
+/**
+ * The props a note of this colour stores. `undefined` for the theme's own, which is
+ * how a patch clears a fill and hands the note back to the theme (see `writeObject`).
+ */
+export function stickyColorProps(id: StickyColorId): {
+  fill: number | undefined
+  stroke: number | undefined
+} {
+  const color = STICKY_COLORS[id]
+  return { fill: color?.fill, stroke: color?.stroke }
+}
+
 const KINDS: Partial<Record<ObjectType, ShapeKind>> = {
   rect: SHAPE_RECT,
   ellipse: SHAPE_ELLIPSE,
