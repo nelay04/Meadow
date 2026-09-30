@@ -34,6 +34,15 @@ describe('fitNodeSize', () => {
     expect(three.h).toBeGreaterThan(80)
     expect(fitNodeSize('rect', 'a\nb\nc\nd\ne', { w: 100, h: 40 })).toEqual({ w: 100, h: 40 })
   })
+
+  it('keeps a sticky its width and grows it downward for a long note', () => {
+    expect(fitNodeSize('sticky', 'Buy milk')).toEqual({ w: 180, h: 195 })
+    const note = Array.from({ length: 20 }, (_, i) => `line ${i + 1} of a long note`).join('\n')
+    const long = fitNodeSize('sticky', note)
+    expect(long.w).toBe(180)
+    expect(long.h).toBeGreaterThan(195)
+    expect(fitNodeSize('sticky', note, { w: 300 }).w).toBe(300)
+  })
 })
 
 describe('routing', () => {
@@ -124,5 +133,21 @@ describe('checkLayout and planTidy', () => {
     expect(after.counts.shapes_overlap).toBe(0)
     expect(after.counts.edge_through_shape).toBe(0)
     expect(boardNodes(session).size).toBe(4)
+  })
+
+  it('reports a sticky its note has outgrown, and tidy makes it taller, not wider', async () => {
+    const session = fresh()
+    const note = Array.from({ length: 20 }, (_, i) => `step ${i + 1}: something to do`).join('\n')
+    const { ids } = applyEdits(
+      session,
+      await planCreate(session, [{ ref: 's', type: 'sticky', label: note, x: 0, y: 0, w: 180, h: 195 }], []),
+    )
+    expect(checkLayout(session).counts.text_overflow).toBe(1)
+
+    applyEdits(session, await planTidy(session, { ids: [ids.s], move: false }))
+    const sticky = boardNodes(session).get(ids.s)!
+    expect(sticky.w).toBe(180)
+    expect(sticky.h).toBeGreaterThan(195)
+    expect(checkLayout(session).counts.text_overflow).toBe(0)
   })
 })

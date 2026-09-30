@@ -139,9 +139,10 @@ export function fitNodeSize(
   const min = MIN_SIZES[type]
   if (options.w !== undefined && options.h !== undefined) return { w: options.w, h: options.h }
   const text = label ?? ''
-  if (text.trim() === '' || type === 'text' || type === 'sticky') {
+  if (text.trim() === '' || type === 'text') {
     return { w: options.w ?? min.w, h: options.h ?? min.h }
   }
+  if (type === 'sticky') return fitStickySize(text, options)
 
   const probe = objectData.parse({ id: 'x', type: type as ObjectType, x: 0, y: 0, w: 1, h: 1 })
   const props = resolveTextProps(probe)
@@ -173,6 +174,27 @@ export function fitNodeSize(
   }
   return { w: Math.round(w), h: Math.round(h) }
 }
+
+/**
+ * A sticky keeps its width and grows downward, which is what the overlay does with one
+ * whose words outgrow it. Room is left under the text for the author's name.
+ */
+function fitStickySize(text: string, options: { w?: number; h?: number; fontSize?: number }): Size {
+  const min = MIN_SIZES.sticky
+  const w = options.w ?? min.w
+  if (options.h !== undefined) return { w, h: options.h }
+  const probe = objectData.parse({ id: 'x', type: 'sticky', x: 0, y: 0, w: 1, h: 1 })
+  const props = resolveTextProps(probe)
+  const fontSize = options.fontSize ?? props.fontSize
+  const pad = props.padding * 2
+  const lines = readLines(text)
+  const { rows } = wrap(lines, fontSize, Math.max(w - pad, fontSize))
+  const needed = textHeight(lines, rows, fontSize) + pad + STICKY_BYLINE_ROOM
+  return { w: Math.round(w), h: Math.round(Math.max(min.h, needed)) }
+}
+
+/** The byline's reach above a sticky's bottom padding. Mirrors `bylineRoom` in textStyle.ts. */
+const STICKY_BYLINE_ROOM = 12
 
 /** An arrow label's plate: the overlay gives it 180 wide and wraps inside that. */
 export const EDGE_LABEL_MAX = { w: 180, h: 44 }

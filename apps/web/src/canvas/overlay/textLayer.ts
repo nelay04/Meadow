@@ -41,6 +41,7 @@ import {
   applyBoxStyle,
   applyBylineStyle,
   applyContentStyle,
+  bylineRoom,
 } from '../text/textStyle'
 
 /**
@@ -153,8 +154,14 @@ export type TextLayerCallbacks = {
   onMeasured(id: string, size: { w?: number; h?: number }): void
 }
 
+/** Extra height a sticky needs below its words for the author's name, if it is signed. */
+function stickyBylineRoom(object: ObjectData, props: TextProps): number {
+  const author = object.props.author
+  return typeof author === 'string' && author.trim() !== '' ? bylineRoom(props) : 0
+}
+
 /**
- * Sentinel for "nothing has been rendered into this node yet". The serialiser cannot
+ * Sentinel for "nothing" has been rendered into this node yet". The serialiser cannot
  * produce it, because any content at all is wrapped in a block tag.
  *
  * Written as an escape, not as the byte. A literal NUL in the source makes the file
@@ -551,6 +558,14 @@ export class TextLayer {
       // A whole world pixel of slack. Without it a fractional measurement that never
       // exactly equals the stored height writes a patch on every single frame.
       if (Math.abs(measured - object.h) > 1) this.callbacks.onMeasured(object.id, { h: measured })
+    } else if (object.type === 'sticky' && object.rotation === 0 && fontReady(props.fontFamily)) {
+      // A sticky keeps the card it was given until the words outgrow it, then gets
+      // taller. Grow-only: a note drawn big on purpose stays big, and a long note is
+      // never written past its own edge onto whatever sits below it. This is also what
+      // repairs a note written by the MCP server or an older client, since whichever
+      // writer next has it on screen measures it.
+      const needed = measureObjectHeight(html, box.w, props) + stickyBylineRoom(object, props)
+      if (needed > object.h + 1) this.callbacks.onMeasured(object.id, { h: Math.ceil(needed) })
     }
   }
 

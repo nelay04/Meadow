@@ -11,6 +11,22 @@ away getting there.
 
 ---
 
+## [1.23.1] - [30-Sep-2026]
+
+### Fixed
+- **A long sticky note gets taller instead of spilling out of its card.** A note was a
+  fixed card and its words ran past the bottom edge onto whatever sat below it, whether
+  they were typed, pasted or written by the MCP server. It now keeps the size it was
+  given until the text needs more, then grows downward with room left for the byline.
+  It never shrinks on its own, so a note drawn big on purpose stays big. Notes already
+  overflowing on a board are repaired the next time someone who can edit it opens it.
+- **The MCP server sizes a sticky to its text.** `create_nodes` and `apply_diagram`
+  make a long note tall enough for it at its width, `set_text` makes an existing note
+  taller when the new text needs it, `check_layout` reports a note its text has
+  outgrown, and `tidy_layout` fixes one by growing its height, never its width.
+
+---
+
 ## [1.23.0] - [30-Sep-2026]
 
 ### Added

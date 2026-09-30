@@ -232,6 +232,18 @@ export function applyBoxStyle(
   style.userSelect = editing ? 'text' : 'none'
 }
 
+const bylineInset = (props: TextProps): number => Math.max(4, props.padding - 6)
+const bylineFontSize = (props: TextProps): number => Math.max(8, props.fontSize * 0.66)
+
+/**
+ * How much taller than its content a signed note has to be for the last line to clear
+ * the byline. The bottom padding covers most of it; this is the part that sticks up
+ * past the padding, plus a few units of air.
+ */
+export function bylineRoom(props: TextProps): number {
+  return Math.max(0, bylineInset(props) + bylineFontSize(props) + 4 - props.padding)
+}
+
 /**
  * The signature in the bottom-right corner of a sticky note.
  *
@@ -248,9 +260,9 @@ export function applyBylineStyle(element: HTMLElement, props: TextProps): void {
   const style = element.style
   style.position = 'absolute'
   style.right = `${props.padding}px`
-  style.bottom = `${Math.max(4, props.padding - 6)}px`
+  style.bottom = `${bylineInset(props)}px`
   style.fontFamily = FONT_STACKS[props.fontFamily]
-  style.fontSize = `${Math.max(8, props.fontSize * 0.66)}px`
+  style.fontSize = `${bylineFontSize(props)}px`
   style.lineHeight = '1'
   style.color = cssColor(props.color)
   style.opacity = '0.55'

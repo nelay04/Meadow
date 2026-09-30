@@ -9,6 +9,7 @@
 
 import {
   type GladeFile,
+  type ObjectData,
   type GladeGraph,
   type GraphEdge,
   type GraphNode,
@@ -16,6 +17,7 @@ import {
   gladeReportIsClean,
   gladeToGraph,
   parseGladeFile,
+  readObject,
   richTextToPlain,
 } from '@meadow/schema'
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js'
@@ -40,7 +42,20 @@ import { textToRich } from './text'
 import { VERSION } from './version'
 import { type Look, lookAt, previewCopy } from './look'
 import { DEFAULT_SNAPSHOT_WIDTH, MAX_SNAPSHOT_WIDTH } from './snapshot'
+import { fitNodeSize } from './sizing'
 import { checkLayout, planTidy } from './tidy'
+
+
+/**
+ * A sticky given more text than its card holds gets taller to hold it, as it would in
+ * the web app. Never shorter, and nothing else about it changes.
+ */
+function stickyGrowth(object: ObjectData, text: string): Partial<ObjectData> {
+  if (object.type !== 'sticky' || object.rotation !== 0) return {}
+  const fontSize = typeof object.props.fontSize === 'number' ? object.props.fontSize : undefined
+  const needs = fitNodeSize('sticky', text, { w: object.w, fontSize })
+  return needs.h > object.h ? { h: needs.h } : {}
+}
 
 export { VERSION }
 
@@ -944,10 +959,13 @@ export function createServer({
             glade_id,
             wantPreview,
             async (room) => {
-              if (!room.session.objects.has(id)) throw new PlanError(`no object with id ${id}`)
+              const map = room.session.objects.get(id)
+              if (map === undefined) throw new PlanError(`no object with id ${id}`)
               return {
                 batch: {
-                  update: [{ id, patch: {}, text: textToRich(text, markdown ?? true) }],
+                  update: [
+                    { id, patch: stickyGrowth(readObject(map), text), text: textToRich(text, markdown ?? true) },
+                  ],
                 },
               }
             },

@@ -7,8 +7,8 @@
  *
  * The two types differ in how a drag is interpreted, which follows from what they are.
  * A text object has a width the user cares about and a height derived from its content,
- * so a drag sets the width only. A sticky is a fixed card, so a drag sets both and it
- * keeps whatever box was drawn.
+ * so a drag sets the width only. A sticky is a card, so a drag sets both and it keeps
+ * whatever box was drawn until its words outgrow it, when it gets taller.
  *
  * A click is the case where nobody chose a width at all, and that is what `autoWidth`
  * is for: the object starts as narrow as a caret and grows with the words. Before it

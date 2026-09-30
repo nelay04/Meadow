@@ -35,7 +35,7 @@ import {
   segmentHitsRect,
   segmentsOf,
 } from './route'
-import { MIN_SIZES, edgeLabelSize, fitNodeSize } from './sizing'
+import { MIN_SIZES, type Size, edgeLabelSize, fitNodeSize } from './sizing'
 
 const plain = (session: DocSession, id: string): string => {
   const text = session.objects.get(id)?.get('text')
@@ -44,11 +44,17 @@ const plain = (session: DocSession, id: string): string => {
     : fragmentToPlainText(text as Parameters<typeof fragmentToPlainText>[0])
 }
 
-const fits = (type: string): type is SpecNodeType =>
-  type in MIN_SIZES && type !== 'text' && type !== 'sticky'
+const fits = (type: string): type is SpecNodeType => type in MIN_SIZES && type !== 'text'
 
 const fontSizeOf = (object: ObjectData): number | undefined =>
   typeof object.props.fontSize === 'number' ? object.props.fontSize : undefined
+
+/** What a node's label needs. A sticky is measured at its own width and only grows down. */
+const needsOf = (session: DocSession, type: SpecNodeType, node: ObjectData): Size =>
+  fitNodeSize(type, plain(session, node.id), {
+    fontSize: fontSizeOf(node),
+    w: type === 'sticky' ? node.w : undefined,
+  })
 
 // --- check -----------------------------------------------------------------------------
 
@@ -98,7 +104,7 @@ export function checkLayout(session: DocSession, ids?: readonly string[]): Layou
     if (!fits(node.type)) continue
     const label = plain(session, node.id)
     if (label.trim() === '') continue
-    const needs = fitNodeSize(node.type, label, { fontSize: fontSizeOf(node) })
+    const needs = needsOf(session, node.type, node)
     // A little slack: the estimate errs large, and a shape a few units short still reads.
     if (needs.w > node.w + 12 || needs.h > node.h + 12) {
       add({
@@ -230,7 +236,7 @@ export async function planTidy(session: DocSession, options: TidyOptions = {}): 
     const node = all.get(id)!
     let { w, h } = node
     if (fits(node.type) && node.rotation === 0) {
-      const needs = fitNodeSize(node.type, plain(session, id), { fontSize: fontSizeOf(node) })
+      const needs = needsOf(session, node.type, node)
       w = Math.max(w, needs.w)
       h = Math.max(h, needs.h)
     }

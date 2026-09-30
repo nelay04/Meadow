@@ -70,8 +70,9 @@ export const textProps = z.object({
   /** Inset from the object's box, in world units. */
   padding: z.number().min(0).max(200).default(8),
   /**
-   * Grow `h` to fit the content. A plain text object does; a sticky is a fixed square
-   * that shrinks its type instead, the way a real sticky note behaves.
+   * Grow `h` to fit the content, both ways. A plain text object does; a sticky leaves
+   * this off and only ever grows, so a card drawn big stays big and a long note gets
+   * taller rather than running past its edge (see the overlay's `sync`).
    */
   autoHeight: z.boolean().default(true),
   /**
