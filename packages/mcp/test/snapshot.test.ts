@@ -98,6 +98,28 @@ describe('renderSnapshot', () => {
     expect(renderSnapshot(file, { theme: 'light' }).svg).toContain('#fbf9f5')
     expect(renderSnapshot(file, { theme: 'dark' }).svg).toContain('#12161b')
   })
+
+  it('sets uncoloured text against a fill the author chose, not against the board', async () => {
+    const file = await board([
+      { ref: 'pale', label: 'Pale', type: 'sticky', fill: '#fff4c2' },
+      { ref: 'deep', label: 'Deep', type: 'sticky', fill: '#1f3b2a', x: 400 },
+      { ref: 'plain', label: 'Plain', type: 'sticky', x: 800 },
+      { ref: 'chosen', label: 'Chosen', type: 'sticky', fill: '#fff4c2', text_color: '#aa0000', x: 1200 },
+    ])
+    const inkOf = (svg: string, word: string): string | undefined =>
+      new RegExp(`fill="(#[0-9a-f]{6})"[^>]*>(?:<tspan[^>]*>)?${word}`).exec(svg)?.[1]
+
+    const dark = renderSnapshot(file, { theme: 'dark' }).svg
+    expect(inkOf(dark, 'Pale')).toBe('#2a3340')
+    expect(inkOf(dark, 'Deep')).toBe('#c3cedd')
+    expect(inkOf(dark, 'Plain')).toBe('#c3cedd')
+    expect(inkOf(dark, 'Chosen')).toBe('#aa0000')
+
+    const light = renderSnapshot(file, { theme: 'light' }).svg
+    expect(inkOf(light, 'Pale')).toBe('#2a3340')
+    expect(inkOf(light, 'Deep')).toBe('#c3cedd')
+    expect(inkOf(light, 'Plain')).toBe('#2a3340')
+  })
 })
 
 describe('rasterize', () => {

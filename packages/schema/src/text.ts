@@ -15,6 +15,7 @@
 
 import { z } from 'zod'
 
+import { isArrowLike } from './arrows'
 import { type ObjectData, type ObjectType, PRIMITIVE_SHAPES } from './objects'
 
 /**
@@ -177,6 +178,36 @@ export function resolveTextProps(object: ObjectData): TextProps {
   pick('autoWidth', (value) => typeof value === 'boolean')
 
   return base
+}
+
+/** The canvas's two inks, the `--canvas-ink` token at each end of the theme. */
+export const INK_ON_LIGHT = 0x2a3340
+export const INK_ON_DARK = 0xc3cedd
+
+/**
+ * The ink for text that never chose a colour, when it sits on a fill somebody did choose.
+ *
+ * Text without a colour follows the theme, and that is right only while the box under
+ * it follows the theme too. A sticky given a pale yellow keeps its yellow on a dark
+ * board, and the theme's light ink on it all but disappears. So an object that carries
+ * its own opaque fill is read against that fill instead: dark ink on a light card,
+ * light ink on a dark one, whichever board it is on.
+ *
+ * Null when there is no such fill - no `fill` stored, a mostly transparent one, a
+ * plain text object or a connector's caption, all of which sit on the board - and the
+ * caller keeps the theme's ink. Never consulted for an object that names a `color`.
+ */
+export function inkOnFill(object: Pick<ObjectData, 'type' | 'props'>): number | null {
+  const { fill, fillAlpha } = object.props
+  if (typeof fill !== 'number' || !Number.isFinite(fill)) return null
+  if (object.type === 'text' || isArrowLike(object.type)) return null
+  if (typeof fillAlpha === 'number' && fillAlpha < 0.5) return null
+
+  const r = (fill >> 16) & 0xff
+  const g = (fill >> 8) & 0xff
+  const b = fill & 0xff
+  // Rec. 601 luma, the same light-or-dark test the canvas uses for the board itself.
+  return 0.299 * r + 0.587 * g + 0.114 * b < 128 ? INK_ON_DARK : INK_ON_LIGHT
 }
 
 /** Starting geometry for a click-created object, before any text has been typed. */

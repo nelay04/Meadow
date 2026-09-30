@@ -11,6 +11,22 @@ away getting there.
 
 ---
 
+## [1.22.1] - [30-Sep-2026]
+
+### Fixed
+- **Text on a coloured card stays readable in dark mode.** Text that never chose a
+  colour followed the theme's ink, which is light on a dark board, while a sticky or
+  shape given its own fill keeps that fill in both themes. A pale yellow note, which is
+  what the MCP server makes when asked for one, came out as light type on a light card
+  on a dark glade. Text now reads against the fill it sits on when the object carries
+  an opaque one: dark ink on a light card, light ink on a dark one, in either theme. An
+  object with no fill of its own, a plain text object and an arrow's caption still
+  follow the theme, and text given an explicit colour keeps it. The idle text, the
+  editor and the MCP server's snapshots all apply the same rule, so the text does not
+  change colour on double-click and a preview shows what the canvas will.
+
+---
+
 ## [1.22.0] - [24-Sep-2026]
 
 ### Added

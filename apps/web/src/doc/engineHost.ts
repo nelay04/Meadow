@@ -17,6 +17,7 @@ import {
   type FontFamily,
   type ObjectData,
   type TextProps,
+  inkOnFill,
   readObject,
   resolveTextProps,
 } from '@meadow/schema'
@@ -329,7 +330,7 @@ export class DocEngineHost implements EngineHost {
      * the caret being a different shade.
      */
     const props = resolveTextProps(object)
-    if (typeof object.props.color !== 'number') props.color = surface.ink
+    if (typeof object.props.color !== 'number') props.color = inkOnFill(object) ?? surface.ink
 
     // And the same override, for the same reason: the ruled page sets the type its
     // rows are written in, whatever metrics a given row happens to carry.

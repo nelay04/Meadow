@@ -35,6 +35,7 @@ import {
   type ObjectData,
   absoluteInk,
   cylinderCap,
+  inkOnFill,
   isArrowLike,
   objectBounds,
   parallelogramSlant,
@@ -434,7 +435,7 @@ function drawShape(object: GladeObject, theme: Palette, scale: number): string {
       lineHeight: text.lineHeight,
       align: text.align,
       verticalAlign: text.verticalAlign,
-      color: hex(props.color, theme.ink),
+      color: hex(props.color, inkOnFill(object) ?? theme.ink),
       family: FAMILIES[text.fontFamily] ?? 'Comic Neue',
     })
   }

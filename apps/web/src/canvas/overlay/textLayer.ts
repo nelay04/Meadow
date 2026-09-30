@@ -22,6 +22,7 @@ import {
   TEXT_AUTO_WIDTH_LIMIT,
   arrowPolyline,
   cylinderCap,
+  inkOnFill,
   isArrowLike,
   parallelogramSlant,
   pointAlongPath,
@@ -411,13 +412,14 @@ export class TextLayer {
      * dark board: a caption sitting straight on the surface came out barely darker
      * than the surface itself. Same rule as connectors in the engine, and the same
      * limit: this is only ever a *default*. An object whose document carries an
-     * explicit colour keeps it in both themes.
+     * explicit colour keeps it in both themes. A box with a fill of its own is read
+     * against that fill rather than the board; see `inkOnFill`.
      *
      * `resolveTextProps` returns a fresh object per call, so this mutates rather than
      * spreading. It runs once per visible text object per frame. Colour is not a
      * layout input, so nothing here can change a measured height.
      */
-    if (typeof object.props.color !== 'number') props.color = this.ink
+    if (typeof object.props.color !== 'number') props.color = inkOnFill(object) ?? this.ink
 
     /*
      * On a ruled surface the page sets the type, not the object.
