@@ -26,7 +26,7 @@
       markup - on purpose.
 
       The app used to live at /, so every bookmark, invitation mail and shared board
-      link in the wild points at https://meadow.creara.in/#/glade/<uuid>. Those still
+      link in the wild points at /#/glade/<uuid> on the site root. Those still
       arrive here. Reading the fragment and bouncing them to /app keeps every one of
       them working, and doing it before the body parses means they never see a frame
       of marketing on the way to their board.
@@ -47,7 +47,7 @@
       name="description"
       content="Meadow is an infinite canvas whiteboard for writing, diagrams and drawing on one surface, edited live together. Works offline and types in 13 Indian languages."
     />
-    <link rel="canonical" href="https://meadow.creara.in/" />
+    <link rel="canonical" href="https://meadow.invalid/" />
     <meta name="robots" content="index, follow, max-image-preview:large" />
 
     <!-- Open Graph: what chat apps and social sites read when the link is
@@ -56,13 +56,13 @@
          these on purpose: every unfurler reads it, which is not true of WebP. -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Meadow" />
-    <meta property="og:url" content="https://meadow.creara.in/" />
+    <meta property="og:url" content="https://meadow.invalid/" />
     <meta property="og:title" content="Meadow | Infinite Canvas Whiteboard for Real-Time Collaboration" />
     <meta
       property="og:description"
       content="One endless surface for writing, drawing and thinking, shared live. Works offline and installs as an app."
     />
-    <meta property="og:image" content="https://meadow.creara.in/brand/og-cover.png" />
+    <meta property="og:image" content="https://meadow.invalid/brand/og-cover.png" />
     <meta property="og:image:width" content="1535" />
     <meta property="og:image:height" content="863" />
     <meta
@@ -77,7 +77,7 @@
       name="twitter:description"
       content="One endless surface for writing, drawing and thinking, shared live. Works offline and installs as an app."
     />
-    <meta name="twitter:image" content="https://meadow.creara.in/brand/og-cover.png" />
+    <meta name="twitter:image" content="https://meadow.invalid/brand/og-cover.png" />
 
     <!--
       Structured data. `SoftwareApplication` is what makes Google understand this as a
@@ -93,15 +93,15 @@
         "@graph": [
           {
             "@type": "SoftwareApplication",
-            "@id": "https://meadow.creara.in/#app",
+            "@id": "https://meadow.invalid/#app",
             "name": "Meadow",
-            "url": "https://meadow.creara.in/",
+            "url": "https://meadow.invalid/",
             "applicationCategory": "BusinessApplication",
             "applicationSubCategory": "Collaborative Whiteboard",
             "operatingSystem": "Web browser",
             "description": "An infinite canvas whiteboard where writing, diagramming and drawing share one endless surface, edited live by several people at once.",
-            "image": "https://meadow.creara.in/brand/og-cover.png",
-            "screenshot": "https://meadow.creara.in/brand/og-cover.png",
+            "image": "https://meadow.invalid/brand/og-cover.png",
+            "screenshot": "https://meadow.invalid/brand/og-cover.png",
             "offers": {
               "@type": "Offer",
               "price": "0",
@@ -125,17 +125,17 @@
           },
           {
             "@type": "WebSite",
-            "@id": "https://meadow.creara.in/#website",
-            "url": "https://meadow.creara.in/",
+            "@id": "https://meadow.invalid/#website",
+            "url": "https://meadow.invalid/",
             "name": "Meadow",
-            "publisher": { "@id": "https://meadow.creara.in/#org" }
+            "publisher": { "@id": "https://meadow.invalid/#org" }
           },
           {
             "@type": "Organization",
-            "@id": "https://meadow.creara.in/#org",
+            "@id": "https://meadow.invalid/#org",
             "name": "Meadow",
-            "url": "https://meadow.creara.in/",
-            "logo": "https://meadow.creara.in/brand/icon-512.png"
+            "url": "https://meadow.invalid/",
+            "logo": "https://meadow.invalid/brand/icon-512.png"
           }
         ]
       }
@@ -718,7 +718,7 @@
             <div class="shot-frame">
               <div class="shot-bar" aria-hidden="true">
                 <span class="shot-dots"><span></span><span></span><span></span></span>
-                <span class="shot-url">meadow.creara.in/app</span>
+                <span class="shot-url">meadow.invalid/app</span>
               </div>
               <picture>
                 <source

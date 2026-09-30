@@ -9,18 +9,18 @@
       name="description"
       content="Let an AI assistant read and edit your Meadow glades through the MCP server. Sign in with OAuth or use a classic or fine-grained access token, with steps for each platform."
     />
-    <link rel="canonical" href="https://meadow.creara.in/connect/" />
+    <link rel="canonical" href="https://meadow.invalid/connect/" />
     <meta name="robots" content="index, follow, max-image-preview:large" />
 
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Meadow" />
-    <meta property="og:url" content="https://meadow.creara.in/connect/" />
+    <meta property="og:url" content="https://meadow.invalid/connect/" />
     <meta property="og:title" content="Connect an AI Assistant to Meadow | MCP Setup for Every Platform" />
     <meta
       property="og:description"
       content="Connect an assistant by signing in, or with a token that reaches only the glades you pick. Step-by-step setup for each platform."
     />
-    <meta property="og:image" content="https://meadow.creara.in/brand/og-cover.png" />
+    <meta property="og:image" content="https://meadow.invalid/brand/og-cover.png" />
     <meta property="og:image:width" content="1535" />
     <meta property="og:image:height" content="863" />
     <meta property="og:locale" content="en_US" />
@@ -38,17 +38,17 @@
           {
             "@type": "BreadcrumbList",
             "itemListElement": [
-              { "@type": "ListItem", "position": 1, "name": "Home", "item": "https://meadow.creara.in/" },
-              { "@type": "ListItem", "position": 2, "name": "Connect an assistant", "item": "https://meadow.creara.in/connect/" }
+              { "@type": "ListItem", "position": 1, "name": "Home", "item": "https://meadow.invalid/" },
+              { "@type": "ListItem", "position": 2, "name": "Connect an assistant", "item": "https://meadow.invalid/connect/" }
             ]
           },
           {
             "@type": "TechArticle",
-            "@id": "https://meadow.creara.in/connect/#page",
-            "url": "https://meadow.creara.in/connect/",
+            "@id": "https://meadow.invalid/connect/#page",
+            "url": "https://meadow.invalid/connect/",
             "headline": "Connect an AI assistant to Meadow",
-            "about": { "@id": "https://meadow.creara.in/#app" },
-            "isPartOf": { "@id": "https://meadow.creara.in/#website" }
+            "about": { "@id": "https://meadow.invalid/#app" },
+            "isPartOf": { "@id": "https://meadow.invalid/#website" }
           }
         ]
       }
@@ -209,7 +209,7 @@
             <h2>Sign in, or paste a token</h2>
             <p class="lede">
               Both end in the same place: a token that acts as you, narrowed to what you chose.
-              The server address is <code>https://meadow.creara.in/mcp</code>, or your own
+              The server address is <code>https://meadow.invalid/mcp</code>, or your own
               address followed by <code>/mcp</code> if you run Meadow yourself.
             </p>
           </div>
@@ -327,7 +327,7 @@
               <ol class="steps">
                 <li>Open ChatGPT's settings, go to <strong>Security and login</strong> and turn on <strong>Developer mode</strong>.</li>
                 <li>Go to <strong>Plugins</strong>, choose <strong>Browse plugins</strong>, then the <strong>+</strong> beside the search bar in the top right.</li>
-                <li>In <strong>New Plugin</strong>, name it Meadow. Under <strong>Connection</strong> keep Server URL and enter <code>https://meadow.creara.in/mcp</code>.</li>
+                <li>In <strong>New Plugin</strong>, name it Meadow. Under <strong>Connection</strong> keep Server URL and enter <code>https://meadow.invalid/mcp</code>.</li>
                 <li>Keep <strong>Authentication</strong> on <strong>OAuth</strong>, tick the notice about custom servers, and choose <strong>Connect</strong>.</li>
                 <li>Sign in to Meadow, pick the glades and permissions, and choose Allow access.</li>
               </ol>
@@ -343,7 +343,7 @@
               </div>
               <ol class="steps">
                 <li>Open <strong>Settings, Connectors</strong> and choose <strong>Add custom connector</strong>.</li>
-                <li>Enter <code>https://meadow.creara.in/mcp</code>.</li>
+                <li>Enter <code>https://meadow.invalid/mcp</code>.</li>
                 <li>Leave <strong>Authentication</strong> on <strong>Sign in now</strong> and <strong>OAuth client</strong> on <strong>Use Claude's published identity</strong>. <strong>Register automatically</strong> works too.</li>
                 <li>Add it, choose Connect, sign in to Meadow, pick the glades and permissions, and choose Allow access.</li>
               </ol>
@@ -365,7 +365,7 @@
               </div>
               <ol class="steps">
                 <li>Switch to <strong>Spark</strong>, open <strong>Connected apps</strong> and choose <strong>Custom apps</strong>.</li>
-                <li>Choose <strong>Add a custom app</strong> and enter <code>https://meadow.creara.in/mcp</code> as the <strong>MCP Server URL</strong>.</li>
+                <li>Choose <strong>Add a custom app</strong> and enter <code>https://meadow.invalid/mcp</code> as the <strong>MCP Server URL</strong>.</li>
                 <li>Choose <strong>Next</strong>, then <strong>Connect</strong>, then <strong>Continue</strong>.</li>
                 <li>Sign in to Meadow, pick the glades and permissions, and choose Allow access.</li>
                 <li>Wait while Google finishes connecting.</li>
@@ -383,7 +383,7 @@
               <p class="or">In VS Code, from the chat</p>
               <ol class="steps">
                 <li>In the Claude Code chat, type <code>/mcp</code> and choose to add a server.</li>
-                <li>Name it Meadow, set <strong>Transport</strong> to <strong>HTTP (remote)</strong>, and enter <code>https://meadow.creara.in/mcp</code> as the <strong>URL</strong>.</li>
+                <li>Name it Meadow, set <strong>Transport</strong> to <strong>HTTP (remote)</strong>, and enter <code>https://meadow.invalid/mcp</code> as the <strong>URL</strong>.</li>
                 <li>Under <strong>Headers</strong>, type one whole line, <code>Authorization: Bearer mdw_...</code>, with your token in place of <code>mdw_...</code>. The token on its own is refused with "Headers must be Header-Name: value".</li>
                 <li>Set <strong>Scope</strong> to <strong>Local</strong> (you, in this project) or <strong>User</strong> (you, in every project). Not <strong>Project</strong>: that writes the header, token and all, into <code>.mcp.json</code>, which everyone who opens the project gets.</li>
                 <li>Choose <strong>Add server</strong>. Meadow shows in the <code>/mcp</code> list.</li>
@@ -397,7 +397,7 @@
               <p class="or">In a terminal</p>
               <div class="code" data-label="Terminal">
                 <pre><code>claude mcp add --transport http --scope user meadow \
-  https://meadow.creara.in/mcp \
+  https://meadow.invalid/mcp \
   --header "Authorization: Bearer mdw_..."</code></pre>
                 <button class="btn btn-sm btn-secondary" type="button" data-copy>Copy</button>
               </div>
@@ -408,7 +408,7 @@
   "mcpServers": {
     "meadow": {
       "type": "http",
-      "url": "https://meadow.creara.in/mcp",
+      "url": "https://meadow.invalid/mcp",
       "headers": { "Authorization": "Bearer ${MEADOW_TOKEN}" }
     }
   }
@@ -434,7 +434,7 @@
   "servers": {
     "meadow": {
       "type": "http",
-      "url": "https://meadow.creara.in/mcp",
+      "url": "https://meadow.invalid/mcp",
       "headers": { "Authorization": "Bearer ${input:meadow-token}" }
     }
   }
@@ -456,7 +456,7 @@
                 <pre><code>[mcp_servers.meadow]
 command = "node"
 args = ["/path/to/meadow-mcp.js"]
-env = { MEADOW_API_URL = "https://meadow.creara.in", MEADOW_TOKEN = "mdw_..." }</code></pre>
+env = { MEADOW_API_URL = "https://meadow.invalid", MEADOW_TOKEN = "mdw_..." }</code></pre>
                 <button class="btn btn-sm btn-secondary" type="button" data-copy>Copy</button>
               </div>
             </div>
@@ -476,7 +476,7 @@ env = { MEADOW_API_URL = "https://meadow.creara.in", MEADOW_TOKEN = "mdw_..." }<
     "meadow": {
       "command": "node",
       "args": ["/path/to/meadow-mcp.js"],
-      "env": { "MEADOW_API_URL": "https://meadow.creara.in", "MEADOW_TOKEN": "mdw_..." }
+      "env": { "MEADOW_API_URL": "https://meadow.invalid", "MEADOW_TOKEN": "mdw_..." }
     }
   }
 }</code></pre>

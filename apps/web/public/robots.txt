@@ -1,4 +1,4 @@
-# https://meadow.creara.in/robots.txt
+# https://meadow.invalid/robots.txt
 
 User-agent: *
 Allow: /
@@ -13,4 +13,4 @@ Disallow: /app
 # JSON, and never a landing page.
 Disallow: /api/
 
-Sitemap: https://meadow.creara.in/sitemap.xml
+Sitemap: https://meadow.invalid/sitemap.xml

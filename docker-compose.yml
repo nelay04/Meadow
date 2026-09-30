@@ -219,6 +219,9 @@ services:
       # host proxies to the published port. See docker/nginx/meadow.conf.template.
       MEADOW_TRUSTED_PROXY_CIDR: ${MEADOW_TRUSTED_PROXY_CIDR:-127.0.0.1}
       NGINX_ENVSUBST_FILTER: MEADOW_
+      # The public origin, written into the static pages' canonical links, share
+      # previews, sitemap and setup steps at start. Same value the API uses.
+      MEADOW_WEB_BASE_URL: ${MEADOW_WEB_BASE_URL:-}
     ports:
       # Bound to loopback by default: the edge proxy is on the same host. Set
       # WEB_BIND=0.0.0.0 only if this container is the edge.

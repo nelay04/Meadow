@@ -141,6 +141,14 @@ const FAILURES = [
       !/\.config\.[cm]?tsx?$/.test(file),
     test: (text) => /^\s*export\s+default\b/.test(text),
   },
+  {
+    name: 'hardcoded site address',
+    why:
+      'CLAUDE.md 12: write https://meadow.invalid, which the web container fills in ' +
+      'from MEADOW_WEB_BASE_URL.',
+    where: (file) => file.startsWith('apps/web/') || file.startsWith('packages/'),
+    test: (text) => /meadow\.creara\.in/.test(text),
+  },
 ]
 
 /*

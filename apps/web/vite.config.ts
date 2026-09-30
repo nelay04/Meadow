@@ -210,6 +210,43 @@ function serviceWorker(): Plugin {
   }
 }
 
+/**
+ * The site's own address in the static pages, on the dev server.
+ *
+ * Canonical links, share previews, structured data, the sitemap and the setup steps on
+ * /connect/ need an absolute address, and which one depends on where Meadow is deployed.
+ * The sources carry the placeholder `https://meadow.invalid` (and the bare
+ * `meadow.invalid` where a page shows the host as text). A build keeps it: the web
+ * image fills it in from MEADOW_WEB_BASE_URL when the container starts
+ * (docker/web/40-meadow-site-url.sh), so one image serves any host. The dev server has
+ * no such step, so this does the same on the way out.
+ */
+const SITE_PLACEHOLDER = 'https://meadow.invalid'
+const SITE_TEXT_FILES = new Set(['/robots.txt', '/sitemap.xml', '/llms.txt'])
+
+function siteAddress(origin: string): Plugin {
+  const fill = (text: string) =>
+    text
+      .replaceAll(SITE_PLACEHOLDER, origin)
+      .replaceAll('meadow.invalid', origin.replace(/^https?:\/\//, ''))
+  return {
+    name: 'meadow-site-address',
+    apply: 'serve',
+    transformIndexHtml: fill,
+    configureServer: (server) => {
+      // Ahead of Vite's own static serving, which would send the public files as they are.
+      server.middlewares.use((request, response, next) => {
+        const path = (request.url ?? '').split('?', 1)[0]
+        if (!SITE_TEXT_FILES.has(path)) return next()
+        const text = readFileSync(`${server.config.publicDir}${path}`, 'utf8')
+        const type = path.endsWith('.xml') ? 'application/xml' : 'text/plain'
+        response.setHeader('content-type', `${type}; charset=utf-8`)
+        response.end(fill(text))
+      })
+    },
+  }
+}
+
 // Ports live in the repo-root .env alongside the compose and API settings, so there
 // is one place to change them.
 const repoRoot = fileURLToPath(new URL('../../', import.meta.url))
@@ -241,7 +278,13 @@ export default defineConfig(({ mode }) => {
     .filter(Boolean)
 
   return {
-    plugins: [react(), appEntry(), sitePartials(), serviceWorker()],
+    plugins: [
+      react(),
+      appEntry(),
+      sitePartials(),
+      siteAddress((env.MEADOW_WEB_BASE_URL || `http://localhost:${webPort}`).replace(/\/$/, '')),
+      serviceWorker(),
+    ],
     define: { 'import.meta.env.MEADOW_VERSION': JSON.stringify(appVersion) },
     envDir: repoRoot,
     build: {

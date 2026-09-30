@@ -48,6 +48,10 @@ COPY docker/nginx/nginx.conf /etc/nginx/nginx.conf
 # The image entrypoint runs envsubst over templates/ into conf.d/ at container start.
 COPY docker/nginx/meadow.conf.template /etc/nginx/templates/meadow.conf.template
 COPY --from=build /build/apps/web/dist /usr/share/nginx/html
+# The pages carry a placeholder for the site's own address, filled in from
+# MEADOW_WEB_BASE_URL when the container starts. See the script.
+COPY docker/web/40-meadow-site-url.sh /docker-entrypoint.d/40-meadow-site-url.sh
+RUN chmod +x /docker-entrypoint.d/40-meadow-site-url.sh
 
 # Only MEADOW_-prefixed variables are substituted. Without the filter, envsubst would
 # also replace nginx's own $host, $remote_addr and $uri with empty strings, and the

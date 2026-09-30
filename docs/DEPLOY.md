@@ -203,7 +203,11 @@ All four matter, and three of them fail quietly:
   one rate-limit bucket. `rate_limit_login` is `5/60`, so a handful of sign-ins from
   anyone starts refusing everyone.
 - `MEADOW_WEB_BASE_URL` blank produces malformed share links, invitations and
-  activation mail. Nothing errors; the URLs are just wrong.
+  activation mail. Nothing errors; the URLs are just wrong. The web container also
+  writes it into the public pages at start (canonical links, share previews, the
+  sitemap, the setup steps on `/connect/`); blank, those become relative addresses and
+  the container log says so. A value that is not a plain origin stops the web
+  container rather than being written into the pages.
 - `MEADOW_REFRESH_COOKIE_SECURE` false over HTTPS is a live credential on the wire.
 
 ## 9. Sign-in providers (optional)

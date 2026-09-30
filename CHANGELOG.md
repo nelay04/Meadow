@@ -11,6 +11,32 @@ away getting there.
 
 ---
 
+## [1.24.4] - [30-Sep-2026]
+
+### Fixed
+- **A self-hosted Meadow's public pages name its own address.** The landing pages,
+  sitemap, robots.txt and llms.txt had this deployment's address written into them, so
+  every other copy told search engines its pages were really this site's, shared
+  previews pointed here, and the setup steps on `/connect/` sent assistants to this
+  server. The pages now carry a placeholder, `https://meadow.invalid`, and the web
+  container fills in `MEADOW_WEB_BASE_URL` when it starts, the same origin the API
+  already builds its links from. One image serves any host. The dev server fills in
+  its own address the same way.
+- **Nothing changes for this deployment.** The built pages, filled in with this site's
+  address in the real nginx image, are byte for byte the ones served before: the same
+  canonical links, share tags, structured data, sitemap and robots.txt. Every other
+  built file is unchanged.
+
+### Changed
+- **`MEADOW_WEB_BASE_URL` now reaches the web container.** Left empty, the pages fall
+  back to relative addresses, which keeps canonical links and in-page links right but
+  loses share previews and the sitemap, and the container log says so. A value that is
+  not a plain origin stops the container rather than being written into HTML. The
+  pre-commit check refuses the live address in `apps/web/` and `packages/`, so it
+  cannot creep back in.
+
+---
+
 ## [1.24.3] - [30-Sep-2026]
 
 ### Fixed
