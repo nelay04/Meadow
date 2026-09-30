@@ -11,6 +11,33 @@ away getting there.
 
 ---
 
+## [1.24.7] - [01-Oct-2026]
+
+### Fixed
+- **Claude Code can sign in to Meadow.** Signing in from `/mcp` stopped at "redirect_uri
+  is not registered for this client". Claude Code publishes its callback as
+  `http://localhost/callback` with no port and listens on whichever port is free, and
+  Meadow matched callbacks exactly, so no real request could ever match. Meadow now
+  lets the port of a loopback callback differ, as RFC 8252 requires, and nothing else:
+  the scheme, host, path and query must still match exactly, a web address still has
+  to match in full, and the code still has to be exchanged at the same address the
+  request named. Tests written first: a published document shaped like Claude Code's
+  connects on two ports, seven near-misses are refused, a code cannot move to another
+  port, and an https callback gets no free port. Checked against Claude Code's real
+  document on a local API.
+- **The Claude Code steps say what a 401 means.** With a token header set, Claude Code
+  sends the token and never offers to sign in, so a revoked or mistyped token ends
+  there. `/connect/` and `docs/mcp.md` now say to remove the server and add it again
+  with Headers empty to sign in instead.
+
+### Reversed
+- **1.24.3 said Meadow accepted Claude Code's sign-in, and it did not.** That was
+  checked by registering a client with a localhost callback, which passes the exact
+  match. Claude Code does not register; it names its published document, whose
+  callbacks carry no port. The fix above makes the claim true.
+
+---
+
 ## [1.24.6] - [01-Oct-2026]
 
 ### Fixed

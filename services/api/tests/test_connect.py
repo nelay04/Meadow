@@ -700,3 +700,82 @@ def test_a_published_client_cannot_be_impersonated_by_a_registration(
     )
     assert refused.status_code == 201
     assert refused.json()["client_id"] != DOC_URL
+
+
+# --- loopback redirects --------------------------------------------------------------
+
+#: A command-line assistant's document, in the shape Claude Code publishes: loopback
+#: callbacks with no port, because it listens on whichever port is free at the time.
+LOOPBACK_DOCUMENT = {
+    "redirect_uris": ["http://localhost/callback", "http://127.0.0.1/callback"],
+    "grant_types": ["authorization_code", "refresh_token"],
+    "response_types": ["code"],
+}
+
+
+def test_a_loopback_redirect_may_use_any_port(
+    client: TestClient, owner: Actor, published: dict[str, Any]
+) -> None:
+    """RFC 8252 7.3: the port of a loopback redirect is chosen at request time."""
+    published["documents"][DOC_URL] = _document(client_name="Claude Code", **LOOPBACK_DOCUMENT)
+    glade = owner.create_board()
+
+    for redirect in ("http://localhost:53712/callback", "http://127.0.0.1:8123/callback"):
+        verifier, challenge = _pkce()
+        request_id = _request_id(_authorize(client, DOC_URL, challenge, redirect_uri=redirect))
+        approved = _approve(
+            client, owner, request_id, grants=[{"board_id": glade}], can_create=False
+        )
+        sent_to = approved.json()["redirect_url"]
+        assert sent_to.startswith(f"{redirect}?"), sent_to
+        code = _query(sent_to)["code"]
+        tokens = _exchange(client, DOC_URL, code, verifier, redirect_uri=redirect)
+        assert tokens.status_code == 200, tokens.text
+
+
+@pytest.mark.parametrize(
+    "redirect",
+    [
+        "http://localhost:53712/other",
+        "http://localhost:53712/callback?next=/",
+        "https://localhost:53712/callback",
+        "http://127.0.0.2:53712/callback",
+        "http://localhost.evil.example:53712/callback",
+        "http://evil.example:53712/callback",
+        "http://user@localhost:53712/callback",
+    ],
+)
+def test_only_the_port_of_a_loopback_redirect_may_differ(
+    client: TestClient, published: dict[str, Any], redirect: str
+) -> None:
+    published["documents"][DOC_URL] = _document(**LOOPBACK_DOCUMENT)
+    _verifier, challenge = _pkce()
+    refused = _authorize(client, DOC_URL, challenge, redirect_uri=redirect)
+    assert refused.status_code == 400
+    assert "location" not in refused.headers
+
+
+def test_a_code_issued_on_one_loopback_port_is_refused_on_another(
+    client: TestClient, owner: Actor, published: dict[str, Any]
+) -> None:
+    """Any port may start a request, but the exchange must name the one it started on."""
+    published["documents"][DOC_URL] = _document(**LOOPBACK_DOCUMENT)
+    glade = owner.create_board()
+    verifier, challenge = _pkce()
+    started = "http://localhost:53712/callback"
+    request_id = _request_id(_authorize(client, DOC_URL, challenge, redirect_uri=started))
+    approved = _approve(client, owner, request_id, grants=[{"board_id": glade}], can_create=False)
+    code = _query(approved.json()["redirect_url"])["code"]
+    moved = _exchange(
+        client, DOC_URL, code, verifier, redirect_uri="http://localhost:9999/callback"
+    )
+    assert moved.status_code == 400
+
+
+def test_a_port_is_not_free_on_an_https_redirect(client: TestClient) -> None:
+    client_id = _register(client)["client_id"]
+    _verifier, challenge = _pkce()
+    refused = _authorize(
+        client, client_id, challenge, redirect_uri="https://assistant.example:8443/callback"
+    )
+    assert refused.status_code == 400

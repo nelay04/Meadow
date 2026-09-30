@@ -161,8 +161,11 @@ VS Code (`"type": "http"` with a `headers` block) and Claude Code.
 
 To sign in rather than paste a token, leave Headers empty. `/mcp` then lists Meadow as
 needing sign-in; choosing it opens Meadow's consent screen in the browser, as in
-[Clients that sign in](#clients-that-sign-in-oauth). Meadow accepts the `http://localhost`
-callback Claude Code listens on.
+[Clients that sign in](#clients-that-sign-in-oauth). Claude Code listens for the answer on
+`http://localhost` at a port it picks each time, and Meadow accepts any port there (from
+1.24.7). With a header set, Claude Code sends the token and never offers to sign in, so a
+rejected token shows as a 401. To switch to signing in, remove the server and add it
+again with Headers empty.
 
 **Claude Code in a terminal:**
 

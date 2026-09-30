@@ -2308,6 +2308,15 @@ apply unmodified, and there is no second permission model to drift.
   rebinding). https only, no redirects, 5 s, 5 KB, public clients only, cached 15 minutes.
   A URL client is always resolved from its document; the `oauth_clients` row written when
   a token is issued is a label for the profile page and never decides where codes go.
+- **Loopback redirects take any port (1.24.7).** Redirects were matched exactly, which
+  held for every web assistant and refused every command-line one: Claude Code publishes
+  `http://localhost/callback` with no port and listens on whichever port is free, so its
+  sign-in failed with "redirect_uri is not registered". RFC 8252 7.3 says the port of a
+  loopback redirect is the client's to pick at request time, so
+  `connect_urls.redirect_allowed` lets it differ and nothing else: scheme, host, path and
+  query still match exactly, `127.0.0.1` does not stand in for `localhost`, and https
+  redirects stay exact. The exchange still has to name the address the request did,
+  port included.
 
 *(`freedraw` was on this list and was pulled forward into M6. See the note there.)*
 

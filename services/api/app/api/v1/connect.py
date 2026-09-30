@@ -26,7 +26,7 @@ from app.config import settings
 from app.realtime.rooms import WS_CLOSE_UNAUTHORIZED, SocketRegistry
 from app.schemas.auth import ConnectApproval, ConnectRedirect, ConnectRequestOut
 from app.services import api_tokens, connect
-from app.services.connect_urls import MAX_REDIRECT_URIS, valid_redirect
+from app.services.connect_urls import MAX_REDIRECT_URIS, redirect_allowed, valid_redirect
 from app.services.ratelimit import check as rate_limit_check
 
 router = APIRouter(prefix="/connect", tags=["connect"])
@@ -128,7 +128,7 @@ async def authorize(request: Request, session: Session) -> JSONResponse | Redire
     redirect_uri = params.get("redirect_uri") or (
         client.redirect_uris[0] if len(client.redirect_uris) == 1 else ""
     )
-    if redirect_uri not in client.redirect_uris:
+    if not redirect_allowed(redirect_uri, client.redirect_uris):
         return _error("invalid_request", "redirect_uri is not registered for this client")
 
     state = params.get("state")
