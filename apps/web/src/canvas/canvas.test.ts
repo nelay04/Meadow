@@ -6,7 +6,7 @@
  * survives manual testing.
  */
 
-import type { ObjectData } from '@meadow/schema'
+import { type ObjectData, stickyFitHeight } from '@meadow/schema'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -739,6 +739,26 @@ describe('transform', () => {
     expect(patch.props).toBeUndefined()
   })
 
+  /*
+   * A sticky's words may have grown it past the height it was given. A drag that only
+   * widens it must not rewrite that grown height every frame, or the overlay can never
+   * settle it back down; a drag that does change the height names a new chosen one.
+   */
+  it('leaves a sticky height to the overlay when a drag only widens it', () => {
+    const note = object({ type: 'sticky', w: 100, h: 50, props: { baseHeight: 30 } })
+    const patch = applyRectToObject(note, box, { minX: 0, minY: 0, maxX: 200, maxY: 50 })
+    expect(patch.w).toBeCloseTo(200, 6)
+    expect('h' in patch).toBe(false)
+    expect(patch.props).toBeUndefined()
+  })
+
+  it('takes a dragged sticky height as the new chosen one', () => {
+    const note = object({ type: 'sticky', w: 100, h: 50, props: { baseHeight: 30 } })
+    const patch = applyRectToObject(note, box, { minX: 0, minY: 0, maxX: 100, maxY: 90 })
+    expect(patch.h).toBeCloseTo(90, 6)
+    expect(patch.props).toEqual({ baseHeight: undefined })
+  })
+
   it('rotates an object about an external point', () => {
     const member = object({ x: 100, y: -25, w: 50, h: 50 })
     const patch = rotateAbout(member, { x: 0, y: 0 }, Math.PI / 2)
@@ -955,3 +975,20 @@ describe('splitAroundBox', () => {
   })
 })
 
+describe('stickyFitHeight', () => {
+  const note = (h: number, baseHeight?: number) =>
+    object({ type: 'sticky', h, props: baseHeight === undefined ? {} : { baseHeight } })
+
+  it('grows a note its words outgrow and remembers the height it had', () => {
+    expect(stickyFitHeight(note(195), 400)).toEqual({ h: 400, base: 195 })
+  })
+
+  it('leaves a note alone while its words fit', () => {
+    expect(stickyFitHeight(note(195), 120)).toBeNull()
+  })
+
+  it('gives the growth back when the words need less, down to the chosen height', () => {
+    expect(stickyFitHeight(note(400, 195), 300)).toEqual({ h: 300, base: 195 })
+    expect(stickyFitHeight(note(400, 195), 120)).toEqual({ h: 195, base: undefined })
+  })
+})

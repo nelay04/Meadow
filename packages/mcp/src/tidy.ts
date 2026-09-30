@@ -12,7 +12,13 @@
  * It is a plan like every other write: nothing is applied here.
  */
 
-import { type ObjectData, isArrowLike, readObject } from '@meadow/schema'
+import {
+  type ObjectData,
+  STICKY_BASE_HEIGHT,
+  isArrowLike,
+  readObject,
+  stickyFitHeight,
+} from '@meadow/schema'
 
 import type {
   DocSession,
@@ -232,10 +238,19 @@ export async function planTidy(session: DocSession, options: TidyOptions = {}): 
   // Sizes: grown to fit, never shrunk. A shape somebody made big on purpose stays big.
   const update: EditUpdate[] = []
   const boxes = new Map<string, Rect>()
+  const stickyBases = new Map<string, number | undefined>()
   for (const id of scope) {
     const node = all.get(id)!
     let { w, h } = node
-    if (fits(node.type) && node.rotation === 0) {
+    if (node.type === 'sticky' && node.rotation === 0) {
+      // A note settles between the height it was given and what its words need, the
+      // way the web app sizes it, and remembers the first while grown past it.
+      const fit = stickyFitHeight(node, needsOf(session, node.type, node).h)
+      if (fit !== null) {
+        h = fit.h
+        stickyBases.set(id, fit.base)
+      }
+    } else if (fits(node.type) && node.rotation === 0) {
       const needs = needsOf(session, node.type, node)
       w = Math.max(w, needs.w)
       h = Math.max(h, needs.h)
@@ -269,6 +284,7 @@ export async function planTidy(session: DocSession, options: TidyOptions = {}): 
     if (Math.round(node.y) !== box.y) patch.y = box.y
     if (node.w !== box.w) patch.w = box.w
     if (node.h !== box.h) patch.h = box.h
+    if (stickyBases.has(id)) patch.props = { [STICKY_BASE_HEIGHT]: stickyBases.get(id) }
     if (Object.keys(patch).length > 0) update.push({ id, patch })
   }
 

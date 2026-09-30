@@ -137,7 +137,7 @@ describe('checkLayout and planTidy', () => {
 
   it('reports a sticky its note has outgrown, and tidy makes it taller, not wider', async () => {
     const session = fresh()
-    const note = Array.from({ length: 20 }, (_, i) => `step ${i + 1}: something to do`).join('\n')
+    const note = 'one long paragraph that wraps onto many rows at this width '.repeat(6)
     const { ids } = applyEdits(
       session,
       await planCreate(session, [{ ref: 's', type: 'sticky', label: note, x: 0, y: 0, w: 180, h: 195 }], []),
@@ -148,6 +148,15 @@ describe('checkLayout and planTidy', () => {
     const sticky = boardNodes(session).get(ids.s)!
     expect(sticky.w).toBe(180)
     expect(sticky.h).toBeGreaterThan(195)
+    expect(sticky.props.baseHeight).toBe(195)
     expect(checkLayout(session).counts.text_overflow).toBe(0)
+
+    // Widened far enough for the paragraph to fit in a few rows, it settles back to the
+    // height it was made at and stops carrying the old one.
+    applyEdits(session, { update: [{ id: ids.s, patch: { w: 1200 } }] })
+    applyEdits(session, await planTidy(session, { ids: [ids.s], move: false }))
+    const settled = boardNodes(session).get(ids.s)!
+    expect(settled.h).toBe(195)
+    expect(settled.props.baseHeight).toBeUndefined()
   })
 })

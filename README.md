@@ -60,7 +60,8 @@ flyout sets the next note and recolours any notes you have selected, and the col
 reach for is remembered per browser. Text on a coloured note is set against the note
 rather than the board, so a pale note stays readable in either theme. A note keeps the
 size you gave it until its words outgrow it, and then gets taller rather than letting
-the text run past its edge.
+the text run past its edge. Widen it and it gives that extra height back, down to the
+size you gave it.
 
 **Ink.** Five nibs (ballpoint, fineliner, calligraphy, brush, highlighter) in four widths
 and seven colours, with a stylus's pressure honoured and a mouse's speed standing in for
@@ -286,7 +287,7 @@ than the server talking to itself, and it kills the server process mid-run to pr
 state comes back from the database rather than from memory. The answer was yes, so the
 stack stayed.
 
-v1 is deployed and live at [meadow.creara.in](https://meadow.creara.in); the current release is `1.23.1`.
+v1 is deployed and live at [meadow.creara.in](https://meadow.creara.in); the current release is `1.23.2`.
 Delivery record, including the work that was thrown away and why: [`CHANGELOG.md`](CHANGELOG.md).
 
 ---

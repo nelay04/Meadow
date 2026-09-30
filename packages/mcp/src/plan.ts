@@ -9,6 +9,7 @@
 import {
   type EdgeDirection,
   type ObjectData,
+  STICKY_BASE_HEIGHT,
   arrowPolyline,
   isArrowLike,
   objectBounds,
@@ -260,7 +261,14 @@ export async function planCreate(
     for (const field of ['x', 'y', 'w', 'h', 'font_size'] as const) checkNumber(node[field], field)
     // Sized to the label, so the text a model writes stays inside the shape it wrote it in.
     const size = fitNodeSize(type, node.label, { w: node.w, h: node.h, fontSize: node.font_size })
-    return { ...node, type, ref: refOf(node.ref, `node${index + 1}`), w: size.w, h: size.h }
+    return {
+      ...node,
+      type,
+      ref: refOf(node.ref, `node${index + 1}`),
+      w: size.w,
+      h: size.h,
+      asked: node.h,
+    }
   })
 
   const unplaced = sized.filter((node) => node.x === undefined || node.y === undefined)
@@ -286,7 +294,7 @@ export async function planCreate(
         w: node.w,
         h: node.h,
         ...(node.parent === undefined ? {} : { parentId: node.parent }),
-        props: styleProps(node),
+        props: { ...styleProps(node), ...stickyBase(node) },
       },
       text: node.label === undefined || node.label === '' ? null : textToRich(node.label),
     }
@@ -348,6 +356,16 @@ export async function planCreate(
   return { create, connect }
 }
 
+/**
+ * A sticky grown past the height it would otherwise have been made at remembers that
+ * height, so widening it in the web app gives the growth back.
+ */
+function stickyBase(node: { type: string; h: number; asked?: number }): Record<string, unknown> {
+  if (node.type !== 'sticky') return {}
+  const base = node.asked ?? MIN_SIZES.sticky.h
+  return node.h > base ? { [STICKY_BASE_HEIGHT]: base } : {}
+}
+
 export function planUpdate(session: DocSession, updates: readonly UpdateInput[]): EditBatch {
   checkSize(updates.length)
   const update: EditUpdate[] = updates.map((input) => {
@@ -374,6 +392,8 @@ export function planUpdate(session: DocSession, updates: readonly UpdateInput[])
     }
 
     const props = styleProps(input)
+    // An explicit height is the new chosen one; the stored one from before is stale.
+    if (current.type === 'sticky' && input.h !== undefined) props[STICKY_BASE_HEIGHT] = undefined
     if (arrow && input.direction !== undefined) Object.assign(props, heads(input.direction))
     if (arrow && input.routing !== undefined) props.routing = input.routing
     if (Object.keys(props).length > 0) patch.props = props

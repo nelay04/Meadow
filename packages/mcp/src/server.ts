@@ -19,6 +19,8 @@ import {
   parseGladeFile,
   readObject,
   richTextToPlain,
+  STICKY_BASE_HEIGHT,
+  stickyFitHeight,
 } from '@meadow/schema'
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
@@ -48,13 +50,14 @@ import { checkLayout, planTidy } from './tidy'
 
 /**
  * A sticky given more text than its card holds gets taller to hold it, as it would in
- * the web app. Never shorter, and nothing else about it changes.
+ * the web app, and one given less settles back to the height it was chosen at. Never
+ * shorter than that, and nothing else about it changes.
  */
 function stickyGrowth(object: ObjectData, text: string): Partial<ObjectData> {
   if (object.type !== 'sticky' || object.rotation !== 0) return {}
   const fontSize = typeof object.props.fontSize === 'number' ? object.props.fontSize : undefined
-  const needs = fitNodeSize('sticky', text, { w: object.w, fontSize })
-  return needs.h > object.h ? { h: needs.h } : {}
+  const fit = stickyFitHeight(object, fitNodeSize('sticky', text, { w: object.w, fontSize }).h)
+  return fit === null ? {} : { h: fit.h, props: { [STICKY_BASE_HEIGHT]: fit.base } }
 }
 
 export { VERSION }

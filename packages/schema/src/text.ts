@@ -71,8 +71,9 @@ export const textProps = z.object({
   padding: z.number().min(0).max(200).default(8),
   /**
    * Grow `h` to fit the content, both ways. A plain text object does; a sticky leaves
-   * this off and only ever grows, so a card drawn big stays big and a long note gets
-   * taller rather than running past its edge (see the overlay's `sync`).
+   * this off and never goes below the height it was given, so a card drawn big stays
+   * big, while a long note gets taller rather than running past its edge and gives the
+   * growth back when widened (see `stickyFitHeight`).
    */
   autoHeight: z.boolean().default(true),
   /**
@@ -215,6 +216,37 @@ export function inkOnFill(object: Pick<ObjectData, 'type' | 'props'>): number | 
 export const TEXT_DEFAULT_SIZE = { w: 220, h: 32 }
 /** 3:3.25, portrait. A square note is a coaster; a page-shaped one is a note. */
 export const STICKY_DEFAULT_SIZE = { w: 180, h: 195 }
+
+/**
+ * The height somebody chose for a sticky, while its words have made it taller.
+ *
+ * A long note grows to hold its text, and this remembers what it was before it did, so
+ * the growth can be given back: widen the note, or cut its text, and it settles to
+ * whichever is larger of this and what the words still need. Stored only while the
+ * note is grown past it, and dropped once it is back, or when a resize or an explicit
+ * height names a new one.
+ */
+export const STICKY_BASE_HEIGHT = 'baseHeight'
+
+/** The note's chosen height: the stored one while it is grown, otherwise its own `h`. */
+export function stickyBaseHeight(object: Pick<ObjectData, 'h' | 'props'>): number {
+  const base = object.props[STICKY_BASE_HEIGHT]
+  return typeof base === 'number' && Number.isFinite(base) && base > 0 ? base : object.h
+}
+
+/**
+ * The height a note should be when its words need `needed`, and what to store with it.
+ * Null when it is already right; `base` undefined means stop storing one.
+ */
+export function stickyFitHeight(
+  object: Pick<ObjectData, 'h' | 'props'>,
+  needed: number,
+): { h: number; base: number | undefined } | null {
+  const base = stickyBaseHeight(object)
+  const h = Math.ceil(Math.max(base, needed))
+  if (Math.abs(h - object.h) <= 1) return null
+  return { h, base: h > base ? base : undefined }
+}
 
 /**
  * Where an auto-width text object stops growing sideways and starts wrapping.

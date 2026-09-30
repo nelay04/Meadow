@@ -8,6 +8,7 @@
 
 import {
   type ObjectData,
+  STICKY_BASE_HEIGHT,
   isArrowLike,
   isFreedraw,
   resolveArrowProps,
@@ -336,6 +337,19 @@ export function applyRectToObject(
    */
   if (object.type === 'text' && object.props.autoWidth === true && scaleX !== 1) {
     patch.props = { autoWidth: false }
+  }
+
+  /*
+   * A sticky's height is two things once its words have grown it: the height it was
+   * given, and the height the words need. A drag that leaves the height alone - a side
+   * handle, or a multi-selection only scaled sideways - writes no height at all, so the
+   * overlay can settle the note to its new width without the drag rewriting the old
+   * height under it every frame. One that changes the height names a new chosen one,
+   * and the stored height from before stops meaning anything.
+   */
+  if (object.type === 'sticky') {
+    if (scaleY === 1) delete patch.h
+    else patch.props = { [STICKY_BASE_HEIGHT]: undefined }
   }
 
   if (isFreedraw(object.type)) {

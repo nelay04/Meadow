@@ -29,6 +29,7 @@ import {
   polygonSidesOf,
   resolveArrowProps,
   resolveTextProps,
+  stickyFitHeight,
   trapezoidInset,
 } from '@meadow/schema'
 
@@ -143,6 +144,12 @@ function isBlank(html: string): boolean {
   return html.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim() === ''
 }
 
+/**
+ * What a frame measured for one object. `baseHeight` rides along with a sticky's
+ * height: the height it was chosen at while grown past it, or null to stop storing one.
+ */
+export type MeasuredSize = { w?: number; h?: number; baseHeight?: number | null }
+
 export type TextLayerCallbacks = {
   /** Static HTML for this object's fragment. */
   html(id: string): string
@@ -151,7 +158,7 @@ export type TextLayerCallbacks = {
    * Reported rather than written, so the engine can batch a frame's worth into one
    * transaction instead of one per object.
    */
-  onMeasured(id: string, size: { w?: number; h?: number }): void
+  onMeasured(id: string, size: MeasuredSize): void
 }
 
 /** Extra height a sticky needs below its words for the author's name, if it is signed. */
@@ -560,12 +567,13 @@ export class TextLayer {
       if (Math.abs(measured - object.h) > 1) this.callbacks.onMeasured(object.id, { h: measured })
     } else if (object.type === 'sticky' && object.rotation === 0 && fontReady(props.fontFamily)) {
       // A sticky keeps the card it was given until the words outgrow it, then gets
-      // taller. Grow-only: a note drawn big on purpose stays big, and a long note is
-      // never written past its own edge onto whatever sits below it. This is also what
-      // repairs a note written by the MCP server or an older client, since whichever
-      // writer next has it on screen measures it.
+      // taller, and remembers the height it had so it can give the growth back when
+      // it is widened or its text is cut. Never below that height: a note drawn big on
+      // purpose stays big. This is also what repairs a note written by the MCP server
+      // or an older client, since whichever writer next has it on screen measures it.
       const needed = measureObjectHeight(html, box.w, props) + stickyBylineRoom(object, props)
-      if (needed > object.h + 1) this.callbacks.onMeasured(object.id, { h: Math.ceil(needed) })
+      const fit = stickyFitHeight(object, needed)
+      if (fit !== null) this.callbacks.onMeasured(object.id, { h: fit.h, baseHeight: fit.base ?? null })
     }
   }
 

@@ -11,6 +11,24 @@ away getting there.
 
 ---
 
+## [1.23.2] - [30-Sep-2026]
+
+### Fixed
+- **A grown sticky note gives the space back.** Once a long note had grown taller to
+  hold its text, it kept that height for good, so widening it left a tall card with
+  its words bunched at the top. The note now remembers the height it had before its
+  words grew it, and widening it, or cutting its text, settles it back down to
+  whichever is larger of that height and what the text still needs. It still never
+  goes below the height it was given, so a note drawn big on purpose stays big.
+  Dragging its height by hand makes that the new height to come back to; a side
+  handle that only widens it leaves the height to the note.
+- **The MCP server sizes a sticky the same way.** `set_text` now shrinks a grown note
+  back when its new text needs less room, as well as growing it, and `tidy_layout`
+  settles a grown note the same way. A height set with `update_objects` becomes the
+  note's chosen one.
+
+---
+
 ## [1.23.1] - [30-Sep-2026]
 
 ### Fixed

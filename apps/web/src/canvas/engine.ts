@@ -21,6 +21,7 @@ import {
   DEFAULT_POLYGON_SIDES,
   MAX_POLYGON_SIDES,
   MIN_POLYGON_SIDES,
+  STICKY_BASE_HEIGHT,
   TIP_PROFILES,
   absolutePoints,
   arrowPolyline,
@@ -50,7 +51,7 @@ import {
   viewTransform,
 } from './camera'
 import { type LaserTrail, LaserLayer } from './overlay/laserLayer'
-import { TextLayer } from './overlay/textLayer'
+import { type MeasuredSize, TextLayer } from './overlay/textLayer'
 import { type Wanderer, type WandererSelection, WandererLayer } from './overlay/wandererLayer'
 import { SpatialIndex } from './spatialIndex'
 import {
@@ -774,7 +775,7 @@ export class CanvasEngine {
    * the write out of the render, and batches a screenful of text objects into one
    * transaction instead of one each.
    */
-  private readonly pendingSizes = new Map<string, { w?: number; h?: number }>()
+  private readonly pendingSizes = new Map<string, MeasuredSize>()
 
   /**
    * The object with a live editor, and on a page where its rows stood when last looked
@@ -3368,6 +3369,10 @@ export class CanvasEngine {
       if (size.h !== undefined && Math.abs(object.h - size.h) > 1) {
         patch.h = size.h
         if (id === editing?.id) editedHeight = size.h
+        // Only with the height it belongs to. Null deletes the stored one.
+        if (size.baseHeight !== undefined) {
+          patch.props = { [STICKY_BASE_HEIGHT]: size.baseHeight ?? undefined }
+        }
       }
       if (patch.w !== undefined || patch.h !== undefined) patches.push({ id, patch })
     }
