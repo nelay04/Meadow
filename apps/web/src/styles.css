@@ -1529,7 +1529,7 @@ label {
 }
 
 .token-created-next {
-  margin: 0.6rem 0 0;
+  margin: 0.75rem 0 0;
 }
 
 /* A link inside a sentence. The app is almost all buttons, so there was no rule for
@@ -1546,23 +1546,40 @@ label {
   text-decoration-thickness: 2px;
 }
 
+/* The field and its two buttons on one row, the same height, wrapping the buttons
+   below the field where the row is too narrow for all three. */
 .token-secret {
   display: flex;
-  align-items: center;
+  flex-wrap: wrap;
+  align-items: stretch;
   gap: 0.5rem;
-  margin-top: 0.5rem;
+  margin-top: 0.6rem;
 }
 
-.token-secret code {
-  flex: 1;
+/* A read-only input: the bordered box of any field, on the plain surface so it stands
+   off the tinted panel, in the code face. Never looks editable on hover. */
+.token-field {
+  flex: 1 1 20rem;
   min-width: 0;
-  padding: 0.45rem 0.6rem;
-  overflow-wrap: anywhere;
-  user-select: all;
+  padding: 0.5rem 0.75rem;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.82rem;
+  color: var(--fg-strong);
+  cursor: text;
+  text-overflow: ellipsis;
 }
 
-.token-secret button {
+.token-field:hover:not(:focus) {
+  border-color: var(--edge);
+}
+
+.token-secret-actions {
+  display: flex;
   flex: 0 0 auto;
+  gap: 0.5rem;
+}
+
+.token-secret-actions button {
   gap: 0.35rem;
 }
 

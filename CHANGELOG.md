@@ -11,6 +11,18 @@ away getting there.
 
 ---
 
+## [1.24.5] - [01-Oct-2026]
+
+### Changed
+- **A new access token is laid out as one row.** The token sat as loose text in the
+  panel, the way to the setup steps was between it and the dismiss button, and "I have
+  saved it" was a bare line of text on its own. The token is now in a bordered,
+  read-only field that selects all of it on a click, with Copy and a matching
+  "I have saved it" button beside it at the same height. The link to the steps for each
+  assistant is the last line. On a narrow screen the buttons wrap under the field.
+
+---
+
 ## [1.24.4] - [30-Sep-2026]
 
 ### Fixed

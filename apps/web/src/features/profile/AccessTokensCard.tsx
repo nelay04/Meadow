@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 
-import { IconCopy, IconKey, IconPlus } from '../../ui/icons'
+import { IconCheck, IconCopy, IconKey, IconPlus } from '../../ui/icons'
 import { absoluteTime, relativeTime } from '../../ui/time'
 import { useConfirm } from '../../ui/ConfirmDialog'
 import { useToast } from '../../ui/Toaster'
@@ -672,17 +672,33 @@ export function AccessTokensCard() {
             <p>
               <strong>Copy {created.name} now.</strong> This is the only time it is shown.
             </p>
+            {/* A read-only field rather than text in the panel: it reads as the one
+                thing to take away, and a click selects all of it for a manual copy. */}
             <div className="token-secret">
-              <code>{created.token}</code>
-              <button
-                ref={copyRef}
-                type="button"
-                className="primary"
-                onClick={() => void copyCreated()}
-              >
-                <IconCopy size={16} />
-                Copy
-              </button>
+              <input
+                className="token-field"
+                readOnly
+                value={created.token}
+                aria-label={`${created.name} token`}
+                spellCheck={false}
+                autoComplete="off"
+                onFocus={(event) => event.currentTarget.select()}
+              />
+              <div className="token-secret-actions">
+                <button
+                  ref={copyRef}
+                  type="button"
+                  className="primary"
+                  onClick={() => void copyCreated()}
+                >
+                  <IconCopy size={16} />
+                  Copy
+                </button>
+                <button type="button" onClick={() => setCreated(null)}>
+                  <IconCheck size={16} />
+                  I have saved it
+                </button>
+              </div>
             </div>
             <p className="hint token-created-next">
               Next, paste it into your assistant.{' '}
@@ -695,13 +711,6 @@ export function AccessTokensCard() {
                 Steps for each assistant
               </a>
             </p>
-            <button
-              type="button"
-              className="ghost profile-inline-action"
-              onClick={() => setCreated(null)}
-            >
-              I have saved it
-            </button>
           </div>
         )}
 
