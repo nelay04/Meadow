@@ -30,6 +30,7 @@ import {
   resolveArrowProps,
   resolveTextProps,
   stickyFitHeight,
+  stickyFold,
   trapezoidInset,
 } from '@meadow/schema'
 
@@ -602,7 +603,7 @@ export class TextLayer {
     }
     // Written unconditionally rather than diffed: a name changes never, and the two
     // comparisons would cost more than the assignment they are guarding.
-    applyBylineStyle(entry.byline, props)
+    applyBylineStyle(entry.byline, props, stickyFold(object.w, object.h))
     if (entry.byline.textContent !== name) entry.byline.textContent = name
   }
 

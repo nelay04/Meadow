@@ -37,6 +37,7 @@ import {
   cylinderCap,
   inkOnFill,
   isArrowLike,
+  noteEdge,
   objectBounds,
   parallelogramSlant,
   pointAlongPath,
@@ -44,6 +45,7 @@ import {
   resolveArrowProps,
   resolveFreedrawProps,
   resolveTextProps,
+  stickyFold,
   strokeOutline,
   trapezoidInset,
 } from '@meadow/schema'
@@ -166,6 +168,22 @@ export function escapeText(value: string): string {
     else if (ch === '"') out += '&quot;'
     else if (ch === "'") out += '&#39;'
     else out += ch
+  }
+  return out
+}
+
+/** A packed colour read off props, for the few places that have to blend one rather than print it. */
+const colourOf = (value: unknown, fallback: number): number =>
+  typeof value === 'number' && Number.isFinite(value) ? value & 0xffffff : fallback
+
+/** `t` of the way from one packed colour to another, per channel. */
+const blend = (from: number, to: number, t: number): number => {
+  const k = Math.min(1, Math.max(0, t))
+  let out = 0
+  for (let shift = 16; shift >= 0; shift -= 8) {
+    const a = (from >> shift) & 0xff
+    const b = (to >> shift) & 0xff
+    out |= Math.round(a + (b - a) * k) << shift
   }
   return out
 }
@@ -325,6 +343,21 @@ function textBlock(lines: readonly Line[], box: Rect, style: TextStyle): string 
 
 // --- shapes ----------------------------------------------------------------------------
 
+/**
+ * The corners of a note's fold, matching the shader's: `STICKY_CORNER` is the note's own
+ * corner radius, `foldTip` rounds off the two places the crease runs out into the note's
+ * edges, and `foldFree` the flap's free corner, which is the note's corner turned over
+ * and so a little softer than the cut. Paper does not come to a point.
+ */
+const STICKY_CORNER = 2
+const ROOT_HALF = Math.SQRT1_2
+const foldTip = (fold: number): number => fold * 0.12
+const foldFree = (fold: number): number => Math.max(STICKY_CORNER, fold * 0.18)
+
+/** The fillet where the crease meets an edge: a quadratic with the sharp corner as its control. */
+const creaseCorner = (cx: number, cy: number, t: number): string =>
+  `Q${n(cx)} ${n(cy)} ${n(cx - t * ROOT_HALF)} ${n(cy + t * ROOT_HALF)}`
+
 function outline(object: ObjectData, box: Rect, radius: number): string {
   const { x, y, w, h } = box
   const pts = (list: number[]): string => list.map(n).join(' ')
@@ -352,6 +385,23 @@ function outline(object: ObjectData, box: Rect, radius: number): string {
       }
       return `<polygon points="${pts(list)}"/>`
     }
+    case 'sticky': {
+      // The box with its bottom-right corner turned over, so the corner is really gone
+      // from the silhouette. The flap the corner lands on is drawn separately, in its
+      // own colour - see `stickyFlap`.
+      const f = stickyFold(w, h)
+      const t = foldTip(f)
+      const r = Math.min(STICKY_CORNER, w / 2, h / 2)
+      return (
+        `<path d="M${n(x + r)} ${n(y)} L${n(x + w - r)} ${n(y)}` +
+        ` A${n(r)} ${n(r)} 0 0 1 ${n(x + w)} ${n(y + r)}` +
+        ` L${n(x + w)} ${n(y + h - f - t)} ${creaseCorner(x + w, y + h - f, t)}` +
+        ` L${n(x + w - f + t * ROOT_HALF)} ${n(y + h - t * ROOT_HALF)}` +
+        ` Q${n(x + w - f)} ${n(y + h)} ${n(x + w - f - t)} ${n(y + h)}` +
+        ` L${n(x + r)} ${n(y + h)} A${n(r)} ${n(r)} 0 0 1 ${n(x)} ${n(y + h - r)}` +
+        ` L${n(x)} ${n(y + r)} A${n(r)} ${n(r)} 0 0 1 ${n(x + r)} ${n(y)} Z"/>`
+      )
+    }
     case 'cylinder': {
       const cap = cylinderCap(h)
       const rx = w / 2
@@ -370,6 +420,37 @@ function outline(object: ObjectData, box: Rect, radius: number): string {
   }
 }
 
+/**
+ * The turned-over corner of a sticky note.
+ *
+ * The triangle the corner lands on, shaded in the note's own edge colour rather than a
+ * colour of its own, which is what keeps a yellow note's fold yellow, and then a tenth
+ * darker again so that it reads at a dog-ear's size. The canvas shades it across the
+ * flap; a snapshot is a still, so this is the flat average of that, and the band of
+ * shadow the canvas casts past the flap's free edges is left out - at snapshot scale it
+ * is under a pixel.
+ */
+function stickyFlap(box: Rect, fill: number, stroke: number, opacity: string): string {
+  const f = stickyFold(box.w, box.h)
+  if (f <= 0) return ''
+  const t = foldTip(f)
+  const free = foldFree(f)
+  const right = box.x + box.w
+  const bottom = box.y + box.h
+  const top = bottom - f
+  const left = right - f
+  const d =
+    `M${n(left + free)} ${n(top)} L${n(right - t)} ${n(top)}` +
+    ` ${creaseCorner(right, top, t)}` +
+    ` L${n(left + t * ROOT_HALF)} ${n(bottom - t * ROOT_HALF)}` +
+    ` Q${n(left)} ${n(bottom)} ${n(left)} ${n(bottom - t)}` +
+    ` L${n(left)} ${n(top + free)} Q${n(left)} ${n(top)} ${n(left + free)} ${n(top)} Z`
+  return (
+    `<path d="${d}"` +
+    ` fill="${hex(undefined, blend(blend(fill, stroke, 0.92), 0x000000, 0.09))}" fill-opacity="${opacity}" stroke="none"/>`
+  )
+}
+
 function normalBox(object: ObjectData): Rect {
   return {
     x: Math.min(object.x, object.x + object.w),
@@ -385,8 +466,15 @@ const UNDRAWN = new Set(['image', 'table', 'chart', 'embed'])
 function drawShape(object: GladeObject, theme: Palette, scale: number): string {
   const box = normalBox(object)
   const props = object.props
-  const surface = object.type === 'sticky' ? theme.sticky : theme.shape
-  const radius = num(props, 'cornerRadius', object.type === 'sticky' ? 2 : 4)
+  const sticky = object.type === 'sticky'
+  const surface = sticky ? theme.sticky : theme.shape
+  // A note's edge follows its own paper where the note names one, as it does on the
+  // canvas: an edge is the shade of the paper, not an ink somebody chose.
+  const edge =
+    sticky && typeof props.fill === 'number' && Number.isFinite(props.fill)
+      ? noteEdge(colourOf(props.fill, surface.fill))
+      : surface.stroke
+  const radius = num(props, 'cornerRadius', 4)
   const rotate =
     object.rotation === 0 || !Number.isFinite(object.rotation)
       ? ''
@@ -412,8 +500,17 @@ function drawShape(object: GladeObject, theme: Palette, scale: number): string {
   if (object.type !== 'text') {
     out +=
       `<g fill="${hex(props.fill, surface.fill)}" fill-opacity="${alpha(props.fillAlpha)}"` +
-      ` stroke="${hex(props.stroke, surface.stroke)}" stroke-opacity="${alpha(props.strokeAlpha)}"` +
+      ` stroke="${hex(props.stroke, edge)}" stroke-opacity="${alpha(props.strokeAlpha)}"` +
       ` stroke-width="${n(num(props, 'strokeWidth', 2))}">${outline(object, box, radius)}</g>`
+  }
+
+  if (object.type === 'sticky') {
+    out += stickyFlap(
+      box,
+      colourOf(props.fill, surface.fill),
+      colourOf(props.stroke, edge),
+      alpha(props.fillAlpha),
+    )
   }
 
   const text = resolveTextProps(object)

@@ -255,11 +255,16 @@ export function bylineRoom(props: TextProps): number {
  * Positioned absolutely inside the note's box, so it stays in the corner however much
  * is written above it. The note's own bottom padding is what stops the writing running
  * into it.
+ *
+ * `fold` is the reach of the note's turned-over corner, which the signature shares a
+ * corner with. The name is held off that far from the right edge rather than by the
+ * note's padding, so it ends before the fold instead of running across it; pass 0 for
+ * anything without one.
  */
-export function applyBylineStyle(element: HTMLElement, props: TextProps): void {
+export function applyBylineStyle(element: HTMLElement, props: TextProps, fold = 0): void {
   const style = element.style
   style.position = 'absolute'
-  style.right = `${props.padding}px`
+  style.right = `${Math.max(props.padding, fold + 4)}px`
   style.bottom = `${bylineInset(props)}px`
   style.fontFamily = FONT_STACKS[props.fontFamily]
   style.fontSize = `${bylineFontSize(props)}px`

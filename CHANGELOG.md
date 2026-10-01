@@ -11,6 +11,56 @@ away getting there.
 
 ---
 
+## [1.25.0] - [02-Oct-2026]
+
+### Changed
+- **A sticky note is drawn with its bottom-right corner turned over.** A note was a
+  rectangle with a two-unit corner radius, which is a card rather than a piece of paper.
+  It is now its own shape in the batch renderer: the box is cut along the crease, so the
+  corner is really gone from the silhouette, and the triangle the corner lands on is
+  shaded in the note's own edge colour and a tenth darker again, a shade duller at the
+  crease than at its free corner, with a narrow band of shadow on the note just past the
+  flap's two free edges. The edge colour on its own was too close to the paper to see at
+  a dog-ear's size, which is right for a rim one pixel wide and not for a turned corner.
+  Paper does not come to a point either, so the two places the crease runs out into the
+  note's edges are filleted as the note's own corners are, and the flap's free corner -
+  the note's corner, turned over - is rounded a little more than that.
+  Nothing else: no second hue, no curl, no drop shadow, which is what separates a fold
+  from a cartoon. The fold is the note's geometry rather than a style, eleven percent of
+  the shorter side, so it is the same turn of a corner at any size, and one definition
+  (`stickyFold`) is read by the shader, the hit test, the lasso outline, the arrow's
+  stopping point and the snapshot renderer. Clicking the missing corner no longer selects
+  the note and an arrow aimed into it now stops on the crease, which is how every other
+  shape already behaved.
+- **A note's signature keeps clear of the fold.** The byline sits in the same corner the
+  fold is in, and at the note's own padding it ran across it. It is now held off the
+  right edge by the fold's reach instead.
+- **A note colour is shown with the fold too**, in the sticky tool's flyout: the chip is
+  fifteen pixels, so the corner is cut away and the edge colour fills the triangle rather
+  than the canvas's shaded flap.
+- **An MCP snapshot draws the fold.** `meadow_snapshot` renders the same silhouette and a
+  flat flap in place of the canvas's gradient, since a still has nothing to gain from it.
+
+### Fixed
+- **A note's edge follows its own paper.** A note coloured anywhere other than the
+  sticky tool's flyout stores a fill and no edge, and kept the theme's blue outline: a
+  pink note with a blue rim, and, once the corner folded, a blue triangle in the middle
+  of it. A note that names a fill and no edge now takes its edge from that fill - a
+  little over half the saturation, a fifth of the way down in lightness, which is the
+  rule the six hand-picked note colours already follow and lands within about ten of
+  each channel of them. One definition (`noteEdge`), so the canvas, the fold and an MCP
+  snapshot agree. A shape is untouched: an outline on a shape is an ink somebody chose,
+  and a fill does not get to overrule it.
+
+### Reversed
+- **`cornerRadius` on a sticky no longer does anything.** The instance slot that carried
+  it now carries the fold's size, and a note's corners are a constant in the shader. The
+  property was never offered in the UI and a note is a cut square of paper, not a button,
+  so nothing was lost; a note that stored one keeps it in the document and is drawn
+  without it.
+
+---
+
 ## [1.24.7] - [01-Oct-2026]
 
 ### Fixed

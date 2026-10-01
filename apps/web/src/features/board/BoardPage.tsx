@@ -335,8 +335,8 @@ const LASER_COLORS: { value: number; label: string; css: string }[] = [
  * The same bargain as the pen's `Ink`: the first swatch is not blue so much as "the
  * board's note", pale on a light board and deep on a dark one, and it is shown in
  * whichever of the two is on screen. The rest are paper colours that stay put in both
- * themes. The swatch is a small square with the note's own edge, because it is a
- * note being chosen and not an ink.
+ * themes. The swatch is a small square with the note's own edge and its turned corner,
+ * because it is a note being chosen and not an ink.
  */
 const STICKY_SWATCHES: { id: StickyColorId; label: string; css: string; edge: string }[] =
   STICKY_COLOR_IDS.map((id) => {
@@ -2619,7 +2619,7 @@ export default function BoardPage({ boardId, kindHint, onBack, onSignIn }: Props
                     >
                       <span
                         className="note-swatch"
-                        style={{ background: swatch.css, borderColor: swatch.edge }}
+                        style={{ background: swatch.css, color: swatch.edge }}
                       />
                       <Tip label={swatch.label} />
                     </button>

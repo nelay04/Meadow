@@ -21,6 +21,7 @@ import {
   polygonSidesOf,
   resolveArrowProps,
   resolveFreedrawProps,
+  stickyFold,
   trapezoidInset,
 } from '@meadow/schema'
 
@@ -172,6 +173,15 @@ export function hitsObject(object: ObjectData, point: Point, tolerance = 0): boo
       const offset = angle - sector * Math.round(angle / sector)
       return Math.hypot(nx, ny) * Math.cos(offset) <= Math.cos(Math.PI / sides)
     }
+    case 'sticky': {
+      if (halfW <= 0 || halfH <= 0) return false
+      // The box, less the corner the fold turns over. The fold comes from the real size
+      // rather than the tolerance-grown one, for the same reason the slant and the inset
+      // do: the target has to be the shape that was drawn, and the tolerance only
+      // widens it.
+      if (Math.abs(local.x) > halfW || Math.abs(local.y) > halfH) return false
+      return local.x + local.y <= halfW + halfH - stickyFold(object.w, object.h)
+    }
     case 'cylinder': {
       if (halfW <= 0 || halfH <= 0) return false
       // The union the shader draws: a body between the cap centres, and a cap ellipse
@@ -294,6 +304,19 @@ export function outlineOf(object: ObjectData): { points: number[]; closed: boole
           const angle = -Math.PI / 2 + (side / sides) * Math.PI * 2
           local.push(Math.cos(angle) * halfW, Math.sin(angle) * halfH)
         }
+        break
+      }
+      case 'sticky': {
+        // Clockwise from the top-left, with the bottom-right corner replaced by the two
+        // ends of the crease.
+        const fold = stickyFold(object.w, object.h)
+        local.push(
+          -halfW, -halfH,
+          halfW, -halfH,
+          halfW, halfH - fold,
+          halfW - fold, halfH,
+          -halfW, halfH,
+        )
         break
       }
       case 'cylinder': {

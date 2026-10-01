@@ -6,7 +6,7 @@
  * survives manual testing.
  */
 
-import { type ObjectData, stickyFitHeight } from '@meadow/schema'
+import { type ObjectData, noteEdge, stickyFitHeight, stickyFold } from '@meadow/schema'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -31,6 +31,7 @@ import {
   unionBounds,
 } from './hitTest'
 import { SNAP_THRESHOLD_PX, snapMove } from './snapping'
+import { STICKY_COLORS, resolveStyle } from './style'
 import { splitAroundBox } from './renderers/arrowPass'
 import { SpatialIndex } from './spatialIndex'
 import { applyRectToObject, handleAt, resizeRect, rotateAbout } from './transform'
@@ -424,6 +425,20 @@ describe('hit testing', () => {
     expect(hitsObject(diamond, { x: 50, y: 50 })).toBe(true)
     expect(hitsObject(diamond, { x: 5, y: 5 })).toBe(false)
     expect(hitsObject(diamond, { x: 50, y: 2 })).toBe(true)
+  })
+
+  it("excludes the corner a sticky's fold turns over", () => {
+    // 200x200, so the fold is 22: the crease runs from (178, 200) to (200, 178).
+    const note = object({ type: 'sticky', w: 200, h: 200 })
+    expect(stickyFold(note.w, note.h)).toBeCloseTo(22)
+    expect(hitsObject(note, { x: 100, y: 100 })).toBe(true)
+    // The three corners the note still reaches, and the one it does not.
+    expect(hitsObject(note, { x: 2, y: 198 })).toBe(true)
+    expect(hitsObject(note, { x: 198, y: 2 })).toBe(true)
+    expect(hitsObject(note, { x: 198, y: 198 })).toBe(false)
+    // Either side of the crease, along the diagonal.
+    expect(hitsObject(note, { x: 186, y: 186 })).toBe(true)
+    expect(hitsObject(note, { x: 192, y: 192 })).toBe(false)
   })
 
   it('excludes the corners a parallelogram leans away from', () => {
@@ -990,5 +1005,37 @@ describe('stickyFitHeight', () => {
   it('gives the growth back when the words need less, down to the chosen height', () => {
     expect(stickyFitHeight(note(400, 195), 300)).toEqual({ h: 300, base: 195 })
     expect(stickyFitHeight(note(400, 195), 120)).toEqual({ h: 195, base: undefined })
+  })
+})
+
+describe('note colours', () => {
+  it('gives a note its own edge when only its paper was chosen', () => {
+    const pink = object({ type: 'sticky', props: { fill: 0xffc8d8 } })
+    const style = resolveStyle(pink, 0, true)
+    expect(style.stroke).toBe(noteEdge(0xffc8d8))
+    // Not the theme's blue, which is what the fold would otherwise be painted in.
+    expect(style.stroke).not.toBe(resolveStyle(object({ type: 'sticky' }), 0, true).stroke)
+  })
+
+  it('lands close to the edge each note colour was drawn with by hand', () => {
+    for (const colour of Object.values(STICKY_COLORS)) {
+      if (colour === null) continue
+      const derived = noteEdge(colour.fill)
+      for (const shift of [16, 8, 0]) {
+        const want = (colour.stroke >> shift) & 0xff
+        const got = (derived >> shift) & 0xff
+        expect(Math.abs(got - want)).toBeLessThanOrEqual(12)
+      }
+    }
+  })
+
+  it("leaves a shape's outline alone", () => {
+    const shape = object({ type: 'rect', props: { fill: 0xffc8d8 } })
+    expect(resolveStyle(shape, 0).stroke).toBe(resolveStyle(object(), 0).stroke)
+  })
+
+  it('keeps an edge the note actually names', () => {
+    const note = object({ type: 'sticky', props: { fill: 0xffc8d8, stroke: 0x112233 } })
+    expect(resolveStyle(note, 0).stroke).toBe(0x112233)
   })
 })

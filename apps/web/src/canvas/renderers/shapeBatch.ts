@@ -2,7 +2,7 @@
  * Instanced signed-distance-field renderer for the primitive shapes.
  *
  * One draw call for every rect, ellipse, diamond, parallelogram, triangle, trapezoid,
- * polygon and cylinder on screen, regardless of count.
+ * polygon, cylinder and sticky note on screen, regardless of count.
  * ARCHITECTURE 5 calls for "shared geometry + instancing for repeated primitives";
  * this is that, and the benchmark in src/bench is the evidence for choosing it.
  *
@@ -27,6 +27,7 @@ export const SHAPE_TRIANGLE = 4
 export const SHAPE_TRAPEZOID = 5
 export const SHAPE_POLYGON = 6
 export const SHAPE_CYLINDER = 7
+export const SHAPE_STICKY = 8
 
 export type ShapeKind =
   | typeof SHAPE_RECT
@@ -37,6 +38,7 @@ export type ShapeKind =
   | typeof SHAPE_TRAPEZOID
   | typeof SHAPE_POLYGON
   | typeof SHAPE_CYLINDER
+  | typeof SHAPE_STICKY
 
 /** Floats per instance. Keep in sync with the attribute offsets below. */
 const STRIDE = 16
@@ -57,7 +59,7 @@ export type ShapeInstance = {
    * Corner radius, or the one number the shape's own geometry needs instead.
    *
    * A parallelogram puts its slant here, a trapezoid its top inset, a polygon its side
-   * count and a cylinder the half-height of its cap. One slot for all of them rather
+   * count, a cylinder the half-height of its cap and a sticky the size of its fold. One slot for all of them rather
    * than a seventeenth float on every instance in the buffer: a rounded corner means
    * nothing on a sheared box, and a shape whose geometry needs a parameter has nowhere
    * else to put it. `canvas/style.ts` decides which meaning it is writing; the shader
@@ -157,6 +159,11 @@ in vec3 vStyle;
 in vec4 vTint;
 
 out vec4 finalColor;
+
+// A note is a cut square of paper, so its corners are barely rounded at all: the more
+// they are, the more it reads as a button. The slot that would carry a corner radius is
+// holding the fold's size, so this is a constant rather than a per-instance float.
+const float STICKY_CORNER = 2.0;
 
 float sdRoundBox(vec2 p, vec2 b, float r) {
   r = min(r, min(b.x, b.y));
@@ -274,6 +281,15 @@ float sdPolygon(vec2 p, vec2 b, float sides) {
   return len * sign(f.x - ir) * scale;
 }
 
+// Intersection of two fields with the corner they make filleted by r, after iq. A plain
+// max is the sharp intersection; this is the same shape with a round of radius r taken
+// out of its corner, which is what keeps the fold's corners from being sharper than the
+// paper they are cut from.
+float sdIntersectRound(float a, float b, float r) {
+  vec2 u = max(vec2(r + a, r + b), vec2(0.0));
+  return min(-r, max(a, b)) + length(u);
+}
+
 void main() {
   float kind = vStyle.x;
   float strokeWidth = vStyle.y;
@@ -283,6 +299,13 @@ void main() {
   // An inner line drawn in the stroke colour, for the shapes that have one. Far away
   // unless a branch below moves it, so it costs the others nothing.
   float seam = 1e6;
+
+  // The turned-over corner of a sticky note: signed distance to the flap, negative
+  // inside it, and how far across the flap the point sits. Out of reach for every other
+  // shape, so the shading at the bottom costs them nothing but a compare.
+  float flap = 1e6;
+  float flapAcross = 0.0;
+  float foldSize = 0.0;
 
   if (kind < 0.5) {
     d = sdRoundBox(vLocal, vHalf, radius);
@@ -308,7 +331,7 @@ void main() {
   } else if (kind < 6.5) {
     // radius carries the side count here.
     d = sdPolygon(vLocal, vHalf, radius);
-  } else {
+  } else if (kind < 7.5) {
     // A body between two cap ellipses. The caps are exactly as wide as the body, so the
     // three stack rather than overlap and the shape is whichever one the point's own
     // band belongs to. A min of the three would be the union, and unions of signed
@@ -334,6 +357,36 @@ void main() {
     // body.
     float front = -body + cap + strokeWidth;
     seam = (vLocal.y > -body && vLocal.y < front) ? topArc : 1e6;
+  } else {
+    // A sticky note: the box with its bottom-right corner turned over.
+    //
+    // The silhouette is the rounded box cut along the crease, so the corner really is
+    // gone rather than drawn over, and the triangle the corner lands on is shaded in
+    // the note's own edge colour. That shading is the whole effect. A second hue, a
+    // curl or a drop shadow is what makes a fold look like a cartoon.
+    //
+    // radius carries the fold's size, in world units.
+    float f = clamp(radius, 0.0, min(vHalf.x, vHalf.y));
+
+    // The crease, as a half-plane through (vHalf.x - f, vHalf.y) and (vHalf.x, vHalf.y - f).
+    // Divided by root two because the sum of the coordinates grows that much faster
+    // than the distance to a 45-degree line, and the antialiasing below needs a real one.
+    float crease = (vLocal.x + vLocal.y - (vHalf.x + vHalf.y - f)) * 0.70710678;
+
+    // Paper does not come to a point. The two places the crease runs out into the note's
+    // edges are filleted, as the note's own corners are, and the flap's free corner is
+    // rounded a little more than that: it is the note's corner, turned over, and a turn
+    // leaves a softer corner than the cut did.
+    float tip = f * 0.12;
+    float free = max(STICKY_CORNER, f * 0.18);
+    d = sdIntersectRound(sdRoundBox(vLocal, vHalf, STICKY_CORNER), crease, tip);
+
+    // Where the corner lands once it is turned over: the crease's own triangle
+    // reflected back inside the note, bounded by the two edges the corner used to have.
+    float legs = sdIntersectRound(vHalf.x - f - vLocal.x, vHalf.y - f - vLocal.y, free);
+    flap = sdIntersectRound(legs, crease, tip);
+    flapAcross = clamp(-crease / max(f * 0.70710678, 1e-4), 0.0, 1.0);
+    foldSize = f;
   }
 
   // Screen-space derivative, so the edge stays one pixel soft at any zoom.
@@ -346,7 +399,22 @@ void main() {
     ? (1.0 - smoothstep(-aa, aa, edge - halfStroke)) * vStroke.a
     : 0.0;
 
-  vec3 rgb = mix(vFill.rgb, vStroke.rgb, strokeAlpha);
+  // The fold, painted in the note's edge colour rather than a colour of its own, so a
+  // yellow note's fold is yellow. A shade duller at the crease than at the flap's free
+  // corner, and a narrow band of shadow on the note just past the flap's two free
+  // edges - which is the only thing that says the triangle is lying on top of the note
+  // rather than painted into its corner.
+  float inFlap = 1.0 - smoothstep(-aa, aa, flap);
+  float beneath = flap > 0.0 ? 1.0 - smoothstep(0.0, foldSize * 0.2 + aa, flap) : 0.0;
+  float fold = inFlap * mix(1.0, 0.84, flapAcross) + (1.0 - inFlap) * beneath * 0.4;
+
+  // The edge colour alone is not enough to see at the size of a dog-ear: it is only a
+  // shade off the paper, and that shade is what a rim one pixel wide needs, not what a
+  // turned corner needs. So the flap goes the whole way to the edge colour and then a
+  // tenth darker again, which is the underside of a piece of paper and still nothing
+  // like a second colour printed on the note.
+  vec3 paper = mix(vFill.rgb, vStroke.rgb, fold) * mix(1.0, 0.9, fold);
+  vec3 rgb = mix(paper, vStroke.rgb, strokeAlpha);
   float alpha = max(fillAlpha, strokeAlpha);
 
   if (alpha < 0.001) discard;

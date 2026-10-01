@@ -210,6 +210,68 @@ export function cylinderCap(h: number): number {
   return Math.min(Math.abs(h) * CYLINDER_CAP_RATIO, Math.abs(h) / 2)
 }
 
+/**
+ * The size of the dog-ear on a sticky note's bottom-right corner, in world units.
+ *
+ * A note is a square of paper, and the one thing that says paper rather than a filled
+ * rectangle is that one corner has been turned over. It is the shape's own geometry
+ * like the slant and the inset, not a style the author sets, so it lives here and is
+ * read by the SDF branch, the snapshot renderer and anything that needs the silhouette.
+ *
+ * Proportional to the shorter side, so the fold is a 45-degree turn of a corner at any
+ * aspect rather than a fraction of the width that would run the length of a wide note.
+ * 0.11 is about what a thumb turns over on a real note: unmistakable at card size,
+ * still small enough that it reads as paper rather than as a cut corner.
+ */
+export const STICKY_FOLD_RATIO = 0.11
+
+export function stickyFold(w: number, h: number): number {
+  return Math.min(Math.abs(w), Math.abs(h)) * STICKY_FOLD_RATIO
+}
+
+/**
+ * The edge colour of a note whose paper somebody chose but whose edge they did not.
+ *
+ * A note's outline is not an ink the author picked, it is the shade of its own paper,
+ * so a pink note cannot keep the theme's blue edge - and with a fold on it, that blue
+ * turns up in the middle of the note rather than only round the rim. The note colours
+ * in the tool's flyout store both, but a fill set anywhere else (the style panel, an
+ * assistant writing `fill`, a pasted note) stores only the fill, and this is what the
+ * edge is then.
+ *
+ * The rule is the one the hand-picked palette already follows: a little over half the
+ * saturation, a fifth of the way down in lightness. Run against those six it lands
+ * within about ten of each channel, and a little further on the blue, which is what
+ * makes it safe to apply to a colour nobody picked an edge for. A dark paper goes the
+ * other way and lightens, because an edge a fifth darker than an already dark note is
+ * a black line.
+ */
+export function noteEdge(fill: number): number {
+  const r = ((fill >> 16) & 0xff) / 255
+  const g = ((fill >> 8) & 0xff) / 255
+  const b = (fill & 0xff) / 255
+
+  const max = Math.max(r, g, b)
+  const min = Math.min(r, g, b)
+  const l = (max + min) / 2
+  const span = max - min
+  const s = span === 0 ? 0 : span / (1 - Math.abs(2 * l - 1))
+
+  const dark = l <= 0.45
+  const edgeS = s * (dark ? 0.78 : 0.62)
+  const edgeL = Math.min(1, Math.max(0, dark ? l + 0.15 : l - 0.2))
+
+  // Hue is carried as the two chroma coefficients rather than an angle, which is the
+  // same thing without the two trips through atan2 and back.
+  const c = (1 - Math.abs(2 * edgeL - 1)) * edgeS
+  const scale = span === 0 ? 0 : c / span
+  const mid = edgeL - c / 2
+  const channel = (value: number): number =>
+    Math.round(Math.min(255, Math.max(0, (mid + (value - min) * scale) * 255)))
+
+  return (channel(r) << 16) | (channel(g) << 8) | channel(b)
+}
+
 export const shapeProps = z.object({
   fill: z.number().int().default(0x9ec9b0),
   fillAlpha: z.number().min(0).max(1).default(1),

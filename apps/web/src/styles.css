@@ -5060,13 +5060,37 @@ kbd {
   border: 1px solid color-mix(in srgb, var(--fg) 22%, transparent);
 }
 
-/* A note colour is shown as a note: square, a hair rounded, with its own edge. */
+/*
+ * A note colour is shown as a note: square, a hair rounded, with its own edge and the
+ * corner it has turned over on the board.
+ *
+ * The chip is fifteen pixels, so the fold is a silhouette rather than the shaded flap
+ * the canvas draws: the corner is cut away and the edge colour fills the triangle the
+ * turned corner lands on. `currentColor` carries that edge, which is why the swatch
+ * sets `color` rather than `border-color`.
+ */
 .note-swatch {
+  position: relative;
   display: block;
   width: 15px;
   height: 15px;
   border-radius: 2px;
-  border: 1px solid;
+  border: 1px solid currentColor;
+  clip-path: polygon(0 0, 100% 0, 100% 64%, 64% 100%, 0 100%);
+}
+
+.note-swatch::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 36%;
+  height: 36%;
+  /* Square, and the clip above leaves only the half of it inside the crease. The one
+     corner of it that shows is the flap's free corner, rounded as the note's is. */
+  background: currentColor;
+  border-top-left-radius: 2px;
+  opacity: 0.55;
 }
 
 /*

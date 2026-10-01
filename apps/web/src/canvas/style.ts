@@ -10,8 +10,10 @@ import {
   type ObjectData,
   type ObjectType,
   cylinderCap,
+  noteEdge,
   parallelogramSlant,
   polygonSidesOf,
+  stickyFold,
   trapezoidInset,
 } from '@meadow/schema'
 import {
@@ -21,6 +23,7 @@ import {
   SHAPE_PARALLELOGRAM,
   SHAPE_POLYGON,
   SHAPE_RECT,
+  SHAPE_STICKY,
   SHAPE_TRAPEZOID,
   SHAPE_TRIANGLE,
   type ShapeKind,
@@ -135,7 +138,7 @@ const KINDS: Partial<Record<ObjectType, ShapeKind>> = {
   trapezoid: SHAPE_TRAPEZOID,
   polygon: SHAPE_POLYGON,
   cylinder: SHAPE_CYLINDER,
-  sticky: SHAPE_RECT,
+  sticky: SHAPE_STICKY,
   frame: SHAPE_RECT,
   text: SHAPE_RECT,
   image: SHAPE_RECT,
@@ -156,9 +159,9 @@ export function shapeKindFor(type: ObjectType): ShapeKind | null {
 /**
  * The one number a shape's own geometry needs, for the instance's radius slot.
  *
- * Four of the eight primitives have something to put there that is not a corner: the
- * parallelogram's slant, the trapezoid's inset, the polygon's side count and the
- * cylinder's cap. The shader reads the slot per branch, so this is the only place that
+ * Five of the nine kinds have something to put there that is not a corner: the
+ * parallelogram's slant, the trapezoid's inset, the polygon's side count, the
+ * cylinder's cap and the size of a sticky's folded corner. The shader reads the slot per branch, so this is the only place that
  * decides which of the meanings is being written.
  */
 function geometryOf(object: ObjectData, props: Record<string, unknown>): number {
@@ -171,12 +174,15 @@ function geometryOf(object: ObjectData, props: Record<string, unknown>): number 
       return polygonSidesOf(props)
     case 'cylinder':
       return cylinderCap(object.h)
+    case 'sticky':
+      // The dog-ear, not a corner radius: the note's own corners are a constant in the
+      // shader, since a note is a cut square of paper and rounding it any further reads
+      // as a button.
+      return stickyFold(object.w, object.h)
     default:
       // Softly rounded by default. A hard 90-degree corner is half of why an unstyled
-      // shape reads as a wireframe rather than as a finished object. A sticky is the
-      // exception and gets a tighter one: a note is a cut square of paper, and the more
-      // its corners are rounded the more it reads as a button.
-      return numberProp(props, 'cornerRadius', object.type === 'sticky' ? 2 : 4)
+      // shape reads as a wireframe rather than as a finished object.
+      return numberProp(props, 'cornerRadius', 4)
   }
 }
 
@@ -205,12 +211,21 @@ export function resolveStyle(object: ObjectData, kind: ShapeKind, dark = false):
   const props = object.props
   const bare = TRANSPARENT_BOX.has(object.type)
   const theme = dark ? 'dark' : 'light'
-  const surface = object.type === 'sticky' ? STICKY_FILL[theme] : SHAPE_DEFAULTS[theme]
+  const sticky = object.type === 'sticky'
+  const surface = sticky ? STICKY_FILL[theme] : SHAPE_DEFAULTS[theme]
+  const fill = numberProp(props, 'fill', surface.fill)
+  // A note's edge is the shade of its own paper, so a note given a colour and no edge
+  // gets one from that colour rather than the theme's. Only a note: on a shape, an
+  // outline is an ink the author chose and the fill is not allowed to overrule it.
+  const edge =
+    sticky && typeof props.fill === 'number' && Number.isFinite(props.fill)
+      ? noteEdge(fill)
+      : surface.stroke
   return {
     kind,
-    fill: numberProp(props, 'fill', surface.fill),
+    fill,
     fillAlpha: numberProp(props, 'fillAlpha', bare ? 0 : 1) * object.opacity,
-    stroke: numberProp(props, 'stroke', surface.stroke),
+    stroke: numberProp(props, 'stroke', edge),
     strokeAlpha: numberProp(props, 'strokeAlpha', bare ? 0 : 1) * object.opacity,
     strokeWidth: numberProp(props, 'strokeWidth', bare ? 0 : 2),
     // A corner radius, or the shape's own geometry where the shape has some. That is

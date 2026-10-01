@@ -25,6 +25,7 @@ import {
   cylinderCap,
   parallelogramSlant,
   polygonSidesOf,
+  stickyFold,
   trapezoidInset,
 } from './objects'
 
@@ -116,6 +117,17 @@ function outlineScale(target: ObjectData, halfW: number, halfH: number, dx: numb
       const offset = angle - sector * Math.round(angle / sector)
       const reach = Math.hypot(nx, ny) * Math.cos(offset)
       return reach <= 0 ? 0 : Math.cos(Math.PI / sides) / reach
+    }
+    case 'sticky': {
+      // A box with one corner cut off along the crease, so the ray leaves at whichever
+      // of the three it reaches first. The crease is the line x + y = halfW + halfH -
+      // fold, which only a ray heading into that corner can reach at all.
+      const fold = stickyFold(halfW * 2, halfH * 2)
+      const tx = dx === 0 ? Infinity : halfW / Math.abs(dx)
+      const ty = dy === 0 ? Infinity : halfH / Math.abs(dy)
+      const towards = dx + dy
+      const crease = towards > 0 ? (halfW + halfH - fold) / towards : Infinity
+      return Math.min(tx, ty, crease)
     }
     case 'cylinder': {
       // A union, so the ray leaves at the far side of whichever part reaches furthest:
