@@ -232,7 +232,7 @@ calls as well.
 
 | | |
 |---|---|
-| **Canvas** | React 19, TypeScript, Vite, PixiJS 8, TipTap, rbush, Zustand, Tailwind |
+| **Canvas** | React 19, TypeScript, Vite, PixiJS 8, TipTap 3, rbush, zod |
 | **Realtime** | yjs over websocket, offline persistence in the browser, awareness for presence |
 | **PWA** | Web app manifest, a build-generated service worker that precaches the app shell |
 | **Server** | FastAPI, pycrdt, SQLAlchemy 2 async, Alembic, arq |

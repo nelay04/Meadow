@@ -67,33 +67,45 @@ Camera state lives in one place. Both layers read it. They must never drift.
 | Framework | React 19 + TypeScript | strict mode on |
 | Build | Vite 6 | not Next.js — app is behind auth, nothing to SSR |
 | Canvas renderer | PixiJS 8 | WebGL; Canvas2D fallback not required |
-| Text editing | TipTap 2 (ProseMirror) | one instance per active text object |
+| Text editing | TipTap 3 (ProseMirror) | one instance per active text object |
 | CRDT | yjs | document state lives here, not in React |
 | CRDT ↔ editor | y-prosemirror | binds `Y.XmlFragment` to TipTap |
 | Offline | y-indexeddb | local persistence + offline edits |
 | Transport | y-websocket client | talks to FastAPI ws endpoint |
 | Spatial index | rbush | R-tree for hit-testing and viewport culling |
-| UI state | Zustand | **UI only** — never document data |
-| Styling | Tailwind 4 | |
-| Charts | Recharts | rendered into DOM overlay |
-| Forms/validation | react-hook-form + zod | |
+| UI state | hand-rolled `useSyncExternalStore` stores | **UI only** - never document data |
+| Styling | one hand-written stylesheet | `apps/web/src/styles.css`, CSS custom properties |
+| Validation | zod | in `packages/schema`; no form library |
 | Tests | Vitest + Playwright | |
+
+**Corrected after v1: this table is what shipped, not what was planned.** Four of the
+original picks never arrived and the rows above now name what is actually installed.
+Zustand went because UI state here is a handful of independent values (viewport,
+breakpoint, tool selection) and each is read through `useSyncExternalStore` anyway,
+which is the same subscription the document uses; a store library would have added a
+second pattern for no gain. Tailwind went because the canvas is drawn, not laid out, so
+the chrome is small enough for one stylesheet, and the theme tokens it needs are
+already CSS custom properties. react-hook-form went because there are no forms worth a
+library, only sign-in and a rename. Recharts was for charts, which are a v2 feature
+that is not built: when it lands, it is a decision to re-make, not a dependency to
+restore.
 
 ### Typography
 
 | Role | Family | Notes |
 |---|---|---|
-| UI chrome | Comic Neue | toolbars, panels, menus, board list, numerals |
-| Text objects | Comic Neue (default) + Inter (option) | user-selectable per object, stored in `props.fontFamily` |
+| UI chrome | Comic Neue by default | one of nine, per browser, `data-font` on the root (`ui/font.ts`) |
+| Text objects | Comic Neue by default | one of nine per object, stored in `props.fontFamily` |
 | Code | JetBrains Mono | code blocks inside text objects |
+| Indic scripts | nine Noto Sans families | in every `--ui-font` stack, not a `FONT_FAMILIES` slug |
 
 **Changed in M6: Comic Neue is the app's face, not an option inside it.** Inter was the
 chrome and the text-object default; both are now Comic Neue, and Inter stays as a
 `props.fontFamily` slug so a document that asks for it keeps it. The reasoning is that
 an app whose chrome speaks in a grotesque and whose content speaks in a handwriting
-face reads as two products stitched together, and the canvas is the product. The three
-faces are still shipped: `FONT_FAMILIES` is CRDT-visible and removing a slug would
-change what existing objects render as.
+face reads as two products stitched together, and the canvas is the product. Inter is
+kept rather than dropped because `FONT_FAMILIES` is CRDT-visible and removing a slug
+would change what existing objects render as.
 
 Note the metrics consequence, which is the reason this is recorded here rather than in
 a stylesheet. `textProps.fontFamily` defaults to `comic` now, so a text object written
@@ -101,14 +113,24 @@ before M6 that never set a family measures against a different face than it did,
 its auto-height is re-derived on next open. Acceptable pre-launch; it would not be
 after.
 
-Self-host all three as woff2 under `apps/web/public/fonts`, fetched by `pnpm fonts`.
-No Google Fonts CDN: the app is behind auth on a single VPS, and a third-party font
-request on every board load is a needless dependency and a privacy leak.
+**Corrected after M6: there are nine faces, not three.** `FONT_FAMILIES` is
+`inter, comic, mono, poppins, patrick, caveat, kalam, quicksand, nunito`
+(`packages/schema/src/text.ts`), and the same nine are offered for the chrome, which
+the earlier wording did not anticipate either: the chrome face is a per-browser
+preference, not a constant. Each one is a `:root[data-font=...]` block redefining
+`--ui-font`, so only the chosen face is ever downloaded, a `@font-face` costing nothing
+until something on screen is set in it. The count is worth keeping right here because
+every slug added is CRDT-visible and permanent by the paragraph above.
+
+Self-host all nine as woff2 under `apps/web/public/fonts`, fetched by `pnpm fonts`,
+alongside the Noto families for Indic scripts. No Google Fonts CDN: the app is behind
+auth on a single VPS, and a third-party font request on every board load is a needless
+dependency and a privacy leak.
 
 Fonts are a canvas concern, not just CSS. Text objects are measured in the DOM overlay
 and their bounding boxes are written into the CRDT, so a font that loads late changes
-`w`/`h` after the fact and shifts layout for everyone. Preload the two text-object
-faces and gate first canvas render on `document.fonts.ready`. Adding a text-object face
+`w`/`h` after the fact and shifts layout for everyone. Preload the default text-object
+face and gate first canvas render on `document.fonts.ready`. Adding a text-object face
 later is a schema-visible decision, not a style tweak.
 
 **Corrected in M3: `font-display: block`, not `swap`.** A swap paints fallback glyphs
@@ -126,14 +148,18 @@ CRDT before the real face arrived. A short invisible period is the cheaper failu
 | DB | PostgreSQL 16 | |
 | Cache/queue | Redis 7 | job broker, presence, rate limits |
 | Jobs | arq | async-native, same codebase as API |
-| Auth | python-jose + argon2-cffi | JWT + password hashing |
-| Object storage | MinIO (S3 API) | images, attachments, exports |
+| Auth | pyjwt + argon2-cffi | JWT + password hashing |
+| Object storage | MinIO (S3 API) | **planned, never deployed** - see §8 and §9; arrives with images in v2 |
 | Validation | Pydantic v2 | |
 | Tests | pytest + pytest-asyncio + httpx | |
 
 ### Infra
 
-Docker Compose · nginx · GitHub Actions → GHCR → VPS over SSH · Sentry · structured JSON logs
+Docker Compose · nginx · GitHub Actions → GHCR → VPS over SSH · structured JSON logs
+
+Sentry was listed here and is not installed. Errors are the structured logs plus the
+health endpoints; a hosted error service on a single-tenant VPS was a cost without a
+question it answered. Worth re-opening if the deployment ever stops being one box.
 
 ---
 
@@ -503,7 +529,7 @@ and write the underlying `Y.Map`. Decide this before M2, not during it.
 
 ```ts
 type BaseObject = {
-  id: string            // nanoid(12)
+  id: string            // 12-char id, `nanoid()` in packages/schema/src/doc.ts
   type: ObjectType
   x: number             // canvas coords, not screen
   y: number
@@ -1383,6 +1409,7 @@ POST   /share/{token}/ws-token        a ws credential for an anonymous guest
 GET    /invites/{token}               what a #/join/ link says, before registering
 POST   /invites/{token}/accept        signed in; the address still has to match
 
+-- planned, not built: no MinIO (§8, §9) and no export job. Exports are client-side today.
 POST   /boards/{id}/assets            presigned MinIO upload
 POST   /boards/{id}/export            { format: pdf|png|svg } -> job id
 GET    /jobs/{id}
