@@ -1,8 +1,12 @@
 # Meadow MCP image: the `meadow-mcp` bundle serving Streamable HTTP, behind nginx at /mcp.
 #
 # Build context is the repo root, for the same reason as the web image: the server
-# compiles in `packages/schema` and the web app's `src/doc` write path, so it needs the
-# workspace to build. The bundled file and its snapshot assets are all that ship.
+# compiles in `packages/schema` and `packages/document-core`, so it needs the workspace
+# to build. The bundled file and its snapshot assets are all that ship.
+#
+# It no longer needs any of `apps/web` but the fonts. Until 1.26.0 the write path lived
+# in `apps/web/src/doc` and this image copied that directory and `src/lib/api.ts` in to
+# get it; both moved to `packages/document-core`.
 #
 # Debian for the build stage for the web image's reason (the lockfile was resolved on
 # glibc). The runtime is the same base so nothing native differs between the two.
@@ -12,15 +16,15 @@ RUN corepack enable
 
 WORKDIR /build
 
+# Every workspace member in the filter's closure needs its manifest here, or
+# --frozen-lockfile fails on a lockfile naming a package that is not present.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY apps/web/package.json apps/web/
 COPY packages/schema/package.json packages/schema/
+COPY packages/document-core/package.json packages/document-core/
 COPY packages/mcp/package.json packages/mcp/
-RUN pnpm install --frozen-lockfile --filter @meadow/mcp... --filter web...
+RUN pnpm install --frozen-lockfile --filter @meadow/mcp...
 
 COPY packages packages
-COPY apps/web/src/doc apps/web/src/doc
-COPY apps/web/src/lib/api.ts apps/web/src/lib/api.ts
 # The fonts a snapshot is drawn with, decompressed to TrueType by the build.
 COPY apps/web/public/fonts apps/web/public/fonts
 

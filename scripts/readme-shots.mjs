@@ -16,7 +16,9 @@ process.on('exit', stop)
 const api = spawn('bash', ['-c',
   `cd services/api && exec .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port ${API_PORT} --log-level warning`], {
   stdio: ['ignore', 'pipe', 'pipe'],
-  env: { ...process.env, MEADOW_RATE_LIMIT_ENABLED: 'false', MEADOW_SMTP_HOST: '', MEADOW_SMTP_FROM: '' },
+  // MEADOW_MAIL_PROVIDER is pinned as well: blanking the host only silences the
+  // provider that reads it, and `resend` would send real activation mail.
+  env: { ...process.env, MEADOW_RATE_LIMIT_ENABLED: 'false', MEADOW_MAIL_PROVIDER: 'smtp', MEADOW_SMTP_HOST: '', MEADOW_SMTP_FROM: '' },
 })
 procs.push(api)
 api.stderr.on('data', (d) => { const s = String(d); if (/error|Traceback/i.test(s)) console.log('api:', s.trim().slice(0, 300)) })
@@ -113,7 +115,7 @@ async function session(who, theme, capture = null) {
   }, theme)
   const page = await context.newPage()
   page.on('pageerror', (e) => console.log('page error:', e.message))
-  await page.goto(webBase, { waitUntil: 'load' })
+  await page.goto(`${webBase}/app`, { waitUntil: 'load' })
   await page.waitForSelector('input[type="email"]', { timeout: 30000 })
   if (capture !== null) {
     await delay(2500)
@@ -160,10 +162,10 @@ async function openBoard(p, id, kind = 'glade') {
   // Out to the list first. A board-to-board hash change routes but leaves the canvas
   // holding the objects of the board it was already showing; passing through the list
   // unmounts it. Reloading would do it too, but a reload here loses the session.
-  await p.goto(`${webBase}/#/`)
+  await p.goto(`${webBase}/app#/`)
   await p.waitForSelector('.board-card', { timeout: 30000 })
   await delay(800)
-  await p.goto(`${webBase}/#/${kind}/${id}`)
+  await p.goto(`${webBase}/app#/${kind}/${id}`)
   try {
     await p.waitForSelector('.canvas-host canvas', { timeout: 30000 })
   } catch (error) {
@@ -356,9 +358,9 @@ await page.keyboard.press('Escape')
 await delay(500)
 
 /* ---------- the profile page ---------- */
-await page.goto(`${webBase}/#/`)
+await page.goto(`${webBase}/app#/`)
 await page.waitForSelector('.board-card', { timeout: 20000 })
-await page.goto(`${webBase}/#/profile`)
+await page.goto(`${webBase}/app#/profile`)
 await delay(3500)
 // The sessions log is the part worth showing, and it sits below the fold.
 await page.evaluate(() => {
@@ -385,9 +387,9 @@ await page.keyboard.press('Escape')
 await delay(500)
 
 /* ---------- the profile page ---------- */
-await page.goto(`${webBase}/#/`)
+await page.goto(`${webBase}/app#/`)
 await page.waitForSelector('.board-card', { timeout: 20000 })
-await page.goto(`${webBase}/#/profile`)
+await page.goto(`${webBase}/app#/profile`)
 await delay(3500)
 // The sessions log is the part worth showing, and it sits below the fold.
 await page.evaluate(() => {
@@ -403,7 +405,7 @@ await delay(1500)
 await shot(page, 'profile')
 
 /* ---------- the glade list ---------- */
-await page.goto(`${webBase}/#/`)
+await page.goto(`${webBase}/app#/`)
 await page.waitForSelector('.board-card', { timeout: 20000 })
 await page.mouse.move(8, 8)
 await delay(4000)

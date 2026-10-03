@@ -1,8 +1,7 @@
-import { exportGlade } from '../../../apps/web/src/doc/interchange'
+import { applyEdits, createDocSession, exportGlade } from '@meadow/document-core'
 import { describe, expect, it } from 'vitest'
 import * as Y from 'yjs'
 
-import { applyEdits, createDocSession } from '../../../apps/web/src/doc/mutations'
 import { planCreate } from '../src/plan'
 import { MAX_SNAPSHOT_WIDTH, rasterize, renderSnapshot } from '../src/snapshot'
 

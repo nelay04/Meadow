@@ -3,7 +3,7 @@
  *
  * What it is for is a round trip that loses nothing. Export a glade, import the file,
  * export again, and the two files are the same file. That is the test this format is
- * held to (`apps/web/src/doc/interchange.test.ts`), and it is a stronger promise than a
+ * held to (`packages/document-core/src/interchange.test.ts`), and it is a stronger promise than a
  * picture of the board: the file says which shape an arrow is bound to, where on its
  * edge, what is written on it and in which marks, and what order everything is stacked
  * in. Something outside this app - a script, another tool, a language model - can read
@@ -56,7 +56,7 @@ export const GLADE_MAX_BYTES = 64 * 1024 * 1024
 
 // --- rich text ------------------------------------------------------------------
 //
-// The same JSON `fragmentToNodes` writes in apps/web/src/doc/richText.ts: node names as
+// The same JSON `fragmentToNodes` writes in @meadow/document-core's richText.ts: node names as
 // ProseMirror stores them and each text run as the delta Yjs reports. Declared here so
 // the file format is described in one package, including to a JSON Schema reader.
 

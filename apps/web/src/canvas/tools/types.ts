@@ -2,7 +2,7 @@
  * The tool state machine. ARCHITECTURE 5.
  *
  * One tool is active at a time and owns the pointer. Tools never touch the Y.Doc
- * directly: they call through `ToolContext`, which routes writes to doc/mutations so
+ * directly: they call through `ToolContext`, which routes writes to @meadow/document-core so
  * the transaction wrapping and the read-only check stay in one place.
  */
 

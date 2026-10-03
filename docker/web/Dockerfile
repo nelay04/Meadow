@@ -5,7 +5,7 @@
 # URL to bake in at build time and no per-environment rebuild.
 #
 # Build context is the repo root: the web app is a pnpm workspace member and depends on
-# `packages/schema` through `workspace:*`.
+# `packages/schema` and `packages/document-core` through `workspace:*`.
 #
 # NOTE: the `dev` stage is last in this file, and `docker build` with no
 # --target builds the last stage. Every production build must pass
@@ -26,9 +26,12 @@ WORKDIR /build
 
 # Manifests and the lockfile only. Anything below this that changes app source but not
 # dependencies reuses the install layer, and the dev stage shares it.
+# Every workspace member the app depends on needs its manifest here, or
+# --frozen-lockfile fails on a lockfile naming a package that is not present.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/web/package.json apps/web/
 COPY packages/schema/package.json packages/schema/
+COPY packages/document-core/package.json packages/document-core/
 RUN pnpm install --frozen-lockfile
 
 

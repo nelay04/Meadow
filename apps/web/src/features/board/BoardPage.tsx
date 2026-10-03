@@ -34,7 +34,7 @@ import { PAGE_LINES_STEP, pageSlotAt } from '../../canvas/engine'
 import type { Wanderer } from '../../canvas/overlay/wandererLayer'
 import type { ToolId } from '../../canvas/tools/types'
 import { STICKY_COLORS, STICKY_COLOR_IDS, type StickyColorId } from '../../canvas/style'
-import { TEXT_MARKS, type TextMark } from '../../doc/richText'
+import { TEXT_MARKS, type TextMark } from '@meadow/document-core'
 import {
   IconArrow,
   IconAssistNone,
@@ -105,7 +105,7 @@ import {
   createDocSession,
   importGlade,
   roleCanWrite,
-} from '../../doc/mutations'
+} from '@meadow/document-core'
 import { attachPhoneticInput } from '../../overlay/phoneticIme'
 import { EDITOR_ORIGIN } from '../../overlay/textEditor'
 import type { BoardKind, BoardRole, ShareMode } from '../../lib/api'

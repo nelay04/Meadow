@@ -235,9 +235,10 @@ touches() { printf '%s\n' "$STAGED" | grep -qE "$1"; }
 # packages/schema is in the web bucket because apps/web imports it through
 # `workspace:*` and tsc resolves straight into its source. A schema edit that breaks a
 # caller breaks it at the caller, so both are typechecked together or neither is.
-# packages/mcp is in it too: it compiles the web app's `src/doc` write path in, so a
-# change there can break the MCP server without touching a file under packages/mcp.
-WEB=0; touches '^(apps/web|packages/schema|packages/mcp)/' && WEB=1
+# packages/document-core is in it for the same reason, and it is the write path the app
+# and the MCP server now share: a change there can break either without a file under
+# them being touched. packages/mcp stays in the bucket because it is the other caller.
+WEB=0; touches '^(apps/web|packages/schema|packages/document-core|packages/mcp)/' && WEB=1
 API=0; touches '^services/api/.*\.(py|toml)$' && API=1
 
 top "$(pick "Checking what is about to be committed ${GREY}(rules, types, tests)${NC}" 'Pre-commit checks')"
@@ -292,7 +293,13 @@ run_step "$(pick 'repo rules   : staged lines' 'repo rules')" node scripts/check
 # Subshells throughout, so a `cd` inside a step cannot leak into the next one. The
 # non-interactive branch of run_step calls these in the current shell.
 web_types() { ( pnpm -r --silent lint ); }
-web_tests() { ( pnpm --filter web --silent test && pnpm --filter @meadow/mcp --silent test ); }
+web_tests() {
+    (
+        pnpm --filter @meadow/document-core --silent test \
+            && pnpm --filter web --silent test \
+            && pnpm --filter @meadow/mcp --silent test
+    )
+}
 
 if [ "$WEB" -eq 1 ]; then
     run_step "$(pick 'types (web)  : tsc --noEmit, every package' 'types (web)')" web_types

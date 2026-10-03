@@ -224,13 +224,15 @@ services:
     volumes:
       - ./apps/web:/build/apps/web
       - ./packages/schema:/build/packages/schema
+      - ./packages/document-core:/build/packages/document-core
       # Anonymous volumes, and they are the load-bearing part. Docker seeds them from
-      # the image, so these two paths keep the container's own node_modules instead of
+      # the image, so these paths keep the container's own node_modules instead of
       # being replaced by the host's, which is installed for the host platform and
       # whose pnpm symlink layout does not survive being half-overlaid. Without them
       # the bind mounts above break the app in ways that read as vite bugs.
       - /build/apps/web/node_modules
       - /build/packages/schema/node_modules
+      - /build/packages/document-core/node_modules
     ports:
       - "127.0.0.1:${WEB_PORT:-3012}:${WEB_PORT:-3012}"
     depends_on:

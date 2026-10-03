@@ -40,8 +40,8 @@ import {
   readObjectById,
   setObjectText,
   updateObject,
-} from '../doc/mutations'
-import { fragmentToPlainText } from '../doc/richText'
+} from '@meadow/document-core'
+import { fragmentToPlainText } from '@meadow/document-core'
 import { EDITOR_ORIGIN, createTextEditor } from '../overlay/textEditor'
 
 const params = new URLSearchParams(location.search)

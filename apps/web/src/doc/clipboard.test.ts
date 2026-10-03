@@ -22,8 +22,8 @@ import {
   readObjectById,
   setObjectText,
   snapshotObjects,
-} from './mutations'
-import { fragmentToPlainText } from './richText'
+} from '@meadow/document-core'
+import { fragmentToPlainText } from '@meadow/document-core'
 
 const session = (role: 'owner' | 'viewer' = 'owner') => createDocSession(new Y.Doc(), role)
 const NO_OFFSET = { x: 0, y: 0 }

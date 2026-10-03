@@ -155,7 +155,7 @@ cannot run because Postgres is down is a check people learn to skip.
 
 The repo rules are the project's non-negotiables that no linter knows about, read off the
 added lines only. `src/canvas/` importing from `src/features/`, a `Y.transact` outside
-`src/doc/`, a second `resolve_role`, an `any`, a staged `.env`. Style preferences print as
+`@meadow/document-core`, a second `resolve_role`, an `any`, a staged `.env`. Style preferences print as
 notes and never block, because a hook that blocks on a judgement call teaches people to
 pass `--no-verify`, and after that the real checks stop running too.
 

@@ -100,12 +100,12 @@ import { createShapeTool } from './tools/shapeTool'
 import { createArrowTool } from './tools/arrowTool'
 import { createPenTool } from './tools/penTool'
 import { createTextTool } from './tools/textTool'
-import type { DocSnapshot, ObjectSnapshot } from '../doc/mutations'
+import type { DocSnapshot, ObjectSnapshot } from '@meadow/document-core'
 // Only the DataTransfer half of copying lives there: it takes a snapshot and gives
 // one back, and touches no session, so the engine still reaches the document
 // through its host and nothing else.
 import { readClipboard, snapshotBounds, writeClipboard } from '../doc/clipboard'
-import type { TextMark } from '../doc/richText'
+import type { TextMark } from '@meadow/document-core'
 import { DEFAULT_LASER } from './tools/types'
 import type {
   CanvasPointerEvent,
@@ -2821,7 +2821,7 @@ export class CanvasEngine {
    * The object a writing surface's page *is*, or null.
    *
    * The first text object in z-order, which is the same rule `ensureWritingColumn` in
-   * doc/mutations.ts uses to find it: a fenced board creates its column into an empty
+   * @meadow/document-core uses to find it: a fenced board creates its column into an empty
    * document, so it is always at the bottom of the stack. Both sides state the
    * invariant rather than passing an id around, and neither can drift from the other
    * without the rule itself changing.

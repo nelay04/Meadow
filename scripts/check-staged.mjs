@@ -119,10 +119,15 @@ const FAILURES = [
     test: (text) => /^\s*(?:import|export)\b[^\n]*['"][^'"]*features\//.test(text),
   },
   {
-    name: 'Y.Doc write outside doc/',
-    why: 'CLAUDE.md 3: all Y.Doc writes go through src/doc/mutations.ts.',
+    name: 'Y.Doc write outside document-core',
+    why: 'CLAUDE.md 3: all Y.Doc writes go through @meadow/document-core.',
+    // The write path moved out of `apps/web/src/doc` into its own package, so the MCP
+    // server could stop reaching into the app for it. `apps/web/src/doc` is still
+    // exempt: what stayed there (the React bindings, the canvas host, the clipboard)
+    // wraps the same mutations and has the same licence to transact.
     where: (file) =>
-      file.startsWith('apps/web/src/') && !file.startsWith('apps/web/src/doc/'),
+      (file.startsWith('apps/web/src/') && !file.startsWith('apps/web/src/doc/')) ||
+      (file.startsWith('packages/mcp/src/') && !file.startsWith('packages/mcp/test/')),
     test: (text) => /\btransact\s*\(/.test(text),
   },
   {

@@ -1,7 +1,7 @@
 {
   "name": "web",
   "private": true,
-  "version": "1.25.0",
+  "version": "1.26.0",
   "license": "SEE LICENSE IN ../../LICENSE.md",
   "type": "module",
   "scripts": {
@@ -12,6 +12,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@meadow/document-core": "workspace:*",
     "@meadow/schema": "workspace:*",
     "@tiptap/core": "^3.29.2",
     "@tiptap/extension-collaboration": "^3.29.2",

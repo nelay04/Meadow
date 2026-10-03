@@ -21,8 +21,8 @@
 
 import { GLADE_FORMAT, bindingData, objectData, parseGladeFile } from '@meadow/schema'
 
-import { gladeToSnapshot } from './interchange'
-import type { DocSnapshot, ObjectSnapshot } from './mutations'
+import { gladeToSnapshot } from '@meadow/document-core'
+import type { DocSnapshot, ObjectSnapshot } from '@meadow/document-core'
 
 /**
  * The DataTransfer type objects travel under.

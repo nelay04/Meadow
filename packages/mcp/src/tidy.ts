@@ -13,6 +13,13 @@
  */
 
 import {
+  type DocSession,
+  type EditBatch,
+  type EditConnect,
+  type EditUpdate,
+  fragmentToPlainText,
+} from '@meadow/document-core'
+import {
   type ObjectData,
   STICKY_BASE_HEIGHT,
   isArrowLike,
@@ -20,13 +27,6 @@ import {
   stickyFitHeight,
 } from '@meadow/schema'
 
-import type {
-  DocSession,
-  EditBatch,
-  EditConnect,
-  EditUpdate,
-} from '../../../apps/web/src/doc/mutations'
-import { fragmentToPlainText } from '../../../apps/web/src/doc/richText'
 import { layoutBlock } from './layout'
 import type { DiagramDirection, SpecNodeType } from './mermaid'
 import { PlanError, arrowEnds, boardNodes, boardObstacles, drawnPoints } from './plan'

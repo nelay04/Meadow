@@ -23,6 +23,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@meadow/document-core':
+        specifier: workspace:*
+        version: link:../../packages/document-core
       '@meadow/schema':
         specifier: workspace:*
         version: link:../../packages/schema
@@ -88,8 +91,27 @@ importers:
         specifier: ^3.25.2
         version: 3.25.2(zod@3.25.76)
 
+  packages/document-core:
+    dependencies:
+      '@meadow/schema':
+        specifier: workspace:*
+        version: link:../schema
+      yjs:
+        specifier: ^13.6.20
+        version: 13.6.31
+    devDependencies:
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@22.20.2)(vite@6.4.3(@types/node@22.20.2)(tsx@4.23.13))
+
   packages/mcp:
     dependencies:
+      '@meadow/document-core':
+        specifier: workspace:*
+        version: link:../document-core
       '@meadow/schema':
         specifier: workspace:*
         version: link:../schema

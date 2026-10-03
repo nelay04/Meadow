@@ -50,9 +50,15 @@ const api = spawn(
     // Blank SMTP is the documented off switch for activation mail, and it is set here
     // because the repo's own .env usually configures a relay. With mail on, the
     // accounts this script opens stay unactivated and every endpoint refuses them.
+    //
+    // The provider is pinned to smtp as well. Blanking the SMTP host only turns mail
+    // off for the provider that reads it, and a .env selecting `resend` sends over an
+    // API that never looks at these two, so activation mail went out anyway and every
+    // login here answered 403.
     env: {
       ...process.env,
       MEADOW_RATE_LIMIT_ENABLED: 'false',
+      MEADOW_MAIL_PROVIDER: 'smtp',
       MEADOW_SMTP_HOST: '',
       MEADOW_SMTP_FROM: '',
     },
@@ -162,7 +168,11 @@ async function openBoard(person) {
   const errors = []
   page.on('pageerror', (error) => errors.push(error.message))
 
-  await page.goto(webBase, { waitUntil: 'load' })
+  // `/app`, not the root: the root has been the landing page since the split, and it
+  // has no sign-in form, so this timed out waiting for an email field that is one
+  // navigation away. `vite.config.ts` maps both spellings; `board-e2e.mjs` always
+  // asked for /app.
+  await page.goto(`${webBase}/app`, { waitUntil: 'load' })
   await page.fill('input[type="email"]', person.email)
   await page.fill('input[type="password"]', person.password)
   await page.click('button[type="submit"]')

@@ -2,7 +2,7 @@
  * The stack, as rows.
  *
  * `order` is a `Y.Array` of ids and nothing else - see the z-order section of
- * `doc/mutations.ts` - so everything a person needs to recognise a row by has to be
+ * `mutations.ts` in @meadow/document-core - so everything a person needs to recognise a row by has to be
  * assembled from the object it points at. That assembly is here rather than in the
  * panel because it is the part worth testing: the panel is markup and pointer
  * handling, and this is the answer to "which of these forty rectangles is the one I
@@ -17,8 +17,8 @@
 
 import type { ObjectData, ObjectType } from '@meadow/schema'
 
-import { fragmentToPlainText } from '../../doc/richText'
-import { type DocSession, objectFragment } from '../../doc/mutations'
+import { fragmentToPlainText } from '@meadow/document-core'
+import { type DocSession, objectFragment } from '@meadow/document-core'
 
 export type StackRow = {
   id: string

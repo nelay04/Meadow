@@ -18,7 +18,7 @@ import {
   createDocSession,
   readObjectById,
   setObjectText,
-} from '../../doc/mutations'
+} from '@meadow/document-core'
 import { type StackRow, dropTarget, stackRows } from './stackRows'
 
 function seed(count: number) {

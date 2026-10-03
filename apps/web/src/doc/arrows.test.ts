@@ -32,7 +32,7 @@ import {
   setArrowPoints,
   updateObject,
   updateObjects,
-} from './mutations'
+} from '@meadow/document-core'
 
 function session(): DocSession {
   return createDocSession(new Y.Doc(), 'owner')

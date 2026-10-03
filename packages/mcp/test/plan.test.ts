@@ -6,7 +6,7 @@ import {
   applyEdits,
   createDocSession,
   readObjectById,
-} from '../../../apps/web/src/doc/mutations'
+} from '@meadow/document-core'
 import { PlanError, planCreate, planDiagram, planRemove, planUpdate } from '../src/plan'
 import { parseMermaid } from '../src/mermaid'
 import { textToRich } from '../src/text'

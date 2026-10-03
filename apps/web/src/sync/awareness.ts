@@ -17,7 +17,7 @@ import type { Awareness } from 'y-protocols/awareness'
 
 import type { Wanderer } from '../canvas/overlay/wandererLayer'
 import { DEFAULT_LASER } from '../canvas/tools/types'
-import { roleCanWrite } from '../doc/mutations'
+import { roleCanWrite } from '@meadow/document-core'
 import type { BoardRole } from '../lib/api'
 
 /** Roughly 30Hz. Below the rate a cursor reads as smooth, well above what is polite. */

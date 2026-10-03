@@ -21,7 +21,7 @@ import {
   PEN_ASSIST,
   type PenAssist,
 } from '@meadow/schema'
-import type { TextMark } from '../../doc/richText'
+import type { TextMark } from '@meadow/document-core'
 import {
   CanvasEngine,
   DEFAULT_PAGE_LINES,
@@ -67,7 +67,7 @@ import {
   reconcileBindings,
   reconcileOrder,
   reseatWritingRows,
-} from '../../doc/mutations'
+} from '@meadow/document-core'
 import {
   readAppConfig,
   subscribeAppConfig,

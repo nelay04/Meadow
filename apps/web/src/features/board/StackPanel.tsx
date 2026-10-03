@@ -22,7 +22,7 @@
 import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ObjectType } from '@meadow/schema'
 
-import { type DocSession, moveBehind, moveToDepth, updateObject } from '../../doc/mutations'
+import { type DocSession, moveBehind, moveToDepth, updateObject } from '@meadow/document-core'
 import { useObjects } from '../../doc/useObjects'
 import {
   IconArrow,

@@ -43,7 +43,7 @@ import {
 } from '@meadow/schema'
 import * as Y from 'yjs'
 
-import type { BoardRole } from '../lib/api'
+import type { BoardRole } from './roles'
 import { buildYValue } from './interchange'
 import {
   type RichNode,

@@ -5,7 +5,7 @@
 # needs docker. Splitting them this way means a type error reports in under a minute
 # instead of behind a browser download.
 
-name: ci
+name: CI
 
 # Manual only. Nothing here starts on a push or a pull request.
 #
@@ -58,17 +58,16 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Every package, so a new one cannot be added without being checked. `-r` rather
+      # than a list of --filter flags: the list silently stopped covering the write path
+      # when it moved into `packages/document-core` at 1.26.0, and tests that exist but
+      # never run are worse than no tests, because the job still reports green.
       - name: tsc
-        run: pnpm --filter web lint
+        run: pnpm -r lint
       - name: vitest
-        run: pnpm --filter web test
+        run: pnpm -r test
       - name: vite build
         run: pnpm --filter web build
-      # The MCP server compiles the web app's write path in, so it is checked beside it.
-      - name: mcp tsc and vitest
-        run: |
-          pnpm --filter @meadow/mcp lint
-          pnpm --filter @meadow/mcp test
 
   test-api:
     runs-on: ubuntu-latest

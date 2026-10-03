@@ -167,10 +167,11 @@ question it answered. Worth re-opening if the deployment ever stops being one bo
 
 Single **public** monorepo. pnpm workspaces for JS, uv for Python.
 
-Three JS packages: `apps/web`, `packages/schema` and `packages/mcp`. The schema package
-holds the CRDT document types and Zod validators — imported by the web app, and mirrored
-(not shared) in Python for export rendering. The MCP server (1.4.0) imports both, and
-compiles in the web app's `src/doc` write path rather than having one of its own.
+Four JS packages: `apps/web`, `packages/schema`, `packages/document-core` and
+`packages/mcp`. The schema package holds the CRDT document types and Zod validators,
+imported by the web app, and mirrored (not shared) in Python for export rendering.
+`document-core` (1.26.0) holds the one Y.Doc write path, extracted from the web app so
+the MCP server stops reaching into it; see §4. The MCP server (1.4.0) imports all three.
 
 ```
 meadow/
@@ -186,7 +187,7 @@ meadow/
 │       │   │   ├── text/        # measurement, font loading, shared text styles
 │       │   │   └── tools/       # select, rect, arrow, text, pen...
 │       │   ├── overlay/         # TipTap editing session; ProseMirror lives only here
-│       │   ├── doc/             # yjs schema helpers, mutations, undo
+│       │   ├── doc/             # React bindings, canvas host, clipboard, schema shim
 │       │   ├── sync/            # provider setup, awareness, offline
 │       │   ├── features/        # auth, boards list, sharing, settings
 │       │   ├── components/      # shared UI
@@ -204,6 +205,12 @@ meadow/
 │           ├── interchange.ts   # the .meadow.json file format
 │           ├── graph.ts     # a glade as nodes and edges, for the MCP server
 │           └── index.ts
+│   └── document-core/       # the one Y.Doc write path, shared by the app and the MCP server
+│       └── src/
+│           ├── mutations.ts     # every write; Y.transact, one origin, undo
+│           ├── interchange.ts   # a live document to and from the file format
+│           ├── richText.ts      # Y.XmlFragment to nodes and static HTML
+│           └── roles.ts         # BoardRole, which the write path gates on
 │   └── mcp/                 # Model Context Protocol server; docs/mcp.md
 │       └── src/             # server (tools), plan, room (headless peer), mermaid, layout
 ├── services/
@@ -588,7 +595,7 @@ Known sharp edge to document in the README: local undo can resurrect an object a
 remote user deleted. Accept it, document it; it is common to collaborative editors.
 
 **Measured in M5, and narrower than that sentence implies.** Only one of the three
-plausible readings is true, per `apps/web/src/doc/convergence.test.ts`:
+plausible readings is true, per `packages/document-core/src/convergence.test.ts`:
 
 | | |
 |---|---|
@@ -620,7 +627,7 @@ representation of this section, not a change to it: the Y.Doc stays the state.
 
 - **Where it lives.** Schema and validation in `packages/schema/src/interchange.ts`, with
   `packages/schema/glade.schema.json` generated from it for readers outside this code.
-  Reading a document into a file is `apps/web/src/doc/interchange.ts`; writing a file
+  Reading a document into a file is `packages/document-core/src/interchange.ts`; writing a file
   into a document is `importGlade` in `mutations.ts`, like every other write. None of it
   needs a DOM.
 - **The promise is an exact round trip**: export, import, export gives the same bytes.
@@ -718,9 +725,25 @@ diagram behind. It is a new mutation on the existing write path, not a schema ch
 - **Undo.** An agent's writes are `LOCAL_ORIGIN` in the agent's own process, so they
   sit on its own undo stack. A person's Ctrl+Z never reaches them, because each undo
   manager only tracks its own client's transactions. That is intended.
-- **Not moved into a package.** `src/doc` stays in `apps/web`, and `packages/mcp`
-  imports it by relative path. Extracting `packages/doc` would be cleaner, but it moves
-  the only write path, so it is left as a decision to raise, not one taken in passing.
+- **Moved into a package, after all.** Reversed in 1.26.0. `src/doc` used to stay in
+  `apps/web` with `packages/mcp` importing it by relative path, left as "a decision to
+  raise, not one taken in passing". It was raised by an external review in Oct-2026 and
+  taken: see `docs/REVIEW-2026-10.md`.
+
+  The write path now lives in `packages/document-core`, which both `apps/web` and
+  `packages/mcp` depend on through `workspace:*`. What forced it was not tidiness but
+  that the old arrangement was five imports of the form
+  `'../../../apps/web/src/doc/mutations'` climbing out of a package into an app, and
+  **no manifest declared the dependency**: it worked only because esbuild bundles the
+  MCP server, so the coupling was invisible to every tool that reads a manifest. A
+  `BoardRole` union had also been copied into both API clients, which is the first
+  duplicate the single write path was supposed to prevent.
+
+  The boundary is "reads or writes a Y.Doc and needs neither a browser nor React":
+  `mutations`, `interchange`, `richText` and the `BoardRole` it gates on. The React
+  bindings (`useObjects`), the canvas host (`engineHost`), the clipboard and the
+  app-facing schema shim stayed in `apps/web/src/doc`, which is still exempt from the
+  write-path rule in `scripts/check-staged.mjs` because they wrap the same mutations.
 
 ---
 
@@ -1103,7 +1126,7 @@ path at all, only two signed bows, and the polyline is derived on read. That asy
 is deliberate. A flattened curve in the document freezes it at one tessellation, so
 zooming in turns it into a polygon; deriving it means the segment count can follow the
 zoom, which `curveSegments` in the engine does. It also means a changed routing has to
-rebuild the points — `setArrowRouting` in `doc/mutations.ts` does both writes in one
+rebuild the points — `setArrowRouting` in `document-core`'s `mutations.ts` does both writes in one
 transaction, and skipping the second is how the elbow shipped unreachable.
 
 **A cubic with two bows, not a quadratic with one.** One number can only describe a C:
@@ -1326,7 +1349,7 @@ Text object lifecycle:
 2. Double-click → mount a TipTap instance bound to that object's `Y.XmlFragment`
 3. Blur/Escape → destroy the instance, revert to static HTML
 
-The static half of that lifecycle is `src/doc/richText.ts`, which serialises a
+The static half of that lifecycle is `document-core`'s `richText.ts`, which serialises a
 `Y.XmlFragment` to HTML directly rather than mounting a headless editor to read one.
 It is also an escaping boundary: the server never inspects CRDT payloads, so any
 string a peer writes into a fragment reaches `innerHTML` through this function.
@@ -1337,7 +1360,7 @@ being typed and vanish when the editor closed.
 
 **Undo is deliberately two stacks.** The Collaboration extension brings its own
 `Y.UndoManager` over the fragment, so Ctrl+Z inside an editor undoes typing. The
-session's UndoManager in `doc/mutations.ts` tracks only `LOCAL_ORIGIN`, which the
+session's UndoManager in `mutations.ts` tracks only `LOCAL_ORIGIN`, which the
 editor's writes do not use, so an object-level undo never reaches inside a paragraph.
 One stack for both would mean undoing a move reverted someone's sentence.
 
@@ -1475,7 +1498,7 @@ socket becomes an oracle for which board ids exist.
 **Server-side dropping is defense-in-depth, not the UX.** A viewer's local Y.Doc still
 applies their own edits — they will see changes appear, persist, and then silently
 vanish on reload. The handshake must return the resolved role to the client, and the
-client must disable the tool palette and refuse writes in `doc/mutations.ts`. Build
+client must disable the tool palette and refuse writes in `document-core`. Build
 both halves together in M1; don't leave the client half for M5.
 
 Re-validate every 15 minutes, **and whenever the access token behind the connection
@@ -1823,7 +1846,7 @@ caller is never told a downgrade took effect when it did not.
 **The glade lock is not part of this, and that is the point.** Added in M6: a client
 can lock a glade so it stops accepting edits, which is a guard against your own hands
 while presenting or reading, not a permission. It lives entirely in
-`apps/web/src/doc/mutations.ts`, where `createDocSession` folds it into the one
+`packages/document-core/src/mutations.ts`, where `createDocSession` folds it into the one
 `canWrite` boolean every mutation already passes through, so the tools, the keyboard
 shortcuts, undo and the text editor obey it without any of them knowing it exists.
 It is per-tab, never written to the Y.Doc, and never sent to the server. Unlocking
@@ -1992,7 +2015,7 @@ Arrow tool, endpoint attachment, anchor recalculation on target move, orthogonal
 routing option, survival on target delete.
 
 An arrow's endpoints are **derived, not authored**. The document stores a binding; the
-point is recomputed by a solver in `doc/mutations.ts` that runs inside the same
+point is recomputed by a solver in `mutations.ts` that runs inside the same
 transaction as the move that caused it. That placement is the whole design: a peer
 never observes an arrow detached from the shape it is attached to, and one undo step
 puts both back.
@@ -2358,7 +2381,7 @@ calls in request path. Pydantic schemas separate from SQLAlchemy models.
 `type` over `interface` for object shapes.
 
 **Document mutations:** every write to the Y.Doc goes through a function in
-`src/doc/mutations.ts`, wrapped in `Y.transact` with a consistent origin. Never
+`@meadow/document-core`, wrapped in `Y.transact` with a consistent origin. Never
 mutate a Y.Map from a component.
 
 **React + Yjs:** components subscribe via `useSyncExternalStore` to a Y.Map

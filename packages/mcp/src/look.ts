@@ -13,17 +13,17 @@
  * by the preview itself.
  */
 
-import { type GladeBoard, gladeToGraph } from '@meadow/schema'
-import * as Y from 'yjs'
-
-import { exportGlade } from '../../../apps/web/src/doc/interchange'
 import {
   type DocSession,
   type EditBatch,
   type EditResult,
   applyEdits,
   createDocSession,
-} from '../../../apps/web/src/doc/mutations'
+  exportGlade,
+} from '@meadow/document-core'
+import { type GladeBoard, gladeToGraph } from '@meadow/schema'
+import * as Y from 'yjs'
+
 import type { Rect } from './route'
 import { type Theme, rasterize, renderSnapshot } from './snapshot'
 import { VERSION } from './version'

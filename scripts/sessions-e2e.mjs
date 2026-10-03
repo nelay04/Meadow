@@ -51,6 +51,8 @@ const api = spawn(
     env: {
       ...process.env,
       MEADOW_RATE_LIMIT_ENABLED: 'false',
+      // Pinned, because blanking the host only silences the provider that reads it.
+      MEADOW_MAIL_PROVIDER: 'smtp',
       MEADOW_SMTP_HOST: '',
       MEADOW_SMTP_FROM: '',
     },
@@ -124,7 +126,9 @@ const browser = await chromium.launch()
 async function openBrowser() {
   const context = await browser.newContext()
   const page = await context.newPage()
-  await page.goto(`${webBase}/#/`, { waitUntil: 'load' })
+  // `/app`, not the root: the root is the landing page since the split, so a hash
+  // route hung off it renders the landing page and none of the app's selectors exist.
+  await page.goto(`${webBase}/app#/`, { waitUntil: 'load' })
   await page.fill('input[type=email]', email)
   await page.fill('input[type=password]', password)
   await page.click('button[type=submit]')
@@ -140,7 +144,11 @@ doomed.page.on('console', (message) => {
 
 // --- 1. the list updates with no reload -------------------------------------------
 
-await watcher.page.goto(`${webBase}/#/profile`, { waitUntil: 'load' })
+// `security`, because the sessions card is in that section. The profile page grew
+// sections and bare `#/profile` opens Account, where this card is not rendered at
+// all, so the wait below timed out on a selector that was never going to appear.
+// The section ids are `PROFILE_SECTIONS` in features/profile/settingsIndex.ts.
+await watcher.page.goto(`${webBase}/app#/profile/security`, { waitUntil: 'load' })
 await watcher.page.waitForSelector('.session-list .session', { timeout: 20000 })
 
 const rows = () => watcher.page.locator('.session-list .session').count()

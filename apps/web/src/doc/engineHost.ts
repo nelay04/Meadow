@@ -46,8 +46,8 @@ import {
   snapshotObjects,
   setArrowRouting,
   updateObjects,
-} from './mutations'
-import { type TextMark, fragmentToHtml, fragmentToPlainText } from './richText'
+} from '@meadow/document-core'
+import { type TextMark, fragmentToHtml, fragmentToPlainText } from '@meadow/document-core'
 
 /**
  * Mounts a rich-text editor onto a fragment. Supplied by the caller rather than

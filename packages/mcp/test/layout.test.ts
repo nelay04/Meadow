@@ -6,7 +6,7 @@ import {
   arrowBindings,
   createDocSession,
   readObjectById,
-} from '../../../apps/web/src/doc/mutations'
+} from '@meadow/document-core'
 import { boardNodes, drawnPoints, planCreate, planDiagram } from '../src/plan'
 import { segmentHitsRect, segmentsOf } from '../src/route'
 import { fitNodeSize } from '../src/sizing'

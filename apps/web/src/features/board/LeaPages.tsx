@@ -24,7 +24,7 @@ import type { KeyboardEvent, PointerEvent } from 'react'
 
 import { IconChevronRight, IconGrip, IconPlus, IconRestore, IconTrash } from '../../ui/icons'
 import { useConfirm } from '../../ui/ConfirmDialog'
-import type { PageMeta, TrashedPage } from '../../doc/mutations'
+import type { PageMeta, TrashedPage } from '@meadow/document-core'
 import { formatDiaryDate, formatDiaryDateShort } from './LeaDate'
 
 export type LeaPagesProps = {
@@ -84,7 +84,7 @@ export function LeaPages({
   const [trashOpen, setTrashOpen] = useState(false)
   /*
    * Tearing a page out still asks first, even though it is no longer final - see
-   * `removePage` in doc/mutations.ts, which moves the page to the trash below. It asks
+   * `removePage` in @meadow/document-core, which moves the page to the trash below. It asks
    * because the page and its writing leave the diary either way, and being able to
    * get something back is not the same as not having lost it. The same modal the board
    * list asks with: one way of asking a destructive question in the app, and it is the

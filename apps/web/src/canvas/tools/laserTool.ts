@@ -11,7 +11,7 @@
  * engine cannot see and needs, since a laser held still over one word sends no events
  * and must not go out. It writes nothing, which is what makes it the one drawing tool a
  * viewer is given: `pushLaser` goes to presence and transient engine state, never
- * through `doc/mutations`, so there is no write for a role check to refuse.
+ * through `@meadow/document-core`, so there is no write for a role check to refuse.
  *
  * It does not chase the pointer the way the pen does. Streamline exists to take hand
  * tremor out of a mark somebody is going to look at afterwards; a laser is looked at

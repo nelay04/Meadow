@@ -6,7 +6,12 @@
  * read and write goes over the websocket, through the same handshake a browser passes.
  */
 
-export type BoardRole = 'owner' | 'editor' | 'commenter' | 'viewer'
+// Defined in @meadow/document-core, because the document layer is what acts on it.
+// Imported and re-exported, not re-exported straight through: this file's own
+// signatures use the name, and `export ... from` would not bind it locally.
+import type { BoardRole } from '@meadow/document-core'
+
+export type { BoardRole }
 
 export type Board = {
   id: string

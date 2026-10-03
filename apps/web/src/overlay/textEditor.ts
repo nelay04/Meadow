@@ -41,7 +41,7 @@ import StarterKit from '@tiptap/starter-kit'
 import type * as Y from 'yjs'
 
 import { applyContentStyle } from '../canvas/text/textStyle'
-import { TEXT_MARKS, type TextMark } from '../doc/richText'
+import { TEXT_MARKS, type TextMark } from '@meadow/document-core'
 import { inputLanguageId, subscribeInputLanguage } from '../text/imeStore'
 import { spellcheckEnabled, subscribeSpellcheck } from '../text/spellcheckStore'
 import { PhoneticComposing, attachPhoneticIme } from './phoneticIme'
@@ -192,7 +192,7 @@ export type TextEditorOptions = {
 }
 
 /**
- * Extensions are pinned to what `doc/richText.ts` can serialise back to static HTML.
+ * Extensions are pinned to what `richText.ts` in @meadow/document-core can serialise back to static HTML.
  *
  * The two lists are one decision in two files. A node type the editor can produce but
  * the serialiser cannot render would look fine while being typed and then vanish the

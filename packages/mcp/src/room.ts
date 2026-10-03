@@ -17,7 +17,7 @@ import WebSocket from 'ws'
 import { WebsocketProvider } from 'y-websocket'
 import * as Y from 'yjs'
 
-import { type DocSession, createDocSession } from '../../../apps/web/src/doc/mutations'
+import { type DocSession, createDocSession } from '@meadow/document-core'
 import type { Board, BoardRole, MeadowApi, WsToken } from './api'
 
 const SYNC_TIMEOUT_MS = 15_000

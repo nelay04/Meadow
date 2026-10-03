@@ -8,6 +8,17 @@
  */
 
 import {
+  type EditBatch,
+  EditReferenceError,
+  ImportTargetError,
+  ReadOnlyError,
+  applyEdits,
+  exportGlade,
+  importGlade,
+  movePage,
+  readPages,
+} from '@meadow/document-core'
+import {
   type GladeFile,
   type ObjectData,
   type GladeGraph,
@@ -26,17 +37,6 @@ import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mc
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { z } from 'zod'
 
-import { exportGlade } from '../../../apps/web/src/doc/interchange'
-import {
-  type EditBatch,
-  EditReferenceError,
-  ImportTargetError,
-  ReadOnlyError,
-  applyEdits,
-  importGlade,
-  movePage,
-  readPages,
-} from '../../../apps/web/src/doc/mutations'
 import { type ToolNeeds, describeBoundaries, usable } from './access'
 import { MeadowApi, MeadowApiError, type TokenInfo } from './api'
 import { type DiagramSpec, MermaidError, graphToMermaid, parseMermaid } from './mermaid'

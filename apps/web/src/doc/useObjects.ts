@@ -19,7 +19,7 @@ import { type ObjectData, readObject } from '@meadow/schema'
 import { useMemo, useSyncExternalStore } from 'react'
 import type * as Y from 'yjs'
 
-import type { DocSession } from './mutations'
+import type { DocSession } from '@meadow/document-core'
 
 /** In z-order, so a list reads top to bottom the way the canvas paints. */
 function readAll(session: DocSession): ObjectData[] {

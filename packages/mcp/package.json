@@ -1,7 +1,7 @@
 {
   "name": "@meadow/mcp",
   "private": true,
-  "version": "1.25.0",
+  "version": "1.26.0",
   "license": "SEE LICENSE IN ../../LICENSE.md",
   "description": "Model Context Protocol server for Meadow: read and edit glades as structured data.",
   "type": "module",
@@ -16,6 +16,7 @@
     "assets": "node assets.mjs"
   },
   "dependencies": {
+    "@meadow/document-core": "workspace:*",
     "@meadow/schema": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@resvg/resvg-wasm": "^2.6.2",

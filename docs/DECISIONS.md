@@ -27,7 +27,7 @@ snapshot compaction exists at all. And concurrent edits converge to *a* consiste
 rather than the one a human would have picked: last-writer-wins on a contended field, and
 an undo that can resurrect an object a peer deleted. Both are pinned by tests rather than
 hoped about, in `services/api/tests/test_concurrency.py` and
-`apps/web/src/doc/convergence.test.ts`.
+`packages/document-core/src/convergence.test.ts`.
 
 ## A flat `objects` map with `parentId` pointers, not a nested tree
 
@@ -61,7 +61,7 @@ connection can never outlive the session that authorised it.
 ## The board lock is not a permission, deliberately
 
 A client can lock a glade so it stops accepting edits. That is a guard against your own
-hands while presenting, not a grant, so it lives entirely in `apps/web/src/doc/mutations.ts`
+hands while presenting, not a grant, so it lives entirely in `packages/document-core/src/mutations.ts`
 where it folds into the one `canWrite` boolean every mutation already passes through. It is
 per-tab, never written to the document, never sent to the server, and unlocking grants
 nothing: the role half of the check is untouched, and the server remains the only authority

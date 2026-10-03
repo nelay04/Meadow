@@ -187,7 +187,14 @@ check('the consent screen names the assistant and where the answer goes', await 
 const allow = page.getByRole('button', { name: 'Allow' })
 check('nothing is granted until something is picked', await allow.isDisabled())
 
-await page.getByText('Picked glade', { exact: true }).locator('xpath=..').getByRole('button', { name: 'View' }).click()
+// The row, then its View toggle. Not `getByText(title, { exact: true })`: the title
+// shares its span with the kind mark, which renders its own label, so that span's
+// text is "GladePicked glade" and an exact match finds nothing. Broke when the kind
+// mark joined the row and the selector was not revisited.
+await page
+  .locator('li', { hasText: 'Picked glade' })
+  .getByRole('button', { name: 'View' })
+  .click()
 await delay(300)
 if (process.env.E2E_SHOT) await page.screenshot({ path: process.env.E2E_SHOT })
 check('picking a glade enables Allow', await allow.isEnabled())

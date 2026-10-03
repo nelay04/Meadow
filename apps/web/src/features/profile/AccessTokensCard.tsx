@@ -9,7 +9,7 @@ import * as api from '../../lib/api'
 import { ApiError } from '../../lib/api'
 import type { AccessToken, AccessTokenGrantInput, Board, CreatedAccessToken } from '../../lib/api'
 import { copy } from '../../lib/clipboard'
-import { roleCanWrite } from '../../doc/mutations'
+import { roleCanWrite } from '@meadow/document-core'
 import { boardKind } from '../boards/kinds'
 
 type Kind = AccessToken['kind']

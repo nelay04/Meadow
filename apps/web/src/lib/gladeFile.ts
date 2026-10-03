@@ -1,7 +1,7 @@
 /**
  * Glade files, between the document and the person holding them.
  *
- * The format and the codec know nothing about browsers (see `doc/interchange.ts`). This
+ * The format and the codec know nothing about browsers (see `interchange.ts` in @meadow/document-core). This
  * is the half that does: saving a file, reading one somebody picked, and carrying a
  * parsed file from the board list, where a new board is made for it, to the board view,
  * where it is written into that board's document.
@@ -16,8 +16,8 @@ import {
   parseGladeFile,
 } from '@meadow/schema'
 
-import { exportGlade, gladeFilename, serialiseGlade } from '../doc/interchange'
-import type { DocSession } from '../doc/mutations'
+import { exportGlade, gladeFilename, serialiseGlade } from '@meadow/document-core'
+import type { DocSession } from '@meadow/document-core'
 
 /** Save the whole glade as a file. */
 export function downloadGlade(session: DocSession, board: { title: string; kind: string }): void {

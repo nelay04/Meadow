@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import * as Y from 'yjs'
 
-import { applyEdits, createDocSession } from '../../../apps/web/src/doc/mutations'
+import { applyEdits, createDocSession } from '@meadow/document-core'
 import { lookAt, previewCopy } from '../src/look'
 import { planCreate } from '../src/plan'
 

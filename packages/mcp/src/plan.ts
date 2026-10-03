@@ -7,6 +7,14 @@
  */
 
 import {
+  type DocSession,
+  type EditBatch,
+  type EditConnect,
+  type EditCreate,
+  type EditUpdate,
+  fragmentToPlainText,
+} from '@meadow/document-core'
+import {
   type EdgeDirection,
   type ObjectData,
   STICKY_BASE_HEIGHT,
@@ -18,14 +26,6 @@ import {
   resolveArrowProps,
 } from '@meadow/schema'
 
-import type {
-  DocSession,
-  EditBatch,
-  EditConnect,
-  EditCreate,
-  EditUpdate,
-} from '../../../apps/web/src/doc/mutations'
-import { fragmentToPlainText } from '../../../apps/web/src/doc/richText'
 import { type Placed, layoutBlock } from './layout'
 import {
   type Obstacles,

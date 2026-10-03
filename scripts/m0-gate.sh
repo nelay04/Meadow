@@ -51,6 +51,10 @@ export MEADOW_RATE_LIMIT_ENABLED=false
 # gate registers stay unactivated and every endpoint refuses them. See
 # `_start_activation` in app/api/v1/auth.py: with no relay the account is opened
 # immediately instead of waiting on a link nobody is going to click.
+# The provider too. Blanking the host only turns mail off for the provider that reads
+# it, so a .env selecting `resend` sent activation mail over an API that never looks at
+# these, and every login here answered 403.
+export MEADOW_MAIL_PROVIDER="smtp"
 export MEADOW_SMTP_HOST=""
 export MEADOW_SMTP_FROM=""
 

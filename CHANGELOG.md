@@ -11,6 +11,81 @@ away getting there.
 
 ---
 
+## [1.26.0] - [03-Oct-2026]
+
+### Changed
+- **The Y.Doc write path is its own package, `@meadow/document-core`.** `mutations`,
+  `interchange` and `richText` moved out of `apps/web/src/doc`, and the web app and the
+  MCP server now both depend on the package through `workspace:*`. Nothing about the
+  sharing changed, which was always the point of one write path: an edit from an
+  assistant and an edit from a person take the same code, so z-order, bindings and arrow
+  solving cannot drift apart. What changed is the direction of the dependency. The MCP
+  server used to reach into the app with five imports spelled
+  `'../../../apps/web/src/doc/mutations'`, a package climbing out of itself into an
+  application, and **no manifest said so**: it worked only because the server is bundled
+  before it ships, so nothing that reads a manifest could see the coupling, and a
+  `pnpm --filter` build of the package alone would have been wrong without failing.
+- **`BoardRole` has one definition again.** The same four-name union had been written out
+  in both the web app's REST client and the MCP server's, which is the first duplicate a
+  single write path is supposed to make impossible. It lives in the package that gates on
+  it and both clients re-export it, so call sites did not move.
+- **The write-path rule in `scripts/check-staged.mjs` follows the code.** A `Y.transact`
+  outside the package fails a commit, and the rule now covers `packages/mcp/src` as well,
+  which it never could while the write path was a directory inside the web app. The
+  pre-commit hook runs the new package's tests, and its web bucket includes it, because a
+  change there can break both callers without a file under either being touched.
+- **The image builds and CI follow it too, which is where a move like this actually
+  breaks.** Both the web and MCP images copy workspace manifests one at a time to cache
+  the install layer, so a new member that nothing copies fails `--frozen-lockfile` on a
+  lockfile naming a package that is not there. The MCP image also stops copying
+  `apps/web/src/doc` and `apps/web/src/lib/api.ts`, which it only ever needed to reach the
+  write path, and no longer installs the web app's dependency tree to build a server that
+  does not use it.
+- **CI checks every package instead of a list of them.** `pnpm -r lint` and `pnpm -r test`
+  replace per-package `--filter` flags. The list had stopped covering the write path the
+  moment it moved, which would have left 126 tests passing locally, never running in CI,
+  and the job still reporting green. A list of packages is a thing to forget; `-r` is not.
+  The workflow is `CI` rather than `ci`, matching `Deploy`.
+
+### Fixed
+- **The local dev stack mounts the new package**, so an edit to the write path hot-reloads
+  as one to `packages/schema` does. Without the mount the container fell back to the copy
+  baked into its image, and on a stale image it could not resolve the workspace member at
+  all.
+- **Four test scripts that had stopped working, none of them related to the extraction.**
+  Found by running the whole suite rather than the unit tests, which is the only reason
+  they turned up:
+  - `m0-gate.sh`, `sessions-e2e.mjs` and `readme-shots.mjs` blanked `MEADOW_SMTP_HOST` to
+    turn activation mail off, but not `MEADOW_MAIL_PROVIDER`. A `.env` selecting `resend`
+    sends over an API that never reads the SMTP settings, so mail went out, accounts
+    stayed unactivated and every login answered 403. Six other scripts already pinned the
+    provider; these three were missed when that fix went round, and `readme-shots.mjs` was
+    sending real mail.
+  - `sessions-e2e.mjs` and `presence-e2e.mjs` opened app routes off the site root, which
+    has been the landing page since the split, so they waited for sign-in fields on a page
+    that has none. `sessions-e2e.mjs` also asked for `#/profile`, where the sessions card
+    has not been since the profile page grew sections: it is under `#/profile/security`.
+  - `connect-e2e.mjs` picked a glade with an exact text match on its title, which has not
+    matched since the kind mark joined the row and put its own label in the same span. It
+    now locates the row and then the toggle.
+
+### Reversed
+- **"Not moved into a package" (§4) is reversed.** ARCHITECTURE recorded the opposite
+  decision deliberately: extracting it "would be cleaner, but it moves the only write
+  path, so it is left as a decision to raise, not one taken in passing". That was the
+  right call at the time and the note did its job, because it is why this was raised
+  rather than discovered. An external review in Oct-2026 raised it, and the cost that
+  settled it was not tidiness: the dependency was undeclared, so no tool could see it.
+  The reasoning for both directions is in `docs/core/ARCHITECTURE.md` §4 and the review
+  itself in `docs/REVIEW-2026-10.md`.
+- **Nothing else in that review is acted on yet.** Of its nineteen findings this is the
+  one that was valid, structural and unanswered elsewhere. Roughly half were already
+  recorded in `docs/DECISIONS.md` or the milestone sections, one pointed at the wrong
+  channel, and the proposed eight-file documentation split was declined. The scorecard
+  and what remains are in `docs/REVIEW-2026-10.md`.
+
+---
+
 ## [1.25.0] - [02-Oct-2026]
 
 ### Changed

@@ -320,6 +320,8 @@ pnpm --filter @meadow/mcp start -- --api http://127.0.0.1:8012 --token mdw_...
 pnpm e2e:mcp                        # real API, the bundle over stdio and HTTP, and a browser
 ```
 
-The server does not have its own write path. It imports the web app's
-`apps/web/src/doc/mutations.ts` and writes through `applyEdits`, so the rules the canvas
-follows (z-order, bindings, arrow solving) are the same code.
+The server does not have its own write path. It depends on `@meadow/document-core`, the
+package the web app writes through as well, and applies edits with `applyEdits`, so the
+rules the canvas follows (z-order, bindings, arrow solving) are the same code. Until
+1.26.0 it reached into `apps/web/src/doc` by relative path for this; the sharing is the
+same, the dependency is now declared.
