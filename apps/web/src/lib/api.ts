@@ -469,19 +469,38 @@ async function request(path: string, init: RequestInit): Promise<Response> {
  * presents a token the first already spent, the server reads that as theft, and the
  * user is logged out of a working session.
  */
-let inFlightRefresh: Promise<boolean> | null = null
+let inFlightRefresh: Promise<RefreshResult> | null = null
 
-async function refreshSession(): Promise<boolean> {
+/**
+ * What a refresh attempt settled.
+ *
+ * Three values rather than a boolean, and the third is the point. `none` is the server
+ * saying this browser has no session; `unknown` is not having heard back, which is a
+ * different fact with a different correct response. A proxy answering 502 for the few
+ * seconds the API takes to restart is not a logout, and neither is an offline tab.
+ */
+type RefreshResult = 'ok' | 'none' | 'unknown'
+
+async function refreshSession(): Promise<RefreshResult> {
   inFlightRefresh ??= (async () => {
     try {
       const response = await request('/auth/refresh', { method: 'POST' })
-      if (!response.ok) {
+      // The only authoritative no. Every genuine "this cookie buys nothing" answer
+      // from /auth/refresh is a 401 (see the endpoint: missing, invalid, reused,
+      // unknown user), so anything else is the request not having been answered.
+      if (response.status === 401) {
         accessToken = null
-        return false
+        return 'none'
       }
+      if (!response.ok) return 'unknown'
       const body = (await response.json()) as { access_token: string }
       accessToken = body.access_token
-      return true
+      return 'ok'
+    } catch {
+      // fetch rejects for a dropped connection, a DNS failure, a tab that was asleep
+      // when the network went. None of those are an answer about the session, and the
+      // access token already in hand may well still work, so it stays.
+      return 'unknown'
     } finally {
       inFlightRefresh = null
     }
@@ -495,7 +514,7 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   // One retry, and only for the access token having aged out mid-session. A 401 on
   // the refresh call itself means the session is genuinely over.
   if (response.status === 401 && !path.startsWith('/auth/refresh')) {
-    if (await refreshSession()) {
+    if ((await refreshSession()) === 'ok') {
       response = await request(path, init)
     }
   }
@@ -680,16 +699,40 @@ export function updateProfile(patch: ProfilePatch): Promise<User> {
 }
 
 /**
- * Restore a session on page load. The access token is gone (it was in memory), but
- * the refresh cookie survived, so this trades it for a new one.
+ * The three answers to "is this browser signed in?".
+ *
+ * `unknown` exists so that no caller can turn a failure to reach the server into a
+ * logout. A caller holding a session leaves it alone and asks again; a caller with no
+ * session has nothing to lose and shows the login form either way.
  */
-export async function restoreSession(): Promise<User | null> {
-  if (!(await refreshSession())) return null
+export type SessionCheck =
+  | { state: 'active'; user: User }
+  | { state: 'none' }
+  | { state: 'unknown' }
+
+/**
+ * Ask what this browser's session is. The access token is gone on a page load (it was
+ * in memory), but the httpOnly refresh cookie survived, so this trades it for a new
+ * one and then reads the account it belongs to.
+ *
+ * Total: it answers rather than throwing, because every caller is deciding whether to
+ * show a person their own glades or a login form, and a rejection there is a third
+ * outcome nobody handles.
+ */
+export async function restoreSession(): Promise<SessionCheck> {
+  const refreshed = await refreshSession()
+  if (refreshed === 'none') return { state: 'none' }
+  if (refreshed === 'unknown') return { state: 'unknown' }
   try {
-    return await call<User>('/auth/me')
-  } catch {
-    accessToken = null
-    return null
+    return { state: 'active', user: await call<User>('/auth/me') }
+  } catch (error) {
+    // A 401 here has already survived one refresh and retry inside `call`, so it is
+    // the server's settled answer. Anything else failed to ask.
+    if (error instanceof ApiError && error.status === 401) {
+      accessToken = null
+      return { state: 'none' }
+    }
+    return { state: 'unknown' }
   }
 }
 

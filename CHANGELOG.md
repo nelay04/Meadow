@@ -11,6 +11,36 @@ away getting there.
 
 ---
 
+## [1.26.1] - [04-Oct-2026]
+
+### Fixed
+- **An unreachable API no longer signs every open tab out.** Deploying restarts the API,
+  nginx answers 502 for the second or two in between, and the sessions feed in every open
+  tab failed. That failure asked the one question it should: is this browser still signed
+  in? But the answer came back as a boolean, so a proxy's error page and the server
+  saying "this cookie buys nothing" were the same value, and the tab emptied itself to a
+  login screen and said the session had ended. It had not: reloading signed the person
+  straight back in, which is the tell. A session check now answers one of three things,
+  and only the server's own 401 - the status every genuine refusal from `/auth/refresh`
+  uses - ends a session. A 5xx, a dropped connection or an offline tab means not having
+  heard back, the session and its access token stay exactly as they were, and the feed
+  reopens with a backoff instead of staying deaf until somebody reloads.
+- **Back after signing in with a provider no longer returns to the login screen.** The
+  sign-in buttons left the site with a plain navigation, so the login screen stayed in
+  the browser's history and Back went to it - or to the provider's own screen, which
+  sent the browser round the whole round trip again. They now replace that entry, so
+  Back goes where the person came from. The same for Connect on the profile page, which
+  returns to the page it was pressed on.
+- **A page restored from the back/forward cache asks whether it is still right.** A
+  restore runs no code: no render, no effect, no request, which is why a login form
+  frozen before a sign-in came back still showing a login form for an account that was
+  by then signed in, and why a tab left open through a sign-out elsewhere could show
+  glades it no longer had. Both now check on `pageshow`, and the check corrects the page
+  in either direction - silently, because Back is the reader's own doing and needs no
+  announcement.
+
+---
+
 ## [1.26.0] - [03-Oct-2026]
 
 ### Changed

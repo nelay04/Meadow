@@ -614,10 +614,16 @@ export default function ProfilePage({ onBack, section, item }: Props) {
                               type="button"
                               className="ghost profile-connect"
                               onClick={() => {
-                                location.href = api.oauthSignInUrl(id, {
-                                  next: '#/profile/security',
-                                  intent: 'link',
-                                })
+                                // Replaced rather than pushed, as on the sign-in
+                                // screen: this returns to the same page, and a Back
+                                // that re-runs a connect nobody asked for again is
+                                // not a history entry worth keeping.
+                                location.replace(
+                                  api.oauthSignInUrl(id, {
+                                    next: '#/profile/security',
+                                    intent: 'link',
+                                  }),
+                                )
                               }}
                             >
                               Connect

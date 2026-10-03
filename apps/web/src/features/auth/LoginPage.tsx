@@ -323,7 +323,13 @@ export default function LoginPage({ next, onCancel }: Props = {}) {
             {/* A link's job, done by buttons because they are form controls here.
                 Deliberately a full page navigation and not a fetch: the OAuth flow
                 leaves the site, and the session it returns with is set by the browser
-                from the callback's redirect. */}
+                from the callback's redirect.
+
+                `replace`, not an assignment: the round trip comes back to this same
+                address signed in, so leaving this screen in the history gives the
+                person a Back button that returns to a login form they have already
+                used. What is behind this screen is where they came from, which is
+                where Back should go. */}
             <div className="auth-oauth">
               {offered.map(({ id, label, Icon }) => (
                 <button
@@ -331,7 +337,7 @@ export default function LoginPage({ next, onCancel }: Props = {}) {
                   type="button"
                   className="oauth-btn"
                   onClick={() => {
-                    location.href = api.oauthSignInUrl(id, { intent: mode, next })
+                    location.replace(api.oauthSignInUrl(id, { intent: mode, next }))
                   }}
                 >
                   <Icon size={18} />
