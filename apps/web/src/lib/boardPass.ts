@@ -72,3 +72,68 @@ export function forgetBoardPass(boardId: string): void {
   delete store[boardId]
   write(store)
 }
+
+/**
+ * Which boards this browser has been told are locked.
+ *
+ * `localStorage`, unlike the pass above, and for the opposite reason: this is not a
+ * credential and not a secret. It is the answer to "does opening this ask for a
+ * password", which the server gives only after a round trip - and before that round
+ * trip comes back, the page has to decide whether to draw the glade. Without this it
+ * has nothing to go on and draws it. Somebody else on a shared machine reading this
+ * list learns only what trying to open the board would tell them anyway.
+ *
+ * It is a hint and never an authority. A glade is opened on the server's answer and
+ * nothing else, so a stale entry costs a password screen that disappears a moment
+ * later, and the entry is dropped the first time the board opens without one. What it
+ * buys is the two cases where the server's answer is not there to be had: the second
+ * or two before it arrives, and an offline tab, where a cached copy of a locked glade
+ * would otherwise open with nothing asked.
+ */
+const LOCKED_KEY = 'meadow.lockedboards'
+
+function readLocked(): string[] {
+  try {
+    const raw = localStorage.getItem(LOCKED_KEY)
+    if (raw === null) return []
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((id): id is string => typeof id === 'string')
+  } catch {
+    return []
+  }
+}
+
+function writeLocked(ids: readonly string[]): void {
+  try {
+    localStorage.setItem(LOCKED_KEY, JSON.stringify(ids))
+  } catch {
+    // A private window, or site data blocked. The round trip still answers; all that
+    // is lost is answering before it.
+  }
+}
+
+/** Has this browser been told this board is locked? */
+export function boardWasLocked(boardId: string): boolean {
+  return readLocked().includes(boardId)
+}
+
+/** Remember that it is, so the next visit asks before it draws. */
+export function rememberBoardLocked(boardId: string): void {
+  const ids = readLocked()
+  if (ids.includes(boardId)) return
+  writeLocked([...ids, boardId])
+}
+
+/**
+ * Forget it, because the board has just opened without asking.
+ *
+ * The owner taking a password off is the case this exists for: the hint would
+ * otherwise outlive the lock and put a screen in front of a glade that no longer has
+ * one, which the person could not get past - they have no password to type.
+ */
+export function forgetBoardLocked(boardId: string): void {
+  const ids = readLocked()
+  if (!ids.includes(boardId)) return
+  writeLocked(ids.filter((id) => id !== boardId))
+}

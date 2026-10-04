@@ -113,6 +113,7 @@ import * as api from '../../lib/api'
 import { useTrashRetentionHours } from '../../lib/appConfig'
 import { describeReport, downloadGlade, hasPendingImport, takeImport } from '../../lib/gladeFile'
 import { hasPendingFocus, takeFocus } from '../../lib/searchFocus'
+import { boardWasLocked, forgetBoardLocked, rememberBoardLocked } from '../../lib/boardPass'
 import { clearShareToken, holdForSignIn, shareToken } from '../../lib/shareLink'
 import { boardKind, boardPath } from '../boards/kinds'
 import { type PresenceHandle, colorFor, trackPresence } from '../../sync/awareness'
@@ -120,6 +121,8 @@ import { type BoardConnection, type ConnectionState, connectBoard } from '../../
 import { useAuth } from '../auth/AuthContext'
 import { guestIdentity } from '../auth/guest'
 import { AccessGate } from './AccessGate'
+import { BoardOpening } from './BoardOpening'
+import { boardScreen } from './boardScreen'
 import { PasswordGate } from './PasswordGate'
 import { ShareDialog } from './ShareDialog'
 import {
@@ -677,17 +680,31 @@ export default function BoardPage({ boardId, kindHint, onBack, onSignIn }: Props
    * every reload of a lea would add another blank paragraph to it.
    */
   const [docReady, setDocReady] = useState(false)
+  /*
+   * The two things the paint gate is made of. See `boardScreen`.
+   *
+   * `admitted` is the server having minted a ws token for this browser, which is the
+   * same question the handshake asks and the only thing that opens a glade.
+   * `unreachable` is an attempt having failed without answering it - no network, no
+   * API - which is not permission to open anything but is the case the offline copy
+   * exists for. Both are sticky for the life of the connection: a glade does not stop
+   * being open because a socket blipped.
+   */
+  const [admitted, setAdmitted] = useState(false)
+  const [unreachable, setUnreachable] = useState(false)
+  /*
+   * Read once, before anything is drawn, which is the whole point of it: the server's
+   * answer is a round trip away and the question is being asked now.
+   */
+  const lockedBefore = useMemo(() => boardWasLocked(boardId), [boardId])
+  /*
+   * The gate. Everything below reads this and nothing re-derives it: the render
+   * branches that stand in for the glade, and the effect that decides whether this
+   * browser's offline copy may even be read into memory.
+   */
+  const screen = boardScreen(state, { admitted, unreachable, lockedBefore })
 
   const connection = useRef<BoardConnection | null>(null)
-  /*
-   * The local copy of the document, held so that losing access can erase it.
-   *
-   * Offline persistence is the reason it exists and the reason it has to be erasable:
-   * a collaborator the owner has just removed still has the whole glade in their own
-   * IndexedDB, and without this a reload would hand it back to them off a canvas the
-   * server is refusing to fill.
-   */
-  const local = useRef<IndexeddbPersistence | null>(null)
 
   const { user } = useAuth()
   const toast = useToast()
@@ -1206,12 +1223,32 @@ export default function BoardPage({ boardId, kindHint, onBack, onSignIn }: Props
     }
   }, [boardId, role])
 
+  /*
+   * The offline copy, read into the document only once the glade may be shown.
+   *
+   * Offline persistence is why it exists: edits made with no connection survive a
+   * reload and replay on the next one. But it is also the fastest route to the whole
+   * document - it is in this browser already, and it hydrates in a frame or two,
+   * where the handshake that decides whether this browser may have it takes a round
+   * trip. Attaching it unconditionally, which is what this used to do, meant a locked
+   * glade was fully drawn from cache a second before its password screen arrived.
+   *
+   * So it waits for the same answer the canvas waits for. On a glade nobody is locked
+   * out of that costs nothing: the server's copy arrives on the socket either way,
+   * and the local store catches up a moment later.
+   */
   useEffect(() => {
-    // Offline persistence. Edits made while disconnected survive a reload and replay
-    // on reconnect.
+    if (screen !== 'glade') return
     const idb = new IndexeddbPersistence(`meadow-${boardId}`, doc)
-    local.current = idb
+    void idb.whenSynced.then(() => setDocReady(true))
+    return () => {
+      // Closing it, not emptying it. Erasing is a different decision with its own
+      // effect below, and this also runs on an ordinary unmount.
+      void idb.destroy().catch(() => {})
+    }
+  }, [screen, boardId, doc])
 
+  useEffect(() => {
     const link = connectBoard({
       boardId,
       doc,
@@ -1220,6 +1257,12 @@ export default function BoardPage({ boardId, kindHint, onBack, onSignIn }: Props
       onState: (next, message) => {
         setState(next)
         setDetail(message ?? '')
+        // Remembered for the next visit, which has to decide what to draw before it
+        // can be told. See `lib/boardPass.ts`.
+        if (next === 'password') rememberBoardLocked(boardId)
+        // The question went unanswered rather than answered no. Sticky: it is what
+        // lets an ordinary glade open from its offline copy.
+        if (next === 'disconnected') setUnreachable(true)
         // A new socket is a new introduction. Without this the faces on both sides of
         // a reconnect sit out the fifteen-second keepalive before they come back - see
         // `PresenceHandle.resync`.
@@ -1228,18 +1271,25 @@ export default function BoardPage({ boardId, kindHint, onBack, onSignIn }: Props
       // The server answers role and lock together at every mint, so a lock taken while
       // this page was open arrives here, on the reconnect the eviction caused.
       onAccess: (access) => {
+        // A token was minted for this browser, so the glade is this browser's to see.
+        // This is the only line in the app that opens one.
+        setAdmitted(true)
+        // It opened without a password, so any memory of one is out of date - the
+        // owner has taken it off, and a hint that outlived it would put a screen in
+        // front of a glade with no password to type.
+        forgetBoardLocked(boardId)
         setRole(access.role)
         setBoardLocked(access.locked)
       },
     })
     connection.current = link
     // Either source of truth will do: the local copy is the same document, and a lea
-    // opened offline should still open into writing.
+    // opened offline should still open into writing. The local half of this is in the
+    // effect above, which only runs once the glade may be shown.
     const onSync = (isSynced: boolean) => {
       if (isSynced) setDocReady(true)
     }
     link.provider.on('sync', onSync)
-    void idb.whenSynced.then(() => setDocReady(true))
 
     /*
      * Presence is bound to the provider's awareness, not to the doc, so it comes and
@@ -1262,14 +1312,13 @@ export default function BoardPage({ boardId, kindHint, onBack, onSignIn }: Props
     return () => {
       link.provider.off('sync', onSync)
       setDocReady(false)
+      setAdmitted(false)
+      setUnreachable(false)
       connection.current = null
       presence.current = null
       handle?.destroy()
       applyWanderers([])
       link.destroy()
-      local.current = null
-      // Already gone if access was refused, and destroying a destroyed store throws.
-      void idb.destroy().catch(() => {})
       doc.destroy()
     }
   }, [boardId, doc, user, applyWanderers])
@@ -1286,12 +1335,21 @@ export default function BoardPage({ boardId, kindHint, onBack, onSignIn }: Props
    */
   useEffect(() => {
     if (state !== 'denied' && state !== 'password') return
-    const store = local.current
-    local.current = null
-    // clearData destroys the store as well as emptying it, so the effect cleanup's
-    // destroy is skipped by the null above rather than racing this.
-    void store?.clearData().catch(() => {})
-  }, [state])
+    /*
+     * By name, rather than through the store this page was using, because in the
+     * ordinary case there is no such store: the refusal arrives before the glade may
+     * be drawn, so the copy was never attached and never read. It is still sitting in
+     * the browser, though, and it is exactly what must not survive. Where a store was
+     * attached - access withdrawn from under somebody mid-session - the effect above
+     * has already closed it, and a delete that arrives first simply waits for the
+     * close. Either order ends with the copy gone.
+     */
+    try {
+      indexedDB.deleteDatabase(`meadow-${boardId}`)
+    } catch {
+      // A browser with storage blocked has nothing there to delete.
+    }
+  }, [state, boardId])
 
   // The role and the owner's lock are the server's answers; the third is this tab's
   // own. All three have to hold, and the same expression drives the session, so the
@@ -1748,7 +1806,7 @@ export default function BoardPage({ boardId, kindHint, onBack, onSignIn }: Props
    * skipped on the way to a screen. What it replaces is the old behaviour, which was a
    * status pill reading "No access" over a canvas still showing the document.
    */
-  if (state === 'denied') {
+  if (screen === 'denied') {
     return <AccessGate boardId={boardId} noun={noun} reason={detail} onBack={onBack} />
   }
 
@@ -1756,12 +1814,17 @@ export default function BoardPage({ boardId, kindHint, onBack, onSignIn }: Props
    * The password, before anything else is drawn.
    *
    * Beside `denied` rather than folded into it because they are two different dead ends
-   * with two different ways out - see `ConnectionState` in `sync/provider.ts`. The
-   * effect above has already erased the local copy, so there is genuinely nothing
-   * behind this screen: a password on a board whose contents were still sitting in
-   * IndexedDB would be a lock with the window left open.
+   * with two different ways out - see `ConnectionState` in `sync/provider.ts`.
+   *
+   * There is genuinely nothing behind this screen. The glade is never drawn before the
+   * handshake answers, so nothing was painted; the offline copy is not read into the
+   * document until the same answer arrives, so nothing was loaded; and the effect above
+   * erases that copy, so nothing is left for a reload to find. A password on a board
+   * whose contents were still sitting in IndexedDB would be a lock with the window
+   * left open, and one that drew the document first and asked afterwards - which is
+   * what this did until 1.26.2 - is a lock with the door already open.
    */
-  if (state === 'password') {
+  if (screen === 'password') {
     return (
       <PasswordGate
         boardId={boardId}
@@ -1777,6 +1840,26 @@ export default function BoardPage({ boardId, kindHint, onBack, onSignIn }: Props
         // that has to put the document, the local store and the presence handle back.
         onUnlocked={() => location.reload()}
         onBack={onBack}
+      />
+    )
+  }
+
+  /*
+   * Nothing has said this browser may see the glade, so nothing of it is on screen.
+   *
+   * The default branch, which it was not before: the glade used to be what rendered
+   * while the handshake was still out, and the gates arrived on top of it. Usually
+   * this is the app's own loading screen for the length of one round trip. `blocked`
+   * is the one case with no end in sight - a glade known to ask for a password, with
+   * no way to reach the server that checks it - and it says so instead of spinning.
+   */
+  if (screen !== 'glade') {
+    return (
+      <BoardOpening
+        noun={noun}
+        blocked={screen === 'blocked'}
+        onBack={onBack}
+        backLabel={user === null ? 'Go to Meadow' : `Back to your ${noun}s`}
       />
     )
   }

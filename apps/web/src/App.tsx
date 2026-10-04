@@ -13,6 +13,7 @@ import BoardsPage from './features/boards/BoardsPage'
 import { BOARD_PATH_SEGMENTS, boardPath } from './features/boards/kinds'
 import { shareToken } from './lib/shareLink'
 import ProfilePage from './features/profile/ProfilePage'
+import { LoaderScreen } from './ui/LoaderScreen'
 import { SplashVideo } from './ui/SplashVideo'
 
 /**
@@ -178,17 +179,7 @@ function Shell() {
   return (
     <>
       {page}
-      {showLoader && (
-        <div className="loader-screen">
-          <div className="loader-wordmark">
-            <img
-              src="/brand/meadow-wordmark.png"
-              alt="Meadow"
-              draggable={false}
-            />
-          </div>
-        </div>
-      )}
+      {showLoader && <LoaderScreen />}
     </>
   )
 }

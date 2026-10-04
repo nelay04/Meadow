@@ -11,6 +11,37 @@ away getting there.
 
 ---
 
+## [1.26.2] - [04-Oct-2026]
+
+### Fixed
+- **A locked glade no longer shows itself before asking for the password.** Opening one
+  drew the whole document for a second or two and then put the password screen over it.
+  Two things arrived in the wrong order: this browser's own offline copy hydrates in a
+  frame or two, and the handshake that decides whether this browser may have the glade
+  takes a round trip. The glade was what rendered while that question was out, and the
+  gates were branches off the front of it, so the default was to draw. It is now the
+  other way round. One function (`features/board/boardScreen.ts`) answers what may be
+  on screen, nothing is drawn until the server has minted a token for this browser -
+  the same question the websocket handshake asks - and the offline copy is not read
+  into the document either, so the contents are not merely covered up but never
+  loaded. The wait is the app's own loading screen, for as long as one round trip.
+- **An offline tab cannot open a locked glade out of its cache at all.** The same hole
+  by a longer road: with no connection the mint never answers, so the password screen
+  never came up and the cached copy opened with nothing asked. Whether a password is
+  right is the server's to say, so "cannot ask" now reads as no, and the glade says
+  that in a sentence rather than spinning. It keeps retrying and opens by itself when
+  the connection is back. An ordinary glade still opens from its offline copy, which
+  is what the copy is for - the two cases are told apart by a note this browser keeps
+  of which boards have asked it for a password, which is a hint and never an authority:
+  a glade is still only ever opened on the server's answer, and the note is dropped the
+  first time one opens without a password, so taking a password off cannot leave a
+  screen in front of a glade that no longer has one.
+- **A refused glade's offline copy is erased whether or not it was ever opened.** The
+  erase ran against the store this page had attached, and now there usually is none,
+  which is the point. It deletes the copy by name instead.
+
+---
+
 ## [1.26.1] - [04-Oct-2026]
 
 ### Fixed
