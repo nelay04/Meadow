@@ -79,6 +79,7 @@ import {
   IconRouteElbow,
   IconRouteStraight,
   IconShapes,
+  IconClock,
   IconShare,
   IconSpellcheck,
   IconSquare,
@@ -124,6 +125,7 @@ import { AccessGate } from './AccessGate'
 import { BoardOpening } from './BoardOpening'
 import { boardScreen } from './boardScreen'
 import { PasswordGate } from './PasswordGate'
+import { AssistantActivity } from './AssistantActivity'
 import { ShareDialog } from './ShareDialog'
 import {
   PAPER_EVENT,
@@ -640,6 +642,7 @@ export default function BoardPage({ boardId, kindHint, onBack, onSignIn }: Props
    */
   const [waiting, setWaiting] = useState(0)
   const [shareOpen, setShareOpen] = useState(false)
+  const [activityOpen, setActivityOpen] = useState(false)
   /*
    * The overflow menu.
    *
@@ -2160,6 +2163,22 @@ export default function BoardPage({ boardId, kindHint, onBack, onSignIn }: Props
                 </button>
               )}
 
+              {/* Not owner-only, unlike everything above it. What a machine changed is
+                  not a permissions question: an editor who shares a glade with an
+                  assistant has the same reason to know what it did. */}
+              <button
+                type="button"
+                role="menuitem"
+                className="menu-item"
+                onClick={() => {
+                  setMoreOpen(false)
+                  setActivityOpen(true)
+                }}
+              >
+                <IconClock size={16} />
+                <span>Assistant activity…</span>
+              </button>
+
               {/*
                 The password, under Share and owned by the same person, because it is
                 the other half of the same question. Sharing decides who is told about
@@ -3266,6 +3285,14 @@ export default function BoardPage({ boardId, kindHint, onBack, onSignIn }: Props
           )}
         </div>
       </div>
+
+      {activityOpen && (
+        <AssistantActivity
+          boardId={boardId}
+          noun={noun}
+          onClose={() => setActivityOpen(false)}
+        />
+      )}
 
       {shareOpen && (
         <ShareDialog

@@ -1205,3 +1205,35 @@ export async function fetchThumbnail(boardId: string): Promise<string | null> {
   if (!response.ok) return null
   return URL.createObjectURL(await response.blob())
 }
+
+/**
+ * One mutation an assistant made on a glade. See `docs/mcp.md` and `mcp_events`.
+ *
+ * `requested` against `accepted` is the useful pair: they differ when a plan named
+ * objects that were no longer there, which is what a model working from a stale reading
+ * of a glade looks like from the outside.
+ */
+export type McpEvent = {
+  id: string
+  operation_id: string
+  board_id: string
+  user_id: string
+  api_token_id: string | null
+  tool: string
+  requested: number
+  accepted: number
+  duration_ms: number
+  outcome: 'applied' | 'refused' | 'failed'
+  reason: string | null
+  created_at: string
+}
+
+/**
+ * What assistants have done to this glade, newest first.
+ *
+ * A signed-in person only. An access token may write to this trail and may not read it,
+ * so what an assistant did cannot be inspected by the assistant.
+ */
+export function listMcpEvents(boardId: string): Promise<McpEvent[]> {
+  return call<McpEvent[]>(`/boards/${boardId}/mcp-events`)
+}

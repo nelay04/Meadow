@@ -8570,3 +8570,84 @@ dialog.modal[open] .modal-card {
     outline-offset: 2px;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Assistant activity: what a machine did to this glade.
+
+   Narrower than the share dialog, because every row is one short sentence and a
+   date rather than a URL. Scrolls at the list and not at the card, so the heading
+   and the Done button stay put while a long trail moves under them.
+   --------------------------------------------------------------------------- */
+.activity-modal .modal-card {
+  width: min(29rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 4rem);
+  padding: 1.3rem 1.35rem 1.1rem;
+}
+
+.activity-list {
+  list-style: none;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  max-height: 24rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.activity-row {
+  display: grid;
+  /* The mark, the sentence, then the time. The middle column takes the slack so a
+     long refusal reason wraps rather than pushing the time off the card. */
+  grid-template-columns: auto 1fr auto;
+  gap: 0.55rem;
+  align-items: start;
+  padding: 0.5rem 0.4rem;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.86rem;
+}
+
+.activity-row:last-child {
+  border-bottom: none;
+}
+
+.activity-mark {
+  display: flex;
+  align-items: center;
+  padding-top: 0.1rem;
+  color: var(--muted);
+}
+
+/* A refusal is the row worth reading, so it is the one that is coloured. */
+.activity-row.refused .activity-mark,
+.activity-row.failed .activity-mark {
+  color: var(--danger);
+}
+
+.activity-what {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.activity-gap,
+.activity-took {
+  color: var(--muted);
+}
+
+.activity-why {
+  color: var(--muted);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.activity-when {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 0.8rem;
+  padding-top: 0.1rem;
+}

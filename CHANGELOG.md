@@ -45,11 +45,28 @@ away getting there.
   unchanged. Nothing in the browser passes one: a person's own edits are not what this
   trail is for.
 
+- **Assistant activity, a panel on the glade.** The trail with somewhere to read it, from
+  the glade's More menu. One row per operation, newest first, each the tool as a sentence
+  a person would say rather than its name, with how long it took and when. A refusal
+  carries its reason and is marked, because those are the rows worth reading. The pair of
+  counts is shown only where they disagree: "3 of 4 asked for" is worth a line, and "3 of
+  3" on every row would bury it.
+
+  Read-only on purpose. This is the one place a person sees what a machine did on their
+  behalf, and a panel that could also undo things would be a different feature with its
+  own question about who may press it. Everyone who can open the glade can read it, not
+  the owner alone: an editor who shares a glade with an assistant has the same reason to
+  know what it did.
+
+  It is not in the global search, for the same reason Share and the glade password are
+  not: it is a dialog on an open glade and not a place you go to.
+
 ### Changed
-- **The public pages say that an assistant's changes are recorded**, and say no more than
-  that. A card on `features/`, one FAQ entry with its JSON-LD kept word for word, and a
-  clause in `llms.txt`. None of them claims a screen, because there is not one: the record
-  is read through the API today. The wording will need revisiting if a screen is built.
+- **The public pages say that an assistant's changes are recorded, and where to read
+  them.** A card on `features/`, one FAQ entry with its JSON-LD kept word for word, and a
+  clause in `llms.txt`. The first version of that FAQ answer ended "there is no screen for
+  this yet", which is a bad thing to publish: it advertises a gap. That sentence is what
+  prompted the panel above, and the answer now points at it instead.
 
 ### Security
 - **Only a caller who could have made an edit may record having made it.** The route
