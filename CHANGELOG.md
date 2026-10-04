@@ -11,6 +11,55 @@ away getting there.
 
 ---
 
+## [1.27.0] - [04-Oct-2026]
+
+### Added
+- **Every verified dump is copied off the host, encrypted.** The backup sidecar sealed
+  its dumps nowhere: they sat in `BACKUP_DIR` on the same disk as the database they
+  recover, which is a complete backup against a bad migration and no backup at all
+  against losing the machine. `docker/backup/offsite.sh` now seals each dump and puts it
+  in an S3 bucket, run from `backup.sh` the moment a dump passes its `pg_restore --list`
+  check, which is the only moment worth uploading one.
+
+  Two decisions in it are the substance, and both are about what somebody who reaches
+  the host can do. The dump is encrypted to an **age public key**, so the server can seal
+  a backup and cannot open one, and no key that could open one needs to exist there to be
+  stolen. And retention belongs to the bucket's own lifecycle rule rather than to this
+  script, so the token it runs with can be write-only: ransomware on the host can encrypt
+  the local dumps and still not touch the copies. A token that could prune could also
+  wipe, which would spend the whole exercise.
+
+  Unconfigured is a supported state. With no bucket set the job dumps locally and says so
+  in its log, which is what a box without credentials yet and every dev stack need. With
+  a bucket set and no key it refuses to upload rather than sending every address and
+  password hash in the clear. An upload failure is logged and does not fail the run,
+  because the local dump is still good and is what most restores will use.
+- **The healthcheck watches the copy as well as the dump.** It already checked the
+  artefact rather than the process, on the grounds that a backup job's failure mode is
+  running happily and producing nothing. A dump written locally every night while every
+  upload quietly fails is that same failure one layer out, so `offsite.sh` records each
+  success and the check fails when the newest copy is older than two intervals. Only
+  when a bucket is configured.
+- **An RPO and an RTO, written down** in `docs/DEPLOY.md`: about 24 hours and about 30
+  minutes. Both were always true and neither was stated, which left a reader to assume
+  better. With them, a restore procedure for a dump fetched from the bucket, a way to
+  push a pre-deploy dump off the host, and a rehearsal procedure with a line to record
+  when it was last run, because a backup that has never been restored is not a verified
+  backup strategy.
+
+### Changed
+- The backup image carries `age` and `rclone`, two static binaries from Alpine's own
+  repositories. `BACKUP_R2_*` and `BACKUP_AGE_RECIPIENT` are new in `.env.prod.example`,
+  with the one-time setup for the keypair, the scoped token and the lifecycle rule
+  written out beside them.
+
+### Reversed
+- Nothing. The local dump path, its verification, its atomic rename and its
+  prune-after-success are untouched; this is a copy added after all of that, not a
+  change to any of it.
+
+---
+
 ## [1.26.2] - [04-Oct-2026]
 
 ### Fixed

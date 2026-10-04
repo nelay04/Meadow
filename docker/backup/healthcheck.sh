@@ -18,4 +18,21 @@ if [ -z "${newest}" ]; then
     exit 1
 fi
 
+# And the same question about the copy that leaves the host, for the same reason. A
+# dump written locally every night while every upload fails is exactly the failure this
+# file exists to catch: nothing crashes, the directory looks healthy, and the one copy
+# that would survive losing the box was never made. Only checked when a bucket is
+# configured, so an unconfigured or dev stack stays healthy.
+if [ -n "${BACKUP_R2_BUCKET:-}" ]; then
+    marker="${DIR}/.last-offsite"
+    if [ ! -f "${marker}" ]; then
+        echo "a bucket is configured but no dump has ever been uploaded"
+        exit 1
+    fi
+    if [ -z "$(find "${marker}" -mmin "-${STALE_MINUTES}" -print -quit 2>/dev/null)" ]; then
+        echo "last offsite copy was $(cat "${marker}"), older than ${STALE_MINUTES} minutes"
+        exit 1
+    fi
+fi
+
 echo "ok: $(basename "${newest}")"

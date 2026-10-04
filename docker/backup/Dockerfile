@@ -13,9 +13,16 @@
 
 FROM postgres:16-alpine
 
+# age seals each dump to a public key, rclone puts it in the bucket. Both are single
+# static binaries from the distribution's own repositories, which is why the offsite
+# copy adds two packages rather than a runtime: see offsite.sh.
+RUN apk add --no-cache age rclone
+
 COPY backup.sh /usr/local/bin/backup.sh
+COPY offsite.sh /usr/local/bin/offsite.sh
 COPY healthcheck.sh /usr/local/bin/healthcheck.sh
-RUN chmod +x /usr/local/bin/backup.sh /usr/local/bin/healthcheck.sh
+RUN chmod +x /usr/local/bin/backup.sh /usr/local/bin/offsite.sh \
+    /usr/local/bin/healthcheck.sh
 
 # Checks the artefact, not the process. See healthcheck.sh.
 HEALTHCHECK --interval=5m --timeout=10s --start-period=2m --retries=3 \

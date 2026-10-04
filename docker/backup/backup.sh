@@ -1,6 +1,8 @@
 #!/bin/sh
-# Nightly pg_dump with retention. ARCHITECTURE 8: no WAL archiving and no PITR, so
-# this is the whole recovery story and it has to actually work.
+# Nightly pg_dump with retention, then an encrypted copy off the host. ARCHITECTURE 8:
+# no WAL archiving and no PITR, so this is the whole recovery story and it has to
+# actually work. See offsite.sh for why the copy is encrypted to a public key and why
+# its retention belongs to the bucket.
 #
 # A loop rather than cron. crond wants root and logs to its own file, and the one
 # thing you want from a backup job is to be able to read what it did in `docker logs`.
@@ -42,6 +44,15 @@ run_once() {
     # usable backup and never becomes the newest one the healthcheck is happy about.
     mv "${partial}" "${target}"
     log "wrote $(basename "${target}"), $(wc -c < "${target}") bytes, verified"
+
+    # Off the host, encrypted, now that the dump is known good. Deliberately not fatal:
+    # a bucket that is unreachable must not turn a successful local backup into a failed
+    # run, because the local dump is still the thing most restores will use. The
+    # healthcheck watches the marker offsite.sh writes, so an upload that keeps failing
+    # surfaces there rather than only in this log.
+    if ! /usr/local/bin/offsite.sh "${target}"; then
+        log "offsite copy failed; the local dump is still good"
+    fi
 
     # Retention runs only after a verified success. Pruning first would mean a run of
     # failures quietly eats the good backups it cannot replace.

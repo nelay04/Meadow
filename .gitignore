@@ -4,6 +4,11 @@
 .env
 .env.local
 .env.prod
+# The age private key that opens the backups. The public half belongs in .env.prod as
+# BACKUP_AGE_RECIPIENT; this half belongs nowhere in this tree, and never in a commit.
+meadow-backup-key.txt
+*.age-key
+*age-key*.txt
 !.env.example
 !.env.prod.example
 

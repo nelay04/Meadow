@@ -277,6 +277,37 @@ ls -lt /srv/meadow-backups | head
 docker compose --env-file .env.prod ps backup     # healthy
 ```
 
+**What the backups promise.** Worth stating, because a reader who is not told assumes
+better.
+
+| | | |
+|---|---|---|
+| **RPO** | about **24 hours** | the dump interval. There is no WAL archiving and no PITR (ARCHITECTURE 13), so a failure at 23:00 loses everything since that night's dump |
+| **RTO** | about **30 minutes** | stop the app, `pg_restore`, start it. Longer if the dump has to be fetched and decrypted first |
+
+If 24 hours of lost glades is too much, that is an argument for revisiting the PITR
+decision, and it should be made deliberately rather than discovered during a restore.
+
+**Rehearse a restore, and write down when you last did.** The dumps are verified
+readable, which is more than most projects manage, but readable is not the same as
+"Meadow came back up on it". A backup that has never been restored is not a verified
+backup strategy. Restoring into a scratch database is enough:
+
+```bash
+docker compose --env-file .env.prod exec -T postgres \
+  createdb -U meadow meadow_rehearsal
+docker compose --env-file .env.prod exec -T postgres \
+  pg_restore -U meadow -d meadow_rehearsal < /srv/meadow-backups/meadow-....dump
+docker compose --env-file .env.prod exec -T postgres \
+  psql -U meadow -d meadow_rehearsal -c 'select count(*) from boards'
+docker compose --env-file .env.prod exec -T postgres \
+  dropdb -U meadow meadow_rehearsal
+```
+
+| Last rehearsed | Result |
+|---|---|
+| not yet | |
+
 **Restore.** Every dump is verified with `pg_restore --list` before it counts, so any
 file present is readable.
 
@@ -286,6 +317,35 @@ docker compose --env-file .env.prod exec -T postgres \
   pg_restore -U meadow -d meadow --clean --if-exists \
   < /srv/meadow-backups/meadow-20260906T120000Z.dump
 docker compose --env-file .env.prod start api worker
+```
+
+**Restore from the bucket**, for the case the host is gone and a dump on it is not
+available. The copies are sealed with the age public key in `BACKUP_AGE_RECIPIENT`, so
+this needs the private half, which by design is not on the server.
+
+```bash
+# On a machine that has the private key. Listing needs a token with read, which the
+# server's write-only one deliberately is not: use a separate read token, or the
+# dashboard.
+rclone copy r2:<bucket>/meadow/meadow-20261004T080149Z.dump.age .
+age --decrypt -i meadow-backup-key.txt \
+  -o meadow-20261004T080149Z.dump meadow-20261004T080149Z.dump.age
+pg_restore --list meadow-20261004T080149Z.dump > /dev/null   # readable?
+```
+
+Then restore it as above. If the private key is lost these files are noise, so the one
+thing to check occasionally is that you still have it, not that the uploads are running:
+the backup container's healthcheck already fails when the newest copy is older than two
+intervals.
+
+**Push a pre-deploy dump off the host too**, if a deploy is one you expect to go wrong.
+The nightly job uploads its own dumps; a pre-deploy dump is written by the command above
+and stays local unless asked:
+
+```bash
+docker compose --env-file .env.prod run --rm \
+  --entrypoint /usr/local/bin/offsite.sh backup \
+  /backups/meadow-predeploy-20261004T075859Z.dump
 ```
 
 **Roll back code.** Images are built on the box, so a rollback is a checkout plus a
