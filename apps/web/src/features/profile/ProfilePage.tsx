@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 
 import { Wordmark } from '../../ui/Brand'
@@ -24,6 +24,7 @@ import {
 } from '../../ui/paper'
 import {
   CANVAS_FONT_EVENT,
+  DEFAULT_FONT,
   FONT_EVENT,
   FONT_LABEL,
   FONT_ORDER,
@@ -51,6 +52,100 @@ type Props = {
   section?: string
   /** One card in that group to bring into view, from the sidebar's jump search. */
   item?: string
+}
+
+/*
+ * One font picker: nine faces, each tile written in the face it picks.
+ *
+ * The default face carries a star in its corner. The app's own spacing, and the text
+ * heights measured around what is written, are set in that face, which is worth saying
+ * where the choice is made rather than in the subtext above. The star is a sibling of
+ * the tile, not a child: a button inside a button is invalid markup, and the detail has
+ * to open on tap as well as on hover, where there is no hover at all.
+ */
+function FontChoices({
+  label,
+  value,
+  recommendation,
+  onPick,
+}: {
+  label: string
+  value: Font
+  /** Why the default face is the recommended one, in this picker's terms. */
+  recommendation: string
+  onPick: (choice: Font) => void
+}) {
+  const [detailOpen, setDetailOpen] = useState(false)
+  const detailId = `font-recommended-${label.replace(/\s+/g, '-').toLowerCase()}`
+  const pickRef = useRef<HTMLDivElement>(null)
+
+  /*
+   * Held open by a click, so it closes the way anything held open by a click closes:
+   * a press anywhere outside it. Bound on pointerdown rather than click so the panel
+   * is gone by the time the press lands on whatever was under it.
+   */
+  useEffect(() => {
+    if (!detailOpen) return
+    const close = (event: PointerEvent) => {
+      const inside = pickRef.current?.contains(event.target as Node)
+      if (inside !== true) setDetailOpen(false)
+    }
+    document.addEventListener('pointerdown', close)
+    return () => document.removeEventListener('pointerdown', close)
+  }, [detailOpen])
+
+  return (
+    <div className="theme-choices font-choices" role="radiogroup" aria-label={label}>
+      {FONT_ORDER.map((choice) => (
+        <div
+          key={choice}
+          ref={choice === DEFAULT_FONT ? pickRef : undefined}
+          className={choice === DEFAULT_FONT ? 'font-pick recommended' : 'font-pick'}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') setDetailOpen(false)
+          }}
+        >
+          <button
+            type="button"
+            role="radio"
+            aria-checked={value === choice}
+            aria-describedby={choice === DEFAULT_FONT ? detailId : undefined}
+            className={value === choice ? 'theme-choice active' : 'theme-choice'}
+            onClick={() => onPick(choice)}
+          >
+            <span className="font-sample" data-font={choice} aria-hidden="true">
+              Aa
+            </span>
+            <span>{FONT_LABEL[choice]}</span>
+          </button>
+          {choice === DEFAULT_FONT && (
+            <>
+              <button
+                type="button"
+                className="font-mark"
+                aria-expanded={detailOpen}
+                aria-controls={detailId}
+                onClick={() => setDetailOpen((open) => !open)}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="m12 3.6 2.37 5.1 5.53.69-4.05 3.85.99 5.61L12 16.08l-4.84 2.77.99-5.61L4.1 9.39l5.53-.69z"
+                    fill="currentColor"
+                  />
+                </svg>
+                <span className="visually-hidden">
+                  Why {FONT_LABEL[DEFAULT_FONT]} is recommended
+                </span>
+              </button>
+              <span className="font-recommended" id={detailId} data-open={detailOpen || undefined}>
+                <strong>Tuned for this.</strong> {recommendation}
+              </span>
+            </>
+          )}
+        </div>
+      ))}
+    </div>
+  )
 }
 
 const THEME_CHOICES: { id: Theme; label: string; Icon: typeof IconSun }[] = [
@@ -907,26 +1002,15 @@ export default function ProfilePage({ onBack, section, item }: Props) {
                   <p className="hint">
                     The typeface for menus, pages and panels across Meadow, in this browser only.
                   </p>
-                  <div className="theme-choices font-choices" role="radiogroup" aria-label="Interface font">
-                    {FONT_ORDER.map((choice) => (
-                      <button
-                        key={choice}
-                        type="button"
-                        role="radio"
-                        aria-checked={font === choice}
-                        className={font === choice ? 'theme-choice active' : 'theme-choice'}
-                        onClick={() => {
-                          setFont(choice)
-                          applyFont(choice)
-                        }}
-                      >
-                        <span className="font-sample" data-font={choice} aria-hidden="true">
-                          Aa
-                        </span>
-                        <span>{FONT_LABEL[choice]}</span>
-                      </button>
-                    ))}
-                  </div>
+                  <FontChoices
+                    label="Interface font"
+                    value={font}
+                    recommendation="Keeps every label, panel and page even, at any size."
+                    onPick={(choice) => {
+                      setFont(choice)
+                      applyFont(choice)
+                    }}
+                  />
                 </section>
 
                 {/*
@@ -941,26 +1025,15 @@ export default function ProfilePage({ onBack, section, item }: Props) {
                     What new text starts in. Existing text keeps its font; change it from the
                     text bar.
                   </p>
-                  <div className="theme-choices font-choices" role="radiogroup" aria-label="Canvas font">
-                    {FONT_ORDER.map((choice) => (
-                      <button
-                        key={choice}
-                        type="button"
-                        role="radio"
-                        aria-checked={canvasFont === choice}
-                        className={canvasFont === choice ? 'theme-choice active' : 'theme-choice'}
-                        onClick={() => {
-                          setCanvasFont(choice)
-                          writeCanvasFont(choice)
-                        }}
-                      >
-                        <span className="font-sample" data-font={choice} aria-hidden="true">
-                          Aa
-                        </span>
-                        <span>{FONT_LABEL[choice]}</span>
-                      </button>
-                    ))}
-                  </div>
+                  <FontChoices
+                    label="Canvas font"
+                    value={canvasFont}
+                    recommendation="Clear at small sizes and tidy inside shapes, wherever you write."
+                    onPick={(choice) => {
+                      setCanvasFont(choice)
+                      writeCanvasFont(choice)
+                    }}
+                  />
                 </section>
               </div>
             </section>

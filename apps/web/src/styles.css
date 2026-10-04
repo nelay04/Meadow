@@ -1058,6 +1058,95 @@ label {
   line-height: 1;
 }
 
+/*
+ * Each tile sits in its own cell so the recommended one can carry a star in its corner
+ * without the star being inside the tile's own button. The star opens a line saying why
+ * that face is recommended: on hover and keyboard focus, and on click, which is the only
+ * one of the three a touch screen has.
+ */
+.font-pick {
+  position: relative;
+  display: flex;
+}
+
+.font-pick .theme-choice {
+  flex: 1;
+}
+
+.font-mark {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.3rem;
+  display: grid;
+  place-items: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: color-mix(in srgb, var(--accent) 55%, transparent);
+  cursor: pointer;
+  transition: color 120ms ease, background 120ms ease;
+}
+
+.font-mark svg {
+  width: 0.72rem;
+  height: 0.72rem;
+}
+
+.font-pick:hover .font-mark,
+.font-mark:hover,
+.font-mark:focus-visible,
+.font-mark[aria-expanded='true'] {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/*
+ * The detail itself: out of flow, above the tile, pointing down at the star. It is
+ * left-aligned to the tile so a panel wider than one cell runs inwards across the card
+ * rather than off its edge. Hidden by visibility rather than display so it can fade,
+ * and so a screen reader reaches it through aria-describedby whether it is on screen
+ * or not.
+ */
+.font-recommended {
+  position: absolute;
+  bottom: calc(100% + 0.45rem);
+  left: -0.25rem;
+  z-index: 5;
+  width: max-content;
+  max-width: min(20rem, 100vw - 3rem);
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-3);
+  color: var(--fg);
+  font-size: 0.74rem;
+  font-weight: 500;
+  line-height: 1.4;
+  text-align: left;
+  text-wrap: pretty;
+  box-shadow: 0 8px 24px #0000001f;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(0.2rem);
+  transition: opacity 120ms ease, transform 120ms ease, visibility 120ms;
+}
+
+.font-recommended strong {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.font-mark:hover + .font-recommended,
+.font-mark:focus-visible + .font-recommended,
+.font-recommended[data-open] {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
 .font-sample[data-font='comic'] {
   font-family: 'Comic Neue', 'Comic Sans MS', ui-rounded, sans-serif;
   font-weight: 700;
