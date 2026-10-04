@@ -855,3 +855,67 @@ class BoardSearchState(Base):
     # A little before the log was read, not when the rows were written. See
     # `app.workers.search_index` for why the margin is there.
     indexed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+#: What became of an MCP mutation. `applied` wrote to the glade; `refused` was turned
+#: away by a role, a grant or a lock before anything was written; `failed` got as far as
+#: writing and did not finish.
+MCP_OUTCOMES = ("applied", "refused", "failed")
+
+
+class McpEvent(Base):
+    """One mutation an assistant made, or tried to make, on a glade.
+
+    The audit trail asked for by the October review, tier 3. A row is written by the MCP
+    server after it has applied a batch, and carries the operation id that the same write
+    used as its Y.Doc transaction origin, so a line in the API's log and a transaction in
+    the document can be matched up afterwards.
+
+    Metadata about an edit, not the edit: what changed lives in the CRDT log, as
+    ARCHITECTURE 3 requires, and nothing is reconstructed from here. The row says who,
+    through what, which tool, how much was asked for against how much was taken, how long
+    it ran and what became of it.
+
+    `user_id` and `api_token_id` are the server's own answer, taken from the credential
+    that presented the event. Nothing in the request body names an actor.
+    """
+
+    __tablename__ = "mcp_events"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    #: Minted by the MCP server, one per tool call, and used as that write's transaction
+    #: origin. Not unique: a tool that writes more than once reports under one id.
+    operation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    board_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("boards.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    #: The token the call came through. Null once that token is deleted: the trail
+    #: outlives the credential, or revoking a token would erase what it did.
+    api_token_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("api_tokens.id", ondelete="SET NULL"), nullable=True
+    )
+    tool: Mapped[str] = mapped_column(String, nullable=False)
+    #: What the batch asked to touch, against what the write actually took. The two
+    #: differ when a plan names objects that are gone, and that gap is the point of
+    #: keeping both.
+    requested: Mapped[int] = mapped_column(Integer, nullable=False)
+    accepted: Mapped[int] = mapped_column(Integer, nullable=False)
+    duration_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    outcome: Mapped[str] = mapped_column(String, nullable=False)
+    #: Why it was refused or how it failed, in the words the caller was given. Null for
+    #: an applied write.
+    reason: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = _created_at()
+
+    __table_args__ = (
+        CheckConstraint(
+            "outcome in ('applied', 'refused', 'failed')", name="ck_mcp_events_outcome"
+        ),
+        # The trail is read one glade at a time, newest first, which is the only query
+        # this table has.
+        Index("ix_mcp_events_board_created", "board_id", "created_at"),
+        Index("ix_mcp_events_operation", "operation_id"),
+    )

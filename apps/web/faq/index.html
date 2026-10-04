@@ -192,6 +192,14 @@
               },
               {
                 "@type": "Question",
+                "name": "Is there a record of what an assistant changed?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Every change an assistant makes is recorded: which tool it used, how much it changed, how long it took, and whether the change was refused and why. Each one carries its own id, so a change on the glade and the record of it are known to be the same edit. There is no screen for this yet; the record is read through the API, by you and not by the assistant."
+                }
+              },
+              {
+                "@type": "Question",
                 "name": "Is Meadow open source?",
                 "acceptedAnswer": {
                   "@type": "Answer",
@@ -603,6 +611,12 @@
                   address to the assistant, sign in to Meadow, tick the glades it may open and
                   choose Allow access. The connection renews itself and shows up under Profile,
                   Assistants and tokens, where you can change or revoke it.
+                </p>
+              </details>
+              <details>
+                <summary><h3>Is there a record of what an assistant changed?</h3><svg class="icon" aria-hidden="true"><use href="#i-chevron" /></svg></summary>
+                <p>
+                  Every change an assistant makes is recorded: which tool it used, how much it changed, how long it took, and whether the change was refused and why. Each one carries its own id, so a change on the glade and the record of it are known to be the same edit. There is no screen for this yet; the record is read through the API, by you and not by the assistant.
                 </p>
               </details>
             </div>

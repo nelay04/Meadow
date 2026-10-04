@@ -303,6 +303,12 @@ Some behaviour to know about:
   undo only tracks your own changes. To take back an assistant's change, ask it to, or
   delete the objects.
 - **Limits.** At most 500 objects per call.
+- **A record of what it did.** Every write is given an operation id, which tags the
+  change in the document and files a row saying which tool ran, how much it asked to
+  touch against how much it took, how long it ran and what became of it. Refusals and
+  failures are recorded too, with their reason. Read it for one glade at
+  `GET /api/v1/boards/{id}/mcp-events`, signed in as a person with access to that glade;
+  an access token can write to that trail and cannot read it.
 
 Resources are also published: `meadow://glade/{id}` (the file) and
 `meadow://glade/{id}/graph`.

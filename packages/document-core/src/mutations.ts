@@ -75,6 +75,25 @@ export const PAGE_ORIGIN = 'page'
  */
 export const IMPORT_ORIGIN = 'import'
 
+/**
+ * The origin of a write an assistant made, carrying the id of the operation behind it.
+ *
+ * An instance rather than a string because `Y.UndoManager` selects tracked transactions
+ * by the origin's constructor as well as by the origin itself. That is what lets this
+ * carry a per-operation id without becoming a new origin the undo filter has never
+ * heard of, and it is why the id can be threaded at all: one string constant cannot be
+ * different on every call and still be recognised.
+ *
+ * Nothing in the browser writes one. A person's own edits keep `LOCAL_ORIGIN`, which is
+ * the decision recorded in the October review's tier 3: the trail is for machine edits.
+ */
+export class McpOrigin {
+  constructor(
+    readonly operationId: string,
+    readonly tool: string,
+  ) {}
+}
+
 /** Why a write was refused, in the order the session checks them. */
 export type ReadOnlyReason = 'role' | 'board-locked' | 'locked'
 
@@ -170,8 +189,14 @@ export function createDocSession(
   const undo = new Y.UndoManager([roots.objects, roots.bindings, roots.order], {
     // Scoped to this client's own edits. Without the filter, undo would revert a
     // collaborator's change, which is never what the user meant.
-    trackedOrigins: new Set(
-      editorOrigin === undefined ? [LOCAL_ORIGIN] : [LOCAL_ORIGIN, editorOrigin],
+    // `McpOrigin` by the constructor, which is how Yjs matches a non-primitive origin.
+    // Without it an assistant's writes would silently leave that peer's undo stack when
+    // they started carrying an operation id, which is a behaviour change nobody asked
+    // for dressed up as an audit feature.
+    trackedOrigins: new Set<unknown>(
+      editorOrigin === undefined
+        ? [LOCAL_ORIGIN, McpOrigin]
+        : [LOCAL_ORIGIN, McpOrigin, editorOrigin],
     ),
     // A drag emits one transaction per frame. Merging anything within this window
     // keeps the whole gesture as a single undo step; gesture boundaries call
@@ -196,12 +221,12 @@ export function createDocSession(
   }
 }
 
-function write<T>(session: DocSession, fn: () => T): T {
+function write<T>(session: DocSession, fn: () => T, origin: unknown = LOCAL_ORIGIN): T {
   if (!session.canWrite) throw new ReadOnlyError(readOnlyReason(session))
   let result!: T
   session.doc.transact(() => {
     result = fn()
-  }, LOCAL_ORIGIN)
+  }, origin)
   return result
 }
 
@@ -833,7 +858,16 @@ export class EditReferenceError extends Error {
  * stack: a person's Ctrl+Z in the browser never reaches it, because their undo manager
  * only tracks their own client's transactions.
  */
-export function applyEdits(session: DocSession, batch: EditBatch): EditResult {
+export function applyEdits(
+  session: DocSession,
+  batch: EditBatch,
+  /*
+   * What this write is tagged as. An `McpOrigin` when an assistant is behind it, which
+   * is how a transaction in this document and a row in `mcp_events` are known to be the
+   * same operation. The default keeps every existing caller writing exactly as before.
+   */
+  origin: unknown = LOCAL_ORIGIN,
+): EditResult {
   const remove = batch.remove ?? []
   const create = batch.create ?? []
   const update = batch.update ?? []
@@ -969,7 +1003,7 @@ export function applyEdits(session: DocSession, batch: EditBatch): EditResult {
       removed: [...doomed],
       updated: updates.map((entry) => entry.id),
     }
-  })
+  }, origin)
 }
 
 // --- text ---------------------------------------------------------------------

@@ -90,6 +90,18 @@ function explain(status: number, detail: string): string {
   return `Meadow answered ${status}: ${detail}`
 }
 
+/** One mutation, as the audit trail records it. See `recordEvent`. */
+export type McpEvent = {
+  operationId: string
+  tool: string
+  /** What the batch asked to touch, against what the write took. */
+  requested: number
+  accepted: number
+  durationMs: number
+  outcome: 'applied' | 'refused' | 'failed'
+  reason?: string
+}
+
 export class MeadowApi {
   constructor(
     readonly origin: string,
@@ -152,6 +164,32 @@ export class MeadowApi {
     return this.call<WsToken>('/ws-token', {
       method: 'POST',
       body: { board_id: boardId },
+    })
+  }
+
+  /**
+   * Record one mutation in the glade's audit trail.
+   *
+   * Posted rather than read off the socket because a Yjs update carries no origin: the
+   * operation id lives on the transaction that produced the update and is never encoded
+   * into it. This is also the only way the server learns the parts only this side knows,
+   * which tool ran and how long it took.
+   *
+   * Nothing here names the actor. Who did it is the server's answer, from the token this
+   * request presents.
+   */
+  recordEvent(boardId: string, event: McpEvent): Promise<unknown> {
+    return this.call(`/boards/${encodeURIComponent(boardId)}/mcp-events`, {
+      method: 'POST',
+      body: {
+        operation_id: event.operationId,
+        tool: event.tool,
+        requested: event.requested,
+        accepted: event.accepted,
+        duration_ms: event.durationMs,
+        outcome: event.outcome,
+        ...(event.reason === undefined ? {} : { reason: event.reason }),
+      },
     })
   }
 }

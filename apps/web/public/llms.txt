@@ -13,7 +13,7 @@ A board is called a glade. A lea is a ruled, paged diary on the same canvas and 
 - [Collaboration](https://meadow.invalid/collaboration/): live cursors and selections, character-level merging, share links, invitations and requests, roles, board passwords, locks and sessions
 - [FAQ](https://meadow.invalid/faq/): the canvas, collaboration, offline use, sharing and privacy, and the licence
 - [Source and licence](https://meadow.invalid/source/): what the licence allows, how to run Meadow with Docker Compose, and what it is built with
-- [Connect an AI assistant](https://meadow.invalid/connect/): the MCP server at https://meadow.invalid/mcp; connecting by signing in with OAuth or with a classic or fine-grained access token, and the setup steps for each assistant
+- [Connect an AI assistant](https://meadow.invalid/connect/): the MCP server at https://meadow.invalid/mcp; connecting by signing in with OAuth or with a classic or fine-grained access token, and the setup steps for each assistant; every change an assistant makes is recorded with its own operation id, readable by the account and not by the assistant
 - [Get started](https://meadow.invalid/app): sign in or create an account; boards are private unless their owner shares them
 
 ## Source

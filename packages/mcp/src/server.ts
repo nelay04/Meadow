@@ -12,6 +12,8 @@ import {
   EditReferenceError,
   ImportTargetError,
   ReadOnlyError,
+  type EditResult,
+  McpOrigin,
   applyEdits,
   exportGlade,
   importGlade,
@@ -33,12 +35,14 @@ import {
   STICKY_BASE_HEIGHT,
   stickyFitHeight,
 } from '@meadow/schema'
+import { randomUUID } from 'node:crypto'
+
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { z } from 'zod'
 
 import { type ToolNeeds, describeBoundaries, usable } from './access'
-import { MeadowApi, MeadowApiError, type TokenInfo } from './api'
+import { MeadowApi, MeadowApiError, type McpEvent, type TokenInfo } from './api'
 import { type DiagramSpec, MermaidError, graphToMermaid, parseMermaid } from './mermaid'
 import { PlanError, planCreate, planDiagram, planRemove, planUpdate } from './plan'
 import { type Action, type Room, RoomError, Rooms, allowedPhrase, refusal } from './room'
@@ -233,6 +237,16 @@ function describeBatch(batch: EditBatch): Json {
   }
 }
 
+/** How much a batch asked to touch, against which `accepted` is read. */
+function batchSize(batch: EditBatch): number {
+  return (
+    (batch.create ?? []).length +
+    (batch.update ?? []).length +
+    (batch.remove ?? []).length +
+    (batch.connect ?? []).length
+  )
+}
+
 export type ServerOptions = {
   api: MeadowApi
   idleMs: number
@@ -346,6 +360,23 @@ export function createServer({
   const openRoom = async (id: string): Promise<Room> => (await roomsFor()).get(id)
 
   /**
+   * Record one mutation in the glade's audit trail.
+   *
+   * Best effort, and deliberately so: the write has already happened and is already on
+   * its way to every peer, so failing the tool call now would tell the model its edit
+   * did not land when it did. A trail with a hole in it is better than a lie about what
+   * is on the glade. The hole is not silent, it goes to stderr, which is where this
+   * server's own diagnostics go.
+   */
+  const report = async (room: Room, event: McpEvent): Promise<void> => {
+    try {
+      await api.recordEvent(room.board.id, event)
+    } catch (error) {
+      console.error(`meadow-mcp: could not record ${event.tool}: ${(error as Error).message}`)
+    }
+  }
+
+  /**
    * A picture of some objects, for a tool result. A picture that fails to render never
    * fails the write it belongs to; the result says why it is missing instead.
    */
@@ -414,10 +445,56 @@ export function createServer({
       }
       return withPicture(described, drawn)
     }
-    if (blocked.length > 0) return refused(blocked.join('\n'))
+    // One id per tool call, from here down. It tags the transaction in the Y.Doc and it
+    // is what the row in `mcp_events` is filed under, so a write in the document and a
+    // line in the server's log are known to be the same operation. Minted here because
+    // this closure is the one place every write tool passes through, the same reason the
+    // `preview` guarantee is held here.
+    const operationId = randomUUID()
+    const started = Date.now()
+    const requested = batchSize(batch)
 
-    const result = applyEdits(room.session, batch)
-    await (await roomsFor()).flush(room)
+    if (blocked.length > 0) {
+      await report(room, {
+        operationId,
+        tool: id,
+        requested,
+        accepted: 0,
+        durationMs: Date.now() - started,
+        outcome: 'refused',
+        reason: blocked.join('; '),
+      })
+      return refused(blocked.join('\n'))
+    }
+
+    let result: EditResult
+    try {
+      result = applyEdits(room.session, batch, new McpOrigin(operationId, id))
+      await (await roomsFor()).flush(room)
+    } catch (error) {
+      // A write that got as far as being attempted and did not finish is the row most
+      // worth having, so it is recorded before the error goes back up.
+      await report(room, {
+        operationId,
+        tool: id,
+        requested,
+        accepted: 0,
+        durationMs: Date.now() - started,
+        outcome: 'failed',
+        reason: (error as Error).message,
+      })
+      throw error
+    }
+
+    await report(room, {
+      operationId,
+      tool: id,
+      requested,
+      accepted:
+        Object.keys(result.ids).length + result.updated.length + result.removed.length,
+      durationMs: Date.now() - started,
+      outcome: 'applied',
+    })
 
     const touched = [...Object.values(result.ids), ...result.updated]
     const graph = graphOf(room)

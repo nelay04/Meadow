@@ -2,8 +2,9 @@
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.services.board_kinds import DEFAULT_BOARD_KIND, BoardKind
 from app.services.board_password import MAX_LENGTH as PASSWORD_MAX_LENGTH
@@ -457,3 +458,41 @@ class BoardPassOut(BaseModel):
 
     pass_token: str
     expires_in: int
+
+
+class McpEventIn(BaseModel):
+    """One mutation an assistant is reporting.
+
+    No actor field of any kind. Who did it is the server's answer, taken from the
+    credential presenting the event, and a body that tried to say otherwise would be
+    ignored rather than believed.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    operation_id: uuid.UUID
+    tool: str = Field(min_length=1, max_length=64)
+    #: What the batch asked to touch, against what the write took. Both, because the gap
+    #: between them is the interesting part.
+    requested: int = Field(ge=0)
+    accepted: int = Field(ge=0)
+    duration_ms: int = Field(ge=0)
+    outcome: Literal["applied", "refused", "failed"]
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class McpEventOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    operation_id: uuid.UUID
+    board_id: uuid.UUID
+    user_id: uuid.UUID
+    api_token_id: uuid.UUID | None
+    tool: str
+    requested: int
+    accepted: int
+    duration_ms: int
+    outcome: str
+    reason: str | None
+    created_at: datetime

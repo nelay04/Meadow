@@ -11,6 +11,71 @@ away getting there.
 
 ---
 
+## [1.28.0] - [05-Oct-2026]
+
+### Added
+- **An operation id on every write an assistant makes, and an audit trail of what it
+  did.** Tier 3 of the October review, and the last feature in that plan. One id is
+  minted per tool call in the MCP server's `edit` closure, the same chokepoint that
+  holds the `preview` guarantee, and it does two jobs: it tags the Y.Doc transaction
+  that write produces, and it is what the row recording the call is filed under. A
+  transaction in the document and a line in the API's log can therefore be matched up
+  afterwards, which was the whole point of the item.
+
+  `mcp_events` is a new table, read newest-first per glade. Each row holds the operation
+  id, the glade, the actor, the token the call came through, the tool, what the batch
+  asked to touch against what the write actually took, how long it ran, and what became
+  of it. Metadata about an edit and never the edit: what changed stays in the CRDT log,
+  as ARCHITECTURE 3 requires, and nothing is reconstructed from this table.
+
+  The gap between `requested` and `accepted` is deliberate. They differ when a plan names
+  objects that are no longer there, which is the most useful thing a row can say about a
+  model working from a stale reading of a glade.
+
+  A refused write is recorded as `refused` with the reason, and a write that began and
+  did not finish as `failed`. Those are the rows worth having: a trail of successes only
+  would be a trail that goes quiet exactly when something is wrong.
+
+- **`McpOrigin` in `@meadow/document-core`.** An origin class rather than a string,
+  because `Y.UndoManager` matches a non-primitive origin by its constructor, which is
+  what lets an origin carry a per-operation id and still be recognised by the undo
+  filter. It is tracked by constructor in `createDocSession`, so an assistant's writes
+  stay on that peer's undo stack exactly as before. `applyEdits` takes it as an optional
+  third argument and defaults to `LOCAL_ORIGIN`, so every existing caller writes
+  unchanged. Nothing in the browser passes one: a person's own edits are not what this
+  trail is for.
+
+### Changed
+- **The public pages say that an assistant's changes are recorded**, and say no more than
+  that. A card on `features/`, one FAQ entry with its JSON-LD kept word for word, and a
+  clause in `llms.txt`. None of them claims a screen, because there is not one: the record
+  is read through the API today. The wording will need revisiting if a screen is built.
+
+### Security
+- **Only a caller who could have made an edit may record having made it.** The route
+  takes access tokens only, refuses a browser session, requires the editor role, and
+  requires a fine-grained token's grant to carry `edit`. The actor on the row is the
+  server's own answer, taken from the credential presenting the event; nothing in the
+  request body names an actor, so a token cannot write a row in somebody else's name.
+  The trail is readable from a browser session with access to the glade and not by a
+  token, so it stays something a person reads rather than something a machine can
+  inspect and work around. The tests were written before the route, as the working
+  agreement requires for anything auth-shaped.
+
+### Reversed
+- **The plan said the id would be "carried through the websocket". It cannot be.** A
+  Yjs update is a binary diff and carries no origin; the origin is local metadata on the
+  transaction that produced the update and is never encoded into it, so no amount of
+  reading the socket would recover it. Carrying it there would mean inventing a protocol
+  message type, with the read-only guard in `app/realtime/guard.py` taught to understand
+  it, which is a change to the security boundary in exchange for information that an
+  explicit event carries more honestly. The event is posted to the API instead, and it is
+  also the only way the server learns the parts only the caller knows: which tool ran and
+  how long it took. This is the third item in this review whose wording did not survive
+  being built, and like the other two the wording was mine.
+
+---
+
 ## [1.27.5] - [04-Oct-2026]
 
 ### Added
