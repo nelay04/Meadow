@@ -11,6 +11,41 @@ away getting there.
 
 ---
 
+## [1.27.1] - [04-Oct-2026]
+
+### Added
+- **The `preview` guarantee has a test.** Every write tool in the MCP server takes
+  `preview: true`, and the server's instructions promise every assistant that it shows
+  what would change without changing the glade. Nothing held that promise, and its
+  failure is the quiet kind: a model asks for the safe option, gets back a plan that
+  reads exactly like a preview, and the glade has already been written to, with nobody
+  told. `packages/mcp/test/preview.test.ts` now holds it from both directions a break
+  could come from.
+
+  The write path reduces to one seam. Each tool plans a batch and, on a preview, hands it
+  to `previewCopy` instead of `applyEdits`, so the guarantee for all of them is one
+  property of that function, asserted over every shape of batch the tools produce:
+  `create_nodes`, `connect`, `update_objects`, `delete_objects`, `set_text`,
+  `apply_diagram` and `tidy_layout`. Each case also asserts the planned batch was not
+  empty, because byte-identity after doing nothing proves nothing, and that the copy did
+  change, so the two halves cannot pass by both being inert.
+
+  The second direction is the argument never arriving. A write tool that forgets to
+  declare `preview` strips it as an unknown key and applies the write, which is the same
+  silent failure by a route no test of the write path can see. So the tool list is read
+  back off a server connected over an in-memory transport, and every tool taking a
+  `glade_id` must offer `preview`. The exemption list names the readers rather than the
+  writers, deliberately: a new write tool is caught without anyone remembering to add it,
+  and a new reader has to be exempted on purpose. Both checks were confirmed by breaking
+  the code they guard, which is the only way to know a test is load-bearing: pointing
+  `previewCopy` at the live session fails eight of them, and dropping `preview` from
+  `set_text` fails the ninth by name.
+
+### Reversed
+- Nothing. No source file changed; this is a test and a version.
+
+---
+
 ## [1.27.0] - [04-Oct-2026]
 
 ### Added
