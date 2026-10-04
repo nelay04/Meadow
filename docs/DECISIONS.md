@@ -126,6 +126,60 @@ The stock provider composes its URL once and retries on its own schedule, so its
 reconnect would replay a spent token forever. `apps/web/src/sync/provider.ts` disables
 autoconnect and mints a fresh token per attempt with capped backoff.
 
+## Redis is a hard dependency, and only the session denylist pretends otherwise
+
+Each place the API touches Redis decided for itself what an outage means, and each
+decision is reasonable where it is written. Collected, they say something the individual
+comments cannot: Meadow does not degrade without Redis, it stops, and the one check that
+does degrade is the one that costs a security property.
+
+What actually happens when Redis is gone:
+
+| Where | Behaviour | Effect |
+|---|---|---|
+| `realtime/wstoken.py` single-use claim | the error propagates out of the handshake | no glade opens, for anyone |
+| `services/ratelimit.py` | raises, so the endpoint 500s | sign-in, registration, sharing, a locked glade's password and ws-token minting all refuse |
+| `services/connect.py` | raises, so the endpoint 500s | assistants cannot complete OAuth, and in-flight approvals are lost |
+| `services/session_events.py::is_revoked` | answers `False` | **a terminated session keeps working** until its access token expires |
+| `services/session_events.py::mark_revoked` | logs at error, writes nothing | the same, for sessions terminated during the outage |
+| `services/session_events.py::publish` | logs at warning | other tabs do not refresh their session list |
+| `realtime/search_queue.py` | logs, drops the nudge | content search falls behind |
+| arq worker | cannot run at all | compaction, the trash sweep and search indexing all stop |
+
+Three things follow, and they are the reason this is written down rather than left as
+eight comments.
+
+**The fail-open on `is_revoked` buys availability that does not exist.** It is justified
+in place by "the alternative is an unreachable Redis logging every user out of the whole
+application", which is a good argument on its own terms. It is also an argument about a
+situation that cannot arise: by the time `is_revoked` cannot reach Redis, the rate limiter
+is already refusing every sign-in and the handshake is already refusing every glade. The
+users it keeps logged in cannot open anything. So the trade is a revoked session surviving
+in exchange for nothing, and that is a decision to settle deliberately rather than inherit
+from a comment. It is left as it stands for now because changing a security default is not
+a documentation change, and the refresh token - the credential that actually extends a
+session - is checked against Postgres regardless.
+
+**`/healthz` cannot see any of this.** It returns `{"status": "ok"}` without touching
+Redis or the database, so the deploy's `--wait`, the post-deploy public check and the
+container healthcheck would all call a Redis-less stack healthy while nobody can open a
+glade. That is a gap in the operational story, not in the application's.
+
+**"Search still works without it, a minute behind" is true only narrowly.** The comment in
+`search_queue.py` is correct about the nudge: indexing also runs from a cron every minute,
+so losing the nudge costs latency and nothing else. But that cron runs inside arq, which
+is itself Redis-backed, so a real Redis outage stops the fallback too. The sentence
+describes the case where the nudge pool failed to open while Redis is otherwise fine.
+
+The decision this records is therefore not "fail open" or "fail closed", because the code
+does both. It is that **Redis is required for Meadow to serve at all**, that this is
+accepted on a single-box deployment where Redis is a container beside the API rather than
+a network service, and that the places which look like graceful degradation are mostly
+not. ARCHITECTURE 12's rule is that a failure must be correct, degraded, or refused, never
+silently wrong. Measured against it, seven of the eight rows above are refused or degraded
+and honest. The `is_revoked` row is the one that is silently wrong, and it is wrong in the
+direction of permitting access.
+
 ---
 
 # Measured, and not

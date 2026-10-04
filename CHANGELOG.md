@@ -11,6 +11,47 @@ away getting there.
 
 ---
 
+## [1.27.3] - [04-Oct-2026]
+
+### Added
+- **What happens when Redis is gone, written down in one place.** `docs/DECISIONS.md`
+  mentioned Redis once, about compaction taking a Postgres advisory lock instead of a
+  Redis one. Meanwhile eight places in the API had each decided for itself what an
+  outage means, every one of them reasonable where it was written and none of them
+  readable as a set. Collecting them was supposed to be an hour of tidying and turned
+  up three things worth knowing.
+
+  The first is that Meadow does not degrade without Redis, it stops. The single-use
+  ws-token claim, the rate limiter, and the whole assistant OAuth flow all raise, so no
+  glade opens, nobody signs in, and no assistant connects. Only search indexing and the
+  session-list notification genuinely degrade.
+
+  The second is that the one check which fails open is buying availability that does not
+  exist. `session_events.is_revoked` answers `False` on a Redis failure, so a terminated
+  session keeps working until its access token expires, and it is justified in place by
+  not wanting an unreachable Redis to log everybody out. That argument describes a
+  situation that cannot arise: by then the rate limiter is already refusing every sign-in
+  and the handshake every glade, so the sessions it keeps alive cannot open anything. The
+  behaviour is left as it stands, because changing a security default is not a
+  documentation change and the refresh token is checked against Postgres regardless, but
+  it is now a decision on the record rather than one inherited from a comment.
+
+  The third is that `/healthz` cannot see any of it. It answers `ok` without touching
+  Redis or the database, so the deploy's `--wait`, the post-deploy public check and the
+  container healthcheck would all call a Redis-less stack healthy while the site is
+  unusable.
+
+### Changed
+- One claim in `realtime/search_queue.py` is narrower than it reads, and the new section
+  says so. "Search still works without it, a minute behind" is true of losing the nudge,
+  since indexing also runs from a cron every minute. That cron runs inside arq, which is
+  Redis-backed, so a real outage stops the fallback as well.
+
+### Reversed
+- Nothing. No behaviour changed; this is the account of behaviour that already existed.
+
+---
+
 ## [1.27.2] - [04-Oct-2026]
 
 ### Added
