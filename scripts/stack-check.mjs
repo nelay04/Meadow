@@ -113,6 +113,18 @@ async function phaseApi() {
     JSON.stringify(body),
   )
 
+  // And the one that can tell the difference between a live process and a usable one.
+  // Checked separately because /healthz answering proves only that something is there:
+  // it touches no dependency by design, so it says ok on a stack where Redis is gone
+  // and nobody can sign in.
+  const ready = await fetch(`${BASE}/readyz`)
+  const readyBody = await ready.json().catch(() => null)
+  log(
+    ready.ok && readyBody?.status === 'ready',
+    '/readyz reports every dependency reachable',
+    JSON.stringify(readyBody),
+  )
+
   const credentials = {
     email: `stack-${Date.now().toString(36)}@meadow-check.dev`,
     password: 'stack-check-password',

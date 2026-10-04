@@ -96,14 +96,20 @@ jobs:
       - name: it is actually serving
         # Against the public URL, not through the ssh session. A deploy that leaves
         # nginx unable to reach the API produces healthy containers and a broken site.
+        #
+        # /readyz, not /healthz. The latter answers ok without touching anything, which
+        # is correct for a liveness probe and useless here: it reported a healthy stack
+        # on a deployment where Redis was unreachable and no glade would open. This step
+        # exists to disagree with the containers, so it asks the one endpoint that can.
         run: |
           for attempt in 1 2 3 4 5 6 7 8 9 10; do
-            if curl -fsS --max-time 10 "${{ secrets.PUBLIC_URL }}/healthz" | grep -q '"ok"'; then
-              echo "healthy"
+            body=$(curl -sS --max-time 10 "${{ secrets.PUBLIC_URL }}/readyz" || true)
+            if printf '%s' "${body}" | grep -q '"ready"'; then
+              echo "ready: ${body}"
               exit 0
             fi
-            echo "attempt ${attempt}: not yet"
+            echo "attempt ${attempt}: not yet ${body}"
             sleep 6
           done
-          echo "the site did not come back healthy"
+          echo "the site did not come back ready"
           exit 1

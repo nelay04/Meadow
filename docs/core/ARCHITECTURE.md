@@ -2298,8 +2298,19 @@ m0 gate, the smokes and the e2e scripts would all pass against a deployment whos
 dropped the websocket upgrade, cached `index.html` forever, or answered a missing
 bundle with the SPA fallback. It drives the published port the way a browser does:
 fingerprinted assets immutable, `index.html` not cached, a missing asset a 404 rather
-than HTML, `/healthz` reaching the API rather than the fallback, and two yjs clients
-converging through the proxy.
+than HTML, `/healthz` reaching the API rather than the fallback, `/readyz` reporting
+every dependency reachable, and two yjs clients converging through the proxy.
+
+**Added in 1.27.4: `/readyz` beside `/healthz`.** The two answer different questions and
+only one of them was there. `/healthz` touches nothing, which is right for the container
+probe and for `--wait`, because a dependency blip marking the API unhealthy would hold up
+a deploy that was going to recover. The cost is that it answered `ok` on a stack where
+Redis was unreachable, and Redis being unreachable means no glade opens and nobody signs
+in, so every gate the deployment had agreed the site was fine. `/readyz` touches Postgres
+and Redis and answers 503 when either is gone; the deploy workflow and the stack check ask
+for it, the container probe still asks `/healthz`. Both are unauthenticated, since they
+are called before anybody is signed in, and `/readyz` returns a boolean per dependency and
+no detail.
 
 **TLS is not in the compose file.** Certificates are host state with a renewal timer.
 The container serves plain HTTP on one published port bound to loopback and reads the

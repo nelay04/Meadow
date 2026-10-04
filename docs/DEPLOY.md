@@ -65,9 +65,30 @@ stops the deploy rather than leaving an API that 500s on its first query.
 ```bash
 docker compose --env-file .env.prod ps           # all healthy, migrate exited 0
 curl -fsS localhost:8014/healthz                 # {"status":"ok"}
+curl -fsS localhost:8014/readyz                  # every dependency true
 ls -l /srv/meadow-backups                        # a meadow-*.dump already
 docker compose --env-file .env.prod logs backup --tail 20
 ```
+
+### Which health endpoint to ask
+
+Two, and they answer different questions. Asking the wrong one is how a broken stack
+passes a check.
+
+| Endpoint | Touches | Use it for |
+|---|---|---|
+| `/healthz` | nothing | liveness. The container `HEALTHCHECK` and `compose up -d --wait`. Answers `ok` whenever the process is up, by design |
+| `/readyz` | Postgres and Redis | readiness. Deploy gates, uptime monitors, and answering "can anybody actually use this". 503 when a dependency is gone |
+
+`/healthz` is deliberately blind. If it failed when Redis did, a Redis blip would mark
+the API container unhealthy and `--wait` would hold up a deploy that was going to
+recover on its own. The cost of that blindness is that it says `ok` on a stack where
+nobody can sign in or open a glade, which is why `/readyz` exists and why the deploy
+workflow and `pnpm check:stack` both ask for it instead. Redis is a hard dependency
+rather than a nice-to-have: `docs/DECISIONS.md` has what breaks without it.
+
+Both are unauthenticated, because the deploy and an external monitor call them before
+anybody is signed in. `/readyz` answers with a boolean per dependency and nothing more.
 
 The backup sidecar dumps immediately on first start, precisely so this is checkable
 now rather than tomorrow. An empty backup directory means stop and fix it: this is the
@@ -193,7 +214,7 @@ sed -i 's|^MEADOW_TRUSTED_PROXY_CIDR=.*|MEADOW_TRUSTED_PROXY_CIDR=172.28.0.1|' .
 sed -i 's|^MEADOW_WEB_BASE_URL=.*|MEADOW_WEB_BASE_URL=https://your-domain.com|' .env.prod
 
 docker compose --env-file .env.prod up -d --wait
-curl -fsS https://your-domain.com/healthz
+curl -fsS https://your-domain.com/readyz
 ```
 
 All four matter, and three of them fail quietly:

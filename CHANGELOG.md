@@ -11,6 +11,47 @@ away getting there.
 
 ---
 
+## [1.27.4] - [04-Oct-2026]
+
+### Added
+- **`/readyz`, a health endpoint that actually checks its dependencies.** Writing the
+  Redis section for 1.27.3 turned up that `/healthz` answers `{"status":"ok"}` without
+  touching Postgres or Redis, and that it was the only health endpoint. Since Redis is a
+  hard dependency rather than a nice-to-have, that meant every gate the deployment has -
+  the container `HEALTHCHECK`, `compose up -d --wait`, the post-deploy curl against the
+  public URL and any external uptime monitor - would call a Redis-less stack healthy
+  while nobody could sign in or open a glade.
+
+  `/healthz` is unchanged, and deliberately so. It is the liveness probe, and if it
+  failed when a dependency did, a Redis blip would mark the API container unhealthy and
+  `--wait` would hold up a deploy that was going to recover on its own. The new endpoint
+  takes the other half of the job: it reads Postgres and pings Redis, each inside a two
+  second budget so a hung dependency cannot hang the probe, and answers 503 when either
+  is gone. A status code rather than a 200 carrying bad news, so `curl -f`, a load
+  balancer and a person all agree without parsing the body.
+
+  Unauthenticated, like `/healthz`, because the deploy and a monitor both call it before
+  anybody is signed in. The body is therefore a boolean per dependency and nothing else:
+  which dependency is down is operationally necessary and worth little to a stranger,
+  while the exception behind it, with its host and driver detail, goes to the log.
+
+### Changed
+- The deploy workflow's final check asks `/readyz` instead of `/healthz`. That step
+  exists to disagree with the containers when nginx cannot reach the API, so it may as
+  well ask the one endpoint that can also disagree about Redis.
+- `pnpm check:stack` asserts both, separately. `/healthz` reaching the API rather than
+  the SPA fallback is still its own fact, and now so is every dependency being up.
+- The nginx site template serves `/readyz` from the API. Without its own location it
+  would fall through to the SPA and hand a monitor `index.html` with a 200, which is the
+  trap the `/healthz` block already carries a comment about.
+- `docs/DEPLOY.md` has a table of which endpoint answers which question, because asking
+  the wrong one is how a broken stack passes a check.
+
+### Reversed
+- Nothing. `/healthz` keeps its contract, its callers and its deliberate blindness.
+
+---
+
 ## [1.27.3] - [04-Oct-2026]
 
 ### Added

@@ -7,9 +7,10 @@ from contextlib import asynccontextmanager, suppress
 from logging import getLogger
 
 import anyio
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, Response, WebSocket, status
 from pycrdt.websocket import YRoom
 from redis.asyncio import Redis
+from sqlalchemy import text as sa_text
 
 from app.api.v1 import router as api_router
 from app.api.v1.connect import well_known as connect_well_known
@@ -65,7 +66,61 @@ app.include_router(connect_well_known)
 
 @app.get("/healthz")
 async def healthz() -> dict[str, str]:
+    """Liveness: this process is up and answering.
+
+    Deliberately touches nothing. It is the container's HEALTHCHECK and what
+    `compose up -d --wait` blocks on, so a dependency failing must not mark the API
+    unhealthy and hold up a deploy that would have recovered. Readiness is `/readyz`.
+    """
     return {"status": "ok"}
+
+
+#: A probe that hangs is worse than one that fails, so each dependency gets a budget
+#: well inside nginx's 5s read timeout for this location.
+_READY_TIMEOUT_SECONDS = 2.0
+
+
+async def _postgres_ready() -> bool:
+    async with engine.connect() as conn:
+        await conn.execute(sa_text("select 1"))
+    return True
+
+
+async def _redis_ready() -> bool:
+    await app.state.redis.ping()
+    return True
+
+
+@app.get("/readyz")
+async def readyz(response: Response) -> dict[str, object]:
+    """Readiness: this process can actually serve, dependencies included.
+
+    `/healthz` answers `ok` without touching anything, which is right for liveness and
+    was the only health endpoint until 1.27.4. The consequence was that every gate the
+    deployment has - the container healthcheck, `compose --wait`, the post-deploy curl
+    against the public URL, and any external uptime monitor - reported a healthy stack
+    while Redis was unreachable and nobody could sign in or open a glade. Redis is a
+    hard dependency, not a nice-to-have: see `docs/DECISIONS.md`.
+
+    Unauthenticated, like `/healthz`, because the deploy and an external monitor both
+    have to call it before anybody is signed in. So the body carries a boolean per
+    dependency and nothing else. Which dependency is down is operationally necessary
+    and worth little to a stranger; the exception, with its host and driver detail,
+    goes to the log instead.
+    """
+    checks: dict[str, bool] = {}
+    for name, probe in (("postgres", _postgres_ready), ("redis", _redis_ready)):
+        try:
+            with anyio.fail_after(_READY_TIMEOUT_SECONDS):
+                checks[name] = await probe()
+        except Exception:  # noqa: BLE001 - every failure means the same thing here
+            logger.warning("readiness probe failed: %s", name, exc_info=True)
+            checks[name] = False
+
+    ready = all(checks.values())
+    # 503 so a monitor, a load balancer and `curl -f` all agree without parsing a body.
+    response.status_code = status.HTTP_200_OK if ready else status.HTTP_503_SERVICE_UNAVAILABLE
+    return {"status": "ready" if ready else "not ready", "checks": checks}
 
 
 class _TokenRefused(Exception):
