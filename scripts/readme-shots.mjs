@@ -196,9 +196,34 @@ async function drag(p, from, to, steps = 18) {
   await delay(400)
 }
 
+/**
+ * Put the rail's flyout away.
+ *
+ * The rail opens a tool's flyout whenever that tool becomes the active one, by the
+ * keyboard exactly as by the button, and the flyout is anchored beside the rail and so
+ * sits over the left of the canvas. A placing click aimed there lands on the flyout
+ * rather than on the canvas and nothing is drawn at all. That is how giving the sticky
+ * tool its six colours (87955ad) silently stopped these shots: the first note is placed
+ * at x 280, which is under the open flyout, and the wait for its editor then timed out.
+ *
+ * Pressing the rail button of the tool already in hand is the app's own way of putting a
+ * flyout away without answering it, so every default these shots want is kept.
+ */
+async function closeFlyout() {
+  const menu = page.locator('.tool-submenu')
+  if ((await menu.count()) === 0) return
+  // Direct child of the slot: the swatches inside the flyout are `.tool` too, and the
+  // chosen one is `.tool.active`, so a looser selector clicks the colour rather than
+  // the rail.
+  await page.locator('.toolbar .tool-slot > button.tool.active').first().click()
+  await menu.first().waitFor({ state: 'detached', timeout: 5000 })
+  await delay(200)
+}
+
 async function shape(key, a, b) {
   await page.keyboard.press(key)
   await delay(250)
+  await closeFlyout()
   await drag(page, at(a[0], a[1]), at(b[0], b[1]))
 }
 
@@ -244,6 +269,7 @@ await label([1040, 227], 'Redis')
 async function arrow(a, b) {
   await page.keyboard.press('a')
   await delay(250)
+  await closeFlyout()
   await drag(page, at(a[0], a[1]), at(b[0], b[1]), 22)
 }
 
@@ -329,6 +355,7 @@ const STICKIES = [
 for (const [x, y, text] of STICKIES) {
   await page.keyboard.press('s')
   await delay(250)
+  await closeFlyout()
   await page.mouse.click(box.x + x, box.y + y)
   await type(text)
 }

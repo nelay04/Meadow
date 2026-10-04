@@ -11,6 +11,68 @@ away getting there.
 
 ---
 
+## [1.27.5] - [04-Oct-2026]
+
+### Added
+- **Every browser-driven suite now runs in CI, and a suite that is not wired in fails
+  the commit.** Four suites had sat broken for about three weeks, which the review
+  noticed as finding 22. The plan's remedy was to run the fast suites on a push, and
+  checking that claim showed it to be wrong: `pnpm -r test` and `pytest` contain none of
+  these scripts, so a push trigger would have caught none of the four. Two of them,
+  `e2e:sessions` and `e2e:connect`, were in no workflow at all, so no trigger however
+  frequent would ever have reached them.
+
+  So the trigger was not the defect, coverage was. `e2e:sessions`, `e2e:lea`,
+  `e2e:bengali`, `e2e:connect` and `smoke:grid` join the `e2e` job, which already had
+  the Postgres, Redis, venv and Chromium those five need, so they cost setup nothing.
+  Each was run locally first, because wiring in a suite without checking that it passes
+  is how a red CI becomes a CI nobody reads.
+
+  `readme-shots.mjs` had no `package.json` script at all, which is part of why it rotted
+  unseen. It is now `pnpm readme:shots` and runs in the same job, with its images kept
+  as a build artifact: a screenshot can come out green and still be wrong, and the only
+  way to catch that is for somebody to look at it.
+
+- **`scripts/check-staged.mjs` fails a commit that adds a suite without wiring it in.**
+  The only part of this that stops the problem recurring. Every `e2e:`, `smoke:` and
+  `readme:` script in `package.json` must be named in `ci.yml`, as either `pnpm <name>` or the
+  file it runs, since the workflow legitimately uses both forms. `readme:shots` is held
+  to the same rule, having rotted in exactly this way. Benchmarks are out of scope
+  because they report numbers rather than a verdict.
+
+### Changed
+- Every suite step in the `e2e` job carries `if: !cancelled()`, so one red suite no
+  longer hides the rest. A run that stops at the first failure costs the same twelve
+  minutes as one that reports everything, and suites going stale unnoticed is the whole
+  reason this job grew.
+
+### Fixed
+- **`pnpm readme:shots` draws the whole set again.** It had been getting `sign-in.png`,
+  `glade.png` and `lea.png` out and then timing out waiting for a sticky's editor. The
+  cause was not the script going stale on its own: giving the sticky tool its six
+  colours (`87955ad`, 30-Sep) gave it a flyout, and the rail opens a tool's flyout
+  whenever that tool becomes the active one, by the keyboard exactly as by the button.
+  The flyout is anchored beside the rail, over the left of the canvas, which is where
+  the first note is placed, so the click that should have made a sticky dismissed the
+  flyout instead and nothing was drawn. The committed images are dated 06-Sep, before
+  that change, which is why they still look right.
+
+  The app is not wrong here and was not touched. The script now puts the flyout away
+  before placing anything, by pressing the rail button of the tool already in hand,
+  which is the app's own way of dismissing a flyout without answering it, so the default
+  colour these shots want is kept. `shape()` and `arrow()` got the same treatment: they
+  drive from the keyboard too and begin their drags near the rail, and they survive
+  today only because their start points happen to fall outside the flyout.
+
+### Reversed
+- **The plan's version of this item, which was mine and was wrong.** `docs/REVIEW-2026-10.md`
+  said running the fast suites on push "would have caught all four dead scripts within a
+  day". It would have caught zero. The item is rewritten to say so, and the trigger
+  question - what, if anything, should run on a push - is still open and is now a
+  separate decision rather than a fix dressed up as one.
+
+---
+
 ## [1.27.4] - [04-Oct-2026]
 
 ### Added

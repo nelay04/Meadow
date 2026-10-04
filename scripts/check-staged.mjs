@@ -35,6 +35,9 @@ const MAX_BLOB_BYTES = 5 * 1024 * 1024
 /** The one long-lived design doc. Its section 2 is the repository layout. */
 const DOC = 'docs/core/ARCHITECTURE.md'
 
+/** The workflow that runs the suites. Nothing else in this repo runs them. */
+const CI = '.github/workflows/ci.yml'
+
 function git(args) {
   return execFileSync('git', ['-c', 'core.quotepath=false', ...args], {
     encoding: 'utf8',
@@ -328,6 +331,67 @@ function repoWideFailures(paths) {
             findings: [{ file: DOC, line: 1, text: `${counted[1]} claimed, ${present.size} present` }],
           })
         }
+      }
+    }
+  }
+
+  // Every browser-driven suite against the workflow that is supposed to run it.
+  //
+  // Four suites sat broken for about three weeks and nobody noticed, and the reason was
+  // not that CI is manual. Two of them, `e2e:sessions` and `e2e:connect`, were in no
+  // workflow at all, so no trigger would have reached them however often it fired. A
+  // suite nobody runs is a suite that rots, and the only way it stays wired in is if
+  // adding one without wiring it in fails.
+  //
+  // Scoped to `e2e:` and `smoke:`, the two that pass or fail. Benchmarks report numbers
+  // rather than a verdict, and the runner's hardware is not the hardware the targets are
+  // about. `check:staged` runs in the hook rather than CI. `readme:shots` is a
+  // screenshot generator, not a suite, and is the one thing here still broken as of
+  // 1.27.5, so requiring it in a workflow would require a red step.
+  if (paths.includes('package.json') || paths.includes(CI)) {
+    let manifest = ''
+    let workflow = ''
+    try {
+      manifest = git(['show', ':package.json'])
+      workflow = git(['show', `:${CI}`])
+    } catch {
+      manifest = ''
+    }
+
+    // Comment lines stripped first. Without this a suite is "covered" by being named
+    // in a comment, including a comment explaining why one of them is absent, which
+    // would make this rule agree with itself and check nothing.
+    const runnable = workflow
+      .split('\n')
+      .filter((line) => !/^\s*#/.test(line))
+      .join('\n')
+
+    if (manifest !== '' && workflow !== '') {
+      const scripts = JSON.parse(manifest).scripts ?? {}
+      const gated = Object.entries(scripts).filter(([name]) => /^(?:e2e|smoke|readme):/.test(name))
+      // Named either as the pnpm script or as the file it runs, because the workflow
+      // legitimately does both: `pnpm e2e:board` in one job, `node scripts/...` in
+      // another.
+      const missing = gated
+        .filter(([name, command]) => {
+          if (runnable.includes(name)) return false
+          const file = /(scripts\/[\w.-]+)/.exec(command)
+          return file === null || !runnable.includes(file[1])
+        })
+        .map(([name]) => name)
+
+      if (missing.length > 0) {
+        out.push({
+          rule: {
+            name: 'suite in no workflow',
+            why: `${CI} is where a suite gets run. One that is in neither this file nor any job will rot unnoticed, which is exactly what happened to five of them.`,
+          },
+          findings: missing.sort().map((name) => ({
+            file: 'package.json',
+            line: 1,
+            text: `${name} is not named in ${CI}`,
+          })),
+        })
       }
     }
   }

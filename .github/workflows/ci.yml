@@ -173,18 +173,64 @@ jobs:
         # headless on SwiftShader, and the other two engines would triple the download
         # to test a renderer this project does not target.
         run: pnpm exec playwright install --with-deps chromium
+      # Every suite from here down carries `if: !cancelled()`, so one failure does not
+      # hide the others. A run that stops at the first red step tells you one thing and
+      # costs the same twelve minutes as a run that tells you everything, and the whole
+      # reason this job grew is that suites nobody ran went stale unnoticed.
+      #
+      # These are all the browser-driven suites there are. If a new one is added to
+      # package.json it belongs here in the same change, which `scripts/check-staged.mjs`
+      # now enforces rather than trusting anybody to remember.
       - name: m0 gate
+        if: ${{ !cancelled() }}
         run: ./scripts/m0-gate.sh
-      - name: canvas and overlay smoke
+      - name: canvas, overlay and grid smoke
+        if: ${{ !cancelled() }}
         run: |
           pnpm smoke:canvas
           pnpm smoke:overlay
+          pnpm smoke:grid
       - name: board e2e
+        if: ${{ !cancelled() }}
         run: pnpm e2e:board
       - name: presence e2e
+        if: ${{ !cancelled() }}
         run: pnpm e2e:presence
       - name: mcp e2e
+        if: ${{ !cancelled() }}
         run: pnpm e2e:mcp
+      - name: sessions e2e
+        if: ${{ !cancelled() }}
+        run: pnpm e2e:sessions
+      - name: lea editing e2e
+        if: ${{ !cancelled() }}
+        run: pnpm e2e:lea
+      - name: phonetic input e2e
+        if: ${{ !cancelled() }}
+        run: pnpm e2e:bengali
+      - name: assistant sign-in e2e
+        if: ${{ !cancelled() }}
+        run: pnpm e2e:connect
+      - name: readme shots
+        if: ${{ !cancelled() }}
+        # The screenshot generator, run as a suite. It is the only check that the
+        # README's pictures can still be produced by the app as it stands: giving the
+        # sticky tool its six colours (87955ad) put a flyout over the canvas where the
+        # first note is placed, which broke this silently in September, and nothing
+        # noticed because it was in no workflow. Out to a temp directory rather than
+        # over docs/media, so a run never rewrites a committed image.
+        env:
+          SHOT_OUT: ${{ runner.temp }}/readme-shots
+        run: pnpm readme:shots
+      - name: keep the shots
+        if: ${{ !cancelled() }}
+        # A shot can come out green and still be wrong, and the only way to catch that
+        # is for somebody to look at it.
+        uses: actions/upload-artifact@v4
+        with:
+          name: readme-shots
+          path: ${{ runner.temp }}/readme-shots
+          if-no-files-found: error
 
   stack:
     # The one job that tests the thing being deployed. Everything above runs against a

@@ -1,7 +1,7 @@
 {
   "name": "meadow",
   "private": true,
-  "version": "1.27.4",
+  "version": "1.27.5",
   "license": "SEE LICENSE IN LICENSE.md",
   "type": "module",
   "packageManager": "pnpm@11.18.0",
@@ -31,6 +31,7 @@
     "e2e:lea": "node scripts/lea-editing-e2e.mjs",
     "e2e:mcp": "node scripts/mcp-e2e.mjs",
     "e2e:connect": "node scripts/connect-e2e.mjs",
+    "readme:shots": "node scripts/readme-shots.mjs",
     "check:stack": "node scripts/stack-check.mjs"
   },
   "devDependencies": {
