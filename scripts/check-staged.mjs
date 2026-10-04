@@ -32,6 +32,9 @@ const NOTES_ONLY = process.argv.includes('--notes')
 /** Five MiB. Above this, a file in git history is a file in everyone's clone forever. (Raised to accommodate splash videos) */
 const MAX_BLOB_BYTES = 5 * 1024 * 1024
 
+/** The one long-lived design doc. Its section 2 is the repository layout. */
+const DOC = 'docs/core/ARCHITECTURE.md'
+
 function git(args) {
   return execFileSync('git', ['-c', 'core.quotepath=false', ...args], {
     encoding: 'utf8',
@@ -225,6 +228,107 @@ function repoWideFailures(paths) {
           return { file, line: Number(line), text: 'def resolve_role' }
         }),
       })
+    }
+  }
+
+  // The repository layout in ARCHITECTURE 2 against the workspace that exists.
+  //
+  // This is the one check that stops documentation drift recurring rather than being
+  // cleaned up again. `06833ec` was a one-time correction of four frontend picks that
+  // had never been installed, and 1.26.0 added a fourth package while the doc still
+  // said three. Both were found by a reader noticing, which is not a mechanism.
+  //
+  // Only the package list, and deliberately. ARCHITECTURE 1 is the richer table, but
+  // its Choice column is prose - "PixiJS 8", "TipTap 3 (ProseMirror)", "PostgreSQL 16" -
+  // so matching it to manifest keys needs an alias map that goes stale exactly as fast
+  // as the document. Worse, the paragraphs around those tables name Zustand, Tailwind
+  // and Sentry in sentences explaining they were dropped, so a prose scan would fail on
+  // the text that records the reversal. A workspace directory is an exact string and
+  // needs no map, which is why this rule is about those and nothing else.
+  //
+  // Read from the index, not from disk, for the same reason every other rule here is:
+  // a package staged for this commit counts, and one deleted in it does not.
+  const manifestPaths = paths.filter((path) =>
+    /^(?:apps|packages)\/[^/]+\/package\.json$/.test(path),
+  )
+  if (manifestPaths.length > 0 || paths.includes('pnpm-workspace.yaml') || paths.includes(DOC)) {
+    const present = new Set(
+      git(['ls-files', '--cached', '-z', '--', 'apps', 'packages'])
+        .split('\0')
+        .filter((path) => /^(?:apps|packages)\/[^/]+\/package\.json$/.test(path))
+        .map((path) => path.replace(/\/package\.json$/, '')),
+    )
+
+    let doc = ''
+    try {
+      doc = git(['show', `:${DOC}`])
+    } catch {
+      // The doc is not in the index at all, which is not this rule's problem to report.
+      doc = ''
+    }
+
+    // Section 2 alone, not the whole document. Scoping matters more than it looks:
+    // `packages/document-core` is named nine times in section 4, so a document-wide
+    // scan would have called the 1.26.0 layout current while section 2 still said
+    // three packages. Section 2 is the layout, so section 2 is what must match, and a
+    // package named only in a milestone section is history rather than a claim.
+    const layout = /\n## 2\.[^\n]*\n([\s\S]*?)(?=\n## )/.exec(doc)
+
+    if (layout !== null) {
+      // Two segments only. A mention of `packages/schema/src/text.ts` is a mention of
+      // `packages/schema`, which is what this compares.
+      const named = new Set(
+        [...layout[1].matchAll(/`((?:apps|packages)\/[a-z0-9][a-z0-9-]*)[`/]/g)].map(
+          (match) => match[1],
+        ),
+      )
+
+      const undocumented = [...present].filter((path) => !named.has(path)).sort()
+      const vanished = [...named].filter((path) => !present.has(path)).sort()
+
+      if (undocumented.length > 0) {
+        out.push({
+          rule: {
+            name: 'package missing from ARCHITECTURE',
+            why: `${DOC} 2 is the repository layout. A package it does not name is a package nobody reading the design knows exists.`,
+          },
+          findings: undocumented.map((path) => ({
+            file: `${path}/package.json`,
+            line: 1,
+            text: 'on disk, absent from the doc',
+          })),
+        })
+      }
+
+      if (vanished.length > 0) {
+        out.push({
+          rule: {
+            name: 'ARCHITECTURE names a package that is gone',
+            why: `Remove it from ${DOC} 2, or say in the milestone section that it was reversed and when.`,
+          },
+          findings: vanished.map((path) => ({
+            file: DOC,
+            line: 1,
+            text: `names ${path}, which is not in the workspace`,
+          })),
+        })
+      }
+
+      // The sentence counts them in words, so the count goes stale on its own.
+      const WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten']
+      const counted = /\b([A-Z][a-z]+) JS packages\b/.exec(layout[1])
+      if (counted !== null) {
+        const claimed = WORDS.indexOf(counted[1].toLowerCase())
+        if (claimed >= 0 && claimed !== present.size) {
+          out.push({
+            rule: {
+              name: 'ARCHITECTURE package count is wrong',
+              why: `${DOC} 2 says "${counted[1]} JS packages"; the workspace has ${present.size}.`,
+            },
+            findings: [{ file: DOC, line: 1, text: `${counted[1]} claimed, ${present.size} present` }],
+          })
+        }
+      }
     }
   }
 

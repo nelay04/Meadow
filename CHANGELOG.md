@@ -11,6 +11,46 @@ away getting there.
 
 ---
 
+## [1.27.2] - [04-Oct-2026]
+
+### Added
+- **The pre-commit hook holds ARCHITECTURE section 2 to the workspace that exists.**
+  Documentation drift was the review's finding 5, and `06833ec` corrected it by hand:
+  four frontend picks named as current that had never been installed. That was a
+  one-time cleanup, and the same thing had already happened again in a smaller way,
+  with `packages/document-core` shipping in 1.26.0 while section 2 still said three JS
+  packages. Both were caught by a person noticing, which is not a mechanism.
+
+  `scripts/check-staged.mjs` now compares the backticked `apps/*` and `packages/*`
+  paths in section 2 against the package manifests in the index, in both directions,
+  and checks the count sentence that spells the number out in words. A package on disk
+  and absent from the section fails the commit; a package named there and gone from the
+  workspace fails it too. It runs only when a commit touches a manifest,
+  `pnpm-workspace.yaml` or the document itself, so an unrelated change is never asked
+  about a package it did not look at, and it reads the index rather than the disk for
+  the same reason every other rule in that file does.
+
+### Changed
+- Section 1 is deliberately not checked, and the reason is worth recording because the
+  plan in `docs/REVIEW-2026-10.md` originally proposed it. That table's Choice column is
+  prose, not package names, so matching "PixiJS 8", "TipTap 3 (ProseMirror)" or
+  "PostgreSQL 16" to manifest keys needs an alias map that goes stale exactly as fast as
+  the document it checks. Worse, the paragraphs around those tables name the dropped
+  picks in sentences explaining that they were dropped, so a prose scan would fail on
+  the text recording the reversal. A workspace directory is an exact string and needs no
+  map, which is the whole reason the rule is about section 2.
+
+  Scoping to section 2 is also what makes it work rather than merely appear to.
+  `packages/document-core` is named nine times in section 4, so a document-wide scan
+  called the 1.26.0 layout current while section 2 still said three. Section 2 is the
+  layout, so section 2 is what must match, and a package named in a milestone section
+  stays there as history.
+
+### Reversed
+- Nothing.
+
+---
+
 ## [1.27.1] - [04-Oct-2026]
 
 ### Added
