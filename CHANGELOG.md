@@ -11,6 +11,53 @@ away getting there.
 
 ---
 
+## [1.28.1] - [05-Oct-2026]
+
+### Changed
+- **The app's light ground is now the warm `#f5e7d3` the icon is drawn on.** The icons
+  carry a rounded `#f5e7d3` plate baked into the art while the PWA around them was
+  `#f4f1ec`, and on the standalone splash, where the manifest background paints the whole
+  screen and the icon sits in the middle of it, the two tones met and the plate read as a
+  square. Matching the ground to the plate retires the square and puts the launcher art,
+  the splash and the app on one colour. Moved: `background_color` and `theme_color` in
+  `site.webmanifest`, the light `theme-color` meta on the app shell, and `--bg` in
+  `styles.css`.
+
+  `--lea-desk` moves with it. Its light value is the app's own `--bg` by design rather
+  than a colour of its own, as the comment above it says, and leaving it behind would
+  have made the lea the one screen still on the old tone. The icon art itself is
+  untouched, and dark is unchanged at `#0f1318`.
+
+  The marketing pages are deliberately not part of this and keep `#f4f1ec`: `site.css`,
+  the meta in `site/head.html` and the `TINT` map in `site/footer.html`. The landing
+  pages and the app now sit on different grounds, which is the one thing to undo if that
+  reads as a seam rather than a change of room.
+
+  The warm ground is darker than the one the ink was drawn against, so `--muted` went
+  with it: at `#6a6b73` it came to 4.35:1 on the new `--bg`, under the 4.5 it needs as the
+  body text it is in 86 places, and it is now `#66676e` for 4.63:1. Four levels, same hue,
+  and the dark value is untouched. `--fg` keeps 14:1. `--faint` is unchanged: it was
+  already under the text threshold on the old ground at 2.68:1, it is placeholder and
+  disabled ink rather than copy, and moving it is a separate decision from this one.
+
+  `--surface` and `--surface-2` are also unchanged, so the cards now read cooler against
+  the page than they did. Nothing is illegible, but the card-on-page relationship is the
+  thing to look at on a real screen before this ships.
+
+### Fixed
+- **A change to a precached file could never reach an app that was already installed.**
+  The service worker serves the shell's assets cache-first out of a cache it drops only
+  when `VERSION` changes, and `VERSION` hashed the template and the precache *names*. The
+  bundles rename themselves whenever their contents do, but `/site.webmanifest` and the
+  three precached icons carry no content hash, so editing one left the version unmoved and
+  the old cache went on answering with the old copy for ever. This change is exactly that
+  case: without the fix the new splash colour would have reached new installs only. The
+  version now also hashes the bytes of those four files. A deploy that changes none of
+  them still leaves the worker byte-identical and the browser still does not reinstall it,
+  which was the point of the original design.
+
+---
+
 ## [1.28.0] - [05-Oct-2026]
 
 ### Added

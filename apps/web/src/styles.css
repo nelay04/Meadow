@@ -31,7 +31,7 @@
     sans-serif;
 
   /* Surfaces, back to front. */
-  --bg: light-dark(#f4f1ec, #0f1318);
+  --bg: light-dark(#f5e7d3, #0f1318);
   --surface: light-dark(#fffefc, #171c23);
   --surface-2: light-dark(#faf7f2, #1d232b);
   --surface-3: light-dark(#f0ece5, #232a33);
@@ -118,7 +118,7 @@
    * a brown sheet made the page hard to find, and the light theme reads better with
    * the lea sitting on the same ground as every other screen.
    */
-  --lea-desk: light-dark(#f4f1ec, #0e0c09);
+  --lea-desk: light-dark(#f5e7d3, #0e0c09);
 
   --lea-layer-fibre: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.42 0.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23f)' opacity='0.3'/%3E%3C/svg%3E");
   /*
@@ -135,7 +135,9 @@
   /* Ink. */
   --fg: light-dark(#1b1c1f, #e9ecf1);
   --fg-strong: light-dark(#0c0d0f, #ffffff);
-  --muted: light-dark(#6a6b73, #98a1ae);
+  /* Light is 4 levels darker than the ink it was drawn as: on the warm `--bg` the
+     old #6a6b73 came to 4.35:1, just under the 4.5 this is set as body text in. */
+  --muted: light-dark(#66676e, #98a1ae);
   --faint: light-dark(#93949c, #6d7684);
 
   /* Lines. Two weights: hairline for dividers, edge for anything that must read

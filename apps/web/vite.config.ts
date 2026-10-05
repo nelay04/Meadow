@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import react from '@vitejs/plugin-react'
@@ -172,11 +173,28 @@ function sitePartials(): Plugin {
  * public/. Everything under assets/ is taken: the landing page is static HTML with no
  * bundle of its own, so what is there is the app.
  *
- * The version is a hash of the list and the template, so a deploy that changes no
- * bundle leaves the worker byte-identical and the browser does not reinstall it.
+ * The version is a hash of the template, the list, and the bytes of every precached
+ * file that is not fingerprinted, so a deploy that changes none of them leaves the
+ * worker byte-identical and the browser does not reinstall it.
  */
 function serviceWorker(): Plugin {
   const template = fileURLToPath(new URL('./pwa/sw.js', import.meta.url))
+  const publicDir = fileURLToPath(new URL('./public', import.meta.url))
+
+  /*
+   * The precached files that live in public/ under a fixed name. The bundles carry a
+   * content hash and so rename themselves whenever they change; these do not, and the
+   * worker serves /brand/*.png cache-first out of a cache it only ever drops when the
+   * version changes. Hashing their contents is what makes a repainted icon or an edited
+   * manifest reach an installed app at all - on the name alone the version would be
+   * unmoved and the old cache would keep answering with the old art for ever.
+   */
+  const unfingerprinted = [
+    '/site.webmanifest',
+    '/brand/icon-192.png',
+    '/brand/icon-512.png',
+    '/brand/icon-maskable-512.png',
+  ]
 
   return {
     name: 'meadow-service-worker',
@@ -188,16 +206,11 @@ function serviceWorker(): Plugin {
           .filter((name) => name.startsWith('assets/'))
           .sort()
           .map((name) => `/${name}`),
-        '/site.webmanifest',
-        '/brand/icon-192.png',
-        '/brand/icon-512.png',
-        '/brand/icon-maskable-512.png',
+        ...unfingerprinted,
       ]
-      const version = createHash('sha256')
-        .update(source)
-        .update(precache.join('\n'))
-        .digest('hex')
-        .slice(0, 12)
+      const digest = createHash('sha256').update(source).update(precache.join('\n'))
+      for (const name of unfingerprinted) digest.update(readFileSync(join(publicDir, name)))
+      const version = digest.digest('hex').slice(0, 12)
 
       this.emitFile({
         type: 'asset',
