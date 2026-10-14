@@ -829,6 +829,19 @@ export default function BoardsPage({ onOpen }: Props) {
         {/* A row rather than one absolutely placed button each, so a card
             with only one of them puts it in the same corner as a card with
             both, and adding a third later is not a fourth set of offsets. */}
+        {/* At every role, because a pin is yours and changes nothing anybody else
+            sees. Last, so the one that stays visible once pinned sits in the corner
+            rather than beside two invisible buttons. */}
+        <button
+          type="button"
+          className="card-action card-pin"
+          title={board.pinned ? `Unpin ${board.title}` : `Pin ${board.title} to the top`}
+          aria-label={board.pinned ? `Unpin ${board.title}` : `Pin ${board.title} to the top`}
+          aria-pressed={board.pinned}
+          onClick={() => void togglePin(board)}
+        >
+          <IconPin size={14} fill={board.pinned ? 'currentColor' : 'none'} />
+        </button>
         <div className="card-actions">
           {roleCanWrite(board.role) && (
             <button
@@ -863,19 +876,6 @@ export default function BoardsPage({ onOpen }: Props) {
               <IconLogout size={15} />
             </button>
           )}
-          {/* At every role, because a pin is yours and changes nothing anybody else
-              sees. Last, so the one that stays visible once pinned sits in the corner
-              rather than beside two invisible buttons. */}
-          <button
-            type="button"
-            className="card-action card-pin"
-            title={board.pinned ? `Unpin ${board.title}` : `Pin ${board.title} to the top`}
-            aria-label={board.pinned ? `Unpin ${board.title}` : `Pin ${board.title} to the top`}
-            aria-pressed={board.pinned}
-            onClick={() => void togglePin(board)}
-          >
-            <IconPin size={14} fill={board.pinned ? 'currentColor' : 'none'} />
-          </button>
         </div>
       </li>
     )

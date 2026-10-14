@@ -3663,9 +3663,16 @@ label {
 .board-card .card-actions {
   position: absolute;
   top: 0.55rem;
-  right: 0.55rem;
+  /* Clear of the pin, which sits in the corner on its own. */
+  right: calc(0.55rem + 2rem + 0.3rem);
   display: flex;
   gap: 0.3rem;
+}
+
+.board-card .card-pin {
+  position: absolute;
+  top: 0.55rem;
+  right: 0.55rem;
 }
 
 .board-card .card-action {
