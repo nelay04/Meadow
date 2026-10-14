@@ -11,6 +11,45 @@ away getting there.
 
 ---
 
+## [1.29.0] - [14-Oct-2026]
+
+### Added
+- **Pinning glades and leas to the top of your list.** Every card on the board list has
+  a pin beside rename and delete. A pinned card moves to the front of whatever page it
+  is on, under a small "Pinned" heading, with the rest below it under "Other glades",
+  "Other leas" or "Everything else". The headings only appear when the list has
+  something on both sides of the line. A list that is all pins, or has none, is just a
+  list. Inside each half the chosen sort still applies, and search and the owner filter
+  narrow the pinned run too, because pinning is a tie-break in the sort rather than a
+  second list.
+
+  A pinned card keeps its pin showing, filled and in the accent, so the list says which
+  ones are pinned without anybody having to hover. The toggle is optimistic: the card
+  moves on the click, and a failed request puts it back and says so.
+
+- **`board_pins`, and `PUT`/`DELETE /boards/{id}/pin`.** One row per person per pinned
+  board, keyed on `(user_id, board_id)` with both keys cascading, and `pinned` on every
+  `BoardOut`. The pins are kept on the server rather than in the browser, so they follow
+  the person to every device they sign in on. Any role may pin, because a pin is the
+  pinner's alone and changes nothing anybody else sees. Both routes are idempotent, so a
+  double click or a second tab is the state already wanted rather than an error, and
+  both refuse with the same 403 as any other route on a board the caller cannot open or
+  one in the trash, so a pin is no way to learn that a board id exists.
+
+  A pin is never read as access. The list still asks `resolve_role` for every board and
+  only then looks the id up in the caller's pins, so a pin left behind on a board
+  somebody was removed from matches nothing. It survives the trash, so restoring a board
+  puts it back where it sat. It is not an edit either: it lives off the board row, so
+  "Last modified" does not move when you tidy your list.
+
+### Reversed
+- **The pin was first the leftmost of the card's actions.** Rename and delete are
+  invisible until hover but still take their space, so on a pinned card the one button
+  left showing floated two widths in from the corner. It is the last of the row now, and
+  sits in the corner whether or not the others are showing.
+
+---
+
 ## [1.28.1] - [05-Oct-2026]
 
 ### Changed

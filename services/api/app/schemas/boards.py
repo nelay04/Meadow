@@ -121,6 +121,9 @@ class BoardOut(BaseModel):
     #: page uses it to say "set a proper one" with a deadline attached, and the deadline
     #: matters because when it passes the board is shut rather than open.
     password_expires_at: datetime | None = None
+    #: Whether the caller has pinned it. Theirs alone: two people looking at the same
+    #: board each see their own answer, and it never says anything about access.
+    pinned: bool = False
 
 
 class TrashedBoardOut(BaseModel):

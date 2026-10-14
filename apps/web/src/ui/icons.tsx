@@ -567,6 +567,16 @@ export function IconEye(props: IconProps) {
   )
 }
 
+/** A pushpin, on a board card. Filled by the caller when the board is pinned. */
+export function IconPin(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M9 4h6l-1 6 3.5 3.5v1.5h-11v-1.5L10 10z" />
+      <path d="M12 15v5.5" />
+    </Svg>
+  )
+}
+
 /** Editors, in the presence list. */
 export function IconPencil(props: IconProps) {
   return (

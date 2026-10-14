@@ -326,6 +326,12 @@ board_members                            -- per-board override of workspace role
   board_id, user_id, role enum(owner|editor|viewer|commenter)
   pk (board_id, user_id)
 
+board_pins                               -- a person's own pins; never read as access
+  user_id         uuid fk -> users on delete cascade
+  board_id        uuid fk -> boards on delete cascade
+  created_at      timestamptz default now()
+  pk (user_id, board_id)
+
 board_updates                            -- append-only Yjs update log
   id              bigserial pk
   board_id        uuid fk -> boards on delete cascade
@@ -1406,6 +1412,8 @@ PATCH  /boards/{id}                   title, archive, lock (lock is owner-only)
 DELETE /boards/{id}                   to the trash, not gone; owner only
 POST   /boards/{id}/restore           back out of the trash, whole
 DELETE /boards/{id}/purge             for good; only from the trash
+PUT    /boards/{id}/pin               to the top of the caller's own list; any role
+DELETE /boards/{id}/pin               back into the ordinary order
 POST   /boards/{id}/duplicate
 GET    /boards/{id}/members
 POST   /boards/{id}/members           also the demote path; inviting never lowers

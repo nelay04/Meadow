@@ -3699,6 +3699,35 @@ label {
   color: var(--danger);
 }
 
+.board-card .card-pin:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* A pinned card keeps its pin showing, in the accent, so the list says which ones are
+   pinned without anybody having to hover to find out. */
+.board-card.pinned .card-pin {
+  opacity: 1;
+  color: var(--accent);
+}
+
+/* Over the pinned run and the rest, only when the list has both. */
+.board-section-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0 0 0.6rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.board-grid + .board-section-head {
+  margin-top: 1.4rem;
+}
+
 .board-card .card-restore:hover {
   border-color: var(--accent);
   color: var(--accent);
@@ -7691,7 +7720,8 @@ dialog.modal[open] .modal-card {
    * phone a board could be thrown away but never retitled - the only control that
    * would have done it was revealed by a gesture the device does not have.
    */
-  .board-card .card-rename {
+  .board-card .card-rename,
+  .board-card .card-pin {
     opacity: 1;
   }
 

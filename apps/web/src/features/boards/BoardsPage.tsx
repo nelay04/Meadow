@@ -13,6 +13,7 @@ import {
   IconPlus,
   IconSidebar,
   IconPencil,
+  IconPin,
   IconRestore,
   IconTrash,
   IconLogout,
@@ -565,6 +566,29 @@ export default function BoardsPage({ onOpen }: Props) {
     }
   }
 
+  /*
+   * Pinning, which is the one card action that is about your list rather than the board.
+   *
+   * Optimistic: the card moves the moment it is clicked, because waiting on a round trip
+   * to reorder a list you are looking at feels like the click was missed. A failure puts
+   * it back where it was and says so. No toast on success; the card moving is the news.
+   */
+  const togglePin = async (board: Board) => {
+    const next = !board.pinned
+    const flip = (pinned: boolean) =>
+      setBoards((current) =>
+        current.map((entry) => (entry.id === board.id ? { ...entry, pinned } : entry)),
+      )
+    flip(next)
+    try {
+      await api.setBoardPinned(board.id, next)
+    } catch {
+      flip(board.pinned)
+      const kind = boardKind(board.kind).label.toLowerCase()
+      toast.error(`Could not ${next ? 'pin' : 'unpin'} that ${kind}.`)
+    }
+  }
+
   const restore = async (board: TrashedBoard) => {
     const kind = boardKind(board.kind).label.toLowerCase()
     try {
@@ -713,8 +737,149 @@ export default function BoardsPage({ onOpen }: Props) {
       created: (a, b) => b.created_at.localeCompare(a.created_at),
       title: (a, b) => a.title.localeCompare(b.title),
     }
-    return [...filtered].sort(by[sort])
+    // Pinned first, then the chosen order inside each half. A tie-break rather than a
+    // separate list, so a search or an owner filter narrows the pinned ones too.
+    return [...filtered].sort((a, b) => Number(b.pinned) - Number(a.pinned) || by[sort](a, b))
   }, [scoped, query, contentHits, sort])
+
+  // Where the pinned run ends. Only worth a heading when there is something on both sides
+  // of it: a list that is all pinned, or has no pins, is just a list.
+  const pinnedCount = visible.filter((board) => board.pinned).length
+  const splitPinned = pinnedCount > 0 && pinnedCount < visible.length
+
+  const card = (board: Board) => {
+    const spec = boardKind(board.kind)
+    return (
+      <li
+        key={board.id}
+        className={`board-card kind-${spec.id}${board.pinned ? ' pinned' : ''}`}
+      >
+        <button
+          type="button"
+          className="board-open"
+          onClick={() => onOpen(board.id, board.kind)}
+        >
+          {/* What kind of board this is, pinned to the corner of its picture
+              where it is read before the name. Only where the list is mixed:
+              under a heading that says Leas, a Lea badge on every card is the
+              heading repeated once per row. */}
+          {composing === null && (
+            <span className="kind-badge card-kind">
+              <spec.Icon size={12} />
+              {spec.label}
+            </span>
+          )}
+          <BoardThumbnail board={board} />
+          <span className="board-meta">
+            <span className="board-text">
+              <span className="card-name">
+                <span className="board-title">{board.title}</span>
+                {/*
+                  Two different shut doors, beside the name so they are read
+                  with it. The padlock says this one will ask for a password
+                  before it opens - the thing worth knowing from the list,
+                  because it is the card you should not click while
+                  screen-sharing. The eye says the owner has frozen edits, so
+                  it opens normally and can only be looked at once it does.
+
+                  Icon only, with the word in the tooltip: the title needs
+                  the room, and two more words would cost it its line before
+                  they said anything the glyphs do not.
+                */}
+                {board.has_password && (
+                  <span
+                    className="state-badge"
+                    title="Asks for a password before it opens"
+                  >
+                    <IconLock size={12} />
+                    <span className="visually-hidden">Password</span>
+                  </span>
+                )}
+                {board.is_locked && (
+                  <span
+                    className="state-badge"
+                    title="Locked by the owner - nobody can edit it"
+                  >
+                    <IconEye size={12} />
+                    <span className="visually-hidden">Locked</span>
+                  </span>
+                )}
+              </span>
+              <span className="board-sub">
+                Edited {relativeTime(board.updated_at)}
+              </span>
+              {/* Why it is here, when the name alone is not the reason. */}
+              {contentHits.has(board.id) &&
+                !board.title.toLowerCase().includes(query.trim().toLowerCase()) && (
+                  <span
+                    className="board-snippet"
+                    title={contentHits.get(board.id)?.snippet}
+                  >
+                    <Highlight
+                      text={contentHits.get(board.id)?.snippet ?? ''}
+                      needle={query}
+                    />
+                  </span>
+                )}
+            </span>
+            <span className={`role role-${board.role}`}>{board.role}</span>
+          </span>
+        </button>
+
+        {/* A row rather than one absolutely placed button each, so a card
+            with only one of them puts it in the same corner as a card with
+            both, and adding a third later is not a fourth set of offsets. */}
+        <div className="card-actions">
+          {roleCanWrite(board.role) && (
+            <button
+              type="button"
+              className="card-action card-rename"
+              title={`Rename ${board.title}`}
+              aria-label={`Rename ${board.title}`}
+              onClick={() => void rename(board)}
+            >
+              <IconPencil size={14} />
+            </button>
+          )}
+          {board.role === 'owner' && (
+            <button
+              type="button"
+              className="card-action card-delete"
+              title={`Delete ${board.title}`}
+              aria-label={`Delete ${board.title}`}
+              onClick={() => void remove(board)}
+            >
+              <IconTrash size={15} />
+            </button>
+          )}
+          {board.role !== 'owner' && (
+            <button
+              type="button"
+              className="card-action card-delete"
+              title={`Remove ${board.title} from your list`}
+              aria-label={`Remove ${board.title} from your list`}
+              onClick={() => void leave(board)}
+            >
+              <IconLogout size={15} />
+            </button>
+          )}
+          {/* At every role, because a pin is yours and changes nothing anybody else
+              sees. Last, so the one that stays visible once pinned sits in the corner
+              rather than beside two invisible buttons. */}
+          <button
+            type="button"
+            className="card-action card-pin"
+            title={board.pinned ? `Unpin ${board.title}` : `Pin ${board.title} to the top`}
+            aria-label={board.pinned ? `Unpin ${board.title}` : `Pin ${board.title} to the top`}
+            aria-pressed={board.pinned}
+            onClick={() => void togglePin(board)}
+          >
+            <IconPin size={14} fill={board.pinned ? 'currentColor' : 'none'} />
+          </button>
+        </div>
+      </li>
+    )
+  }
 
   const group = (label: string | null, filters: readonly Filter[]) => (
     <nav className="sidebar-nav" aria-label={label ?? 'Views'}>
@@ -1106,125 +1271,21 @@ export default function BoardsPage({ onOpen }: Props) {
             )}
           </div>
         ) : (
-          <ul className="board-grid">
-            {visible.map((board) => {
-              const spec = boardKind(board.kind)
-              return (
-                <li key={board.id} className={`board-card kind-${spec.id}`}>
-                  <button
-                    type="button"
-                    className="board-open"
-                    onClick={() => onOpen(board.id, board.kind)}
-                  >
-                    {/* What kind of board this is, pinned to the corner of its picture
-                        where it is read before the name. Only where the list is mixed:
-                        under a heading that says Leas, a Lea badge on every card is the
-                        heading repeated once per row. */}
-                    {composing === null && (
-                      <span className="kind-badge card-kind">
-                        <spec.Icon size={12} />
-                        {spec.label}
-                      </span>
-                    )}
-                    <BoardThumbnail board={board} />
-                    <span className="board-meta">
-                      <span className="board-text">
-                        <span className="card-name">
-                          <span className="board-title">{board.title}</span>
-                          {/*
-                            Two different shut doors, beside the name so they are read
-                            with it. The padlock says this one will ask for a password
-                            before it opens - the thing worth knowing from the list,
-                            because it is the card you should not click while
-                            screen-sharing. The eye says the owner has frozen edits, so
-                            it opens normally and can only be looked at once it does.
-
-                            Icon only, with the word in the tooltip: the title needs
-                            the room, and two more words would cost it its line before
-                            they said anything the glyphs do not.
-                          */}
-                          {board.has_password && (
-                            <span
-                              className="state-badge"
-                              title="Asks for a password before it opens"
-                            >
-                              <IconLock size={12} />
-                              <span className="visually-hidden">Password</span>
-                            </span>
-                          )}
-                          {board.is_locked && (
-                            <span
-                              className="state-badge"
-                              title="Locked by the owner - nobody can edit it"
-                            >
-                              <IconEye size={12} />
-                              <span className="visually-hidden">Locked</span>
-                            </span>
-                          )}
-                        </span>
-                        <span className="board-sub">
-                          Edited {relativeTime(board.updated_at)}
-                        </span>
-                        {/* Why it is here, when the name alone is not the reason. */}
-                        {contentHits.has(board.id) &&
-                          !board.title.toLowerCase().includes(query.trim().toLowerCase()) && (
-                            <span
-                              className="board-snippet"
-                              title={contentHits.get(board.id)?.snippet}
-                            >
-                              <Highlight
-                                text={contentHits.get(board.id)?.snippet ?? ''}
-                                needle={query}
-                              />
-                            </span>
-                          )}
-                      </span>
-                      <span className={`role role-${board.role}`}>{board.role}</span>
-                    </span>
-                  </button>
-
-                  {/* A row rather than one absolutely placed button each, so a card
-                      with only one of them puts it in the same corner as a card with
-                      both, and adding a third later is not a fourth set of offsets. */}
-                  <div className="card-actions">
-                    {roleCanWrite(board.role) && (
-                      <button
-                        type="button"
-                        className="card-action card-rename"
-                        title={`Rename ${board.title}`}
-                        aria-label={`Rename ${board.title}`}
-                        onClick={() => void rename(board)}
-                      >
-                        <IconPencil size={14} />
-                      </button>
-                    )}
-                    {board.role === 'owner' && (
-                      <button
-                        type="button"
-                        className="card-action card-delete"
-                        title={`Delete ${board.title}`}
-                        aria-label={`Delete ${board.title}`}
-                        onClick={() => void remove(board)}
-                      >
-                        <IconTrash size={15} />
-                      </button>
-                    )}
-                    {board.role !== 'owner' && (
-                      <button
-                        type="button"
-                        className="card-action card-delete"
-                        title={`Remove ${board.title} from your list`}
-                        aria-label={`Remove ${board.title} from your list`}
-                        onClick={() => void leave(board)}
-                      >
-                        <IconLogout size={15} />
-                      </button>
-                    )}
-                  </div>
-                </li>
-              )
-            })}
-          </ul>
+          splitPinned ? (
+            <>
+              <h2 className="board-section-head">
+                <IconPin size={14} />
+                Pinned
+              </h2>
+              <ul className="board-grid">{visible.slice(0, pinnedCount).map(card)}</ul>
+              <h2 className="board-section-head">
+                {composing === null ? 'Everything else' : `Other ${composing.plural.toLowerCase()}`}
+              </h2>
+              <ul className="board-grid">{visible.slice(pinnedCount).map(card)}</ul>
+            </>
+          ) : (
+            <ul className="board-grid">{visible.map(card)}</ul>
+          )
         )}
       </main>
     </div>

@@ -10,6 +10,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import delete, func, or_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.auth.deps import (
     CurrentPrincipal,
@@ -27,6 +28,7 @@ from app.models import (
     BoardAccessRequest,
     BoardInvitation,
     BoardMember,
+    BoardPin,
     BoardSearchState,
     BoardText,
     BoardThumbnail,
@@ -92,7 +94,9 @@ MAX_THUMBNAIL_BYTES = 512 * 1024
 ALLOWED_THUMBNAIL_TYPES = frozenset({"image/webp", "image/png"})
 
 
-def _out(board: Board, role: BoardRole, grant: TokenGrant = FULL_GRANT) -> BoardOut:
+def _out(
+    board: Board, role: BoardRole, grant: TokenGrant = FULL_GRANT, *, pinned: bool = False
+) -> BoardOut:
     # `can_write` is computed here rather than left to the client so the lock and the
     # role are answered together, in the same place and the same way the websocket
     # handshake answers them. A client deriving it from the two fields beside it would
@@ -124,6 +128,7 @@ def _out(board: Board, role: BoardRole, grant: TokenGrant = FULL_GRANT) -> Board
         # given it would be a second, different feature.
         has_password=board_password.is_set(board),
         password_expires_at=board.password_expires_at,
+        pinned=pinned,
     )
 
 
@@ -187,6 +192,13 @@ async def list_boards(
         query = query.where(Board.workspace_id == workspace_id)
 
     boards = list((await session.execute(query)).scalars())
+    # One query for every pin rather than one per card. Read as a set of ids and matched
+    # against what survived the role check below, so a pin is never what puts a board here.
+    pins = set(
+        (await session.execute(select(BoardPin.board_id).where(BoardPin.user_id == user.id)))
+        .scalars()
+        .all()
+    )
     out = []
     for board in boards:
         grant = await principal.grant_for(session, board.id)
@@ -194,7 +206,7 @@ async def list_boards(
             continue
         role = await resolve_role(session, user_id=user.id, board_id=board.id)
         if role is not None:
-            out.append(_out(board, role, grant))
+            out.append(_out(board, role, grant, pinned=board.id in pins))
     return out
 
 
@@ -495,7 +507,40 @@ async def get_board(
     grant = await principal.grant_for(session, board_id)
     if board is None or grant is None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="no access")
-    return _out(board, role, grant)
+    pinned = await session.get(BoardPin, (principal.user.id, board_id)) is not None
+    return _out(board, role, grant, pinned=pinned)
+
+
+@router.put(
+    "/{board_id}/pin",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(board_viewer)],
+)
+async def pin_board(board_id: uuid.UUID, session: Session, user: CurrentUser) -> None:
+    """Keep a board at the top of the caller's own list.
+
+    Any role may, because it changes nothing anybody else sees. Idempotent: a second
+    pin from another tab is the state the person already wanted, not a conflict.
+    """
+    await session.execute(
+        pg_insert(BoardPin)
+        .values(user_id=user.id, board_id=board_id)
+        .on_conflict_do_nothing(index_elements=[BoardPin.user_id, BoardPin.board_id])
+    )
+    await session.commit()
+
+
+@router.delete(
+    "/{board_id}/pin",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(board_viewer)],
+)
+async def unpin_board(board_id: uuid.UUID, session: Session, user: CurrentUser) -> None:
+    """Let a board fall back into the ordinary order. Idempotent, as pinning is."""
+    await session.execute(
+        delete(BoardPin).where(BoardPin.user_id == user.id, BoardPin.board_id == board_id)
+    )
+    await session.commit()
 
 
 @router.patch("/{board_id}", response_model=BoardOut)

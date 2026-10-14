@@ -531,6 +531,27 @@ class BoardMember(Base):
     created_at: Mapped[datetime] = _created_at()
 
 
+class BoardPin(Base):
+    """A board one person keeps at the top of their own list.
+
+    A row of its own rather than a column on `board_members`, because most of the
+    boards a person can open reach them through the workspace and have no member row
+    to put a flag on. It is not access and is never read as access: the list still
+    asks `resolve_role` for every board, so a pin left behind on a board somebody lost
+    is a row that matches nothing.
+    """
+
+    __tablename__ = "board_pins"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    board_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("boards.id", ondelete="CASCADE"), primary_key=True
+    )
+    created_at: Mapped[datetime] = _created_at()
+
+
 class ShareLink(Base):
     """The board's link, as a capability.
 

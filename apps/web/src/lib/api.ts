@@ -118,6 +118,8 @@ export type Board = {
    * is still time to set a proper one.
    */
   password_expires_at: string | null
+  /** Whether you pinned it to the top of your list. Yours alone; nobody else sees it. */
+  pinned: boolean
 }
 
 /**
@@ -817,6 +819,11 @@ export function deleteBoard(boardId: string): Promise<void> {
 /** Take a board shared with you off your list. The owner's copy is untouched. */
 export function leaveBoard(boardId: string): Promise<void> {
   return call<void>(`/boards/${boardId}/membership`, { method: 'DELETE' })
+}
+
+/** Keep a board at the top of your own list, or let it go back. Either is idempotent. */
+export function setBoardPinned(boardId: string, pinned: boolean): Promise<void> {
+  return call<void>(`/boards/${boardId}/pin`, { method: pinned ? 'PUT' : 'DELETE' })
 }
 
 /** One object on a board whose text matched a search. */
