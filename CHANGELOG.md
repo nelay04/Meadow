@@ -11,6 +11,27 @@ away getting there.
 
 ---
 
+## [1.29.1] - [17-Oct-2026]
+
+### Reversed
+- **The app's light ground is back on `#f4f1ec`.** 1.28.1 moved it to the warm `#f5e7d3`
+  the icon plate is drawn on, so the standalone splash and the app would share one
+  colour. Across the whole app that ground reads as an off, yellowed tone rather than a
+  page, and the cards on it looked cooler than the room around them, which 1.28.1 had
+  already flagged as the thing to check on a real screen. Restored: `--bg` and
+  `--lea-desk` in `styles.css`, the light `theme-color` meta on the app shell, and
+  `background_color` and `theme_color` in `site.webmanifest`. The app and the marketing
+  pages are on the same ground again.
+
+  `--muted` goes back to `#6a6b73`. It was darkened only to clear 4.5:1 on the warm
+  ground, and on `#f4f1ec` the original value clears it as it did before.
+
+  The icon plate stays `#f5e7d3`, so on the PWA splash it can read as a square again.
+  The service worker fix from 1.28.1 is kept: hashing the bytes of the manifest and the
+  icons is what lets this colour change reach an installed app at all.
+
+---
+
 ## [1.29.0] - [14-Oct-2026]
 
 ### Added
