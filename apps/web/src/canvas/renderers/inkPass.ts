@@ -101,7 +101,7 @@ export class InkPass {
       // `strokeOutline`: a self-crossing stroke has a self-crossing outline, and a
       // triangulator handed one of those fills the loops it encloses.
       for (const piece of outline) {
-        if (piece.length >= 6) group.polygons.push(place(piece, stroke))
+        if (piece.length >= 6) group.polygons.push(placeInkOutline(piece, stroke))
       }
     }
 
@@ -149,9 +149,13 @@ export class InkPass {
  * Applied here rather than by giving each stroke its own container, because a
  * container per stroke is the per-object node count the batch exists to avoid. It is
  * also where rotation is honoured: a rotated stroke is the only case that costs more
- * than an add, and it is rare enough to be worth the branch.
+ * than an add, and it is rare enough to be worth the branch. Exported for the image
+ * export, which writes the same outlines as SVG.
  */
-function place(outline: readonly number[], stroke: InkDraw): number[] {
+export function placeInkOutline(
+  outline: readonly number[],
+  stroke: Pick<InkDraw, 'x' | 'y' | 'rotation' | 'halfW' | 'halfH'>,
+): number[] {
   const out: number[] = new Array(outline.length)
 
   if (stroke.rotation === 0) {

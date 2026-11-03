@@ -37,10 +37,12 @@ import {
   createDocSession,
   endGesture,
   objectFragment,
+  applyEdits,
   readObjectById,
   setObjectText,
   updateObject,
 } from '@meadow/document-core'
+import type { NewObject, RichNode } from '@meadow/document-core'
 import { fragmentToPlainText } from '@meadow/document-core'
 import { EDITOR_ORIGIN, createTextEditor } from '../overlay/textEditor'
 
@@ -419,6 +421,18 @@ window.__doc = {
       const binding = readBinding(map)
       return { arrowId: binding.arrowId, end: binding.end, targetId: binding.targetId }
     }),
+  // Whole objects in one call, for a test that needs a particular diagram rather than
+  // the seeded scatter. Answers with the ids, in the order given.
+  add: (inputs: NewObject[]) => {
+    const ids = addObjects(session, inputs)
+    endGesture(session)
+    return ids
+  },
+  // Rich text, for a test that needs a list or a heading rather than a plain line.
+  setNodes: (id: string, nodes: RichNode[]) => {
+    applyEdits(session, { update: [{ id, patch: {}, text: nodes }] })
+    endGesture(session)
+  },
   // Ids are generated, so a test needs a way to ask for one by type.
   findByType: (type: string) => {
     for (const id of session.order.toArray()) {
@@ -474,6 +488,8 @@ declare global {
       } | null
       bindings(): { arrowId: string; end: string; targetId: string | null }[]
       text(id: string): string | null
+      add(inputs: NewObject[]): string[]
+      setNodes(id: string, nodes: RichNode[]): void
       findByType(type: string): string | null
     }
   }

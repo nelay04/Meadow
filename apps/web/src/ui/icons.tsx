@@ -855,6 +855,16 @@ export function IconDownload(props: IconProps) {
   )
 }
 
+export function IconImage(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="4" y="5" width="16" height="14" rx="2" />
+      <circle cx="9.5" cy="10" r="1.5" />
+      <path d="m20 15.5-4.5-4.5L7 19" />
+    </Svg>
+  )
+}
+
 export function IconUpload(props: IconProps) {
   return (
     <Svg {...props}>

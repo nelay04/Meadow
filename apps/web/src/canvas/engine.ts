@@ -64,6 +64,7 @@ import {
   WRITING_WEIGHT,
   surfaceClass,
 } from './surface'
+import { type SceneFrame, type SceneImage, buildSceneSvg } from './export/exportScene'
 import { type ArrowDraw, ArrowPass } from './renderers/arrowPass'
 import { type InkDraw, InkPass } from './renderers/inkPass'
 import { ShapeBatch } from './renderers/shapeBatch'
@@ -3612,6 +3613,60 @@ export class CanvasEngine {
       // webp over png: a canvas of flat fills compresses far better, and the endpoint
       // accepts both.
       surface.toBlob((blob) => resolve(blob), 'image/webp', 0.8)
+    })
+  }
+
+  /**
+   * What is on screen, or the selection, as a standalone SVG document.
+   *
+   * Not a capture, unlike the thumbnail above: a capture has a fixed number of pixels
+   * and an export has to stay sharp however far into it somebody zooms. See
+   * `export/exportScene.ts`. `view` is the world rectangle the camera shows now, edge
+   * to edge; `selection` is the selected objects alone, framed to what they draw.
+   *
+   * Null when there is nothing to draw: an empty selection, or a view of empty board.
+   */
+  async exportImage(options: {
+    area: 'view' | 'selection'
+    background: boolean
+    title: string
+  }): Promise<SceneImage | null> {
+    if (!this.ready) return null
+
+    let frame: SceneFrame | null = null
+    let wanted: ReadonlySet<string>
+    if (options.area === 'selection') {
+      wanted = new Set(this.selected)
+    } else {
+      const rect = this.camera.visibleWorld(this.viewportWidth, this.viewportHeight)
+      frame = { x: rect.minX, y: rect.minY, w: rect.maxX - rect.minX, h: rect.maxY - rect.minY }
+      wanted = new Set(this.index.search(rect))
+    }
+    if (wanted.size === 0) return null
+
+    const objects: ObjectData[] = []
+    for (const id of this.host.order()) {
+      if (!wanted.has(id)) continue
+      const object = this.cache.get(id)
+      if (object !== undefined) objects.push(object)
+    }
+    if (objects.length === 0) return null
+
+    // The board's own colour as the browser paints it, so the file matches the theme
+    // it was exported from. Transparent when asked, for dropping onto another page.
+    const surface = getComputedStyle(this.element).backgroundColor
+    const painted = surface !== '' && surface !== 'transparent' && !/,\s*0\)$/.test(surface)
+
+    return await buildSceneSvg({
+      objects,
+      frame,
+      host: this.element,
+      dark: this.darkSurface,
+      ink: this.canvasInk,
+      connectorInk: connectorInk(this.darkSurface),
+      background: options.background && painted ? surface : null,
+      title: options.title,
+      html: (id) => this.host.textHtml(id),
     })
   }
 

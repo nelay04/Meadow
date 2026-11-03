@@ -1375,6 +1375,197 @@ await page.mouse.click(at(340, 310).x, at(340, 310).y)
 const afterLaser = await page.evaluate(() => window.__doc.objectCount())
 check('the board is unchanged after using the laser', afterLaser === boardBefore, `total=${afterLaser}`)
 
+// --- the image export ------------------------------------------------------------------
+//
+// The app's faces, which the harness does not otherwise load, so the export has real
+// @font-face rules to embed and the PNG has a real race to lose.
+await page.evaluate(
+  () =>
+    new Promise((resolve) => {
+      const link = document.createElement('link')
+      link.rel = 'stylesheet'
+      link.href = '/fonts/fonts.css'
+      link.onload = resolve
+      document.head.append(link)
+    }),
+)
+const exported = await page.evaluate(async () => {
+  window.__doc.clear()
+  window.__canvas.setCamera({ x: 0, y: 0, zoom: 1 })
+  const [box, far, arrow] = window.__doc.add([
+    { type: 'rect', x: 100, y: 100, w: 220, h: 120 },
+    { type: 'sticky', x: 700, y: 120, w: 180, h: 180 },
+    { type: 'arrow', x: 320, y: 160, w: 380, h: 1, props: { points: [0, 0, 380, 0] } },
+  ])
+  window.__doc.setNodes(box, [
+    { name: 'paragraph', children: [{ text: [{ insert: 'Export <me> & ' }, { insert: 'bold', attributes: { bold: true } }] }] },
+    { name: 'bulletList', children: [{ name: 'listItem', children: [{ name: 'paragraph', children: [{ text: [{ insert: 'listed' }] }] }] }] },
+  ])
+  window.__doc.setText(far, 'Elsewhere')
+  window.__doc.setText(arrow, 'calls')
+  await new Promise((resolve) => setTimeout(resolve, 400))
+
+  const engine = window.__canvas.engine
+  const view = await engine.exportImage({ area: 'view', background: true, title: 'Smoke' })
+  engine.setSelection([box])
+  const selection = await engine.exportImage({ area: 'selection', background: false, title: 'Smoke' })
+
+  const doc = new DOMParser().parseFromString(view.svg, 'image/svg+xml')
+  const texts = Array.from(doc.querySelectorAll('text')).map((node) => node.textContent)
+
+  const { pngSize, rasterizeSvg } = await import('/src/canvas/export/exportScene.ts')
+  const size = pngSize(view.frame, 4)
+  const blob = await rasterizeSvg(view.svg, size.width, size.height)
+  const bitmap = await createImageBitmap(blob)
+
+  // Two draws of the same SVG, the second long after any font could still be loading.
+  // If the first lost the race, it has less text in it than the second.
+  const ink = async () => {
+    const canvas = document.createElement('canvas')
+    canvas.width = bitmap.width
+    canvas.height = bitmap.height
+    const context = canvas.getContext('2d')
+    context.drawImage(bitmap, 0, 0)
+    const data = context.getImageData(0, 0, canvas.width, canvas.height).data
+    let dark = 0
+    for (let i = 0; i < data.length; i += 4) if (data[i + 3] > 200 && data[i] < 90) dark += 1
+    return dark
+  }
+  const first = await ink()
+  const lateUrl = URL.createObjectURL(new Blob([view.svg], { type: 'image/svg+xml' }))
+  const late = new Image()
+  late.src = lateUrl
+  await late.decode()
+  await new Promise((resolve) => setTimeout(resolve, 1500))
+  const canvas = document.createElement('canvas')
+  canvas.width = size.width
+  canvas.height = size.height
+  canvas.getContext('2d').drawImage(late, 0, 0, size.width, size.height)
+  const lateData = canvas.getContext('2d').getImageData(0, 0, size.width, size.height).data
+  let lateDark = 0
+  for (let i = 0; i < lateData.length; i += 4) if (lateData[i + 3] > 200 && lateData[i] < 90) lateDark += 1
+
+  return {
+    parseError: doc.querySelector('parsererror') !== null,
+    texts,
+    faces: (view.svg.match(/@font-face/g) ?? []).length,
+    selectionFrame: selection?.frame ?? null,
+    selectionHasFar: selection?.svg.includes('Elsewhere') ?? true,
+    selectionHasBackground: selection?.svg.includes('<rect x="') && /<\/title><rect/.test(selection.svg),
+    png: { width: bitmap.width, height: bitmap.height, expected: size },
+    first,
+    lateDark,
+  }
+})
+check('the exported SVG is well-formed', !exported.parseError)
+check(
+  'every label is in the SVG as real text, escaped',
+  ['Export <me> &', 'bold', 'listed', 'calls', 'Elsewhere'].every((label) =>
+    exported.texts.some((text) => text.includes(label)),
+  ),
+  JSON.stringify(exported.texts),
+)
+check('the faces the text uses travel inside the file', exported.faces > 0, `faces=${exported.faces}`)
+check(
+  'a selection export frames the selection and leaves the rest out',
+  exported.selectionFrame !== null &&
+    !exported.selectionHasFar &&
+    exported.selectionFrame.x < 100 &&
+    exported.selectionFrame.x + exported.selectionFrame.w > 320 &&
+    exported.selectionFrame.w < 500,
+  JSON.stringify(exported.selectionFrame),
+)
+check('a transparent export has no background', !exported.selectionHasBackground)
+check(
+  'the PNG is the size the dialog promised',
+  exported.png.width === exported.png.expected.width &&
+    exported.png.height === exported.png.expected.height,
+  JSON.stringify(exported.png),
+)
+check(
+  'the PNG waited for its fonts: no text is missing from it',
+  exported.first >= exported.lateDark * 0.98,
+  `first=${exported.first}, settled=${exported.lateDark}`,
+)
+
+// Past one canvas the PNG is drawn in tiles and encoded in script. Decoding a file this
+// size would take a gigabyte, so the check reads its structure instead: the signature,
+// the header's size and checksum, and an inflate of the image data that counts the
+// bytes as they stream past without keeping them.
+const tiledPng = await page.evaluate(async () => {
+  const { pngEstimator, pngSize, rasterizeSvg } = await import('/src/canvas/export/exportScene.ts')
+  const selection = await window.__canvas.engine.exportImage({
+    area: 'selection',
+    background: true,
+    title: 'Smoke',
+  })
+  const size = pngSize(selection.frame, 64)
+  const blob = await rasterizeSvg(selection.svg, size.width, size.height)
+  const estimate = (await pngEstimator(selection.svg, selection.frame))(64)
+  const bytes = new Uint8Array(await blob.arrayBuffer())
+  const view = new DataView(bytes.buffer)
+  const signature = [137, 80, 78, 71, 13, 10, 26, 10].every((value, i) => bytes[i] === value)
+
+  let crcTable = null
+  const crc32 = (data) => {
+    if (crcTable === null) {
+      crcTable = new Uint32Array(256)
+      for (let n = 0; n < 256; n += 1) {
+        let c = n
+        for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
+        crcTable[n] = c >>> 0
+      }
+    }
+    let crc = 0xffffffff
+    for (const byte of data) crc = crcTable[(crc ^ byte) & 0xff] ^ (crc >>> 8)
+    return (crc ^ 0xffffffff) >>> 0
+  }
+
+  const idat = []
+  let offset = 8
+  let header = null
+  let crcOk = true
+  while (offset < bytes.length) {
+    const length = view.getUint32(offset)
+    const type = String.fromCharCode(...bytes.subarray(offset + 4, offset + 8))
+    const data = bytes.subarray(offset + 8, offset + 8 + length)
+    if (crc32(bytes.subarray(offset + 4, offset + 8 + length)) !== view.getUint32(offset + 8 + length)) {
+      crcOk = false
+    }
+    if (type === 'IHDR') header = { width: view.getUint32(offset + 8), height: view.getUint32(offset + 12) }
+    if (type === 'IDAT') idat.push(data)
+    offset += 12 + length
+  }
+
+  const stream = new Blob(idat).stream().pipeThrough(new DecompressionStream('deflate'))
+  const reader = stream.getReader()
+  let inflated = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    inflated += value.length
+  }
+  return { size, header, signature, crcOk, inflated, fileBytes: blob.size, estimate }
+})
+check(
+  'a PNG past one canvas is drawn in tiles at the size asked for',
+  tiledPng.size.width > 16_384 &&
+    tiledPng.header?.width === tiledPng.size.width &&
+    tiledPng.header?.height === tiledPng.size.height,
+  JSON.stringify({ size: tiledPng.size, header: tiledPng.header }),
+)
+check('the tiled PNG is well-formed, every chunk checksummed', tiledPng.signature && tiledPng.crcOk)
+check(
+  'the tiled PNG holds every row of every pixel',
+  tiledPng.inflated === tiledPng.size.height * (tiledPng.size.width * 4 + 1),
+  `inflated=${tiledPng.inflated}`,
+)
+check(
+  'the size estimate is in the right range',
+  tiledPng.estimate > tiledPng.fileBytes / 3 && tiledPng.estimate < tiledPng.fileBytes * 3,
+  `estimate=${tiledPng.estimate}, file=${tiledPng.fileBytes}`,
+)
+
 await browser.close()
 stop()
 

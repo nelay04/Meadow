@@ -120,8 +120,8 @@ export class ArrowPass {
   }
 
   push(arrow: ArrowDraw): void {
-    const points = arrow.points
-    if (points.length < 4) return
+    const geometry = arrowGeometry(arrow)
+    if (geometry === null) return
 
     this.count += 1
 
@@ -138,38 +138,9 @@ export class ArrowPass {
       }
       this.groups.set(key, group)
     }
-
-    // The shaft stops at a solid head's notch, so the stroke's own round cap is hidden
-    // inside the barbs instead of poking out past the tip. An open head is two lines
-    // meeting at the tip *on* the shaft, so it needs no trim: the shaft running all
-    // the way in is what makes the three strokes read as one mark.
-    const endTrim = arrow.endHead === 'triangle' ? headLength(arrow, 'triangle') * HEAD_NOTCH : 0
-    const startTrim = arrow.startHead === 'triangle' ? headLength(arrow, 'triangle') * HEAD_NOTCH : 0
-    const shaft = trimEnds(points, startTrim, endTrim)
-    if (arrow.gap === undefined) group.shafts.push(shaft)
-    else for (const piece of splitAroundBox(shaft, arrow.gap)) group.shafts.push(piece)
-
-    const last = points.length - 2
-    if (arrow.endHead !== 'none') {
-      this.head(
-        group,
-        arrow,
-        points[last],
-        points[last + 1],
-        Math.atan2(points[last + 1] - points[last - 1], points[last] - points[last - 2]),
-        arrow.endHead,
-      )
-    }
-    if (arrow.startHead !== 'none') {
-      this.head(
-        group,
-        arrow,
-        points[0],
-        points[1],
-        Math.atan2(points[1] - points[3], points[0] - points[2]),
-        arrow.startHead,
-      )
-    }
+    group.shafts.push(...geometry.shafts)
+    group.solidHeads.push(...geometry.solidHeads)
+    group.openHeads.push(...geometry.openHeads)
   }
 
   /** Record every group. Two stroke calls and one fill call per style, not per arrow. */
@@ -203,46 +174,95 @@ export class ArrowPass {
     }
   }
 
-  /** `angle` points along the direction of travel, so the head opens backwards from it. */
-  private head(
-    group: StyleGroup,
-    arrow: ArrowDraw,
-    tipX: number,
-    tipY: number,
-    angle: number,
-    kind: ArrowHead,
-  ): void {
-    const size = headLength(arrow, kind)
-    // Along the shaft and across it. Built from the two axes rather than from two
-    // angles off the direction, so the spread and the notch depth are independent and
-    // each reads as the fraction it is named for.
-    const alongX = Math.cos(angle)
-    const alongY = Math.sin(angle)
-    const acrossX = -alongY
-    const acrossY = alongX
-
-    const half = size * (kind === 'open' ? OPEN_HALF_WIDTH : SOLID_HALF_WIDTH)
-    const baseX = tipX - alongX * size
-    const baseY = tipY - alongY * size
-
-    const leftX = baseX + acrossX * half
-    const leftY = baseY + acrossY * half
-    const rightX = baseX - acrossX * half
-    const rightY = baseY - acrossY * half
-
-    if (kind === 'open') {
-      group.openHeads.push([leftX, leftY, tipX, tipY, rightX, rightY])
-      return
-    }
-
-    const notchX = tipX - alongX * size * HEAD_NOTCH
-    const notchY = tipY - alongY * size * HEAD_NOTCH
-    group.solidHeads.push([tipX, tipY, leftX, leftY, notchX, notchY, rightX, rightY])
-  }
-
   destroy(): void {
     this.view.destroy()
   }
+}
+
+/**
+ * One arrow as the paths that draw it: shafts to stroke, open heads to stroke in the
+ * shaft's style, and solid heads to fill. Null for an arrow with nothing to draw.
+ *
+ * Separate from the pass so the image export draws exactly these paths as SVG rather
+ * than a second idea of where an arrow's head goes.
+ */
+export function arrowGeometry(
+  arrow: ArrowDraw,
+): { shafts: number[][]; solidHeads: number[][]; openHeads: number[][] } | null {
+  const points = arrow.points
+  if (points.length < 4) return null
+
+  const out = { shafts: [] as number[][], solidHeads: [] as number[][], openHeads: [] as number[][] }
+
+  // The shaft stops at a solid head's notch, so the stroke's own round cap is hidden
+  // inside the barbs instead of poking out past the tip. An open head is two lines
+  // meeting at the tip *on* the shaft, so it needs no trim: the shaft running all
+  // the way in is what makes the three strokes read as one mark.
+  const endTrim = arrow.endHead === 'triangle' ? headLength(arrow, 'triangle') * HEAD_NOTCH : 0
+  const startTrim = arrow.startHead === 'triangle' ? headLength(arrow, 'triangle') * HEAD_NOTCH : 0
+  const shaft = trimEnds(points, startTrim, endTrim)
+  if (arrow.gap === undefined) out.shafts.push(shaft)
+  else for (const piece of splitAroundBox(shaft, arrow.gap)) out.shafts.push(piece)
+
+  const last = points.length - 2
+  if (arrow.endHead !== 'none') {
+    pushHead(
+      out,
+      arrow,
+      points[last],
+      points[last + 1],
+      Math.atan2(points[last + 1] - points[last - 1], points[last] - points[last - 2]),
+      arrow.endHead,
+    )
+  }
+  if (arrow.startHead !== 'none') {
+    pushHead(
+      out,
+      arrow,
+      points[0],
+      points[1],
+      Math.atan2(points[1] - points[3], points[0] - points[2]),
+      arrow.startHead,
+    )
+  }
+  return out
+}
+
+/** `angle` points along the direction of travel, so the head opens backwards from it. */
+function pushHead(
+  out: { solidHeads: number[][]; openHeads: number[][] },
+  arrow: ArrowDraw,
+  tipX: number,
+  tipY: number,
+  angle: number,
+  kind: ArrowHead,
+): void {
+  const size = headLength(arrow, kind)
+  // Along the shaft and across it. Built from the two axes rather than from two
+  // angles off the direction, so the spread and the notch depth are independent and
+  // each reads as the fraction it is named for.
+  const alongX = Math.cos(angle)
+  const alongY = Math.sin(angle)
+  const acrossX = -alongY
+  const acrossY = alongX
+
+  const half = size * (kind === 'open' ? OPEN_HALF_WIDTH : SOLID_HALF_WIDTH)
+  const baseX = tipX - alongX * size
+  const baseY = tipY - alongY * size
+
+  const leftX = baseX + acrossX * half
+  const leftY = baseY + acrossY * half
+  const rightX = baseX - acrossX * half
+  const rightY = baseY - acrossY * half
+
+  if (kind === 'open') {
+    out.openHeads.push([leftX, leftY, tipX, tipY, rightX, rightY])
+    return
+  }
+
+  const notchX = tipX - alongX * size * HEAD_NOTCH
+  const notchY = tipY - alongY * size * HEAD_NOTCH
+  out.solidHeads.push([tipX, tipY, leftX, leftY, notchX, notchY, rightX, rightY])
 }
 
 /**

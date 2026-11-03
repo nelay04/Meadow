@@ -11,6 +11,63 @@ away getting there.
 
 ---
 
+## [1.30.0] - [04-Nov-2026]
+
+### Added
+- **Export a glade as an image.** "Export as an image…" in a glade's menu saves what is
+  on screen, or the selection, as SVG or PNG. Never the whole board: a glade is
+  unbounded, and the camera is already how somebody says which part they mean. The
+  dialog shows the file itself as its preview, and the background can be left out for
+  dropping the picture onto another page. A lea does not offer it, because its writing
+  sits on ruled paper the export does not draw.
+
+  SVG is the default and the point of the feature. It is vector all the way through, so
+  it stays sharp at any zoom however big the diagram is, which no pixel capture can
+  promise. Shapes, arrows and ink are written from the renderers' own geometry: the
+  outline each SDF branch evaluates, with the stroke centred on the edge and laid over
+  the fill as the shader lays it; `arrowGeometry`, now the function the arrow pass
+  itself draws with; and the ink pass's outlines through `placeInkOutline`. Layers stack
+  as the canvas stacks them, shapes then arrows then ink, with text over all of it.
+
+  Text is real `<text>`, not outlines. A second `TextLayer`, hidden inside the engine's
+  element so it inherits the same cascade, lays out exactly the exported objects at
+  scale 1, and each line is read back off it with its measured position and width, so
+  the file breaks lines where the canvas breaks them. Headings, lists and their markers,
+  quotes, code and every inline mark come across. The faces the text uses are embedded,
+  chosen by family and by `unicode-range`, so an English glade carries two small Comic
+  Neue files and a Bengali label brings the Bengali face and nothing else.
+
+  PNG is made from that SVG at 2x up to 64x, rendered at that resolution rather than
+  scaled up. Up to sixteen thousand pixels a side the browser encodes it; past that it
+  is drawn in tiles and its rows streamed through `CompressionStream` into a PNG
+  written in script, in bands capped at 64 MB, so the full picture never sits in memory.
+  The ceiling is half a billion pixels and 65,535 a side, and the dialog says when it
+  applied and that SVG is the way past it. Before drawing, the image is drawn small
+  until it stops changing: a browser resolves `decode()` on an SVG image before the
+  image's own `@font-face` rules load, and the first PNG came out with its headings and
+  bold and none of its regular text.
+
+  The dialog gives the size of the file before it is made: exact for SVG, and for PNG
+  an estimate from two sample encodes through the same encoder, fitted to a model where
+  flat colour grows with the area and edges grow with the density.
+
+  Measured in Chromium against the canvas harness: 2,302 objects exported to a 440 KB
+  SVG in 0.74 s. A full-screen view at 16x was 19,200 by 10,480 pixels, 2.3 MB, in 5.2 s,
+  and at 32x it reached the ceiling at 30,265 by 16,520, 4.8 MB, in 11.8 s.
+
+### Known limitations
+- The embedded faces are `@font-face` rules, which browsers honour and some design
+  tools ignore. There the text falls back to a local face; `textLength` holds each line
+  to its measured width, so it stays inside its shape rather than running out of it.
+- The PNG size estimate errs high, by 1.2 to 1.4 times in the runs above, since the
+  samples carry more edge for their area than the full file does.
+- A PNG near the ceiling is a valid file that some image viewers refuse to open.
+- The `smoke:canvas` check that the PNG waited for its fonts passed even with the wait
+  removed, because the fonts won the race in that run. It guards the case without
+  proving the fix.
+
+---
+
 ## [1.29.1] - [17-Oct-2026]
 
 ### Reversed

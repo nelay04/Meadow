@@ -6760,6 +6760,96 @@ dialog.modal[open] .modal-card {
   color: var(--faint);
 }
 
+/* --- the image export ------------------------------------------------------------ */
+
+.export-card {
+  width: min(28rem, 100%);
+  /* Never taller than the window: on a short laptop screen the actions stay in reach. */
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+}
+
+/* The file itself, drawn small. A board with no background shows on a checkerboard,
+   which is how every image tool says "this part is see-through". */
+.export-preview {
+  display: grid;
+  place-items: center;
+  height: 9rem;
+  margin-top: 0.9rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.export-preview.transparent {
+  background-color: var(--surface);
+  background-image:
+    linear-gradient(45deg, var(--surface-3) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--surface-3) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--surface-3) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--surface-3) 75%);
+  background-size: 14px 14px;
+  background-position: 0 0, 0 7px, 7px -7px, -7px 0;
+}
+
+.export-preview img {
+  /* Sized to the box and fitted inside it. Max sizes alone leave a grid item at its
+     natural size, which showed a corner of a large export instead of all of it. */
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  object-fit: contain;
+}
+
+.export-preview .share-note {
+  margin: 0;
+  padding: 0 1rem;
+  text-align: center;
+}
+
+.export-modal .segmented {
+  margin-top: 0;
+}
+
+.export-modal .segmented button {
+  font-weight: 500;
+}
+
+/* The radios here say which one is chosen with `aria-checked`, as a radio should; the
+   shared control above styles `aria-pressed`, so the same look is given to both. */
+.export-modal .segmented button[aria-checked='true'] {
+  background: var(--surface);
+  color: var(--fg-strong);
+  box-shadow: var(--shadow-sm);
+}
+
+.export-modal .segmented.export-small {
+  margin-top: 0.6rem;
+  width: max-content;
+}
+
+.export-modal .segmented.export-small button {
+  padding: 0.3rem 0.65rem;
+  font-size: 0.8rem;
+}
+
+/* A setting that is one short choice: its heading and its control on one line. */
+.export-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.export-row h3 {
+  margin: 0;
+}
+
+.export-modal .export-row .segmented.export-small {
+  margin-top: 0;
+}
+
 /* Plain links to each service's own intent URL - no SDK, no script, no pixel. Square
    and equal, because none of these is more recommended than the others. */
 .socials {

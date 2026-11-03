@@ -324,6 +324,21 @@ export class TextLayer {
     }
   }
 
+  /**
+   * Every mounted box that is showing, with its rotation, for the image export.
+   *
+   * The export reads the browser's own layout of the words out of these elements, so
+   * the lines in the file break where they break on the canvas.
+   */
+  shownBoxes(): { id: string; element: HTMLDivElement; rotation: number }[] {
+    const out: { id: string; element: HTMLDivElement; rotation: number }[] = []
+    for (const [id, entry] of this.mounted) {
+      if (entry.box.style.display === 'none') continue
+      out.push({ id, element: entry.box, rotation: entry.rotation })
+    }
+    return out
+  }
+
   /** Mark objects whose text changed. Called from the engine's Y observer path. */
   invalidate(ids: Iterable<string>): void {
     for (const id of ids) this.staleHtml.add(id)

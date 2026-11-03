@@ -50,6 +50,7 @@ import {
   IconCylinder,
   IconDiamond,
   IconDownload,
+  IconImage,
   IconDuplicate,
   IconEye,
   IconGlobe,
@@ -126,6 +127,7 @@ import { BoardOpening } from './BoardOpening'
 import { boardScreen } from './boardScreen'
 import { PasswordGate } from './PasswordGate'
 import { AssistantActivity } from './AssistantActivity'
+import { ExportImageDialog } from './ExportImageDialog'
 import { ShareDialog } from './ShareDialog'
 import {
   PAPER_EVENT,
@@ -642,6 +644,7 @@ export default function BoardPage({ boardId, kindHint, onBack, onSignIn }: Props
    */
   const [waiting, setWaiting] = useState(0)
   const [shareOpen, setShareOpen] = useState(false)
+  const [exportOpen, setExportOpen] = useState(false)
   const [activityOpen, setActivityOpen] = useState(false)
   /*
    * The overflow menu.
@@ -2256,6 +2259,24 @@ export default function BoardPage({ boardId, kindHint, onBack, onSignIn }: Props
                 <span>Export as a file…</span>
               </button>
 
+              {/* A glade only. A lea's writing sits on ruled paper the export does not
+                  draw, and a page of handwriting without its rules is not the page. */}
+              {spec.column === null && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="menu-item"
+                  disabled={canvas.engine === null}
+                  onClick={() => {
+                    setMoreOpen(false)
+                    setExportOpen(true)
+                  }}
+                >
+                  <IconImage size={16} />
+                  <span>Export as an image…</span>
+                </button>
+              )}
+
               {/* Both of these belong to a diary and to nothing else: a glade has no
                   pages to list and no stationery to choose. */}
               {spec.column !== null && (
@@ -3291,6 +3312,15 @@ export default function BoardPage({ boardId, kindHint, onBack, onSignIn }: Props
           boardId={boardId}
           noun={noun}
           onClose={() => setActivityOpen(false)}
+        />
+      )}
+
+      {exportOpen && canvas.engine !== null && (
+        <ExportImageDialog
+          engine={canvas.engine}
+          title={title.trim() || savedTitle.current}
+          selected={canvas.selection.length}
+          onClose={() => setExportOpen(false)}
         />
       )}
 
