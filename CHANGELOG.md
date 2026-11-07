@@ -11,6 +11,26 @@ away getting there.
 
 ---
 
+## [1.30.1] - [08-Nov-2026]
+
+### Fixed
+- **Writing on a glade or lea now counts as editing it.** The board list's "Edited N
+  ago", the Recent view and the modified sort all read `boards.updated_at`, and that
+  column only moved through the ORM's `onupdate`, which fires when the boards row itself
+  changes: a rename, a lock, a settings change. A document edit never touches that row.
+  It goes over the websocket into `board_updates`, so a lea written in that same evening
+  still read "Edited 58 days ago" and never showed under Recent.
+
+  `PostgresYStore.write` now moves the column in the same transaction as the update it
+  appends. It does so at most once a minute: every keystroke is a store write, and the
+  list shows minutes at its finest. Opening a board without writing leaves it alone.
+  Edits made through the MCP server go through the same socket, so they count too.
+
+### Reversed
+- Nothing.
+
+---
+
 ## [1.30.0] - [04-Nov-2026]
 
 ### Added

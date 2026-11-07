@@ -110,3 +110,73 @@ def test_updates_after_compaction_are_kept(client: TestClient, owner: Actor) -> 
     write_object(client, owner, board_id, after={"id": "after"})
 
     assert set(board_objects(client, owner, board_id)) == {"before", "after"}
+
+
+def _age_board(board_id: str, seconds: int) -> None:
+    """Set the board's edit time into the past, as a board nobody has touched would be."""
+
+    async def run() -> None:
+        conn = await asyncpg.connect(_asyncpg_dsn(TEST_DATABASE_URL))
+        try:
+            await conn.execute(
+                "update boards set updated_at = now() - make_interval(secs => $2) "
+                "where id = $1",
+                uuid.UUID(board_id),
+                float(seconds),
+            )
+        finally:
+            await conn.close()
+
+    asyncio.run(run())
+
+
+def _seconds_since_edit(board_id: str) -> float:
+    async def run() -> float:
+        conn = await asyncpg.connect(_asyncpg_dsn(TEST_DATABASE_URL))
+        try:
+            value: float = await conn.fetchval(
+                "select extract(epoch from now() - updated_at)::float8 "
+                "from boards where id = $1",
+                uuid.UUID(board_id),
+            )
+            return value
+        finally:
+            await conn.close()
+
+    return asyncio.run(run())
+
+
+def test_a_document_edit_moves_the_board_edit_time(client: TestClient, owner: Actor) -> None:
+    """Writing to the document is an edit, and the board list must say so.
+
+    The list's "Edited N days ago", the Recent view and the modified sort all read
+    `boards.updated_at`. Before this, only a rename or a settings change moved it, so a
+    lea written in every day still read "Edited 58 days ago".
+    """
+    board_id = owner.create_board()
+    _age_board(board_id, 58 * 86400)
+
+    write_object(client, owner, board_id, alpha={"id": "alpha", "type": "rect"})
+
+    assert _seconds_since_edit(board_id) < 60
+
+
+def test_opening_a_board_without_writing_is_not_an_edit(
+    client: TestClient, owner: Actor
+) -> None:
+    board_id = owner.create_board()
+    _age_board(board_id, 58 * 86400)
+
+    board_objects(client, owner, board_id)
+
+    assert _seconds_since_edit(board_id) > 57 * 86400
+
+
+def test_edit_time_is_written_at_most_once_a_minute(client: TestClient, owner: Actor) -> None:
+    """Every keystroke is a write. Rewriting the boards row on each one would be churn."""
+    board_id = owner.create_board()
+    _age_board(board_id, 30)
+
+    write_object(client, owner, board_id, alpha={"id": "alpha", "type": "rect"})
+
+    assert _seconds_since_edit(board_id) >= 30

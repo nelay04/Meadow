@@ -13,17 +13,22 @@ from logging import Logger, getLogger
 import anyio
 from pycrdt import merge_updates
 from pycrdt.store import BaseYStore
-from sqlalchemy import Integer, cast, delete, func, literal, select
+from sqlalchemy import Integer, cast, delete, func, literal, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db import SessionLocal
-from app.models import BoardSnapshot, BoardUpdate
+from app.models import Board, BoardSnapshot, BoardUpdate
 from app.realtime.search_queue import search_queue
 
 # How many snapshots to retain per board after a compaction run. Each row is full
 # document state, so keeping every one grows faster than the log it replaced. More
 # than one is a hedge against a corrupt write.
 SNAPSHOTS_RETAINED = 3
+
+# How stale `boards.updated_at` may get while someone is writing. Every keystroke is a
+# store write, and rewriting the boards row on each one would be churn on the hottest
+# row in the request path for a value the list shows as "N minutes ago" at best.
+EDIT_TIME_RESOLUTION = text("interval '1 minute'")
 
 # Namespace for the two-int advisory lock form, so compaction's key space cannot
 # collide with any other advisory lock added later. Any int4 works; this is "MEAD".
@@ -77,6 +82,18 @@ class PostgresYStore(BaseYStore):
         with anyio.CancelScope(shield=True):
             async with SessionLocal() as session:
                 session.add(BoardUpdate(board_id=self.board_id, update=data))
+                # A document write is an edit, and the board list's "Edited N ago", the
+                # Recent view and the modified sort all read this column. The ORM's
+                # onupdate only fires when the boards row itself changes, which a
+                # document edit never does, so it has to be moved here.
+                await session.execute(
+                    update(Board)
+                    .where(
+                        Board.id == self.board_id,
+                        Board.updated_at < func.now() - EDIT_TIME_RESOLUTION,
+                    )
+                    .values(updated_at=func.now())
+                )
                 await session.commit()
         # After the commit, so the job can never read the log before this row is in it.
         search_queue.nudge(self.board_id)
