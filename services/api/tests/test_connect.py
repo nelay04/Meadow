@@ -224,6 +224,40 @@ def test_gemini_is_recognised_by_where_its_codes_go(client: TestClient, owner: A
     assert mixed["client_name"] == "Google"
 
 
+def test_a_request_answered_on_geminis_host_is_gemini(client: TestClient, owner: Actor) -> None:
+    """Verified by where this request's code goes, not by the whole registration.
+
+    Gemini's custom connector registers more than one redirect address, so the
+    registration as a whole names no single assistant and the consent page said
+    "Google, unverified". A code only ever reaches the redirect of its own request, so
+    a request answered on Gemini's host is Gemini however many other addresses the
+    client listed. The same request answered elsewhere stays unverified.
+    """
+    gemini = "https://oauth-redirect.googleusercontent.com/callback"
+    client_id = _register(client, client_name="Google", redirect_uris=[gemini, REDIRECT])[
+        "client_id"
+    ]
+
+    verifier, challenge = _pkce()
+    request_id = _request_id(_authorize(client, client_id, challenge, redirect_uri=gemini))
+    details = client.get(f"/api/v1/connect/requests/{request_id}", headers=owner.auth).json()
+    assert details["client_name"] == "Gemini"
+    assert details["client_host"] == "oauth-redirect.googleusercontent.com"
+
+    approved = _approve(client, owner, request_id)
+    code = _query(approved.json()["redirect_url"])["code"]
+    tokens = _exchange(client, client_id, code, verifier, redirect_uri=gemini)
+    assert tokens.status_code == 200, tokens.text
+    names = [token["name"] for token in client.get("/api/v1/tokens", headers=owner.auth).json()]
+    assert names == ["Gemini"]
+
+    _verifier, challenge = _pkce()
+    request_id = _request_id(_authorize(client, client_id, challenge))
+    details = client.get(f"/api/v1/connect/requests/{request_id}", headers=owner.auth).json()
+    assert details["client_name"] == "Google"
+    assert details["client_host"] is None
+
+
 def test_only_a_signed_in_person_can_approve(client: TestClient, owner: Actor) -> None:
     """An access token must not be a way to mint more access tokens."""
     client_id = _register(client)["client_id"]

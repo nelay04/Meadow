@@ -11,6 +11,32 @@ away getting there.
 
 ---
 
+## [1.30.2] - [08-Nov-2026]
+
+### Fixed
+- **Gemini shows as Gemini, verified, on the consent page.** Gemini's custom connector
+  now registers more than one redirect address, so the registration as a whole named
+  no single assistant and the page said "Google wants to use Meadow as you" with the
+  unverified warning, even though the answer went to `oauth-redirect.googleusercontent.com`.
+  A code only ever reaches the redirect address of its own request, so the client is
+  now judged by that: `for_redirect` names a request answered on a known assistant's
+  host as that assistant and verifies it by that host, and the token it mints is
+  labelled the same way on the profile page. A request from the same client answered
+  anywhere else is still unverified, and a client verified by its metadata document is
+  left as it was.
+
+### Changed
+- **The Gemini steps on the connect page follow Gemini's new settings.** Connectors are
+  under Skills and connectors now, added with + Custom, Next and Authorize. The old
+  Spark and Custom apps route is gone.
+
+### Reversed
+- The 1.17.1 rule that a registration mixing Gemini's redirect host with any other address
+  keeps its own name, judged once for the whole registration. It still holds for the
+  stored name; what the consent page and the token show is now decided per request.
+
+---
+
 ## [1.30.1] - [08-Nov-2026]
 
 ### Fixed

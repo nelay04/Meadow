@@ -160,6 +160,31 @@ async def resolve_client(session: AsyncSession, redis: Redis, client_id: str) ->
     )
 
 
+def for_redirect(client: Client, redirect_uri: str) -> Client:
+    """The client as one request shows it, given where that request's code will go.
+
+    A code only ever reaches the redirect address of its own request, so a request
+    answered on a known assistant's host is that assistant even when the registration
+    also lists other addresses, which `resolve_client` cannot assume. Gemini's custom
+    connector registers that way. A client already verified by its own metadata
+    document keeps that.
+    """
+    if client.verified_host is not None:
+        return client
+    known = known_assistant([redirect_uri])
+    if known is None:
+        return client
+    return Client(
+        row=OAuthClient(
+            id=client.row.id,
+            name=known,
+            redirect_uris=client.row.redirect_uris,
+            secret_hash=client.row.secret_hash,
+        ),
+        verified_host=urlsplit(redirect_uri).hostname,
+    )
+
+
 def client_secret_ok(client: OAuthClient, secret: str | None) -> bool:
     """A public client sends no secret; a confidential one must send the right one."""
     if client.secret_hash is None:

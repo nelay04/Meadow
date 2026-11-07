@@ -185,7 +185,8 @@ async def _pending_client(
 async def read_request(
     request_id: str, request: Request, user: CurrentUser, session: Session
 ) -> ConnectRequestOut:
-    pending, client = await _pending_client(request, session, request_id)
+    pending, resolved = await _pending_client(request, session, request_id)
+    client = connect.for_redirect(resolved, pending.redirect_uri)
     return ConnectRequestOut(
         client_name=client.row.name,
         client_host=client.verified_host,
@@ -307,7 +308,9 @@ async def token(request: Request, session: Session) -> JSONResponse:
             >= api_tokens.MAX_LIVE_TOKENS
         ):
             return _error("invalid_grant", "the account has too many live tokens")
-        return _tokens(await connect.connect(session, client, redeemed.approval))
+        assert resolved is not None
+        named = connect.for_redirect(resolved, redeemed.redirect_uri).row
+        return _tokens(await connect.connect(session, named, redeemed.approval))
 
     if grant_type == "refresh_token":
         refreshed = await connect.refresh(
