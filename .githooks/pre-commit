@@ -30,16 +30,16 @@ if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
     GREY="${E}[0;90m"
     BOLD="${E}[1;97m"
     NC="${E}[0m"
-    BADGE_PASS="${E}[1;30;102m PASS ${E}[0m"
-    BADGE_FAIL="${E}[1;97;101m FAIL ${E}[0m"
-    BADGE_SKIP="${E}[1;30;47m SKIP ${E}[0m"
+    BADGE_PASS="${E}[1;92m[PASS]${E}[0m"
+    BADGE_FAIL="${E}[1;91m[FAIL]${E}[0m"
+    BADGE_SKIP="${E}[0;90m[SKIP]${E}[0m"
     HIDE_CURSOR="${E}[?25l"
     SHOW_CURSOR="${E}[?25h"
     CLEAR_LINE="\r${E}[2K"
 else
     INTERACTIVE=0
     RED=''; GREEN=''; BLUE=''; GREY=''; BOLD=''; NC=''
-    BADGE_PASS='PASS'; BADGE_FAIL='FAIL'; BADGE_SKIP='SKIP'
+    BADGE_PASS='[PASS]'; BADGE_FAIL='[FAIL]'; BADGE_SKIP='[SKIP]'
     HIDE_CURSOR=''; SHOW_CURSOR=''; CLEAR_LINE='\r'
 fi
 
@@ -155,10 +155,10 @@ elapsed_since() {
 WORK=$(mktemp -d 2>/dev/null || printf '/tmp/meadow-precommit.%s' "$$")
 mkdir -p "$WORK"
 FAIL_LOG="${WORK}/failures.log"
-STEP_PID=''
+CHECK_PIDS=''
 
 cleanup() {
-    [ -n "$STEP_PID" ] && kill "$STEP_PID" 2>/dev/null
+    for _p in $CHECK_PIDS; do kill "$_p" 2>/dev/null; done
     printf "${SHOW_CURSOR}"
     rm -rf "$WORK"
 }
@@ -172,59 +172,89 @@ banner
 
 if sleep 0.1 2>/dev/null; then TICK='0.12'; else TICK='1'; fi
 FAILED=0
-STEP=0
 
-# ---- One check, buffered, with the wanderer crossing while it runs ----
-run_step() {
-    _label=$1
-    shift
+# ---- Checks run concurrently, and report in a fixed order ----
+# Every check is independent: none writes anything another reads, so they all start
+# at once and the hook takes as long as the slowest one rather than the sum. Output is
+# buffered per check and reported in the order they were started, so a run reads the
+# same however the timings fall.
+CHECKS=''
 
-    STEP=$(( STEP + 1 ))
-    _log="${WORK}/step-${STEP}.log"
-    _started=$(date +%s)
+# Starts one check in the background. Its exit code and end time land beside its log.
+# Usage: start_check <key> <label> <command...>
+start_check() {
+    _s_key=$1
+    printf '%s' "$2" >"${WORK}/${_s_key}.label"
+    shift 2
+    ( "$@" >"${WORK}/${_s_key}.log" 2>&1 </dev/null
+      echo $? >"${WORK}/${_s_key}.status"
+      date +%s >"${WORK}/${_s_key}.end" ) &
+    CHECK_PIDS="$CHECK_PIDS $!"
+    CHECKS="$CHECKS $_s_key"
+}
 
+any_running() {
+    for _p in $CHECK_PIDS; do kill -0 "$_p" 2>/dev/null && return 0; done
+    return 1
+}
+
+# The wanderer crosses once for all of them, with a count of what has finished.
+wait_for_checks() {
+    _total=0
+    for _k in $CHECKS; do [ -f "${WORK}/${_k}.skip" ] || _total=$(( _total + 1 )); done
     if [ "$INTERACTIVE" -eq 1 ]; then
-        "$@" >"$_log" 2>&1 </dev/null &
-        STEP_PID=$!
         printf "${HIDE_CURSOR}"
         _frame=0
-        while kill -0 "$STEP_PID" 2>/dev/null; do
+        while any_running; do
+            _done=0
+            for _k in $CHECKS; do [ -f "${WORK}/${_k}.status" ] && _done=$(( _done + 1 )); done
             printf "${CLEAR_LINE}${BLUE}${T_PIPE}${NC}  ${BLUE}[%s]${NC} ${GREY}%s ... %s${NC}" \
-                "$(wanderer_frame "$_frame")" "$_label" "$(elapsed_since "$_started")"
+                "$(wanderer_frame "$_frame")" \
+                "$(pick "running ${_total} checks in parallel, ${_done} done" "${_done}/${_total} done")" \
+                "$(elapsed_since "$STARTED_AT")"
             _frame=$(( _frame + 1 ))
             sleep "$TICK"
         done
-        wait "$STEP_PID"
-        _status=$?
-        STEP_PID=''
         printf "${CLEAR_LINE}${SHOW_CURSOR}"
-    else
-        "$@" >"$_log" 2>&1 </dev/null
-        _status=$?
     fi
+    wait
+    CHECK_PIDS=''
+}
 
-    _took=$(elapsed_since "$_started")
-
-    if [ "$_status" -eq 0 ]; then
-        item "${BADGE_PASS} ${BOLD}${_label}${NC} ${GREY}in ${_took}${NC}"
-        return 0
-    fi
-
-    item "${BADGE_FAIL} ${BOLD}${_label}${NC} ${GREY}after ${_took}${NC}"
-    FAILED=$(( FAILED + 1 ))
-    {
-        printf '%s\n' "--- ${_label} ---"
-        cat "$_log"
-        printf '\n'
-    } >>"$FAIL_LOG"
-    return 1
+# Prints each check's result row, in start order, and collects the logs of failures.
+report_checks() {
+    for _k in $CHECKS; do
+        _label=$(cat "${WORK}/${_k}.label")
+        if [ -f "${WORK}/${_k}.skip" ]; then
+            item "${BADGE_SKIP} ${BOLD}${_label}${NC} ${GREY}$(cat "${WORK}/${_k}.skip")${NC}"
+            continue
+        fi
+        _status=$(cat "${WORK}/${_k}.status" 2>/dev/null || echo 1)
+        _end=$(cat "${WORK}/${_k}.end" 2>/dev/null || date +%s)
+        _took=$(elapsed_since "$(( $(date +%s) - (_end - STARTED_AT) ))")
+        if [ "$_status" -eq 0 ]; then
+            item "${BADGE_PASS} ${BOLD}${_label}${NC} ${GREY}in ${_took}${NC}"
+        else
+            item "${BADGE_FAIL} ${BOLD}${_label}${NC} ${GREY}after ${_took}${NC}"
+            FAILED=$(( FAILED + 1 ))
+            {
+                printf '%s\n' "--- ${_label} ---"
+                cat "${WORK}/${_k}.log"
+                printf '\n'
+            } >>"$FAIL_LOG"
+        fi
+    done
 }
 
 # A check that had nothing to look at. Reported rather than hidden, because a silent
 # skip and a pass look identical afterwards, and "why did it not catch that" is a
-# worse afternoon than one extra line here.
+# worse afternoon than one extra line here. Queued like a check, so it reports in its
+# place among them rather than ahead of everything still running.
+# Usage: skip_step <key> <label> <reason>
 skip_step() {
-    item "${BADGE_SKIP} ${BOLD}${1}${NC} ${GREY}${2}${NC}"
+    printf '%s' "$2" >"${WORK}/${1}.label"
+    printf '%s' "$3" >"${WORK}/${1}.skip"
+    CHECKS="$CHECKS $1"
 }
 
 # ---- What is being committed decides what runs ----
@@ -286,12 +316,13 @@ if [ "$API" -eq 1 ] && [ ! -x services/api/.venv/bin/ruff ]; then
     exit 1
 fi
 
+STARTED_AT=$(date +%s)
+
 # ---- Repo rules: the non-negotiables, read off the staged lines ----
-run_step "$(pick 'repo rules   : staged lines' 'repo rules')" node scripts/check-staged.mjs
+start_check rules "$(pick 'repo rules   : staged lines' 'repo rules')" node scripts/check-staged.mjs
 
 # ---- Frontend: types, then tests ----
-# Subshells throughout, so a `cd` inside a step cannot leak into the next one. The
-# non-interactive branch of run_step calls these in the current shell.
+# Subshells throughout, so a `cd` inside a check cannot leak, whichever shell runs it.
 web_types() { ( pnpm -r --silent lint ); }
 web_tests() {
     (
@@ -302,10 +333,10 @@ web_tests() {
 }
 
 if [ "$WEB" -eq 1 ]; then
-    run_step "$(pick 'types (web)  : tsc --noEmit, every package' 'types (web)')" web_types
-    run_step "$(pick 'tests (web)  : vitest run' 'tests (web)')" web_tests
+    start_check web_types "$(pick 'types (web)  : tsc --noEmit, every package' 'types (web)')" web_types
+    start_check web_tests "$(pick 'tests (web)  : vitest run' 'tests (web)')" web_tests
 else
-    skip_step "$(pick 'types, tests : web' 'web')" 'nothing staged under apps/web or packages'
+    skip_step web "$(pick 'types, tests : web' 'web')" 'nothing staged under apps/web or packages'
 fi
 
 # ---- API: ruff, then mypy ----
@@ -313,11 +344,14 @@ api_ruff() { ( cd services/api && .venv/bin/ruff check . ); }
 api_mypy() { ( cd services/api && .venv/bin/mypy app/ ); }
 
 if [ "$API" -eq 1 ]; then
-    run_step "$(pick 'lint (api)   : ruff check' 'lint (api)')" api_ruff
-    run_step "$(pick 'types (api)  : mypy strict on app/' 'types (api)')" api_mypy
+    start_check api_ruff "$(pick 'lint (api)   : ruff check' 'lint (api)')" api_ruff
+    start_check api_mypy "$(pick 'types (api)  : mypy strict on app/' 'types (api)')" api_mypy
 else
-    skip_step "$(pick 'ruff, mypy   : api' 'api')" 'nothing staged under services/api'
+    skip_step api "$(pick 'ruff, mypy   : api' 'api')" 'nothing staged under services/api'
 fi
+
+wait_for_checks
+report_checks
 
 # ---- Notes: things worth a word, never a block ----
 # Neither of these is a defect. A hook that blocks on a judgement call teaches people
@@ -325,7 +359,7 @@ fi
 NOTES=0
 note() { NOTES=$(( NOTES + 1 )); item "${GREY}$1${NC}"; }
 
-# The advisory half of the rules check. It runs as its own invocation because run_step
+# The advisory half of the rules check. It runs as its own invocation because a check
 # buffers a passing step's output and throws it away, which is right for a linter and
 # wrong for a remark about a line that is otherwise fine.
 ADVICE=$(node scripts/check-staged.mjs --notes 2>/dev/null)
@@ -357,12 +391,12 @@ fi
 bar
 
 if [ "$FAILED" -eq 0 ]; then
-    end "${BADGE_PASS} $(pick "${GREEN}All checks passed${NC}" "${GREEN}Passed${NC}")"
+    end "${BADGE_PASS} $(pick "${GREEN}All checks passed${NC} ${GREY}in $(elapsed_since "$STARTED_AT")${NC}" "${GREEN}Passed${NC} ${GREY}in $(elapsed_since "$STARTED_AT")${NC}")"
     printf "\n${GREEN}%s${NC}\n" "$(pick 'Pre-commit checks passed. Proceeding with commit.' 'Checks passed. Committing.')"
     exit 0
 fi
 
-end "${BADGE_FAIL} $(pick "${RED}${FAILED} check(s) failed${NC}" "${RED}${FAILED} failed${NC}")"
+end "${BADGE_FAIL} $(pick "${RED}${FAILED} check(s) failed${NC} ${GREY}after $(elapsed_since "$STARTED_AT")${NC}" "${RED}${FAILED} failed${NC}")"
 printf '\n'
 rule
 cat "$FAIL_LOG"

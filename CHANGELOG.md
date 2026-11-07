@@ -11,6 +11,26 @@ away getting there.
 
 ---
 
+## [1.30.3] - [08-Nov-2026]
+
+### Changed
+- **The pre-commit hook runs its checks concurrently.** The repo rules, tsc, vitest,
+  ruff and mypy are independent, so they all start at once and report in a fixed order
+  when the last one finishes, with one wanderer and a count of what is done while they
+  run. Skipped checks report in their place among them rather than ahead of everything.
+  On a commit touching both the web app and the API it went from 28 s to 25 s on a
+  6-core WSL machine. The floor is tsc at about 15 s alone; it stretches when vitest's
+  workers compete with it for the same cores and memory.
+- **Its badges are bold coloured text, `[PASS]`, `[FAIL]` and `[SKIP]`,** in place of
+  filled blocks, which read heavily on a dark terminal. Both closing lines now give the
+  total time.
+
+### Reversed
+- One check at a time, each with its own wanderer. It made the order easy to follow and
+  cost the sum of every check's time.
+
+---
+
 ## [1.30.2] - [08-Nov-2026]
 
 ### Fixed
